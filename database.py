@@ -1800,6 +1800,9 @@ class PostgresDatabase:
             else:
                 winner_name = "Tied"
 
+        refs_list = list(refs) if isinstance(refs, (list, tuple)) else []
+        refs_sql = "{" + ",".join([f'"{r}"' for r in refs_list]) + "}"
+
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -1814,7 +1817,7 @@ class PostgresDatabase:
                     ) VALUES (
                         %s, %s, %s, %s, %s,
                         %s, %s, %s, %s,
-                        %s, %s, %s,
+                        %s, %s, %s::text[],
                         %s, %s, %s,
                         %s, %s, %s, %s,
                         %s, %s::jsonb, NOW()
@@ -1846,7 +1849,7 @@ class PostgresDatabase:
                         p2_name, p2_faction, p2_detachment, p2_score,
                         str(uid_p1) if uid_p1 else None,
                         str(uid_p2) if uid_p2 else None,
-                        list(refs) if isinstance(refs, (list, tuple)) else [],
+                        refs_sql,
                         primary_mission, deployment, mission_rule,
                         current_round, started, is_finished, winner_name,
                         version, json.dumps(state)
@@ -1854,7 +1857,7 @@ class PostgresDatabase:
                 conn.commit()
             return True
         except Exception as err:
-            logger.error(f"Error persisting tracker game {match_id} to DB: {err}")
+            logger.error(f"Error persisting tracker game {match_id} to DB: {err}", exc_info=True)
             return False
 
     def get_tracker_game(self, match_id: str) -> Optional[Dict[str, Any]]:

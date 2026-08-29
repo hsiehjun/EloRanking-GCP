@@ -589,6 +589,29 @@ if FASTAPI_AVAILABLE:
             logger.error(f"Error fetching tracker history: {err}")
             return {"success": False, "history": []}
 
+    @app.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
+    async def api_tracker_debug_test_save():
+        db = get_database()
+        test_id = f"WH40K-TEST-{secrets.token_hex(2).upper()}"
+        test_state = {
+            "id": "g-test",
+            "match_id": test_id,
+            "game": {"p1Name": "Tester 1", "p2Name": "Tester 2"},
+            "p1": {"score": 0},
+            "p2": {"score": 0},
+            "round": 1
+        }
+        res = db.save_tracker_game(test_id, test_state, version=1, user_id_p1="test_u1")
+        loaded = db.get_tracker_game(test_id)
+        history = db.get_tracker_history(limit=5)
+        return {
+            "test_match_id": test_id,
+            "saved_success": res,
+            "loaded_from_db": loaded,
+            "recent_history_count": len(history),
+            "recent_history": history
+        }
+
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
     async def api_tracker_stream(match_id: str, client_id: str = "anon"):
         match_id = normalize_tracker_match_id(match_id)
