@@ -838,12 +838,12 @@ class PostgresDatabase:
 
                 # 1. Count distinct teams
                 count_sql = f"""
-                SELECT COUNT(DISTINCT TRIM(team)) as total_count
+                SELECT TRIM(team) as team_name
                 FROM event_participants ep
                 WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
                 {where_query}
                 GROUP BY TRIM(team)
-                HAVING COUNT(DISTINCT player_id) >= %s;
+                HAVING COUNT(DISTINCT player_id) >= %s
                 """
                 count_params = list(params) + [min_members]
                 cursor.execute(f"SELECT COUNT(*) as total_count FROM ({count_sql}) sub;", count_params)
