@@ -250,7 +250,12 @@ class PostgresDatabase:
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;",
                     "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
                     "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
-                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;"
+                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;",
+                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p1 VARCHAR(64);",
+                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p2 VARCHAR(64);",
+                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
+                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
+                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';"
                 ]:
                     try:
                         cursor.execute(migration)
@@ -1704,8 +1709,16 @@ class PostgresDatabase:
                     "matchups": matchups
                 }
 
-    def save_tracker_game(self, match_id: str, state: Dict[str, Any], version: int = 1) -> bool:
-        """Persists or updates a live multiplayer tracker game in PostgreSQL."""
+    def save_tracker_game(
+        self,
+        match_id: str,
+        state: Dict[str, Any],
+        version: int = 1,
+        user_id_p1: Optional[str] = None,
+        user_id_p2: Optional[str] = None,
+        referee_ids: Optional[List[str]] = None
+    ) -> bool:
+        """Persists or updates a live multiplayer tracker game in PostgreSQL with user ownership and roles."""
         if not match_id or not state:
             return False
         
@@ -1721,6 +1734,10 @@ class PostgresDatabase:
         p2_faction = game_data.get("p2Faction") or state.get("p2Faction") or ""
         p2_dets = game_data.get("p2Detachments") or []
         p2_detachment = (p2_dets[0] if isinstance(p2_dets, list) and p2_dets else str(p2_dets)) or state.get("p2Detachment") or ""
+        
+        uid_p1 = user_id_p1 or state.get("user_id_p1") or game_data.get("user_id_p1")
+        uid_p2 = user_id_p2 or state.get("user_id_p2") or game_data.get("user_id_p2")
+        refs = referee_ids if referee_ids is not None else state.get("referee_ids", [])
         
         primary_mission = game_data.get("primary") or game_data.get("p1Primary") or state.get("primaryMission") or "Take & Hold"
         deployment = game_data.get("deployment") or game_data.get("terrainLayout") or state.get("deployment") or "Search & Destroy"
@@ -1762,12 +1779,14 @@ class PostgresDatabase:
                 INSERT INTO tracker_games (
                     match_id, p1_name, p1_faction, p1_detachment, p1_score,
                     p2_name, p2_faction, p2_detachment, p2_score,
+                    user_id_p1, user_id_p2, referee_ids,
                     primary_mission, deployment, mission_rule,
                     current_round, started, is_finished, winner_name,
                     version, state_json, updated_at
                 ) VALUES (
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s,
+                    %s, %s, %s,
                     %s, %s, %s,
                     %s, %s, %s, %s,
                     %s, %s, NOW()
@@ -1781,6 +1800,9 @@ class PostgresDatabase:
                     p2_faction = EXCLUDED.p2_faction,
                     p2_detachment = EXCLUDED.p2_detachment,
                     p2_score = EXCLUDED.p2_score,
+                    user_id_p1 = COALESCE(EXCLUDED.user_id_p1, tracker_games.user_id_p1),
+                    user_id_p2 = COALESCE(EXCLUDED.user_id_p2, tracker_games.user_id_p2),
+                    referee_ids = COALESCE(EXCLUDED.referee_ids, tracker_games.referee_ids),
                     primary_mission = EXCLUDED.primary_mission,
                     deployment = EXCLUDED.deployment,
                     mission_rule = EXCLUDED.mission_rule,
@@ -1794,6 +1816,7 @@ class PostgresDatabase:
                 """, (
                     match_id, p1_name, p1_faction, p1_detachment, p1_score,
                     p2_name, p2_faction, p2_detachment, p2_score,
+                    uid_p1, uid_p2, refs,
                     primary_mission, deployment, mission_rule,
                     current_round, started, is_finished, winner_name,
                     version, json.dumps(state)
@@ -1824,33 +1847,37 @@ class PostgresDatabase:
                     return d
                 return None
 
-    def get_tracker_history(self, limit: int = 50, search: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns recent persistent tracker games."""
+    def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns recent persistent tracker games, optionally filtered by player user_id."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                query = """
+                SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                       p2_name, p2_faction, p2_detachment, p2_score,
+                       user_id_p1, user_id_p2,
+                       primary_mission, deployment, mission_rule,
+                       current_round, started, is_finished, winner_name,
+                       version, created_at, updated_at
+                FROM tracker_games
+                """
+                conditions = []
+                params = []
+                
+                if user_id:
+                    conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
+                    params.extend([user_id, user_id])
+                    
                 if search:
-                    cursor.execute("""
-                    SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
-                           p2_name, p2_faction, p2_detachment, p2_score,
-                           primary_mission, deployment, mission_rule,
-                           current_round, started, is_finished, winner_name,
-                           version, created_at, updated_at
-                    FROM tracker_games
-                    WHERE match_id ILIKE %s OR p1_name ILIKE %s OR p2_name ILIKE %s
-                    ORDER BY updated_at DESC
-                    LIMIT %s;
-                    """, (f"%{search}%", f"%{search}%", f"%{search}%", limit))
-                else:
-                    cursor.execute("""
-                    SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
-                           p2_name, p2_faction, p2_detachment, p2_score,
-                           primary_mission, deployment, mission_rule,
-                           current_round, started, is_finished, winner_name,
-                           version, created_at, updated_at
-                    FROM tracker_games
-                    ORDER BY updated_at DESC
-                    LIMIT %s;
-                    """, (limit,))
+                    conditions.append("(match_id ILIKE %s OR p1_name ILIKE %s OR p2_name ILIKE %s)")
+                    params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+                    
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                    
+                query += " ORDER BY updated_at DESC LIMIT %s;"
+                params.append(limit)
+                
+                cursor.execute(query, tuple(params))
                 rows = cursor.fetchall()
                 res = []
                 for r in rows:

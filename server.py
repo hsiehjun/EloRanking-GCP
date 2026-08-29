@@ -4,6 +4,7 @@ import logging
 import os
 import math
 import json
+import secrets
 import asyncio
 import urllib.request
 import urllib.parse
@@ -217,63 +218,256 @@ if FASTAPI_AVAILABLE:
     TRACKER_ROOMS: Dict[str, Dict[str, Any]] = {}
     TRACKER_LISTENERS: Dict[str, List[asyncio.Queue]] = {}
 
+    def generate_unique_match_id(db) -> str:
+        """Generates a cryptographically collision-free random match ID."""
+        for _ in range(20):
+            token = secrets.token_hex(4).upper()
+            match_id = f"WH40K-{token[:4]}-{token[4:]}"
+            if match_id not in TRACKER_ROOMS and not db.get_tracker_game(match_id):
+                return match_id
+        return f"WH40K-{secrets.token_hex(6).upper()}"
+
+    class TrackerCreatePayload(BaseModel):
+        token: Optional[str] = None
+        p1_name: Optional[str] = None
+
+    class TrackerJoinPayload(BaseModel):
+        token: Optional[str] = None
+
     class TrackerStatePayload(BaseModel):
         match_id: str
         client_id: Optional[str] = "anon"
+        token: Optional[str] = None
         role: Optional[str] = "editor"
         version: int = 1
         state: Dict[str, Any]
 
-    @app.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state")
-    async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload):
+    @app.post("/api/tracker/room/create", summary="Create a new collision-free multiplayer match room with host player")
+    async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        
+        auth_header = request.headers.get("Authorization", "")
+        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        
+        match_id = generate_unique_match_id(db)
+        user_id_p1 = user["id"] if user else None
+        p1_name = (user.get("display_name") if user else None) or (payload.p1_name if payload else None) or "Player 1"
+        
+        initial_state = {
+            "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
+            "match_id": match_id,
+            "user_id_p1": user_id_p1,
+            "user_id_p2": None,
+            "game": {
+                "p1Name": p1_name,
+                "p2Name": "Player 2",
+                "p1Faction": None,
+                "p2Faction": None,
+                "p1Detachments": [],
+                "p2Detachments": [],
+                "p1Disposition": None,
+                "p2Disposition": None,
+                "p1Primary": None,
+                "p2Primary": None,
+                "p1Role": None,
+                "p2Role": None,
+                "p1MissionType": None,
+                "p2MissionType": None,
+                "rollOffWinner": None,
+                "firstTurn": None,
+                "deployment": None,
+                "terrainLayout": None
+            },
+            "p1": {"score": 0, "rounds": [], "battleReady": True},
+            "p2": {"score": 0, "rounds": [], "battleReady": True},
+            "round": 1,
+            "started": False
+        }
+        
+        TRACKER_ROOMS[match_id] = {
+            "match_id": match_id,
+            "user_id_p1": user_id_p1,
+            "user_id_p2": None,
+            "referee_ids": [],
+            "version": 1,
+            "state": initial_state,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Persist room creation to DB
+        try:
+            db.save_tracker_game(
+                match_id=match_id,
+                state=initial_state,
+                version=1,
+                user_id_p1=user_id_p1
+            )
+        except Exception as err:
+            logger.debug(f"DB save on create notice: {err}")
+            
+        return {
+            "success": True,
+            "match_id": match_id,
+            "role": "player1",
+            "user_id_p1": user_id_p1,
+            "p1_name": p1_name,
+            "state": initial_state
+        }
+
+    @app.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
+    async def api_tracker_join_room(match_id: str, request: Request, payload: Optional[TrackerJoinPayload] = None):
         match_id = match_id.upper()
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        
+        auth_header = request.headers.get("Authorization", "")
+        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+        user_name = user.get("display_name") if user else None
+        
         if match_id not in TRACKER_ROOMS:
-            TRACKER_ROOMS[match_id] = {
-                "match_id": match_id,
-                "version": 0,
-                "state": {},
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
+            saved = db.get_tracker_game(match_id)
+            if saved and saved.get("state"):
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "user_id_p1": saved.get("user_id_p1"),
+                    "user_id_p2": saved.get("user_id_p2"),
+                    "referee_ids": saved.get("referee_ids", []),
+                    "version": saved.get("version", 1),
+                    "state": saved["state"],
+                    "updated_at": saved.get("updated_at")
+                }
+            else:
+                raise HTTPException(status_code=404, detail="Match room not found")
+                
+        room = TRACKER_ROOMS[match_id]
+        st = room.get("state", {})
+        game = st.get("game", {})
+        
+        role = "spectator"
+        if user_id:
+            if room.get("user_id_p1") == user_id:
+                role = "player1"
+            elif room.get("user_id_p2") == user_id:
+                role = "player2"
+            elif user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to"):
+                role = "referee"
+            elif not room.get("user_id_p2") and room.get("user_id_p1") != user_id:
+                # User claims Player 2 slot!
+                room["user_id_p2"] = user_id
+                st["user_id_p2"] = user_id
+                if user_name:
+                    game["p2Name"] = user_name
+                role = "player2"
+                room["version"] += 1
+                
+                # Persist updated P2 assignment to DB
+                try:
+                    db.save_tracker_game(
+                        match_id=match_id,
+                        state=st,
+                        version=room["version"],
+                        user_id_p1=room.get("user_id_p1"),
+                        user_id_p2=user_id
+                    )
+                except Exception:
+                    pass
+                
+                # Broadcast update to connected opponents
+                listeners = TRACKER_LISTENERS.get(match_id, [])
+                msg = {
+                    "type": "state_update",
+                    "sender": "server",
+                    "version": room["version"],
+                    "state": st
+                }
+                for q in listeners:
+                    await q.put(msg)
+        else:
+            role = "spectator"
+            
+        return {
+            "success": True,
+            "match_id": match_id,
+            "role": role,
+            "user_id": user_id,
+            "user_name": user_name,
+            "user_id_p1": room.get("user_id_p1"),
+            "user_id_p2": room.get("user_id_p2"),
+            "state": st
+        }
+
+    @app.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")
+    async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
+        match_id = match_id.upper()
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        
+        auth_header = request.headers.get("Authorization", "")
+        session_token = payload.token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+        
+        if match_id not in TRACKER_ROOMS:
+            saved = db.get_tracker_game(match_id)
+            if saved and saved.get("state"):
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "user_id_p1": saved.get("user_id_p1"),
+                    "user_id_p2": saved.get("user_id_p2"),
+                    "referee_ids": saved.get("referee_ids", []),
+                    "version": saved.get("version", 1),
+                    "state": saved["state"],
+                    "updated_at": saved.get("updated_at")
+                }
+            else:
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "user_id_p1": user_id,
+                    "user_id_p2": None,
+                    "referee_ids": [],
+                    "version": 0,
+                    "state": {},
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
         
         room = TRACKER_ROOMS[match_id]
+        
+        # Permission Verification:
+        # If room has owners, only P1, P2, and referees/admins can submit updates
+        if room.get("user_id_p1") or room.get("user_id_p2"):
+            is_p1 = (user_id and room.get("user_id_p1") == user_id)
+            is_p2 = (user_id and room.get("user_id_p2") == user_id)
+            is_ref = (user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to")))
+            
+            if not (is_p1 or is_p2 or is_ref or payload.role in ("player1", "player2", "referee", "editor")):
+                raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify match state")
+        
         room["state"] = payload.state
         room["version"] = payload.version
         room["updated_at"] = datetime.now(timezone.utc).isoformat()
+        
+        # If user_id_p1 or user_id_p2 in state, retain them
+        if payload.state.get("user_id_p1"):
+            room["user_id_p1"] = payload.state["user_id_p1"]
+        if payload.state.get("user_id_p2"):
+            room["user_id_p2"] = payload.state["user_id_p2"]
 
         # 1. Persistent Storage in PostgreSQL Database
         try:
-            db = get_database()
-            db.save_tracker_game(match_id=match_id, state=payload.state, version=payload.version)
+            db.save_tracker_game(
+                match_id=match_id,
+                state=payload.state,
+                version=payload.version,
+                user_id_p1=room.get("user_id_p1"),
+                user_id_p2=room.get("user_id_p2")
+            )
         except Exception as db_err:
             logger.debug(f"Tracker DB save notice: {db_err}")
-
-        # 2. Optional Supabase persistence if configured in environment
-        supabase_url = os.environ.get("SUPABASE_URL")
-        supabase_key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        if supabase_url and supabase_key:
-            try:
-                import urllib.request
-                import json
-                sb_endpoint = f"{supabase_url.rstrip('/')}/rest/v1/tracker_rooms"
-                sb_req = urllib.request.Request(
-                    sb_endpoint,
-                    data=json.dumps({
-                        "match_id": match_id,
-                        "version": payload.version,
-                        "state": payload.state,
-                        "updated_at": room["updated_at"]
-                    }).encode("utf-8"),
-                    headers={
-                        "apikey": supabase_key,
-                        "Authorization": f"Bearer {supabase_key}",
-                        "Content-Type": "application/json",
-                        "Prefer": "resolution=merge-duplicates"
-                    },
-                    method="POST"
-                )
-                urllib.request.urlopen(sb_req, timeout=3)
-            except Exception as sb_err:
-                logger.debug(f"Supabase sync notice: {sb_err}")
 
         # Broadcast to all connected SSE clients in this room
         listeners = TRACKER_LISTENERS.get(match_id, [])
@@ -301,6 +495,9 @@ if FASTAPI_AVAILABLE:
             if saved and saved.get("state"):
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
+                    "user_id_p1": saved.get("user_id_p1"),
+                    "user_id_p2": saved.get("user_id_p2"),
+                    "referee_ids": saved.get("referee_ids", []),
                     "version": saved.get("version", 1),
                     "state": saved["state"],
                     "updated_at": saved.get("updated_at")
@@ -312,10 +509,17 @@ if FASTAPI_AVAILABLE:
         return {"match_id": match_id, "version": 0, "state": {}}
 
     @app.get("/api/tracker/history", summary="Get persistent history of tracker games")
-    async def api_tracker_history(limit: int = 50, search: Optional[str] = None):
+    async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None)):
         try:
             db = get_database()
-            history = db.get_tracker_history(limit=limit, search=search)
+            auth_mgr = get_auth_manager()
+            
+            auth_header = request.headers.get("Authorization", "")
+            session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+            user_id = user["id"] if user else None
+            
+            history = db.get_tracker_history(limit=limit, search=search, user_id=user_id)
             return {"success": True, "history": history}
         except Exception as err:
             logger.error(f"Error fetching tracker history: {err}")
