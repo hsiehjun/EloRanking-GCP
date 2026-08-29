@@ -448,3 +448,168 @@ function renderHubTrajectory(history) {
     svg.appendChild(circle);
   });
 }
+
+
+/* ==========================================================================
+   HUB TOURNAMENT RECOMMENDATIONS & SEARCH CONTROLLERS
+   ========================================================================== */
+
+let hubEventsSearchTimeout = null;
+
+function switchHubTourneyTab(tabName) {
+  const btnReg = document.getElementById('hub-btn-tab-registered');
+  const btnRec = document.getElementById('hub-btn-tab-recommended');
+  const btnSrch = document.getElementById('hub-btn-tab-search');
+  const viewReg = document.getElementById('hub-tourney-view-registered');
+  const viewRec = document.getElementById('hub-tourney-view-recommended');
+  const viewSrch = document.getElementById('hub-tourney-view-search');
+  const countBadge = document.getElementById('hub-tourney-tab-count');
+
+  if (!btnReg || !btnRec || !btnSrch || !viewReg || !viewRec || !viewSrch) return;
+
+  btnReg.classList.remove('active');
+  btnRec.classList.remove('active');
+  btnSrch.classList.remove('active');
+  viewReg.style.display = 'none';
+  viewRec.style.display = 'none';
+  viewSrch.style.display = 'none';
+
+  if (tabName === 'registered') {
+    btnReg.classList.add('active');
+    viewReg.style.display = 'block';
+    if (countBadge && myHubData && myHubData.upcoming_events) {
+      countBadge.textContent = `${myHubData.upcoming_events.length} registered`;
+    }
+  } else if (tabName === 'recommended') {
+    btnRec.classList.add('active');
+    viewRec.style.display = 'block';
+    if (countBadge) countBadge.textContent = '📍 Nearby Events';
+    loadHubRecommendedEvents();
+  } else if (tabName === 'search') {
+    btnSrch.classList.add('active');
+    viewSrch.style.display = 'block';
+    if (countBadge) countBadge.textContent = '🔍 Live Discovery';
+    executeHubEventsSearch();
+  }
+}
+
+async function loadHubRecommendedEvents() {
+  const container = document.getElementById('hub-recommended-list');
+  const stateSelect = document.getElementById('hub-rec-state-select');
+  const label = document.getElementById('hub-rec-location-label');
+  if (!container) return;
+
+  container.innerHTML = '<div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>';
+
+  const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
+  const selectedState = stateSelect ? stateSelect.value : '';
+
+  try {
+    const data = await window.api.getRecommendedEvents(playerId, '', selectedState, 20);
+    const events = data.events || [];
+    
+    if (label) {
+      if (data.detected_state) {
+        label.innerHTML = `📍 Detected Home: <b>${escapeHtml(data.detected_state)}${data.detected_city ? ', ' + escapeHtml(data.detected_city) : ''}</b>`;
+        if (stateSelect && !stateSelect.value) {
+          stateSelect.value = data.detected_state;
+        }
+      } else if (selectedState) {
+        label.innerHTML = `📍 Filtered by: <b>${escapeHtml(selectedState)}</b>`;
+      } else {
+        label.innerHTML = `📍 Featured Upcoming Tournaments`;
+      }
+    }
+
+    if (events.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 1.5rem 0; text-align: center; color: var(--text-muted); font-size: 0.82rem;">
+          <div>No upcoming events found for this region.</div>
+          <div style="margin-top: 0.35rem; font-size: 0.78rem;">Try selecting "All States / Global" or searching in the Search tab!</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = events.map(ev => renderHubEventCard(ev)).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--loss); font-size:0.8rem; padding:1rem;">Error loading recommendations: ${err.message}</div>`;
+  }
+}
+
+function debounceHubEventsSearch() {
+  clearTimeout(hubEventsSearchTimeout);
+  hubEventsSearchTimeout = setTimeout(() => {
+    executeHubEventsSearch();
+  }, 300);
+}
+
+async function executeHubEventsSearch() {
+  const container = document.getElementById('hub-search-results-list');
+  const input = document.getElementById('hub-events-search-input');
+  const stateSelect = document.getElementById('hub-search-state-filter');
+  if (!container) return;
+
+  const query = input ? input.value.trim() : '';
+  const state = stateSelect ? stateSelect.value : '';
+
+  container.innerHTML = '<div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>';
+
+  try {
+    const data = await window.api.getRecommendedEvents('', query, state, 25);
+    const events = data.events || [];
+
+    if (events.length === 0) {
+      container.innerHTML = `
+        <div style="padding: 1.5rem 0; text-align: center; color: var(--text-muted); font-size: 0.82rem;">
+          <div>No tournaments matched "${escapeHtml(query || state)}".</div>
+          <div style="margin-top: 0.35rem; font-size: 0.78rem;">Try searching with a broader keyword or different state.</div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = events.map(ev => renderHubEventCard(ev)).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="color:var(--loss); font-size:0.8rem; padding:1rem;">Search failed: ${err.message}</div>`;
+  }
+}
+
+function renderHubEventCard(ev) {
+  const evDate = ev.event_date ? ev.event_date.substring(0, 10) : 'TBD';
+  const location = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Global';
+  const tierBadge = ev.tier_badge || 'tier-B';
+  const tierName = ev.tier || 'Tournament';
+  const timeLabel = ev.time_label || 'Upcoming';
+  const isNearby = ev.is_nearby;
+
+  return `
+    <div class="hub-rec-card" onclick="openEventModal('${ev.id}')">
+      <div style="flex: 1; min-width: 0; padding-right: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.2rem;">
+          <b style="font-size: 0.88rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ev.name)}</b>
+          ${isNearby ? '<span class="hub-rec-badge-nearby">📍 Nearby</span>' : ''}
+          <span class="tier-badge ${tierBadge}" style="font-size: 0.68rem; padding: 0.1rem 0.45rem;">${tierName}</span>
+        </div>
+        <div style="font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span>📅 ${evDate} <b style="color:var(--accent);">(${timeLabel})</b></span>
+          <span>•</span>
+          <span>📍 ${escapeHtml(location)}</span>
+        </div>
+      </div>
+      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+        <span class="badge" style="font-size: 0.72rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+          👥 ${ev.total_players || 0} Enrolled
+        </span>
+        <a href="https://www.bestcoastpairings.com/event/${ev.id}" target="_blank" onclick="event.stopPropagation()" style="font-size: 0.72rem; color: var(--accent); text-decoration: underline;">
+          BCP Link ↗
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+window.switchHubTourneyTab = switchHubTourneyTab;
+window.loadHubRecommendedEvents = loadHubRecommendedEvents;
+window.debounceHubEventsSearch = debounceHubEventsSearch;
+window.executeHubEventsSearch = executeHubEventsSearch;
