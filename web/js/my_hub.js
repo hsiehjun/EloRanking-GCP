@@ -166,7 +166,6 @@ function renderMyHub(data) {
       <div class="hub-tournaments-nav" style="margin-bottom: 1rem;">
         <button id="hub-btn-tab-registered" class="hub-tourney-tab-btn active" onclick="switchHubTourneyTab('registered')">⚔️ Registered (${upcoming.length})</button>
         <button id="hub-btn-tab-recommended" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('recommended')">🎯 Recommended Near Me</button>
-        <button id="hub-btn-tab-search" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('search')">🔍 Search Upcoming Tournaments</button>
       </div>
 
       <!-- Tab 1: Registered Tournaments -->
@@ -208,6 +207,7 @@ function renderMyHub(data) {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; font-size: 0.82rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.75rem;">
           <span id="hub-rec-location-label" style="font-weight: 600;">📍 Recommendations based on your region</span>
           <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <input type="text" id="hub-rec-search-input" class="hub-search-input" style="width: 180px; padding: 0.35rem 0.65rem; font-size: 0.78rem;" placeholder="Search keyword..." oninput="debounceHubEventsSearch()">
             <div style="display: flex; align-items: center; gap: 0.35rem;">
               <span style="font-size: 0.78rem;">Radius:</span>
               <select id="hub-rec-radius-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
@@ -237,29 +237,6 @@ function renderMyHub(data) {
         </div>
         <div id="hub-recommended-list" class="hub-events-grid">
           <div class="empty-state" style="padding: 2rem 0; grid-column: 1 / -1;"><div class="spinner"></div></div>
-        </div>
-      </div>
-
-      <!-- Tab 3: Search Upcoming Events -->
-      <div id="hub-tourney-view-search" style="display: none;">
-        <div class="hub-search-bar" style="margin-bottom: 1rem;">
-          <input type="text" id="hub-events-search-input" class="hub-search-input" placeholder="Search tournaments by name, city, state, or venue..." oninput="debounceHubEventsSearch()">
-          <select id="hub-search-state-filter" class="hub-state-select" onchange="executeHubEventsSearch()">
-            <option value="">All States</option>
-            <option value="CA">CA</option>
-            <option value="TX">TX</option>
-            <option value="FL">FL</option>
-            <option value="NY">NY</option>
-            <option value="WA">WA</option>
-            <option value="IL">IL</option>
-            <option value="OH">OH</option>
-            <option value="PA">PA</option>
-            <option value="NC">NC</option>
-            <option value="UK">UK</option>
-          </select>
-        </div>
-        <div id="hub-search-results-list" class="hub-events-grid">
-          <div style="padding: 2rem 0; text-align: center; color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1;">Type in the search bar above to discover upcoming tournaments.</div>
         </div>
       </div>
 
@@ -488,20 +465,16 @@ let hubEventsSearchTimeout = null;
 function switchHubTourneyTab(tabName) {
   const btnReg = document.getElementById('hub-btn-tab-registered');
   const btnRec = document.getElementById('hub-btn-tab-recommended');
-  const btnSrch = document.getElementById('hub-btn-tab-search');
   const viewReg = document.getElementById('hub-tourney-view-registered');
   const viewRec = document.getElementById('hub-tourney-view-recommended');
-  const viewSrch = document.getElementById('hub-tourney-view-search');
   const countBadge = document.getElementById('hub-tourney-tab-count');
 
-  if (!btnReg || !btnRec || !btnSrch || !viewReg || !viewRec || !viewSrch) return;
+  if (!btnReg || !btnRec || !viewReg || !viewRec) return;
 
   btnReg.classList.remove('active');
   btnRec.classList.remove('active');
-  btnSrch.classList.remove('active');
   viewReg.style.display = 'none';
   viewRec.style.display = 'none';
-  viewSrch.style.display = 'none';
 
   if (tabName === 'registered') {
     btnReg.classList.add('active');
@@ -514,11 +487,6 @@ function switchHubTourneyTab(tabName) {
     viewRec.style.display = 'block';
     if (countBadge) countBadge.textContent = '📍 Nearby Events';
     loadHubRecommendedEvents();
-  } else if (tabName === 'search') {
-    btnSrch.classList.add('active');
-    viewSrch.style.display = 'block';
-    if (countBadge) countBadge.textContent = '🔍 Live Discovery';
-    executeHubEventsSearch();
   }
 }
 
@@ -579,6 +547,8 @@ async function loadHubRecommendedEvents() {
 
   container.innerHTML = '<div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>';
 
+  const searchInput = document.getElementById('hub-rec-search-input');
+  const query = searchInput ? searchInput.value.trim() : '';
   const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
   const selectedState = stateSelect ? stateSelect.value : '';
   const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 50;
@@ -589,7 +559,7 @@ async function loadHubRecommendedEvents() {
   const userLng = geo ? geo.lng : null;
 
   try {
-    const data = await window.api.getRecommendedEvents(playerId, '', selectedState, userLat, userLng, selectedRadius, 40);
+    const data = await window.api.getRecommendedEvents(playerId, query, selectedState, userLat, userLng, selectedRadius, 40);
     const events = data.events || [];
     
     if (label) {
@@ -627,7 +597,7 @@ async function loadHubRecommendedEvents() {
 function debounceHubEventsSearch() {
   clearTimeout(hubEventsSearchTimeout);
   hubEventsSearchTimeout = setTimeout(() => {
-    executeHubEventsSearch();
+    loadHubRecommendedEvents();
   }, 300);
 }
 
