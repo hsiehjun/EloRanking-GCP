@@ -183,17 +183,12 @@ class PostgresDatabase:
                     full_name TEXT,
                     faction TEXT,
                     team TEXT,
+                    placing INT,
+                    battle_points INT,
                     dropped BOOLEAN DEFAULT FALSE,
                     checked_in BOOLEAN DEFAULT FALSE,
                     PRIMARY KEY (event_id, player_id)
                 );
-
-                -- Indexes for MVCC parallel query execution
-                                -- Ensure team columns exist on legacy databases
-                ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;
-                ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;
-                ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placing INT;
-                ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_event ON matches(event_id);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_date ON matches(match_date, round, table_number);
@@ -212,6 +207,18 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_events_date ON events(event_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);
                 """)
+
+                for migration in [
+                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;",
+                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
+                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placing INT;",
+                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;"
+                ]:
+                    try:
+                        cursor.execute(migration)
+                    except Exception as e:
+                        logger.debug(f"Migration notice: {e}")
+
             conn.commit()
 
     def upsert_event(self, event_data: Dict[str, Any]):
