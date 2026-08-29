@@ -2,6 +2,17 @@
    MULTIPLAYER SYNCHRONIZATION OVERLAY HUD & CLIENT STYLES
    ========================================================================== */
 
+header.tac-header,
+footer.tac-footer,
+.tac-header,
+.tac-footer,
+[class*="tac-header"],
+[class*="tac-footer"],
+header,
+footer {
+  display: none !important;
+}
+
 #gt-sync-overlay {
   position: fixed;
   top: 12px;
