@@ -1,207 +1,180 @@
 /* ==========================================================================
-   WARHAMMER 40,000 11TH EDITION SYNCHRONIZED GAME TRACKER & SETUP WIZARD
+   GDM NATIVE 11TH EDITION TRACKER DESIGN SYSTEM
    ========================================================================== */
 
 :root {
-  --bg-dark: #070a10;
-  --panel-bg: #0f172a;
-  --panel-border: rgba(255, 255, 255, 0.08);
-  --accent-cyan: #38bdf8;
-  --accent-amber: #f59e0b;
-  --accent-green: #10b981;
-  --accent-red: #ef4444;
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
+  --gtk-bg: #090d16;
+  --gtk-surface: #0f172a;
+  --gtk-card: #131d35;
+  --gtk-card-hover: #172340;
+  --gtk-line: rgba(255, 255, 255, 0.08);
+  --gtk-line-focus: rgba(245, 158, 11, 0.4);
+  --gtk-text: #f8fafc;
+  --gtk-muted: #94a3b8;
+  --gtk-gold: #f59e0b;
+  --gtk-gold-hover: #d97706;
+  --gtk-gold-text: #090d16;
+  --gtk-cyan: #38bdf8;
+  --gtk-green: #10b981;
+  --gtk-red: #ef4444;
+  --font-display: 'Chakra Petch', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 }
 
-body.gt-play-body {
-  background-color: var(--bg-dark);
-  color: var(--text-main);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+body.gtk-body {
+  background-color: var(--gtk-bg);
+  color: var(--gtk-text);
+  font-family: var(--font-sans);
   margin: 0;
   padding: 0;
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
-.gt-play-shell {
-  max-width: 1300px;
+/* ==========================================================================
+   LANDING VIEW: GAME TRACKER HOME (max-w-[640px] centered)
+   ========================================================================== */
+.gtk-landing-wrap {
+  max-width: 640px;
   margin: 0 auto;
-  padding: 12px 16px 48px 16px;
+  padding: 32px 16px 64px 16px;
 }
 
-/* Floating Multiplayer Header */
-.gt-stream-banner {
+.gtk-title-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  border-radius: 12px;
-  padding: 10px 16px;
-  margin-bottom: 16px;
-  backdrop-filter: blur(12px);
-  gap: 10px;
-  flex-wrap: wrap;
+  margin-bottom: 20px;
 }
 
-.gt-sb-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.gt-back-btn {
-  color: var(--text-muted);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
-  transition: color 0.15s ease;
-}
-.gt-back-btn:hover {
-  color: var(--accent-cyan);
-}
-
-.gt-edition-tag {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: #090d16;
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 11px;
+.gtk-display {
+  font-family: var(--font-display);
+  font-size: 28px;
   font-weight: 800;
-  padding: 2px 7px;
-  border-radius: 4px;
-  letter-spacing: 0.5px;
-}
-
-.gt-title-text {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 18px;
-  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
   color: #fff;
+  margin: 0;
 }
 
-.gt-sb-right {
+.gtk-icon-btn-group {
   display: flex;
-  align-items: center;
   gap: 8px;
 }
 
-.gt-live-badge {
+.gtk-icon-btn {
+  background: var(--gtk-surface);
+  border: 1px solid var(--gtk-line);
+  color: var(--gtk-muted);
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   display: flex;
   align-items: center;
-  gap: 6px;
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
-}
-
-.gt-btn-primary {
-  background: var(--accent-cyan);
-  color: #090d16;
-  border: none;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 6px 14px;
-  border-radius: 6px;
+  justify-content: center;
   cursor: pointer;
-  transition: opacity 0.15s ease;
+  transition: all 0.15s ease;
 }
-.gt-btn-primary:hover { opacity: 0.9; }
+.gtk-icon-btn:hover {
+  color: #fff;
+  border-color: var(--gtk-line-focus);
+}
 
-.gt-btn-gold {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-  color: #090d16;
+.gtk-btn-new-game {
+  width: 100%;
+  background: var(--gtk-gold);
+  color: var(--gtk-gold-text);
   border: none;
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-size: 15px;
   font-weight: 800;
-  padding: 10px 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 13px 20px;
   border-radius: 8px;
   cursor: pointer;
-  transition: opacity 0.15s ease;
-  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.25);
+  transition: all 0.15s ease;
 }
-.gt-btn-gold:hover { opacity: 0.92; }
-
-.gt-btn-secondary {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: var(--text-main);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.gt-btn-secondary:hover { background: rgba(255, 255, 255, 0.12); }
-
-/* ==========================================================================
-   LANDING / HOME VIEW STYLES
-   ========================================================================== */
-.gt-landing-hero {
-  text-align: center;
-  padding: 24px 16px 32px 16px;
-  max-width: 680px;
-  margin: 0 auto;
+.gtk-btn-new-game:hover {
+  background: var(--gtk-gold-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.35);
 }
 
-.gt-landing-title {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 32px;
-  font-weight: 800;
-  color: #fff;
-  margin: 0 0 8px 0;
-}
-
-.gt-landing-subtitle {
-  font-size: 14px;
-  color: var(--text-muted);
-  margin-bottom: 24px;
-  line-height: 1.5;
-}
-
-.gt-history-section {
-  max-width: 840px;
-  margin: 0 auto 36px auto;
-}
-
-.gt-history-head {
+.gtk-history-header-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
+  align-items: baseline;
+  margin: 28px 0 10px 0;
 }
 
-.gt-history-head h3 {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 16px;
+.gtk-h2 {
+  font-family: var(--font-display);
+  font-size: 20px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
   color: #fff;
   margin: 0;
+}
+
+.gtk-mono {
+  font-family: var(--font-mono);
+}
+
+.gtk-count-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.12em;
+  color: var(--gtk-muted);
 }
 
-.gt-history-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
+.gtk-card {
+  background: var(--gtk-card);
+  border: 1px solid var(--gtk-line);
+  border-radius: 10px;
+  padding: 24px;
 }
 
-.gt-history-card {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
+.gtk-empty-state {
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.gtk-empty-title {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #fff;
+  margin: 0 0 6px 0;
+}
+
+.gtk-empty-desc {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--gtk-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.gtk-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gtk-history-item {
+  background: var(--gtk-card);
+  border: 1px solid var(--gtk-line);
   border-radius: 10px;
   padding: 14px 16px;
   display: flex;
@@ -210,577 +183,336 @@ body.gt-play-body {
   cursor: pointer;
   transition: all 0.15s ease;
 }
-.gt-history-card:hover {
-  border-color: var(--accent-cyan);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(56, 189, 248, 0.12);
+.gtk-history-item:hover {
+  background: var(--gtk-card-hover);
+  border-color: var(--gtk-gold);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 
-.gt-empty-box {
-  background: var(--panel-bg);
-  border: 1px dashed var(--panel-border);
-  border-radius: 12px;
-  padding: 32px 16px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
+.gtk-match-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 3px;
+}
+
+.gtk-match-sub {
+  font-size: 12px;
+  color: var(--gtk-muted);
+}
+
+.gtk-score-badge {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--gtk-gold);
 }
 
 /* ==========================================================================
-   GAME SETUP WIZARD STYLES
+   SETUP WIZARD & PLAY VIEW CONTAINER
    ========================================================================== */
-.gt-setup-container {
-  max-width: 860px;
+.gtk-play-shell {
+  max-width: 1200px;
   margin: 0 auto;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 14px;
+  padding: 16px;
+}
+
+.gtk-setup-card {
+  max-width: 780px;
+  margin: 20px auto;
+  background: var(--gtk-card);
+  border: 1px solid var(--gtk-line);
+  border-radius: 12px;
   padding: 24px;
 }
 
-.gt-setup-header {
-  border-bottom: 1px solid var(--panel-border);
-  padding-bottom: 14px;
-  margin-bottom: 20px;
-}
-
-.gt-setup-title {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 24px;
-  font-weight: 800;
-  color: #fff;
-  margin: 0 0 6px 0;
-}
-
-.gt-setup-desc {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.gt-setup-step-block {
+.gtk-step-box {
   background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
+  border: 1px solid var(--gtk-line);
+  border-radius: 8px;
   padding: 16px;
   margin-bottom: 16px;
 }
 
-.gt-step-num-title {
-  font-family: 'Chakra Petch', sans-serif;
+.gtk-step-title {
+  font-family: var(--font-display);
   font-size: 15px;
   font-weight: 700;
-  color: var(--accent-cyan);
+  color: var(--gtk-gold);
+  text-transform: uppercase;
   margin: 0 0 12px 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
-.gt-form-row-2col {
+.gtk-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 12px;
+}
+@media (max-width: 640px) {
+  .gtk-form-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 700px) {
-  .gt-form-row-2col { grid-template-columns: 1fr; }
-}
-
-.gt-form-group {
+.gtk-field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
-.gt-form-label {
+.gtk-label {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
+  color: var(--gtk-muted);
+  letter-spacing: 0.05em;
 }
 
-.gt-input {
+.gtk-input, .gtk-select {
   background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  padding: 8px 10px;
+  border: 1px solid var(--gtk-line);
   color: #fff;
+  padding: 8px 10px;
+  border-radius: 6px;
   font-size: 13px;
   outline: none;
 }
-.gt-input:focus { border-color: var(--accent-cyan); }
-
-.gt-select {
-  background: #090d16;
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
-  padding: 8px 10px;
-  color: #fff;
-  font-size: 13px;
-  outline: none;
+.gtk-input:focus, .gtk-select:focus {
+  border-color: var(--gtk-gold);
 }
-.gt-select:focus { border-color: var(--accent-cyan); }
 
-.gt-choice-grid {
+.gtk-choice-group {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.gt-choice-btn {
+.gtk-choice-btn {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--panel-border);
-  padding: 10px 8px;
-  border-radius: 8px;
-  text-align: center;
-  color: var(--text-muted);
+  border: 1px solid var(--gtk-line);
+  color: var(--gtk-muted);
+  padding: 8px 12px;
+  border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
+  text-align: center;
   transition: all 0.15s ease;
 }
-.gt-choice-btn.selected {
-  background: rgba(56, 189, 248, 0.18);
-  border-color: var(--accent-cyan);
-  color: #fff;
+.gtk-choice-btn.selected {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: var(--gtk-gold);
+  color: var(--gtk-gold);
   font-weight: 700;
 }
 
 /* ==========================================================================
-   IN-GAME SCORECARD & PLAY STYLES
+   SCORECARD IN-GAME VIEW
    ========================================================================== */
-.gt-round-bar {
+.gtk-top-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  padding: 6px 12px;
-  margin-bottom: 14px;
-  gap: 8px;
-  flex-wrap: wrap;
+  margin-bottom: 16px;
 }
 
-.gt-rd-pills {
+.gtk-back-link {
+  color: var(--gtk-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+.gtk-back-link:hover { color: #fff; }
+
+.gtk-round-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--gtk-surface);
+  border: 1px solid var(--gtk-line);
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gtk-rd-btn-group {
   display: flex;
   background: rgba(0, 0, 0, 0.4);
-  padding: 3px;
-  border-radius: 8px;
-  gap: 4px;
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
 }
 
-.gt-rd-pill {
+.gtk-rd-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
-  font-family: 'Chakra Petch', sans-serif;
+  color: var(--gtk-muted);
+  font-family: var(--font-display);
   font-size: 13px;
   font-weight: 700;
-  padding: 6px 14px;
-  border-radius: 6px;
+  padding: 6px 12px;
+  border-radius: 5px;
   cursor: pointer;
-  transition: all 0.15s ease;
 }
-.gt-rd-pill.active {
-  background: var(--accent-cyan);
-  color: #090d16;
+.gtk-rd-btn.active {
+  background: var(--gtk-gold);
+  color: var(--gtk-gold-text);
 }
 
-.gt-duo-board {
+.gtk-duo-score {
   display: grid;
   grid-template-columns: 1fr 240px 1fr;
   gap: 14px;
   margin-bottom: 16px;
 }
-
-@media (max-width: 900px) {
-  .gt-duo-board { grid-template-columns: 1fr; }
+@media (max-width: 860px) {
+  .gtk-duo-score { grid-template-columns: 1fr; }
 }
 
-.gt-scorecard {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
+.gtk-player-box {
+  background: var(--gtk-card);
+  border: 1px solid var(--gtk-line);
+  border-radius: 10px;
   padding: 16px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
 }
+.gtk-player-box.p1 { border-left: 3px solid var(--gtk-cyan); }
+.gtk-player-box.p2 { border-right: 3px solid var(--gtk-gold); }
 
-.gt-scorecard.p1 { border-left: 4px solid var(--accent-cyan); }
-.gt-scorecard.p2 { border-right: 4px solid var(--accent-amber); }
-
-.gt-p-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 10px;
+.gtk-score-hero {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  margin: 10px 0;
 }
 
-.gt-role-tag {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
-  margin-bottom: 3px;
-}
-.gt-role-tag.p1 { color: var(--accent-cyan); }
-.gt-role-tag.p2 { color: var(--accent-amber); }
-
-.gt-p-name {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 20px;
-  font-weight: 700;
+.gtk-score-num {
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: 800;
+  line-height: 1;
   color: #fff;
 }
 
-.gt-p-faction {
-  font-size: 12px;
-  color: var(--text-muted);
+.gtk-score-details {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--gtk-muted);
 }
+.gtk-score-details b { color: #fff; }
 
-.gt-cp-box {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 4px 10px;
-  text-align: center;
-}
-
-.gt-cp-lbl {
-  font-size: 10px;
-  font-weight: 800;
-  color: var(--text-muted);
-}
-
-.gt-cp-ctrls {
+.gtk-cp-stepper {
   display: flex;
   align-items: center;
   gap: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--gtk-line);
+  padding: 2px 8px;
+  border-radius: 6px;
 }
-
-.gt-cp-ctrls button {
+.gtk-cp-stepper button {
   background: transparent;
   border: none;
-  color: var(--accent-cyan);
+  color: var(--gtk-gold);
   font-size: 16px;
   font-weight: 700;
   cursor: pointer;
 }
 
-.gt-cp-ctrls b {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 16px;
-  color: #fff;
-}
-
-.gt-score-display {
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 8px;
-  padding: 12px;
-  text-align: center;
-  margin-bottom: 10px;
-}
-
-.gt-score-val {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 48px;
-  font-weight: 700;
-  line-height: 1;
-  color: #fff;
-}
-
-.gt-score-stats {
-  display: flex;
-  justify-content: space-around;
-  margin-top: 8px;
-  font-size: 12px;
-}
-
-.gt-score-stats span {
-  color: var(--text-muted);
-  font-size: 10px;
-  display: block;
-}
-
-.gt-score-stats b {
-  font-family: 'JetBrains Mono', monospace;
-  color: #fff;
-}
-
-.gt-turn-btn {
+.gtk-turn-btn {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--panel-border);
-  color: var(--text-muted);
+  border: 1px solid var(--gtk-line);
+  color: var(--gtk-muted);
   font-size: 12px;
   font-weight: 700;
   padding: 8px;
   border-radius: 6px;
   cursor: pointer;
-  transition: all 0.15s ease;
-}
-.gt-turn-btn.active {
-  background: rgba(56, 189, 248, 0.18);
-  border-color: var(--accent-cyan);
-  color: #fff;
-}
-
-.gt-mission-center-card {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
-  padding: 16px 12px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   text-align: center;
-  gap: 5px;
 }
-
-.gt-pack-pill {
-  background: rgba(56, 189, 248, 0.12);
-  color: var(--accent-cyan);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
-
-.gt-mission-name {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 18px;
-  font-weight: 700;
+.gtk-turn-btn.active {
+  background: rgba(245, 158, 11, 0.18);
+  border-color: var(--gtk-gold);
   color: #fff;
 }
 
-.gt-rule-sub {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.gt-turn-deck {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
+.gtk-turn-deck {
+  background: var(--gtk-card);
+  border: 1px solid var(--gtk-line);
+  border-radius: 10px;
   padding: 16px;
   margin-bottom: 16px;
 }
 
-.gt-deck-topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--panel-border);
-  padding-bottom: 10px;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.gt-deck-title {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-  margin: 0;
-}
-
-.gt-scoring-grid {
+.gtk-deck-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 14px;
+}
+@media (max-width: 780px) {
+  .gtk-deck-grid { grid-template-columns: 1fr; }
 }
 
-@media (max-width: 820px) {
-  .gt-scoring-grid { grid-template-columns: 1fr; }
-}
-
-.gt-panel-box {
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
+.gtk-deck-panel {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--gtk-line);
+  border-radius: 8px;
   padding: 14px;
 }
 
-.gt-panel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 6px;
-}
-
-.gt-panel-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.gt-vp-pill {
-  background: rgba(16, 185, 129, 0.15);
-  color: var(--accent-green);
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 3px 8px;
-  border-radius: 4px;
-}
-
-.gt-panel-info {
-  font-size: 12px;
-  color: var(--text-muted);
-  line-height: 1.4;
-  margin: 0 0 12px 0;
-}
-
-.gt-pri-buttons {
+.gtk-pri-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 6px;
 }
 
-.gt-pri-btn {
+.gtk-pri-btn {
   background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--panel-border);
-  color: var(--text-main);
+  border: 1px solid var(--gtk-line);
+  color: var(--gtk-text);
   padding: 8px 6px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   text-align: center;
-  transition: all 0.15s ease;
 }
-.gt-pri-btn.selected {
+.gtk-pri-btn.selected {
   background: rgba(16, 185, 129, 0.2);
-  border-color: var(--accent-green);
-  color: var(--accent-green);
+  border-color: var(--gtk-green);
+  color: var(--gtk-green);
   font-weight: 700;
 }
 
-.gt-sec-cards-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.gt-card-unit {
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid var(--panel-border);
-  border-radius: 8px;
-  padding: 12px;
-}
-
-.gt-card-unit-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 4px;
-}
-
-.gt-card-name {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 14px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.gt-card-desc {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.35;
-  margin-bottom: 8px;
-}
-
-.gt-card-action-bar {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.gt-chip-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--panel-border);
-  color: var(--text-main);
-  font-size: 11px;
-  font-weight: 600;
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.gt-chip-btn.achieved {
-  background: var(--accent-green);
-  border-color: var(--accent-green);
-  color: #042f1d;
-  font-weight: 700;
-}
-.gt-chip-btn.discard {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: var(--accent-red);
-}
-
-.gt-draw-btn {
-  width: 100%;
-  background: rgba(56, 189, 248, 0.1);
-  border: 1px dashed rgba(56, 189, 248, 0.4);
-  color: var(--accent-cyan);
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  padding: 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-}
-.gt-draw-btn:hover { background: rgba(56, 189, 248, 0.2); }
-
-.gt-summary-matrix {
-  background: var(--panel-bg);
-  border: 1px solid var(--panel-border);
-  border-radius: 12px;
+.gtk-matrix-wrap {
+  background: var(--gtk-card);
+  border: 1px solid var(--gtk-line);
+  border-radius: 10px;
   padding: 16px;
+  overflow-x: auto;
 }
 
-.gt-matrix-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.gt-matrix-top h4 {
-  font-family: 'Chakra Petch', sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
-  margin: 0;
-}
-
-.gt-matrix-table {
+.gtk-matrix-table {
   width: 100%;
   border-collapse: collapse;
 }
-
-.gt-matrix-table th, .gt-matrix-table td {
+.gtk-matrix-table th, .gtk-matrix-table td {
   padding: 8px 10px;
   text-align: center;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
-  border-bottom: 1px solid var(--panel-border);
+  border-bottom: 1px solid var(--gtk-line);
 }
-
-.gt-matrix-table th:first-child, .gt-matrix-table td:first-child {
+.gtk-matrix-table th:first-child, .gtk-matrix-table td:first-child {
   text-align: left;
-  font-family: 'Chakra Petch', sans-serif;
+  font-family: var(--font-display);
   font-weight: 700;
   font-size: 14px;
 }

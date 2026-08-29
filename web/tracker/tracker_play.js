@@ -130,10 +130,11 @@ function showHomeDashboard() {
 
 async function loadGameHistory() {
   const container = document.getElementById('history-list-wrap');
+  const countTag = document.getElementById('gtk-history-count');
   if (!container) return;
 
   container.innerHTML = `
-    <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+    <div class="gtk-card" style="text-align: center; padding: 24px; color: var(--gtk-muted);">
       <div class="pulse-dot" style="margin: 0 auto 8px auto;"></div>
       Loading persistent game history...
     </div>
@@ -173,36 +174,43 @@ async function loadGameHistory() {
     }
   } catch (e) {}
 
+  if (countTag) {
+    countTag.textContent = history.length > 0 ? `${history.length} game${history.length === 1 ? '' : 's'}` : '';
+  }
+
   if (history.length === 0) {
     container.innerHTML = `
-      <div class="gt-empty-box">
-        <div style="font-size: 24px; margin-bottom: 6px;">🎲</div>
-        <div style="font-weight: 700; color: #fff; margin-bottom: 4px;">NO GAMES YET</div>
-        <div>Tap <b>+ New Game</b> above to configure and launch a live synchronized match.</div>
+      <div class="gtk-card gtk-empty-state">
+        <p class="gtk-empty-title">NO GAMES YET</p>
+        <p class="gtk-empty-desc">Tap New Game to start. Games are saved here automatically as you play.</p>
       </div>
     `;
     return;
   }
 
-  container.innerHTML = history.map(g => `
-    <div class="gt-history-card" onclick="openHistoryGame('${g.matchId}')">
-      <div>
-        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
-          <b style="font-size: 15px; color: #fff;">${escapeHtml(g.p1Name || 'Player 1')} vs ${escapeHtml(g.p2Name || 'Player 2')}</b>
-          <span class="gt-pack-pill">#${g.matchId}</span>
+  container.innerHTML = `
+    <div class="gtk-history-list">
+      ${history.map(g => `
+        <div class="gtk-history-item" onclick="openHistoryGame('${g.matchId}')">
+          <div>
+            <div class="gtk-match-title">${escapeHtml(g.p1Name || 'Player 1')} vs ${escapeHtml(g.p2Name || 'Player 2')}</div>
+            <div class="gtk-match-sub">${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.isFinished ? 'Finalized' : g.started ? `Round ${g.currentRound || 1}` : 'Setup'} • <span class="gtk-mono">#${g.matchId}</span></div>
+          </div>
+          <div style="text-align: right;">
+            <div class="gtk-score-badge">${g.p1Score || 0} - ${g.p2Score || 0} VP</div>
+            <div style="font-size: 11px; color: var(--gtk-muted); font-family: var(--font-mono);">${g.date || 'Recent'}</div>
+          </div>
         </div>
-        <div style="font-size: 12px; color: var(--text-muted);">
-          ${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.isFinished ? '🏁 Finalized' : g.started ? `⚔️ Round ${g.currentRound || 1}` : '⚙️ Setup Mode'}
-        </div>
-      </div>
-      <div style="text-align: right;">
-        <div style="font-family:'Chakra Petch',sans-serif; font-size: 18px; font-weight: 700; color: var(--accent-cyan);">
-          ${g.p1Score || 0} - ${g.p2Score || 0} VP
-        </div>
-        <div style="font-size: 11px; color: var(--text-muted);">${g.date || 'Recent'}</div>
-      </div>
+      `).join('')}
     </div>
-  `).join('');
+  `;
+}
+
+function promptJoinCode() {
+  const code = prompt('Enter 6-character Match Room Code (e.g. WH40K-7A9B):');
+  if (code && code.trim()) {
+    window.location.href = `/tracker/play?match_id=${code.trim().toUpperCase()}`;
+  }
 }
 
 function startNewGame() {
