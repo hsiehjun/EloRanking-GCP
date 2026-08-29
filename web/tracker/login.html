@@ -159,8 +159,8 @@
   <div class="login-card">
     <div class="login-header">
       <div class="icon">⚔️</div>
-      <h1>TACTICAL HUB</h1>
-      <p>Authorized access for 11th Edition Live Match Tracking</p>
+      <h1>WARHAMMER 40K</h1>
+      <p>Access your Competitor Profile, Elo Stats & Live Game Tracker</p>
     </div>
 
     <div class="tab-bar">
@@ -186,7 +186,7 @@
         <input id="auth-password" type="password" required placeholder="••••••••" />
       </div>
 
-      <button id="btn-submit" type="submit" class="btn-submit">ENTER TRACKER ➔</button>
+      <button id="btn-submit" type="submit" class="btn-submit">LOGIN</button>
 
       <div class="hub-link">
         <a href="/">❮ Return to Elo Leaderboard</a>
@@ -212,12 +212,12 @@
         tabLog.className = 'tab-btn active';
         tabReg.className = 'tab-btn';
         nameGroup.style.display = 'none';
-        btn.textContent = 'ENTER TRACKER ➔';
+        btn.textContent = 'LOGIN';
       } else {
         tabReg.className = 'tab-btn active';
         tabLog.className = 'tab-btn';
         nameGroup.style.display = 'block';
-        btn.textContent = 'CREATE ACCOUNT & ENTER ➔';
+        btn.textContent = 'CREATE ACCOUNT';
       }
     }
 
@@ -250,14 +250,18 @@
           errEl.textContent = data.detail || data.error || 'Authentication failed. Please check credentials.';
           errEl.style.display = 'block';
           btn.disabled = false;
-          btn.textContent = activeTab === 'login' ? 'ENTER TRACKER ➔' : 'CREATE ACCOUNT & ENTER ➔';
+          btn.textContent = activeTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT';
           return;
         }
 
         const token = data.session_token || data.token;
         if (token) {
           localStorage.setItem('elo_auth_token', token);
+          localStorage.setItem('native_session_token', token);
           sessionStorage.setItem('elo_auth_token', token);
+          if (data.user) {
+            localStorage.setItem('native_user_profile', JSON.stringify(data.user));
+          }
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
         }
 
@@ -267,7 +271,7 @@
         errEl.textContent = 'Connection error. Please try again.';
         errEl.style.display = 'block';
         btn.disabled = false;
-        btn.textContent = activeTab === 'login' ? 'ENTER TRACKER ➔' : 'CREATE ACCOUNT & ENTER ➔';
+        btn.textContent = activeTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT';
       }
     }
   </script>

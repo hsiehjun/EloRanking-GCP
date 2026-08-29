@@ -27,7 +27,9 @@ window.api = {
 
   // Session Token Helper
   getAuthToken() {
-    return localStorage.getItem('native_session_token') || localStorage.getItem('bcp_session_token') || '';
+    const match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
+    const cookieToken = match ? match[2] : '';
+    return localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('bcp_session_token') || cookieToken || '';
   },
 
   // Native Auth: Register
