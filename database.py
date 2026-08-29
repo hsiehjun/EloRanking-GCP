@@ -35,8 +35,17 @@ class PostgresDatabase:
         if not PSYCOPG2_AVAILABLE:
             raise ImportError("psycopg2 is not installed. Run 'pip install psycopg2-binary' or 'sudo apt install python3-psycopg2'.")
 
-        raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:elo_password@localhost:5432/elo_ranking"
+        raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:Jung@1475369@localhost:5432/elo_ranking"
         
+        # Strip erroneous 'postgresql://' prefix if followed by keyword syntax (e.g. 'postgresql://elo_user password=...' or 'postgresql://dbname=...')
+        if raw_dsn.startswith("postgresql://") and (" " in raw_dsn or "password=" in raw_dsn or "host=" in raw_dsn):
+            cleaned = raw_dsn.replace("postgresql://", "").strip()
+            if "dbname=" not in cleaned:
+                cleaned = "dbname=elo_ranking " + cleaned
+            if "user=" not in cleaned and "elo_user" in cleaned:
+                cleaned = cleaned.replace("elo_user", "user=elo_user")
+            raw_dsn = cleaned
+
         # If already in keyword DSN format (e.g. dbname=... user=... password=... host=...)
         if raw_dsn.startswith("dbname=") or ("user=" in raw_dsn and "password=" in raw_dsn):
             self.dsn = raw_dsn
