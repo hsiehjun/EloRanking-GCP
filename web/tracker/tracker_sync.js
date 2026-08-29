@@ -568,13 +568,99 @@
           dbHistoryCache = [];
         }
 
+        originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
+
         window.dispatchEvent(new StorageEvent('storage', {
           key: 'gdm-11e-tracker-history',
           newValue: JSON.stringify(dbHistoryCache),
           storageArea: localStorage
         }));
+
+        renderLandingPageHistory(dbHistoryCache);
       }
     } catch (e) {}
+  }
+
+  function renderLandingPageHistory(historyList) {
+    if (!historyList || !Array.isArray(historyList) || historyList.length === 0) return;
+
+    function tryRender() {
+      const headings = Array.from(document.querySelectorAll('h2, h3, div, p'));
+      const historyHeading = headings.find(h => {
+        const txt = (h.textContent || '').trim();
+        return txt === 'Game History' || txt === 'GAME HISTORY';
+      });
+
+      if (!historyHeading) return;
+
+      const parentContainer = historyHeading.parentElement;
+      if (!parentContainer) return;
+
+      let listContainer = document.getElementById('gt-custom-history-list');
+      if (!listContainer) {
+        listContainer = document.createElement('div');
+        listContainer.id = 'gt-custom-history-list';
+        listContainer.style.cssText = "display:flex; flex-direction:column; gap:10px; margin-top:14px; width:100%; box-sizing:border-box;";
+        
+        // Hide the empty placeholder ("No games yet")
+        const emptyText = Array.from(parentContainer.querySelectorAll('p, div, span')).find(el => el.textContent && el.textContent.includes('No games yet'));
+        if (emptyText) {
+          const emptyContainer = emptyText.closest('div');
+          if (emptyContainer && emptyContainer !== parentContainer) {
+            emptyContainer.style.display = 'none';
+          } else {
+            emptyText.style.display = 'none';
+          }
+        }
+
+        historyHeading.parentNode.insertBefore(listContainer, historyHeading.nextSibling);
+      }
+
+      listContainer.innerHTML = historyList.map(item => {
+        const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
+        const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
+        const p1F = item.game?.p1Faction || item.p1_faction || '';
+        const p2F = item.game?.p2Faction || item.p2_faction || '';
+        const p1S = item.p1Score ?? item.p1_score ?? 0;
+        const p2S = item.p2Score ?? item.p2_score ?? 0;
+        const mid = item.match_id || item.id || '';
+        const isDone = item.isFinished || item.is_finished;
+        const winner = item.winner || item.winner_name;
+        const dateStr = new Date(item.date || item.updated_at || Date.now()).toLocaleDateString();
+
+        const factionSubtitle = (p1F || p2F) ? `<span style="font-size:11px; color:#94a3b8; margin-left:4px;">(${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')})</span>` : '';
+
+        return `
+          <div onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#090d18; border:1px solid #1e293b; border-radius:12px; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:border-color 0.2s; box-sizing:border-box;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
+            <div style="min-width:0; flex:1;">
+              <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
+                <b style="color:#f8fafc; font-size:13px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
+                ${factionSubtitle}
+              </div>
+              <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#64748b;">
+                <span style="color:#f59e0b; font-family:'JetBrains Mono',monospace; font-weight:700;">#${escapeHtml(mid)}</span>
+                <span>•</span>
+                <span>${escapeHtml(item.game?.primary || item.primary_mission || 'Take & Hold')}</span>
+                <span>•</span>
+                <span>${dateStr}</span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px; margin-left:12px;">
+              <span style="font-size:14px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
+                ${p1S} - ${p2S}
+              </span>
+              <span style="background:${isDone ? '#10b981' : '#f59e0b'}; color:#0f172a; font-weight:800; font-size:11px; padding:5px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
+                ${isDone ? (winner ? `${escapeHtml(winner)} WON` : 'FINAL') : 'RESUME ➔'}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    tryRender();
+    const obs = new MutationObserver(tryRender);
+    obs.observe(document.body, { childList: true, subtree: true });
   }
 
   // Comprehensive 40k Factions Directory for bulletproof DOM recognition
