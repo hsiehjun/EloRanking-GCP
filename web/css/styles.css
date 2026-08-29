@@ -1586,3 +1586,86 @@ input, select, textarea {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* ==========================================================================
+   MOBILE RESPONSIVENESS ENHANCEMENTS (< 640px)
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* Tournament Hub & Discovery Navigation */
+  .hub-tournaments-nav {
+    display: flex !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    gap: 0.25rem !important;
+    padding: 0.3rem !important;
+    scrollbar-width: none;
+  }
+  .hub-tournaments-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .hub-tourney-tab-btn {
+    flex: 0 0 auto !important;
+    padding: 0.45rem 0.8rem !important;
+    font-size: 0.78rem !important;
+  }
+
+  /* Search & Filter Controls */
+  .hub-search-bar {
+    flex-direction: column !important;
+    gap: 0.4rem !important;
+  }
+  .hub-search-input, .hub-state-select {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    font-size: 0.85rem !important;
+    padding: 0.55rem 0.75rem !important;
+  }
+
+  /* Responsive Event Cards */
+  .hub-events-grid {
+    grid-template-columns: 1fr !important;
+    max-height: 480px !important;
+    gap: 0.6rem !important;
+  }
+
+  .hub-rec-card {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.55rem !important;
+    padding: 0.85rem !important;
+  }
+
+  .hub-rec-card > div:first-child {
+    padding-right: 0 !important;
+  }
+
+  .hub-rec-card > div:last-child {
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    padding-top: 0.45rem !important;
+    border-top: 1px solid rgba(255,255,255,0.06) !important;
+  }
+
+  /* Round Filter Buttons Scroll on Mobile */
+  .round-filter-container {
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding-bottom: 0.35rem !important;
+    scrollbar-width: none;
+  }
+  .round-filter-container::-webkit-scrollbar {
+    display: none;
+  }
+  .round-filter-btn {
+    flex: 0 0 auto !important;
+    padding: 0.4rem 0.8rem !important;
+    font-size: 0.8rem !important;
+  }
+}
