@@ -184,8 +184,9 @@ window.api = {
   },
 
   // Single Tournament Details & Pairings
-  async getTournamentDetails(eventId) {
-    return this._fetchJson(`/api/event/${encodeURIComponent(eventId)}`);
+  async getTournamentDetails(eventId, forceSync = false) {
+    const query = forceSync ? '?force_sync=true' : '';
+    return this._fetchJson(`/api/event/${encodeURIComponent(eventId)}${query}`);
   },
 
   // Faction Meta & Dynamic Timeline Trends

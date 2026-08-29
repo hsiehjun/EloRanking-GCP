@@ -610,7 +610,15 @@
           <h2 id="modal-event-name" style="font-size: 1.35rem; font-weight: 700; color: #fff;">Tournament Details</h2>
           <div id="modal-event-meta" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
         </div>
-        <button class="modal-close" onclick="closeModal('event-modal')">✕</button>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;" title="Open this event on Best Coast Pairings">
+            <span>BCP ↗</span>
+          </a>
+          <button id="modal-event-refresh-btn" class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" onclick="refreshCurrentEventModal(event)" title="Live sync latest pairings and match scores from Best Coast Pairings">
+            🔄 Refresh Live
+          </button>
+          <button class="modal-close" onclick="closeModal('event-modal')">✕</button>
+        </div>
       </div>
 
       <div class="modal-body">

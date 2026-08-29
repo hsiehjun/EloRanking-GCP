@@ -1377,64 +1377,29 @@ if FASTAPI_AVAILABLE:
 
     # API: Tournament Details & Round Pairings
     @app.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
-    async def api_event_details(event_id: str):
+    async def api_event_details(event_id: str, force_sync: bool = False):
         db = get_database()
         event_id_str = event_id.strip()
         event_details = db.get_event_details(event_id_str)
         players = event_details.get("players", []) if event_details else []
-        has_placements = any(p.get("placement") is not None and p.get("placement") > 0 for p in players)
+        matches = event_details.get("matches", []) if event_details else []
+        is_ended = event_details.get("is_ended", False) if event_details else False
 
-        # If roster is empty OR legacy tournament without official BCP placements, sync on-demand from BCP
-        if not players or not has_placements or not event_details.get("is_ended"):
+        # Live On-Demand BCP Sync:
+        # If tournament has 0 matches, or is currently in progress / not ended, or has no players, or force_sync requested:
+        if force_sync or not event_details or not matches or not is_ended or not players:
             try:
                 scraper = BestCoastPairingsScraper(db=db)
-                enrolled = scraper.fetch_event_players(event_id_str)
-                if enrolled:
-                    for p in enrolled:
-                        user = p.get("user") or {}
-                        u_id = user.get("id") or p.get("userId") or p.get("id")
-                        if u_id:
-                            f_name = user.get("firstName") or p.get("firstName") or ""
-                            l_name = user.get("lastName") or p.get("lastName") or ""
-                            full_name = f"{f_name} {l_name}".strip() or p.get("name") or "Player"
-                            faction_obj = p.get("faction") or p.get("parentFaction") or ""
-                            faction_name = faction_obj.get("name", "") if isinstance(faction_obj, dict) else str(faction_obj or "")
-                            team_name = p.get("team") or p.get("teamName") or user.get("team") or ""
-                            if isinstance(team_name, dict):
-                                team_name = team_name.get("name") or ""
-                            
-                            raw_place = p.get("placing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
-                            placing_num = None
-                            if raw_place is not None:
-                                try:
-                                    placing_num = int(raw_place)
-                                except (ValueError, TypeError):
-                                    pass
-
-                            raw_pts = p.get("points") or p.get("battlePoints") or p.get("totalPoints")
-                            pts_num = None
-                            if raw_pts is not None:
-                                try:
-                                    pts_num = int(raw_pts)
-                                except (ValueError, TypeError):
-                                    pass
-
-                            db.upsert_event_participant(
-                                event_id=event_id_str,
-                                player_id=u_id,
-                                first_name=f_name,
-                                last_name=l_name,
-                                full_name=full_name,
-                                faction=faction_name,
-                                team=str(team_name).strip(),
-                                dropped=bool(p.get("dropped")),
-                                checked_in=bool(p.get("checkedIn")),
-                                placement=placing_num,
-                                battle_points=pts_num
-                            )
-                    event_details = db.get_event_details(event_id_str)
+                new_matches = scraper.scrape_event(event_id_str)
+                if new_matches > 0:
+                    try:
+                        engine = get_elo_engine()
+                        engine.recalculate_all_ratings()
+                    except Exception as re_err:
+                        logger.debug(f"Rating recalc notice after live scrape: {re_err}")
+                event_details = db.get_event_details(event_id_str)
             except Exception as e:
-                logger.warning(f"Failed to auto-sync BCP placings for event {event_id_str}: {e}")
+                logger.warning(f"Failed to auto-sync live BCP details for event {event_id_str}: {e}")
 
         return event_details
 

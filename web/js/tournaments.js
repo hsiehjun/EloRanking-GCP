@@ -95,21 +95,44 @@ function renderEventsRows() {
   });
 }
 
-async function openEventModal(eventId) {
+let currentOpenEventId = null;
+
+async function refreshCurrentEventModal(e) {
+  if (e) e.stopPropagation();
+  if (!currentOpenEventId) return;
+  const refreshBtn = document.getElementById('modal-event-refresh-btn');
+  if (refreshBtn) {
+    refreshBtn.disabled = true;
+    refreshBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Syncing...';
+  }
+  await openEventModal(currentOpenEventId, true);
+  if (refreshBtn) {
+    refreshBtn.disabled = false;
+    refreshBtn.innerHTML = '🔄 Refresh Live';
+  }
+}
+
+async function openEventModal(eventId, forceSync = false) {
+  currentOpenEventId = eventId;
   const modal = document.getElementById('event-modal');
   if (!modal) return;
   modal.classList.add('active');
+
+  const bcpLink = document.getElementById('modal-event-bcp-link');
+  if (bcpLink) {
+    bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`;
+  }
 
   const rbody = document.getElementById('event-results-body');
   const ebody = document.getElementById('event-elo-body');
   const pbody = document.getElementById('event-pairings-body');
 
-  if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings...</div></td></tr>';
+  if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
   if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
-  if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading round pairings...</div></td></tr>';
+  if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
 
   try {
-    const ev = await window.api.getTournamentDetails(eventId);
+    const ev = await window.api.getTournamentDetails(eventId, forceSync);
     document.getElementById('modal-event-name').innerText = ev.name || 'Tournament Details';
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || '').slice(0, 10);
@@ -127,16 +150,17 @@ async function openEventModal(eventId) {
     const tabEloCount = document.getElementById('event-tab-elo-count');
     const tabMatchesCount = document.getElementById('event-tab-matches-count');
 
-    if (eventMatchesCache.length === 0) {
-      if (tabResultsCount) tabResultsCount.innerText = '0';
-      if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
-      if (tabMatchesCount) tabMatchesCount.innerText = '0';
-      switchEventModalTab('elo');
-    } else {
-      if (tabResultsCount) tabResultsCount.innerText = eventPlayersCache.length;
-      if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
-      if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
+    const placementsCount = eventPlayersCache.filter(p => p.placement && p.placement > 0).length;
+    if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : eventPlayersCache.length;
+    if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
+    if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
+
+    if (eventMatchesCache.length > 0) {
+      switchEventModalTab('matches');
+    } else if (placementsCount > 0) {
       switchEventModalTab('results');
+    } else {
+      switchEventModalTab('elo');
     }
 
     renderEventResultsRows();
@@ -144,6 +168,7 @@ async function openEventModal(eventId) {
     renderEventPairingsRows();
   } catch (err) {
     if (rbody) rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;
+    if (pbody) pbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error syncing pairings: ${err.message}</td></tr>`;
   }
 }
 
