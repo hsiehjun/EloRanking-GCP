@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In - Warhammer 40k Tactical Hub</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700;800&family=Cinzel:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #07090e;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 32px 32px;
+      color: #f8fafc;
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 16px;
+    }
+    .login-card {
+      background: #0f1523;
+      border: 1px solid #1e293b;
+      border-radius: 20px;
+      width: 100%;
+      max-width: 440px;
+      box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85);
+      overflow: hidden;
+      position: relative;
+    }
+    .login-header {
+      padding: 32px 24px 20px;
+      text-align: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.35) 0%, transparent 100%);
+    }
+    .login-header .icon { font-size: 36px; margin-bottom: 10px; }
+    .login-header h1 {
+      font-family: 'Cinzel', serif;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: #f8fafc;
+    }
+    .login-header p {
+      font-size: 13px;
+      color: #94a3b8;
+      margin-top: 6px;
+    }
+    .tab-bar {
+      display: flex;
+      background: #090d18;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 14px;
+      font-size: 13px;
+      font-weight: 700;
+      color: #64748b;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 0.04em;
+      transition: all 0.2s;
+    }
+    .tab-btn.active {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.04);
+    }
+    .login-body {
+      padding: 24px 28px 32px;
+    }
+    .form-group {
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #94a3b8;
+      margin-bottom: 6px;
+      letter-spacing: 0.05em;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 13px 14px;
+      background: #070b14;
+      border: 1px solid #1e293b;
+      border-radius: 10px;
+      font-size: 14px;
+      color: #f8fafc;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus {
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+    .btn-submit {
+      width: 100%;
+      padding: 14px;
+      background: #f59e0b;
+      color: #0f172a;
+      font-weight: 800;
+      font-size: 14px;
+      border: none;
+      border-radius: 11px;
+      cursor: pointer;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 10px;
+      transition: all 0.2s;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .btn-submit:hover {
+      background: #d97706;
+      box-shadow: 0 4px 20px rgba(245, 158, 11, 0.4);
+    }
+    .alert-error {
+      display: none;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      border-radius: 8px;
+      font-size: 12px;
+      color: #fca5a5;
+      text-align: center;
+    }
+    .hub-link {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 12px;
+      color: #64748b;
+    }
+    .hub-link a {
+      color: #38bdf8;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .hub-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <div class="login-header">
+      <div class="icon">⚔️</div>
+      <h1>TACTICAL HUB</h1>
+      <p>Authorized access for 11th Edition Live Match Tracking</p>
+    </div>
+
+    <div class="tab-bar">
+      <button id="tab-login" class="tab-btn active" onclick="switchTab('login')">SIGN IN</button>
+      <button id="tab-register" class="tab-btn" onclick="switchTab('register')">CREATE ACCOUNT</button>
+    </div>
+
+    <form class="login-body" onsubmit="handleSubmit(event)">
+      <div id="auth-error" class="alert-error"></div>
+
+      <div id="name-group" class="form-group" style="display: none;">
+        <label>Player Handle / Display Name</label>
+        <input id="auth-name" type="text" placeholder="e.g. Captain Titus" />
+      </div>
+
+      <div class="form-group">
+        <label>Email Address</label>
+        <input id="auth-email" type="email" required placeholder="player@chapter.com" />
+      </div>
+
+      <div class="form-group">
+        <label>Password</label>
+        <input id="auth-password" type="password" required placeholder="••••••••" />
+      </div>
+
+      <button id="btn-submit" type="submit" class="btn-submit">ENTER TRACKER ➔</button>
+
+      <div class="hub-link">
+        <a href="/">❮ Return to Elo Leaderboard</a>
+      </div>
+    </form>
+  </div>
+
+  <script>
+    let activeTab = 'login';
+    const params = new URLSearchParams(window.location.search);
+    const redirectUrl = params.get('redirect') || '/11th/tracker';
+
+    function switchTab(tab) {
+      activeTab = tab;
+      const tabLog = document.getElementById('tab-login');
+      const tabReg = document.getElementById('tab-register');
+      const nameGroup = document.getElementById('name-group');
+      const btn = document.getElementById('btn-submit');
+      const err = document.getElementById('auth-error');
+      if (err) err.style.display = 'none';
+
+      if (tab === 'login') {
+        tabLog.className = 'tab-btn active';
+        tabReg.className = 'tab-btn';
+        nameGroup.style.display = 'none';
+        btn.textContent = 'ENTER TRACKER ➔';
+      } else {
+        tabReg.className = 'tab-btn active';
+        tabLog.className = 'tab-btn';
+        nameGroup.style.display = 'block';
+        btn.textContent = 'CREATE ACCOUNT & ENTER ➔';
+      }
+    }
+
+    async function handleSubmit(e) {
+      e.preventDefault();
+      const email = document.getElementById('auth-email').value.trim();
+      const password = document.getElementById('auth-password').value;
+      const name = (document.getElementById('auth-name').value || '').trim();
+      const errEl = document.getElementById('auth-error');
+      const btn = document.getElementById('btn-submit');
+
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'AUTHENTICATING...';
+
+      try {
+        const endpoint = activeTab === 'login' ? '/api/auth/login' : '/api/auth/register';
+        const payload = activeTab === 'login' 
+          ? { email, password }
+          : { email, password, display_name: name || email.split('@')[0] };
+
+        const resp = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.success) {
+          errEl.textContent = data.detail || data.error || 'Authentication failed. Please check credentials.';
+          errEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = activeTab === 'login' ? 'ENTER TRACKER ➔' : 'CREATE ACCOUNT & ENTER ➔';
+          return;
+        }
+
+        const token = data.session_token || data.token;
+        if (token) {
+          localStorage.setItem('elo_auth_token', token);
+          sessionStorage.setItem('elo_auth_token', token);
+          document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
+        }
+
+        // Redirect to target destination
+        window.location.href = redirectUrl;
+      } catch (err) {
+        errEl.textContent = 'Connection error. Please try again.';
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = activeTab === 'login' ? 'ENTER TRACKER ➔' : 'CREATE ACCOUNT & ENTER ➔';
+      }
+    }
+  </script>
+</body>
+</html>

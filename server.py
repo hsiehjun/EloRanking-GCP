@@ -22,7 +22,7 @@ except ImportError:
 try:
     from fastapi import FastAPI, HTTPException, Query, Request, Response
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
     from fastapi.staticfiles import StaticFiles
     import uvicorn
     FASTAPI_AVAILABLE = True
@@ -598,11 +598,26 @@ if FASTAPI_AVAILABLE:
     async def serve_logo_png():
         return FileResponse(str(web_dir / "tracker" / "logo192w.png"), media_type="image/png")
 
+    @app.get("/login", include_in_schema=False)
+    @app.get("/tracker/login", include_in_schema=False)
+    async def serve_login():
+        login_file = web_dir / "tracker" / "login.html"
+        if login_file.exists():
+            return FileResponse(str(login_file), media_type="text/html")
+        raise HTTPException(status_code=404, detail="login.html not found")
+
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
     @app.get("/tracker/index.html", include_in_schema=False)
     @app.get("/11th/tracker", include_in_schema=False)
-    async def serve_tracker_home():
+    async def serve_tracker_home(request: Request, token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return RedirectResponse(url="/login?redirect=/11th/tracker", status_code=303)
+            
         t_file = web_dir / "tracker" / "index.html"
         if t_file.exists():
             return FileResponse(str(t_file), media_type="text/html")
@@ -610,7 +625,15 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/tracker/play", include_in_schema=False)
     @app.get("/11th/tracker/play", include_in_schema=False)
-    async def serve_tracker_play():
+    async def serve_tracker_play(request: Request, match_id: Optional[str] = Query(None), token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            target = f"/11th/tracker/play?match_id={match_id}" if match_id else "/11th/tracker/play"
+            return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(target)}", status_code=303)
+            
         p_file = web_dir / "tracker" / "play.html"
         if p_file.exists():
             return FileResponse(str(p_file), media_type="text/html")
@@ -1140,25 +1163,31 @@ if FASTAPI_AVAILABLE:
         bcp_password: str
 
     @app.post("/api/auth/register", summary="Register a new native user account")
-    async def api_auth_register(payload: RegisterPayload):
+    async def api_auth_register(payload: RegisterPayload, response: Response):
         auth_mgr = get_auth_manager()
         res = auth_mgr.register(payload.email, payload.password, payload.display_name or "")
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Registration failed"))
+        token = res.get("session_token")
+        if token:
+            response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
         return res
 
     @app.post("/api/auth/login", summary="Login to native user account")
-    async def api_auth_login(payload: LoginPayload):
+    async def api_auth_login(payload: LoginPayload, response: Response):
         auth_mgr = get_auth_manager()
         res = auth_mgr.login(payload.email, payload.password)
         if not res.get("success"):
             raise HTTPException(status_code=401, detail=res.get("error", "Invalid credentials"))
+        token = res.get("session_token")
+        if token:
+            response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
         return res
 
     @app.get("/api/auth/me", summary="Check active user session and BCP link status")
     async def api_auth_me(request: Request, token: Optional[str] = Query(None)):
         auth_header = request.headers.get("Authorization", "")
-        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         if not session_token:
             return {"authenticated": False}
         session = get_auth_manager().get_session(session_token)
@@ -1167,11 +1196,12 @@ if FASTAPI_AVAILABLE:
         return {"authenticated": True, "user": session}
 
     @app.post("/api/auth/logout", summary="Logout current user session")
-    async def api_auth_logout(request: Request, token: Optional[str] = Query(None)):
+    async def api_auth_logout(request: Request, response: Response, token: Optional[str] = Query(None)):
         auth_header = request.headers.get("Authorization", "")
-        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         if session_token:
             get_auth_manager().logout(session_token)
+        response.delete_cookie(key="session_token", path="/")
         return {"success": True}
 
     @app.post("/api/user/bcp/connect", summary="Connect and link Best Coast Pairings account")

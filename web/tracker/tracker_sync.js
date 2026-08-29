@@ -109,7 +109,6 @@
           const data = await resp.json();
           if (data && data.authenticated && data.user) {
             currentUser = data.user;
-            removeAuthModal();
             renderUserBar();
             return true;
           }
@@ -117,14 +116,8 @@
       } catch (e) {}
     }
     clearAuthToken();
-    renderAuthGatekeeper();
+    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href);
     return false;
-  }
-
-  function removeAuthModal() {
-    const modal = document.getElementById('gt-auth-modal-root');
-    if (modal) modal.remove();
-    document.body.style.overflow = '';
   }
 
   function renderAuthGatekeeper() {
