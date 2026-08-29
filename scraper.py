@@ -425,3 +425,41 @@ class BestCoastPairingsScraper:
 
         logger.info(f"Finished scraping date range [{start_date} to {end_date}]: {events_count} events, {matches_count} matches.")
         return {"events_scraped": events_count, "matches_scraped": matches_count}
+
+    def sync_upcoming_events(self, max_pages: int = 4) -> int:
+        """Fetches live future upcoming tournaments from Best Coast Pairings API and caches them."""
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00.000Z")
+        one_year_iso = datetime.fromtimestamp(time.time() + 365 * 86400, tz=timezone.utc).strftime("%Y-%m-%dT23:59:59.999Z")
+        
+        total_synced = 0
+        next_key = None
+
+        for _ in range(max_pages):
+            params = {
+                "limit": 50,
+                "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                "startDate": now_iso,
+                "endDate": one_year_iso
+            }
+            if next_key:
+                params["nextKey"] = next_key
+
+            resp = self._make_request("/events", params=params)
+            if not resp or "data" not in resp:
+                break
+
+            events = resp.get("data", [])
+            if not events:
+                break
+
+            for ev in events:
+                self.db.upsert_event(ev)
+                total_synced += 1
+
+            next_key = resp.get("nextKey")
+            if not next_key:
+                break
+
+        logger.info(f"Successfully synced {total_synced} live upcoming events from BCP API.")
+        return total_synced
+

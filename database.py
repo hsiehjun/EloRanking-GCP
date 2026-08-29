@@ -896,7 +896,7 @@ class PostgresDatabase:
                 target_state = (state.strip() if state and state.strip() else detected_state)
                 target_city = (city.strip() if city and city.strip() else detected_city)
 
-                where_clauses = ["(e.event_date >= CURRENT_DATE - INTERVAL '2 days' OR e.is_ended = FALSE)"]
+                where_clauses = ["e.event_date >= CURRENT_DATE", "e.is_ended = FALSE"]
                 params = []
 
                 if query and query.strip():

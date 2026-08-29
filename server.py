@@ -254,9 +254,23 @@ if FASTAPI_AVAILABLE:
         query: Optional[str] = Query(None),
         state: Optional[str] = Query(None),
         city: Optional[str] = Query(None),
-        limit: int = Query(20, ge=1, le=100)
+        limit: int = Query(25, ge=1, le=100)
     ):
-        return get_database().get_recommended_events(
+        db = get_database()
+        
+        # On-demand sync from BCP API if upcoming events cache is low
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) as cnt FROM events WHERE event_date >= CURRENT_DATE;")
+                    upcoming_count = cursor.fetchone()["cnt"] if cursor.rowcount else 0
+            if upcoming_count < 10:
+                scraper = BestCoastPairingsScraper(db=db)
+                scraper.sync_upcoming_events(max_pages=4)
+        except Exception as e:
+            logger.warning(f"On-demand BCP upcoming events sync notice: {e}")
+
+        return db.get_recommended_events(
             player_id=player_id.strip() if player_id else None,
             query=query.strip() if query else None,
             state=state.strip() if state else None,
