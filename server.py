@@ -361,7 +361,11 @@ if FASTAPI_AVAILABLE:
 
 
 
-    # Dedicated Local Static Tracker Mounts
+    # Dedicated Local Static Tracker & Layout Asset Mounts
+    if (web_dir / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(web_dir / "assets")), name="root_assets_static")
+        app.mount("/tracker/assets", StaticFiles(directory=str(web_dir / "assets")), name="tracker_assets_static")
+
     if (web_dir / "tracker" / "_next").exists():
         app.mount("/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="root_next_static")
         app.mount("/tracker/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="tracker_next_static")

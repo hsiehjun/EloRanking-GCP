@@ -1710,30 +1710,41 @@ class PostgresDatabase:
             return False
         
         match_id = match_id.strip().upper()
-        p1_name = state.get("p1Name") or "Player 1"
-        p1_faction = state.get("p1Faction") or "Necrons"
-        p1_detachment = state.get("p1Detachment") or ""
-        p2_name = state.get("p2Name") or "Player 2"
-        p2_faction = state.get("p2Faction") or "Space Marines"
-        p2_detachment = state.get("p2Detachment") or ""
-        primary_mission = state.get("primaryMission") or "Take & Hold"
-        deployment = state.get("deployment") or "Search & Destroy"
-        mission_rule = state.get("missionRule") or "Swift Action"
-        current_round = int(state.get("currentRound") or 1)
+        game_data = state.get("game", {}) if isinstance(state.get("game"), dict) else state
+        
+        p1_name = game_data.get("p1Name") or state.get("p1Name") or "Player 1"
+        p1_faction = game_data.get("p1Faction") or state.get("p1Faction") or ""
+        p1_dets = game_data.get("p1Detachments") or []
+        p1_detachment = (p1_dets[0] if isinstance(p1_dets, list) and p1_dets else str(p1_dets)) or state.get("p1Detachment") or ""
+        
+        p2_name = game_data.get("p2Name") or state.get("p2Name") or "Player 2"
+        p2_faction = game_data.get("p2Faction") or state.get("p2Faction") or ""
+        p2_dets = game_data.get("p2Detachments") or []
+        p2_detachment = (p2_dets[0] if isinstance(p2_dets, list) and p2_dets else str(p2_dets)) or state.get("p2Detachment") or ""
+        
+        primary_mission = game_data.get("primary") or game_data.get("p1Primary") or state.get("primaryMission") or "Take & Hold"
+        deployment = game_data.get("deployment") or game_data.get("terrainLayout") or state.get("deployment") or "Search & Destroy"
+        mission_rule = game_data.get("missionRule") or state.get("missionRule") or "Swift Action"
+        current_round = int(state.get("round") or state.get("currentRound") or 1)
         started = bool(state.get("started"))
         
-        def calc_vp(rds):
-            pri = sum([rds.get(str(r), {}).get("primary", 0) for r in range(1, 6)]) if isinstance(rds, dict) else 0
-            sec = 0
-            if isinstance(rds, dict):
-                for r in range(1, 6):
-                    for c in rds.get(str(r), {}).get("secondaries", []):
-                        if c.get("status") == "achieved":
-                            sec += c.get("vp", 0)
-            return min(100, min(50, pri) + min(40, sec) + 10)
+        def calc_vp(p_obj):
+            if not isinstance(p_obj, dict):
+                return 0
+            if "score" in p_obj and isinstance(p_obj["score"], (int, float)):
+                return int(p_obj["score"])
+            pri = sum([r.get("primaryScore", 0) for r in p_obj.get("rounds", []) if isinstance(r, dict)])
+            sec = sum([r.get("secondaryScore", 0) for r in p_obj.get("rounds", []) if isinstance(r, dict)])
+            paint = 10 if p_obj.get("battleReady", True) else 0
+            return min(100, min(50, pri) + min(40, sec) + paint)
 
-        p1_score = calc_vp(state.get("p1Rounds", {}))
-        p2_score = calc_vp(state.get("p2Rounds", {}))
+        p1_score = calc_vp(state.get("p1"))
+        p2_score = calc_vp(state.get("p2"))
+        if p1_score == 0 and "p1Score" in state:
+            p1_score = int(state["p1Score"])
+        if p2_score == 0 and "p2Score" in state:
+            p2_score = int(state["p2Score"])
+
         is_finished = current_round >= 5 and started
 
         winner_name = None
