@@ -160,10 +160,14 @@
 
     if (isPlay) {
       const params = new URLSearchParams(window.location.search);
-      let matchId = params.get('match_id') || params.get('room') || params.get('match');
+      const rawCurrent = originalGetItem('gdm-11e-tracker-state');
+      let currentObj = {};
+      try { currentObj = JSON.parse(rawCurrent) || {}; } catch(e) {}
+
+      let matchId = params.get('match_id') || params.get('room') || params.get('match') || currentObj.match_id || (currentObj.id && typeof currentObj.id === 'string' && currentObj.id.startsWith('WH40K-') ? currentObj.id : null);
 
       if (matchId) {
-        // Direct URL access: verify that this room exists on the server!
+        // Direct URL or History access: verify that this room exists on the server!
         try {
           const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
             headers: { 'Authorization': `Bearer ${getAuthToken()}` }
@@ -537,8 +541,9 @@
             }
             return {
               id: item.match_id,
+              match_id: item.match_id,
               date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
-              game: {
+              game: s.game || {
                 p1Name: item.p1_name || 'Player 1',
                 p2Name: item.p2_name || 'Player 2',
                 p1Faction: item.p1_faction,
@@ -548,11 +553,15 @@
                 primary: item.primary_mission || 'Take & Hold',
                 deployment: item.deployment || 'Search & Destroy'
               },
+              p1: s.p1 || { score: item.p1_score || 0 },
+              p2: s.p2 || { score: item.p2_score || 0 },
+              round: item.current_round || s.round || 1,
               p1Score: item.p1_score || 0,
               p2Score: item.p2_score || 0,
               started: item.started,
               isFinished: item.is_finished,
-              winner: item.winner_name
+              winner: item.winner_name,
+              ...s
             };
           });
         } else {
