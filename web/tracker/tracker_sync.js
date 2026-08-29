@@ -348,10 +348,10 @@
             <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
               <div>
                 <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
-                <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Generate a unique room key to invite Player 2 for collaborative army setup.</p>
+                <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
               </div>
               <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
-                GENERATE ROOM KEY ➔
+                CREATE & ENTER MATCH ➔
               </button>
             </div>
 
@@ -365,7 +365,7 @@
                 <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
                 <div style="display:flex; gap:8px;">
                   <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                  <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">JOIN</button>
+                  <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
                 </div>
               </div>
             </div>

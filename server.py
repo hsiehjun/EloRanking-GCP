@@ -591,6 +591,7 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
     async def api_tracker_debug_test_save():
+        import traceback
         db = get_database()
         test_id = f"WH40K-TEST-{secrets.token_hex(2).upper()}"
         test_state = {
@@ -601,15 +602,46 @@ if FASTAPI_AVAILABLE:
             "p2": {"score": 0},
             "round": 1
         }
-        res = db.save_tracker_game(test_id, test_state, version=1, user_id_p1="test_u1")
-        loaded = db.get_tracker_game(test_id)
-        history = db.get_tracker_history(limit=5)
+        save_err = None
+        load_err = None
+        hist_err = None
+        res = False
+        loaded = None
+        history = []
+        try:
+            res = db.save_tracker_game(test_id, test_state, version=1, user_id_p1="test_u1")
+        except Exception as e:
+            save_err = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+
+        try:
+            loaded = db.get_tracker_game(test_id)
+        except Exception as e:
+            load_err = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+
+        try:
+            history = db.get_tracker_history(limit=5)
+        except Exception as e:
+            hist_err = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+
+        # Inspect table columns
+        columns_info = []
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'tracker_games';")
+                    columns_info = [f"{r[0]} ({r[1]})" for r in cursor.fetchall()]
+        except Exception as e:
+            columns_info = [f"Error fetching columns: {e}"]
+
         return {
             "test_match_id": test_id,
             "saved_success": res,
+            "save_error": save_err,
             "loaded_from_db": loaded,
+            "load_error": load_err,
             "recent_history_count": len(history),
-            "recent_history": history
+            "history_error": hist_err,
+            "table_columns": columns_info
         }
 
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
