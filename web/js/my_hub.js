@@ -205,23 +205,34 @@ function renderMyHub(data) {
 
       <!-- Tab 2: Recommended Near Me -->
       <div id="hub-tourney-view-recommended" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; font-size: 0.82rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; font-size: 0.82rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.75rem;">
           <span id="hub-rec-location-label" style="font-weight: 600;">📍 Recommendations based on your region</span>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <span style="font-size: 0.78rem;">Region:</span>
-            <select id="hub-rec-state-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
-              <option value="">Auto-Detect</option>
-              <option value="CA">California (CA)</option>
-              <option value="TX">Texas (TX)</option>
-              <option value="FL">Florida (FL)</option>
-              <option value="NY">New York (NY)</option>
-              <option value="WA">Washington (WA)</option>
-              <option value="IL">Illinois (IL)</option>
-              <option value="OH">Ohio (OH)</option>
-              <option value="PA">Pennsylvania (PA)</option>
-              <option value="NC">North Carolina (NC)</option>
-              <option value="All">All States / Global</option>
-            </select>
+          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <span style="font-size: 0.78rem;">Radius:</span>
+              <select id="hub-rec-radius-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
+                <option value="60" selected>Within 60 miles</option>
+                <option value="100">Within 100 miles</option>
+                <option value="250">Within 250 miles</option>
+                <option value="">Any Distance</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <span style="font-size: 0.78rem;">Region:</span>
+              <select id="hub-rec-state-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
+                <option value="">Auto-Detect</option>
+                <option value="CA">California (CA)</option>
+                <option value="TX">Texas (TX)</option>
+                <option value="FL">Florida (FL)</option>
+                <option value="NY">New York (NY)</option>
+                <option value="WA">Washington (WA)</option>
+                <option value="IL">Illinois (IL)</option>
+                <option value="OH">Ohio (OH)</option>
+                <option value="PA">Pennsylvania (PA)</option>
+                <option value="NC">North Carolina (NC)</option>
+                <option value="All">All States / Global</option>
+              </select>
+            </div>
           </div>
         </div>
         <div id="hub-recommended-list" class="hub-events-grid">
@@ -514,6 +525,7 @@ function switchHubTourneyTab(tabName) {
 async function loadHubRecommendedEvents() {
   const container = document.getElementById('hub-recommended-list');
   const stateSelect = document.getElementById('hub-rec-state-select');
+  const radiusSelect = document.getElementById('hub-rec-radius-select');
   const label = document.getElementById('hub-rec-location-label');
   if (!container) return;
 
@@ -521,9 +533,10 @@ async function loadHubRecommendedEvents() {
 
   const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
   const selectedState = stateSelect ? stateSelect.value : '';
+  const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : null;
 
   try {
-    const data = await window.api.getRecommendedEvents(playerId, '', selectedState, 20);
+    const data = await window.api.getRecommendedEvents(playerId, '', selectedState, null, null, selectedRadius, 30);
     const events = data.events || [];
     
     if (label) {
@@ -634,14 +647,14 @@ function renderHubEventCard(ev) {
           </div>
         </div>
 
-        <!-- Meta Row: Date & Location -->
+        <!-- Meta Row: Date & Location & Proximity Distance -->
         <div class="hub-card-meta-row" style="margin-top: 0.5rem;">
           <span class="hub-meta-item">
             <span style="color:var(--accent);">📅</span> <b>${evDate}</b> <span style="color:var(--text-muted);">(${timeLabel})</span>
           </span>
           <span>•</span>
           <span class="hub-meta-item">
-            <span style="color:#a855f7;">📍</span> ${escapeHtml(cleanLoc)}
+            <span style="color:#a855f7;">📍</span> ${ev.distance_miles !== undefined && ev.distance_miles !== null ? `<b style="color:#38bdf8;">${ev.distance_miles} mi away</b> • ` : ''}${escapeHtml(cleanLoc)}
           </span>
         </div>
       </div>

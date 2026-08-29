@@ -158,12 +158,15 @@ window.api = {
     return this._fetchJson(`/api/events?${params}`);
   },
 
-  // Recommended Events for User & Search
-  async getRecommendedEvents(playerId = '', query = '', state = '', limit = 20) {
+  // Recommended Events for User & Geo-Search
+  async getRecommendedEvents(playerId = '', query = '', state = '', lat = null, lng = null, radius = null, limit = 30) {
     const params = new URLSearchParams();
     if (playerId) params.append('player_id', playerId);
     if (query) params.append('query', query);
     if (state) params.append('state', state);
+    if (lat !== null && lat !== undefined) params.append('lat', lat);
+    if (lng !== null && lng !== undefined) params.append('lng', lng);
+    if (radius !== null && radius !== undefined) params.append('radius_miles', radius);
     if (limit) params.append('limit', limit);
     return this._fetchJson(`/api/events/recommended?${params}`);
   },

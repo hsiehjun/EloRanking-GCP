@@ -869,14 +869,36 @@ class PostgresDatabase:
         query: Optional[str] = None,
         state: Optional[str] = None,
         city: Optional[str] = None,
+        lat: Optional[float] = None,
+        lng: Optional[float] = None,
+        radius_miles: Optional[float] = None,
         limit: int = 25
     ) -> Dict[str, Any]:
-        """Returns personalized upcoming event recommendations with Average Field Elo, player skill compatibility, and capacity metrics."""
+        """Returns personalized upcoming event recommendations with Haversine distance calculations, Average Field Elo, and capacity metrics."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 detected_state = None
                 detected_city = None
                 user_elo = None
+                user_lat = lat
+                user_lng = lng
+
+                # City geocoding dictionary fallback
+                KNOWN_CITIES = {
+                    "san diego": (32.7157, -117.1611),
+                    "temecula": (33.4936, -117.1484),
+                    "los angeles": (34.0522, -118.2437),
+                    "san francisco": (37.7749, -122.4194),
+                    "san jose": (37.3382, -121.8863),
+                    "sacramento": (38.5816, -121.4944),
+                    "austin": (30.2672, -97.7431),
+                    "dallas": (32.7767, -96.7970),
+                    "houston": (29.7604, -95.3698),
+                    "chicago": (41.8781, -87.6298),
+                    "seattle": (47.6062, -122.3321),
+                    "orlando": (28.5383, -81.3792),
+                    "london": (51.5074, -0.1278)
+                }
 
                 if player_id:
                     # Detect home region
@@ -895,6 +917,8 @@ class PostgresDatabase:
                     if loc_row:
                         detected_state = loc_row.get("state")
                         detected_city = loc_row.get("city")
+                        if not user_lat and detected_city and detected_city.strip().lower() in KNOWN_CITIES:
+                            user_lat, user_lng = KNOWN_CITIES[detected_city.strip().lower()]
 
                     # Get user's current Elo
                     cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id,))
@@ -904,6 +928,9 @@ class PostgresDatabase:
 
                 target_state = (state.strip() if state and state.strip() else detected_state)
                 target_city = (city.strip() if city and city.strip() else detected_city)
+
+                if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
+                    user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
                 where_clauses = ["e.event_date >= CURRENT_DATE", "e.is_ended = FALSE"]
                 params = []
@@ -919,19 +946,13 @@ class PostgresDatabase:
 
                 where_sql = " AND ".join(where_clauses)
 
-                order_clauses = []
-                if target_state:
-                    order_clauses.append(f"CASE WHEN LOWER(TRIM(e.state)) = LOWER('{target_state}') THEN 0 ELSE 1 END ASC")
-                order_clauses.append("e.event_date ASC NULLS LAST")
-                order_clauses.append("e.total_players DESC")
-                order_sql = ", ".join(order_clauses)
-
                 cursor.execute(f"""
                 SELECT 
                     e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
                     e.total_players, e.num_rounds, e.current_round, e.is_ended,
                     COALESCE(e.raw_json->>'locationName', e.raw_json->>'gameStoreName', '') as venue_name,
                     COALESCE(e.raw_json->>'formatted_address', '') as full_address,
+                    e.raw_json->'coordinate' as coordinate,
                     COALESCE(NULLIF(e.raw_json->>'numTickets', '')::int, NULLIF(e.raw_json->>'queryNumPlayers', '')::int, e.total_players) as max_capacity,
                     COALESCE(NULLIF(e.raw_json->>'checkedInPlayers', '')::int, 0) as checked_in_players,
                     ROUND(AVG(pr.current_elo)::numeric, 1) as avg_field_elo,
@@ -941,12 +962,18 @@ class PostgresDatabase:
                 LEFT JOIN event_participants ep ON e.id = ep.event_id
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                 WHERE {where_sql}
-                GROUP BY e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country, e.total_players, e.num_rounds, e.current_round, e.is_ended, e.raw_json
-                ORDER BY {order_sql}
-                LIMIT %s;
-                """, params + [limit])
+                GROUP BY e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country, e.total_players, e.num_rounds, e.current_round, e.is_ended, e.raw_json;
+                """, params)
                 
                 rows = [dict(r) for r in cursor.fetchall()]
+
+                import math
+                def haversine(lat1, lon1, lat2, lon2):
+                    R = 3958.8
+                    dLat = math.radians(lat2 - lat1)
+                    dLon = math.radians(lon2 - lon1)
+                    a = math.sin(dLat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dLon/2)**2
+                    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
 
                 now_dt = datetime.now(timezone.utc)
                 for r in rows:
@@ -973,12 +1000,21 @@ class PostgresDatabase:
                     r["enrolled_count"] = enrolled
                     r["capacity_cap"] = cap
 
-                    if cap > enrolled:
-                        r["capacity_label"] = f"{enrolled} / {cap} Spots Filled ({cap - enrolled} open)"
-                    elif cap == enrolled and cap > 0:
-                        r["capacity_label"] = f"{enrolled} / {cap} Spots (Sold Out)"
-                    else:
-                        r["capacity_label"] = f"{enrolled} Enrolled"
+                    # Calculate Distance in Miles
+                    dist_val = None
+                    coord = r.get("coordinate")
+                    ev_lat, ev_lng = None, None
+                    if coord and isinstance(coord, list) and len(coord) == 2:
+                        ev_lng, ev_lat = coord[0], coord[1]
+                    elif r.get("city") and r.get("city").strip().lower() in KNOWN_CITIES:
+                        ev_lat, ev_lng = KNOWN_CITIES[r.get("city").strip().lower()]
+
+                    if user_lat and user_lng and ev_lat and ev_lng:
+                        try:
+                            dist_val = haversine(float(user_lat), float(user_lng), float(ev_lat), float(ev_lng))
+                            r["distance_miles"] = round(dist_val, 1)
+                        except Exception:
+                            pass
 
                     tp = max(enrolled, cap)
                     if tp >= 60:
@@ -1021,16 +1057,32 @@ class PostgresDatabase:
                             r["skill_match_label"] = "🟢 Open / Casual Friendly"
                             r["skill_match_badge"] = "badge-match-favorable"
 
-                    r["is_nearby"] = bool(target_state and r.get("state") and r.get("state").strip().lower() == target_state.strip().lower())
+                    r["is_nearby"] = bool((dist_val is not None and dist_val <= 60) or (target_state and r.get("state") and r.get("state").strip().lower() == target_state.strip().lower()))
                     r["bcp_url"] = f"https://www.bestcoastpairings.com/event/{r['id']}"
+
+                # Filter by radius if requested
+                if radius_miles and user_lat:
+                    rows = [r for r in rows if r.get("distance_miles") is not None and r["distance_miles"] <= radius_miles]
+
+                # Sort primarily by proximity (distance in miles), then by date soonest
+                def sort_key(e):
+                    d = e.get("distance_miles")
+                    d_score = d if d is not None else 99999.0
+                    dt = e.get("event_date")
+                    dt_ts = dt.timestamp() if dt else 9999999999.0
+                    return (d_score, dt_ts)
+
+                sorted_events = sorted(rows, key=sort_key)
 
                 return {
                     "detected_state": detected_state,
                     "detected_city": detected_city,
                     "target_state": target_state,
                     "user_elo": user_elo,
-                    "events": rows,
-                    "total": len(rows)
+                    "user_lat": user_lat,
+                    "user_lng": user_lng,
+                    "events": sorted_events[:limit],
+                    "total": len(sorted_events)
                 }
 
 
