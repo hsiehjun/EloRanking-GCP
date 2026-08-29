@@ -656,13 +656,14 @@ async function loadHubRecommendedEvents() {
   let userLat = null;
   let userLng = null;
   let locName = null;
+  let geo = null;
 
   if (customUserLocation) {
     userLat = customUserLocation.lat;
     userLng = customUserLocation.lng;
     locName = customUserLocation.name;
   } else {
-    const geo = await getDeviceCoordinates();
+    geo = await getDeviceCoordinates();
     if (geo) {
       userLat = geo.lat;
       userLng = geo.lng;
