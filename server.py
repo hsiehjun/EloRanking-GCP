@@ -401,53 +401,55 @@ if FASTAPI_AVAILABLE:
         st = room.get("state", {})
         game = st.get("game", {})
         
-        role = "spectator"
-        if user_id:
-            if room.get("user_id_p1") == user_id:
-                role = "player1"
-            elif room.get("user_id_p2") == user_id:
-                role = "player2"
-            elif user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to"):
-                role = "referee"
-            elif not room.get("user_id_p2") and room.get("user_id_p1") != user_id:
-                # User claims Player 2 slot!
-                room["user_id_p2"] = user_id
-                st["user_id_p2"] = user_id
-                if user_name:
-                    game["p2Name"] = user_name
-                role = "player2"
-                room["version"] += 1
-                
-                # Persist updated P2 assignment to DB
+        # Determine Role:
+        # 1. If user is Player 1 owner
+        if user_id and room.get("user_id_p1") == user_id:
+            role = "player1"
+        # 2. If user is Player 2 owner
+        elif user_id and room.get("user_id_p2") == user_id:
+            role = "player2"
+        # 3. If Player 2 slot is open, claim Player 2 slot!
+        elif not room.get("user_id_p2"):
+            room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
+            st["user_id_p2"] = room["user_id_p2"]
+            if user_name and user_name != game.get("p1Name"):
+                game["p2Name"] = user_name
+            role = "player2"
+            room["version"] += 1
+            
+            try:
+                db.save_tracker_game(
+                    match_id=match_id,
+                    state=st,
+                    version=room["version"],
+                    user_id_p1=room.get("user_id_p1"),
+                    user_id_p2=room["user_id_p2"]
+                )
+            except Exception:
+                pass
+            
+            # Broadcast P2 connection to opponent
+            listeners = TRACKER_LISTENERS.get(match_id, [])
+            msg = {
+                "type": "state_update",
+                "sender": "server",
+                "version": room["version"],
+                "state": st
+            }
+            for q in list(listeners):
                 try:
-                    db.save_tracker_game(
-                        match_id=match_id,
-                        state=st,
-                        version=room["version"],
-                        user_id_p1=room.get("user_id_p1"),
-                        user_id_p2=user_id
-                    )
+                    await q.put(msg)
                 except Exception:
                     pass
-                
-                # Broadcast update to connected opponents
-                listeners = TRACKER_LISTENERS.get(match_id, [])
-                msg = {
-                    "type": "state_update",
-                    "sender": "server",
-                    "version": room["version"],
-                    "state": st
-                }
-                for q in listeners:
-                    await q.put(msg)
-            elif not room.get("user_id_p1"):
-                # User claims Player 1 slot!
-                room["user_id_p1"] = user_id
-                st["user_id_p1"] = user_id
-                if user_name:
-                    game["p1Name"] = user_name
-                role = "player1"
-                room["version"] += 1
+        elif not room.get("user_id_p1"):
+            room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
+            st["user_id_p1"] = room["user_id_p1"]
+            if user_name:
+                game["p1Name"] = user_name
+            role = "player1"
+            room["version"] += 1
+        elif user_id in room.get("referee_ids", []) or (user and user.get("role") in ("admin", "referee", "to")):
+            role = "referee"
         else:
             role = "spectator"
             
@@ -594,25 +596,38 @@ if FASTAPI_AVAILABLE:
             TRACKER_LISTENERS[match_id] = []
         TRACKER_LISTENERS[match_id].append(q)
 
+        # Broadcast live presence count to ALL connected listeners in this room
+        cur_count = len(TRACKER_LISTENERS[match_id])
+        p_msg = {"type": "presence", "count": cur_count}
+        for l_q in list(TRACKER_LISTENERS[match_id]):
+            try:
+                await l_q.put(p_msg)
+            except Exception:
+                pass
+
         async def event_generator():
             try:
-                # Send initial connection presence event
-                yield f"data: {json.dumps({'type': 'presence', 'count': len(TRACKER_LISTENERS.get(match_id, []))})}\\n\\n"
-                
-                # Send current state if available
-                if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id]["state"]:
-                    yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': TRACKER_ROOMS[match_id]['version'], 'state': TRACKER_ROOMS[match_id]['state']})}\\n\\n"
+                # Send current room state on initial connection
+                if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
+                    r = TRACKER_ROOMS[match_id]
+                    yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': r['version'], 'state': r['state']})}\n\n"
 
                 while True:
                     msg = await q.get()
-                    yield f"data: {json.dumps(msg)}\\n\\n"
+                    yield f"data: {json.dumps(msg)}\n\n"
             except asyncio.CancelledError:
                 pass
             finally:
                 if match_id in TRACKER_LISTENERS and q in TRACKER_LISTENERS[match_id]:
                     TRACKER_LISTENERS[match_id].remove(q)
+                rem_count = len(TRACKER_LISTENERS.get(match_id, []))
+                disconn_msg = {"type": "presence", "count": rem_count}
+                for rem_q in list(TRACKER_LISTENERS.get(match_id, [])):
+                    try:
+                        await rem_q.put(disconn_msg)
+                    except Exception:
+                        pass
 
-        from fastapi.responses import StreamingResponse
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     # =========================================================================

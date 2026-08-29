@@ -232,7 +232,8 @@
       } catch (e) {}
 
       injectPlayer2InviteWidget();
-      startRealtimeStream();
+      attachDomActionInterceptors();
+      startHybridSync();
     } else {
       // Landing page (/11th/tracker or /tracker)
       injectLobbyHub();
@@ -533,10 +534,9 @@
     } catch (e) {}
   }
 
-  // 7. Broadcast State with Role & Session Validation
+  // 7. Broadcast State with Instant Role & Session Sync
   function notifyStateChanged() {
     if (clientState.isApplyingRemote) return;
-    if (clientState.role === 'spectator') return;
     if (!clientState.matchId) return;
 
     clearTimeout(clientState.debounceTimer);
@@ -574,6 +574,7 @@
   }
 
   function applyRemoteState(incoming) {
+    if (!incoming) return;
     clientState.isApplyingRemote = true;
     try {
       const stateObj = typeof incoming === 'string' ? JSON.parse(incoming) : incoming;
@@ -623,8 +624,35 @@
     } catch (err) {
       console.error('[GDM Sync Bridge] Error applying remote state:', err);
     } finally {
-      setTimeout(() => { clientState.isApplyingRemote = false; }, 50);
+      setTimeout(() => { clientState.isApplyingRemote = false; }, 60);
     }
+  }
+
+  let fastPollTimer = null;
+  function startHybridSync() {
+    startRealtimeStream();
+    
+    if (fastPollTimer) clearInterval(fastPollTimer);
+    fastPollTimer = setInterval(async () => {
+      if (!clientState.matchId || clientState.isApplyingRemote) return;
+      try {
+        const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}`, {
+          headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.online_count !== undefined) {
+            clientState.onlineCount = data.online_count;
+            const countEl = document.getElementById('gt-hud-online');
+            if (countEl) countEl.textContent = `${data.online_count || 1} online`;
+          }
+          if (data.version && data.version > clientState.version && data.state) {
+            clientState.version = data.version;
+            applyRemoteState(data.state);
+          }
+        }
+      } catch (e) {}
+    }, 1000);
   }
 
   function startRealtimeStream() {
@@ -647,12 +675,28 @@
               }
             }
           } else if (msg.type === 'presence') {
+            clientState.onlineCount = msg.count || 1;
             const countEl = document.getElementById('gt-hud-online');
             if (countEl) countEl.textContent = `${msg.count || 1} online`;
           }
         } catch (e) {}
       };
     } catch (e) {}
+  }
+
+  function attachDomActionInterceptors() {
+    document.addEventListener('input', (e) => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        setTimeout(() => notifyStateChanged(), 60);
+      }
+    }, true);
+
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (btn) {
+        setTimeout(() => notifyStateChanged(), 60);
+      }
+    }, true);
   }
 
   // 8. Floating Multiplayer Status HUD with Role Badge
