@@ -51,9 +51,9 @@ if ! gcloud sql instances describe ${INSTANCE_NAME} >/dev/null 2>&1; then
     echo "Creating Cloud SQL PostgreSQL instance ${INSTANCE_NAME} (~3-5 mins)..."
     gcloud sql instances create ${INSTANCE_NAME} \
         --database-version=POSTGRES_15 \
-        --tier=db-custom-2-7680 \
+        --tier=db-f1-micro \
         --region=${REGION} \
-        --storage-size=20 \
+        --storage-size=10 \
         --storage-auto-increase \
         --backup-start-time=04:00
 fi
@@ -80,8 +80,8 @@ gcloud run deploy ${SERVICE_NAME} \
     --allow-unauthenticated \
     --add-cloudsql-instances ${INSTANCE_CONNECTION_NAME} \
     --set-env-vars "DATABASE_URL=${DATABASE_URL},CRON_SECRET_KEY=${CRON_SECRET}" \
-    --memory 2Gi \
-    --cpu 2 \
+    --memory 1Gi \
+    --cpu 1 \
     --min-instances 0 \
     --max-instances 10 \
     --concurrency 80 \
