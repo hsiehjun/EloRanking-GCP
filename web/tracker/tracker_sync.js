@@ -577,15 +577,122 @@
     } catch (e) {}
   }
 
+  // React Synthetic Value Setter (Bypasses React internal value tracking)
+  function setReactInputValue(inputEl, value) {
+    if (!inputEl || inputEl.value === value) return;
+    try {
+      const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+      if (descriptor && descriptor.set) {
+        descriptor.set.call(inputEl, value);
+      } else {
+        inputEl.value = value;
+      }
+      inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+      inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+    } catch (e) {
+      inputEl.value = value;
+    }
+  }
+
+  // Scrape live setup wizard values from the DOM
+  function scrapeSetupWizardState() {
+    const stepHeader = document.querySelector('h2');
+    if (!stepHeader || !stepHeader.textContent.includes('PLAYERS')) return null;
+
+    const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+    const p1Input = inputs[0];
+    const p2Input = inputs[1];
+
+    const p1Name = p1Input ? p1Input.value.trim() : null;
+    const p2Name = p2Input ? p2Input.value.trim() : null;
+
+    const buttons = Array.from(document.querySelectorAll('button'));
+    
+    // Find battle ready buttons
+    const battleReadyBtns = buttons.filter(b => b.textContent && b.textContent.includes('BATTLE READY'));
+    const p1BattleReady = battleReadyBtns[0] ? (battleReadyBtns[0].classList.contains('active') || getComputedStyle(battleReadyBtns[0]).backgroundColor.includes('rgb(')) : true;
+    const p2BattleReady = battleReadyBtns[1] ? (battleReadyBtns[1].classList.contains('active') || getComputedStyle(battleReadyBtns[1]).backgroundColor.includes('rgb(')) : true;
+
+    // Find faction dropdown buttons
+    const factionButtons = buttons.filter(b => {
+      const txt = (b.textContent || '').trim();
+      return !txt.includes('BATTLE READY') && !txt.includes('BACK') && !txt.includes('NEXT') && !txt.includes('Share') && !txt.includes('Logout') && !txt.includes('Logged in') && !txt.includes('STEP');
+    });
+
+    const p1Faction = factionButtons[0] && !factionButtons[0].textContent.includes('Faction (optional)') ? factionButtons[0].textContent.trim() : null;
+    const p2Faction = factionButtons[1] && !factionButtons[1].textContent.includes('Faction (optional)') ? factionButtons[1].textContent.trim() : null;
+
+    return {
+      p1Name: p1Name || undefined,
+      p2Name: p2Name || undefined,
+      p1Faction: p1Faction || undefined,
+      p2Faction: p2Faction || undefined,
+      p1BattleReady: p1BattleReady,
+      p2BattleReady: p2BattleReady
+    };
+  }
+
+  // Inject remote setup wizard values into the DOM
+  function injectSetupWizardState(gameObj, p1Obj, p2Obj) {
+    if (!gameObj) return;
+    const stepHeader = document.querySelector('h2');
+    if (!stepHeader || !stepHeader.textContent.includes('PLAYERS')) return;
+
+    const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+    const p1Input = inputs[0];
+    const p2Input = inputs[1];
+
+    if (p1Input && gameObj.p1Name && p1Input.value !== gameObj.p1Name) {
+      setReactInputValue(p1Input, gameObj.p1Name);
+    }
+    if (p2Input && gameObj.p2Name && p2Input.value !== gameObj.p2Name) {
+      setReactInputValue(p2Input, gameObj.p2Name);
+    }
+
+    const buttons = Array.from(document.querySelectorAll('button'));
+    const factionButtons = buttons.filter(b => {
+      const txt = (b.textContent || '').trim();
+      return !txt.includes('BATTLE READY') && !txt.includes('BACK') && !txt.includes('NEXT') && !txt.includes('Share') && !txt.includes('Logout') && !txt.includes('Logged in') && !txt.includes('STEP');
+    });
+
+    if (factionButtons[0] && gameObj.p1Faction && factionButtons[0].textContent.trim() !== gameObj.p1Faction) {
+      factionButtons[0].textContent = gameObj.p1Faction;
+      factionButtons[0].style.color = '#f8fafc';
+    }
+
+    if (factionButtons[1] && gameObj.p2Faction && factionButtons[1].textContent.trim() !== gameObj.p2Faction) {
+      factionButtons[1].textContent = gameObj.p2Faction;
+      factionButtons[1].style.color = '#f8fafc';
+    }
+  }
+
   // 7. Broadcast State with Instant Role & Session Sync
   function notifyStateChanged() {
     if (clientState.isApplyingRemote) return;
     if (!clientState.matchId) return;
 
+    // Scrape active DOM wizard fields into state
+    const wizard = scrapeSetupWizardState();
+    if (wizard) {
+      const raw = originalGetItem('gdm-11e-tracker-state');
+      let st = {};
+      try { st = JSON.parse(raw) || {}; } catch(e) {}
+      if (!st.game) st.game = {};
+      if (wizard.p1Name) st.game.p1Name = wizard.p1Name;
+      if (wizard.p2Name) st.game.p2Name = wizard.p2Name;
+      if (wizard.p1Faction) st.game.p1Faction = wizard.p1Faction;
+      if (wizard.p2Faction) st.game.p2Faction = wizard.p2Faction;
+      if (!st.p1) st.p1 = {};
+      if (!st.p2) st.p2 = {};
+      st.p1.battleReady = wizard.p1BattleReady;
+      st.p2.battleReady = wizard.p2BattleReady;
+      originalSetItem('gdm-11e-tracker-state', JSON.stringify(st));
+    }
+
     clearTimeout(clientState.debounceTimer);
     clientState.debounceTimer = setTimeout(() => {
       broadcastState();
-    }, SYNC_CONFIG.debounceMs);
+    }, 80);
   }
 
   async function broadcastState() {
@@ -626,7 +733,12 @@
       
       originalSetItem('gdm-11e-tracker-state', serialized);
 
-      // 1. Direct React Context state injection
+      // 1. Direct Setup Wizard DOM Injection
+      if (stateObj.game) {
+        injectSetupWizardState(stateObj.game, stateObj.p1, stateObj.p2);
+      }
+
+      // 2. Direct React Context state injection
       if (typeof window.__gdmSetTrackerState === 'function') {
         window.__gdmSetTrackerState(stateObj);
       } else {
@@ -642,10 +754,10 @@
         }, 50);
       }
 
-      // 2. Custom event dispatch
+      // 3. Custom event dispatch
       window.dispatchEvent(new CustomEvent('gdm-state-sync', { detail: stateObj }));
 
-      // 3. Storage event dispatch
+      // 4. Storage event dispatch
       window.dispatchEvent(new StorageEvent('storage', {
         key: 'gdm-11e-tracker-state',
         newValue: serialized,
@@ -695,7 +807,7 @@
           }
         }
       } catch (e) {}
-    }, 1000);
+    }, 400);
   }
 
   function startRealtimeStream() {

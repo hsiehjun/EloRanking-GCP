@@ -549,14 +549,18 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/tracker/room/{match_id}", summary="Get current match room state")
     async def api_tracker_get_state(match_id: str):
         match_id = normalize_tracker_match_id(match_id)
-        if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
-            return TRACKER_ROOMS[match_id]
+        db = get_database()
         
-        # Fallback to persistent database record
+        # 1. Fetch latest DB state
+        saved = None
         try:
-            db = get_database()
             saved = db.get_tracker_game(match_id)
-            if saved and saved.get("state"):
+        except Exception:
+            pass
+
+        online_count = max(1, len(TRACKER_LISTENERS.get(match_id, [])))
+        if saved and saved.get("state"):
+            if match_id not in TRACKER_ROOMS or (saved.get("version", 1) >= TRACKER_ROOMS[match_id].get("version", 0)):
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
                     "user_id_p1": saved.get("user_id_p1"),
@@ -566,11 +570,16 @@ if FASTAPI_AVAILABLE:
                     "state": saved["state"],
                     "updated_at": saved.get("updated_at")
                 }
-                return TRACKER_ROOMS[match_id]
-        except Exception as err:
-            logger.debug(f"Tracker DB load notice: {err}")
+            res = dict(TRACKER_ROOMS[match_id])
+            res["online_count"] = online_count
+            return res
 
-        return {"match_id": match_id, "version": 0, "state": {}}
+        if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
+            res = dict(TRACKER_ROOMS[match_id])
+            res["online_count"] = online_count
+            return res
+
+        return {"match_id": match_id, "version": 0, "online_count": online_count, "state": {}}
 
     @app.get("/api/tracker/history", summary="Get persistent history of tracker games")
     async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None)):
@@ -704,8 +713,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=8.6">
-  <script src="/tracker/tracker_sync.js?v=8.6"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=8.7">
+  <script src="/tracker/tracker_sync.js?v=8.7"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;
