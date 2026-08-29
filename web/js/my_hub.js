@@ -517,6 +517,27 @@ function getDeviceCoordinates() {
   });
 }
 
+function requestUserDeviceLocationPrompt() {
+  if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userDeviceGeo = {
+          lat: Number(pos.coords.latitude.toFixed(4)),
+          lng: Number(pos.coords.longitude.toFixed(4))
+        };
+        loadHubRecommendedEvents();
+      },
+      (err) => {
+        alert('Location access was not granted. You can select your state or region from the Region dropdown above.');
+      },
+      { enableHighAccuracy: true, timeout: 6000 }
+    );
+  } else {
+    alert('Geolocation is not supported by your browser. Please choose a region from the dropdown.');
+  }
+}
+window.requestUserDeviceLocationPrompt = requestUserDeviceLocationPrompt;
+
 async function loadHubRecommendedEvents() {
   const container = document.getElementById('hub-recommended-list');
   const stateSelect = document.getElementById('hub-rec-state-select');
@@ -557,11 +578,31 @@ async function loadHubRecommendedEvents() {
       }
     }
 
+    // If no GPS, no detected history, and no region selected, show dedicated prompt to enable location sharing
+    if (!geo && !data.detected_state && !data.detected_city && !selectedState && !query) {
+      container.innerHTML = `
+        <div style="padding: 2.5rem 1.5rem; text-align: center; color: var(--text-secondary); max-width: 480px; margin: 0 auto; grid-column: 1 / -1;">
+          <div style="font-size: 2.2rem; margin-bottom: 0.6rem;">📍</div>
+          <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem;">Enable Location Sharing to Discover Tournaments</h4>
+          <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1.15rem;">
+            Allow device location access to automatically find tournaments within 50 miles of your current location.
+          </p>
+          <button class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="requestUserDeviceLocationPrompt()">
+            📍 Enable Location Sharing
+          </button>
+          <div style="margin-top: 0.85rem; font-size: 0.76rem; color: var(--text-muted);">
+            Or choose your state from the <b>Region dropdown</b> above.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (events.length === 0) {
       container.innerHTML = `
-        <div style="padding: 1.5rem 0; text-align: center; color: var(--text-muted); font-size: 0.82rem;">
-          <div>No upcoming events found for this region.</div>
-          <div style="margin-top: 0.35rem; font-size: 0.78rem;">Try selecting "All States / Global" or searching in the Search tab!</div>
+        <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.84rem; grid-column: 1 / -1;">
+          <div style="font-size: 1.2rem; margin-bottom: 0.35rem;">🔍 No upcoming tournaments found for this area.</div>
+          <div style="margin-top: 0.35rem; font-size: 0.78rem;">Try expanding your radius (e.g. 100 or 250 miles) or selecting "All States / Global"!</div>
         </div>
       `;
       return;
