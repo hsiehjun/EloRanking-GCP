@@ -254,7 +254,7 @@ function renderMyHub(data) {
 
     </div>
 
-    <!-- 2-Column Grid: Trajectory Chart & Army Mastery -->
+    <!-- 2-Column Row 1: Trajectory Chart & Faction Mastery -->
     <div class="hub-grid-2col" style="margin-top: 1.25rem;">
       
       <!-- Card 1: Elo Trajectory Progression -->
@@ -268,11 +268,11 @@ function renderMyHub(data) {
         </div>
       </div>
       
-      <!-- Card 3: Faction Mastery Breakdown -->
+      <!-- Card 2: Faction Mastery Breakdown -->
       <div class="hub-card">
         <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🛡️ Faction Mastery & Win Rates</h3>
         ${factionMastery.length > 0 ? `
-          <div class="table-container">
+          <div class="table-container" style="max-height: 220px; overflow-y: auto;">
             <table id="hub-faction-table" class="table-compact" style="width: 100%;">
               <thead>
                 <tr>
@@ -299,11 +299,16 @@ function renderMyHub(data) {
         ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>'}
       </div>
 
-      <!-- Card 4: Matchup Matrix vs Enemy Factions -->
+    </div>
+
+    <!-- 2-Column Row 2: Matchup Matrix & Career Match History -->
+    <div class="hub-grid-2col" style="margin-top: 1.25rem;">
+
+      <!-- Card 3: Matchup Matrix vs Enemy Factions -->
       <div class="hub-card">
         <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
         ${matchups.length > 0 ? `
-          <div class="table-container">
+          <div class="table-container" style="max-height: 260px; overflow-y: auto;">
             <table id="hub-matchup-table" class="table-compact" style="width: 100%;">
               <thead>
                 <tr>
@@ -335,48 +340,49 @@ function renderMyHub(data) {
         ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>'}
       </div>
 
-    </div>
-
-    <!-- Tournament History & Game-by-Game Record -->
-    <div class="hub-card" style="margin-top: 1.25rem;">
-      <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">📜 Career Match History & Elo Deltas</h3>
-      ${history.length > 0 ? `
-        <div class="table-container" style="max-height: 420px; overflow-y: auto;">
-          <table id="hub-history-table" class="table-compact" style="width: 100%;">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Tournament</th>
-                <th>Rnd</th>
-                <th>Opponent</th>
-                <th>Opp Elo</th>
-                <th>Result</th>
-                <th>Elo Delta</th>
-                <th>New Elo</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${history.slice().reverse().map(h => {
-                const delta = Number(h.delta_elo || 0);
-                const isPos = delta >= 0;
-                const res = h.result === 'W' ? '<span class="res-badge res-w">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l">LOSS</span>' : '<span class="res-badge res-d">DRAW</span>');
-                return `
-                  <tr>
-                    <td style="color: var(--text-muted); font-size: 0.78rem;">${h.match_date ? h.match_date.substring(0, 10) : '-'}</td>
-                    <td><span class="player-link" onclick="openEventModal('${h.event_id}')">${escapeHtml(h.event_name || 'Event')}</span></td>
-                    <td>R${h.round || 1}</td>
-                    <td><b>${escapeHtml(h.opponent_name || 'Opponent')}</b> <span style="font-size:0.72rem; color:var(--text-secondary);">(${escapeHtml(h.opponent_faction || '')})</span></td>
-                    <td style="font-family:var(--font-mono); font-size:0.8rem;">${Number(h.opponent_elo || 1500).toFixed(1)}</td>
-                    <td>${res}</td>
-                    <td><b style="color: ${isPos ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono);">${isPos ? '+' : ''}${delta.toFixed(1)}</b></td>
-                    <td style="font-family:var(--font-mono); font-weight:700; color:#fff;">${Number(h.new_elo || 1500).toFixed(1)}</td>
-                  </tr>
-                `;
-              }).join('')}
-            </tbody>
-          </table>
+      <!-- Card 4: Half-Sized Career Match History & Elo Deltas -->
+      <div class="hub-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📜 Career Match History</h3>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} matches</span>
         </div>
-      ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
+        ${history.length > 0 ? `
+          <div class="table-container" style="max-height: 260px; overflow-y: auto;">
+            <table id="hub-history-table" class="table-compact" style="width: 100%;">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Tournament</th>
+                  <th>Opponent</th>
+                  <th>Result</th>
+                  <th>Elo</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${history.slice().reverse().map(h => {
+                  const delta = Number(h.delta_elo || 0);
+                  const isPos = delta >= 0;
+                  const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
+                  return `
+                    <tr>
+                      <td style="color: var(--text-muted); font-size: 0.75rem;">${h.match_date ? h.match_date.substring(5, 10) : '-'}</td>
+                      <td><span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}')">${escapeHtml(h.event_name || 'Event')}</span></td>
+                      <td style="font-size:0.78rem;"><b>${escapeHtml(h.opponent_name || 'Opponent')}</b></td>
+                      <td>${res}</td>
+                      <td>
+                        <span style="color: ${isPos ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
+                          ${isPos ? '+' : ''}${delta.toFixed(1)}
+                        </span>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
+      </div>
+
     </div>
   `;
 
