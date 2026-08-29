@@ -211,7 +211,7 @@ function renderMyHub(data) {
             <div style="display: flex; align-items: center; gap: 0.35rem;">
               <span style="font-size: 0.78rem;">Radius:</span>
               <select id="hub-rec-radius-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
-                <option value="60" selected>Within 60 miles</option>
+                <option value="50" selected>Within 50 miles</option>
                 <option value="100">Within 100 miles</option>
                 <option value="250">Within 250 miles</option>
                 <option value="">Any Distance</option>
@@ -522,6 +522,33 @@ function switchHubTourneyTab(tabName) {
   }
 }
 
+let userDeviceGeo = null;
+
+function getDeviceCoordinates() {
+  return new Promise((resolve) => {
+    if (userDeviceGeo) {
+      return resolve(userDeviceGeo);
+    }
+    if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          userDeviceGeo = {
+            lat: Number(pos.coords.latitude.toFixed(4)),
+            lng: Number(pos.coords.longitude.toFixed(4))
+          };
+          resolve(userDeviceGeo);
+        },
+        () => {
+          resolve(null);
+        },
+        { timeout: 2500, maximumAge: 600000 }
+      );
+    } else {
+      resolve(null);
+    }
+  });
+}
+
 async function loadHubRecommendedEvents() {
   const container = document.getElementById('hub-recommended-list');
   const stateSelect = document.getElementById('hub-rec-state-select');
@@ -533,10 +560,15 @@ async function loadHubRecommendedEvents() {
 
   const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
   const selectedState = stateSelect ? stateSelect.value : '';
-  const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : null;
+  const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 50;
+
+  // Obtain live browser device GPS coordinates if available
+  const geo = await getDeviceCoordinates();
+  const userLat = geo ? geo.lat : null;
+  const userLng = geo ? geo.lng : null;
 
   try {
-    const data = await window.api.getRecommendedEvents(playerId, '', selectedState, null, null, selectedRadius, 30);
+    const data = await window.api.getRecommendedEvents(playerId, '', selectedState, userLat, userLng, selectedRadius, 40);
     const events = data.events || [];
     
     if (label) {
