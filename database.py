@@ -1773,56 +1773,62 @@ class PostgresDatabase:
             else:
                 winner_name = "Tied"
 
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                INSERT INTO tracker_games (
-                    match_id, p1_name, p1_faction, p1_detachment, p1_score,
-                    p2_name, p2_faction, p2_detachment, p2_score,
-                    user_id_p1, user_id_p2, referee_ids,
-                    primary_mission, deployment, mission_rule,
-                    current_round, started, is_finished, winner_name,
-                    version, state_json, updated_at
-                ) VALUES (
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s, %s,
-                    %s, %s, %s,
-                    %s, %s, %s, %s,
-                    %s, %s, NOW()
-                )
-                ON CONFLICT (match_id) DO UPDATE SET
-                    p1_name = EXCLUDED.p1_name,
-                    p1_faction = EXCLUDED.p1_faction,
-                    p1_detachment = EXCLUDED.p1_detachment,
-                    p1_score = EXCLUDED.p1_score,
-                    p2_name = EXCLUDED.p2_name,
-                    p2_faction = EXCLUDED.p2_faction,
-                    p2_detachment = EXCLUDED.p2_detachment,
-                    p2_score = EXCLUDED.p2_score,
-                    user_id_p1 = COALESCE(EXCLUDED.user_id_p1, tracker_games.user_id_p1),
-                    user_id_p2 = COALESCE(EXCLUDED.user_id_p2, tracker_games.user_id_p2),
-                    referee_ids = COALESCE(EXCLUDED.referee_ids, tracker_games.referee_ids),
-                    primary_mission = EXCLUDED.primary_mission,
-                    deployment = EXCLUDED.deployment,
-                    mission_rule = EXCLUDED.mission_rule,
-                    current_round = EXCLUDED.current_round,
-                    started = EXCLUDED.started,
-                    is_finished = EXCLUDED.is_finished,
-                    winner_name = EXCLUDED.winner_name,
-                    version = EXCLUDED.version,
-                    state_json = EXCLUDED.state_json,
-                    updated_at = NOW();
-                """, (
-                    match_id, p1_name, p1_faction, p1_detachment, p1_score,
-                    p2_name, p2_faction, p2_detachment, p2_score,
-                    uid_p1, uid_p2, refs,
-                    primary_mission, deployment, mission_rule,
-                    current_round, started, is_finished, winner_name,
-                    version, json.dumps(state)
-                ))
-            conn.commit()
-        return True
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    INSERT INTO tracker_games (
+                        match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                        p2_name, p2_faction, p2_detachment, p2_score,
+                        user_id_p1, user_id_p2, referee_ids,
+                        primary_mission, deployment, mission_rule,
+                        current_round, started, is_finished, winner_name,
+                        version, state_json, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s,
+                        %s, %s, %s, %s,
+                        %s, %s::jsonb, NOW()
+                    )
+                    ON CONFLICT (match_id) DO UPDATE SET
+                        p1_name = EXCLUDED.p1_name,
+                        p1_faction = EXCLUDED.p1_faction,
+                        p1_detachment = EXCLUDED.p1_detachment,
+                        p1_score = EXCLUDED.p1_score,
+                        p2_name = EXCLUDED.p2_name,
+                        p2_faction = EXCLUDED.p2_faction,
+                        p2_detachment = EXCLUDED.p2_detachment,
+                        p2_score = EXCLUDED.p2_score,
+                        user_id_p1 = COALESCE(EXCLUDED.user_id_p1, tracker_games.user_id_p1),
+                        user_id_p2 = COALESCE(EXCLUDED.user_id_p2, tracker_games.user_id_p2),
+                        referee_ids = COALESCE(EXCLUDED.referee_ids, tracker_games.referee_ids),
+                        primary_mission = EXCLUDED.primary_mission,
+                        deployment = EXCLUDED.deployment,
+                        mission_rule = EXCLUDED.mission_rule,
+                        current_round = EXCLUDED.current_round,
+                        started = EXCLUDED.started,
+                        is_finished = EXCLUDED.is_finished,
+                        winner_name = EXCLUDED.winner_name,
+                        version = EXCLUDED.version,
+                        state_json = EXCLUDED.state_json,
+                        updated_at = NOW();
+                    """, (
+                        match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                        p2_name, p2_faction, p2_detachment, p2_score,
+                        str(uid_p1) if uid_p1 else None,
+                        str(uid_p2) if uid_p2 else None,
+                        list(refs) if isinstance(refs, (list, tuple)) else [],
+                        primary_mission, deployment, mission_rule,
+                        current_round, started, is_finished, winner_name,
+                        version, json.dumps(state)
+                    ))
+                conn.commit()
+            return True
+        except Exception as err:
+            logger.error(f"Error persisting tracker game {match_id} to DB: {err}")
+            return False
 
     def get_tracker_game(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves a persisted tracker game by match_id."""
