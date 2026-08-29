@@ -25,3 +25,11 @@ button:has(svg.lucide-trash-2),
 [data-action="delete"] {
   display: none !important;
 }
+
+/* 4. Eliminate Flash of Upstream GDM Landing Page (New Game / local history) */
+main > div > div > a[href="/11th/tracker/play"],
+main > div > div > button:has(svg.lucide-plus),
+main button[aria-label*="New game"],
+main button:has(svg.lucide-play) {
+  display: none !important;
+}

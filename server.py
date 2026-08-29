@@ -650,7 +650,11 @@ if FASTAPI_AVAILABLE:
     button:has(svg.lucide-trash),
     button:has(svg.lucide-trash-2),
     [class*="delete-game"],
-    [data-action="delete"] {
+    [data-action="delete"],
+    main > div > div > a[href="/11th/tracker/play"],
+    main > div > div > button:has(svg.lucide-plus),
+    main button[aria-label*="New game"],
+    main button:has(svg.lucide-play) {
       display: none !important;
     }
   </style>
