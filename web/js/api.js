@@ -158,6 +158,16 @@ window.api = {
     return this._fetchJson(`/api/events?${params}`);
   },
 
+  // Recommended Events for User & Search
+  async getRecommendedEvents(playerId = '', query = '', state = '', limit = 20) {
+    const params = new URLSearchParams();
+    if (playerId) params.append('player_id', playerId);
+    if (query) params.append('query', query);
+    if (state) params.append('state', state);
+    if (limit) params.append('limit', limit);
+    return this._fetchJson(`/api/events/recommended?${params}`);
+  },
+
   // Single Player Profile & Win Path
   async getPlayerProfile(playerId) {
     return this._fetchJson(`/api/player/${encodeURIComponent(playerId)}`);

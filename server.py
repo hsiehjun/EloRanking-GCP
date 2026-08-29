@@ -247,6 +247,23 @@ if FASTAPI_AVAILABLE:
             order=order
         )
 
+    # API: Recommended & Upcoming Events for Competitor Hub
+    @app.get("/api/events/recommended", summary="Get nearby and recommended upcoming events")
+    async def api_events_recommended(
+        player_id: Optional[str] = Query(None),
+        query: Optional[str] = Query(None),
+        state: Optional[str] = Query(None),
+        city: Optional[str] = Query(None),
+        limit: int = Query(20, ge=1, le=100)
+    ):
+        return get_database().get_recommended_events(
+            player_id=player_id.strip() if player_id else None,
+            query=query.strip() if query else None,
+            state=state.strip() if state else None,
+            city=city.strip() if city else None,
+            limit=limit
+        )
+
     # API: Tournament Details & Round Pairings
     @app.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
     async def api_event_details(event_id: str):

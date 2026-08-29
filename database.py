@@ -863,6 +863,116 @@ class PostgresDatabase:
                 res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
                 return res
 
+    def get_recommended_events(
+        self,
+        player_id: Optional[str] = None,
+        query: Optional[str] = None,
+        state: Optional[str] = None,
+        city: Optional[str] = None,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """Returns personalized event recommendations based on player location history, state/city filters, and search queries."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                detected_state = None
+                detected_city = None
+                if player_id:
+                    cursor.execute("""
+                    SELECT e.state, e.city, COUNT(*) as cnt
+                    FROM event_participants ep
+                    JOIN events e ON ep.event_id = e.id
+                    WHERE ep.player_id = %s 
+                      AND e.state IS NOT NULL 
+                      AND TRIM(e.state) != ''
+                    GROUP BY e.state, e.city
+                    ORDER BY cnt DESC, MAX(e.event_date) DESC
+                    LIMIT 1;
+                    """, (player_id,))
+                    loc_row = cursor.fetchone()
+                    if loc_row:
+                        detected_state = loc_row.get("state")
+                        detected_city = loc_row.get("city")
+
+                target_state = (state.strip() if state and state.strip() else detected_state)
+                target_city = (city.strip() if city and city.strip() else detected_city)
+
+                where_clauses = ["(e.event_date >= CURRENT_DATE - INTERVAL '2 days' OR e.is_ended = FALSE)"]
+                params = []
+
+                if query and query.strip():
+                    q_clean = f"%{query.strip()}%"
+                    where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
+                    params.extend([q_clean, q_clean, q_clean, q_clean])
+
+                if state and state.strip() and state.strip().lower() != "all":
+                    where_clauses.append("LOWER(TRIM(e.state)) = LOWER(%s)")
+                    params.append(state.strip())
+
+                where_sql = " AND ".join(where_clauses)
+
+                order_clauses = []
+                if target_state:
+                    order_clauses.append(f"CASE WHEN LOWER(TRIM(e.state)) = LOWER('{target_state}') THEN 0 ELSE 1 END ASC")
+                order_clauses.append("e.event_date ASC NULLS LAST")
+                order_clauses.append("e.total_players DESC")
+                order_sql = ", ".join(order_clauses)
+
+                cursor.execute(f"""
+                SELECT 
+                    e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                    e.total_players, e.num_rounds, e.current_round, e.is_ended,
+                    COALESCE(e.raw_json->>'locationName', e.raw_json->>'gameStoreName', '') as venue_name,
+                    COALESCE(e.raw_json->>'formatted_address', '') as full_address
+                FROM events e
+                WHERE {where_sql}
+                ORDER BY {order_sql}
+                LIMIT %s;
+                """, params + [limit])
+                
+                rows = [dict(r) for r in cursor.fetchall()]
+
+                now_dt = datetime.now(timezone.utc)
+                for r in rows:
+                    ev_date = r.get("event_date")
+                    if ev_date:
+                        if ev_date.tzinfo is None:
+                            ev_date = ev_date.replace(tzinfo=timezone.utc)
+                        delta_days = (ev_date.date() - now_dt.date()).days
+                        if delta_days == 0:
+                            r["time_label"] = "Today"
+                        elif delta_days == 1:
+                            r["time_label"] = "Tomorrow"
+                        elif delta_days > 1:
+                            r["time_label"] = f"In {delta_days} days"
+                        elif delta_days < 0:
+                            r["time_label"] = f"{abs(delta_days)} days ago"
+                        else:
+                            r["time_label"] = "Happening Now"
+                    else:
+                        r["time_label"] = "Upcoming"
+
+                    tp = r.get("total_players") or 0
+                    if tp >= 60:
+                        r["tier"] = "Major"
+                        r["tier_badge"] = "tier-S"
+                    elif tp >= 24:
+                        r["tier"] = "Grand Tournament"
+                        r["tier_badge"] = "tier-A"
+                    else:
+                        r["tier"] = "RTT / Local"
+                        r["tier_badge"] = "tier-B"
+
+                    r["is_nearby"] = bool(target_state and r.get("state") and r.get("state").strip().lower() == target_state.strip().lower())
+                    r["bcp_url"] = f"https://www.bestcoastpairings.com/event/{r['id']}"
+
+                return {
+                    "detected_state": detected_state,
+                    "detected_city": detected_city,
+                    "target_state": target_state,
+                    "events": rows,
+                    "total": len(rows)
+                }
+
     def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC") -> Dict[str, Any]:
         """Returns paginated tournaments list with match counts."""
         if limit is not None and limit > 0:

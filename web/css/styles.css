@@ -1452,3 +1452,98 @@ input, select, textarea {
   border-color: var(--accent) !important;
   box-shadow: 0 0 12px rgba(59, 130, 246, 0.45);
 }
+
+
+/* ==========================================================================
+   HUB TOURNAMENT DISCOVERY & RECOMMENDATIONS
+   ========================================================================== */
+.hub-tournaments-nav {
+  display: flex;
+  gap: 0.35rem;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  margin-bottom: 0.85rem;
+}
+.hub-tourney-tab-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 0.4rem 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+  white-space: nowrap;
+}
+.hub-tourney-tab-btn:hover {
+  color: #fff;
+  background: rgba(255,255,255,0.05);
+}
+.hub-tourney-tab-btn.active {
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+}
+.hub-rec-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 0.85rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+}
+.hub-rec-card:hover {
+  border-color: var(--accent);
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+}
+.hub-rec-badge-nearby {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.hub-search-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.hub-search-input {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.75rem;
+  color: #fff;
+  font-size: 0.82rem;
+  outline: none;
+}
+.hub-search-input:focus {
+  border-color: var(--accent);
+}
+.hub-state-select {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.6rem;
+  color: #fff;
+  font-size: 0.8rem;
+  outline: none;
+  cursor: pointer;
+}

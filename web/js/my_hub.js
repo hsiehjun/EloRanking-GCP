@@ -166,33 +166,89 @@ function renderMyHub(data) {
         </div>
       </div>
 
-      <!-- Card 2: Upcoming Registered Tournaments -->
-      <div class="hub-card">
+      <!-- Card 2: Tournament Hub (Registered, Recommended Near Me & Search) -->
+      <div class="hub-card" id="hub-tournament-discovery-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">⚔️ Registered Tournaments</h3>
-          <span style="font-size: 0.75rem; color: var(--accent);">${upcoming.length} upcoming</span>
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">⚔️ Tournament Hub & Events</h3>
+          <span id="hub-tourney-tab-count" style="font-size: 0.75rem; color: var(--accent); font-weight: 600;">${upcoming.length} registered</span>
         </div>
-        ${upcoming.length > 0 ? `
-          <div style="display: flex; flex-direction: column; gap: 0.6rem;">
-            ${upcoming.map(ev => `
-              <div class="upcoming-event-pill" onclick="openEventModal('${ev.event_id}')">
-                <div>
-                  <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(ev.event_name)}</div>
-                  <div style="font-size: 0.76rem; color: var(--text-secondary);">${ev.event_date ? ev.event_date.substring(0, 10) : 'TBD'} • ${escapeHtml(ev.city || '')} ${escapeHtml(ev.state || '')}</div>
+
+        <!-- Navigation Tabs -->
+        <div class="hub-tournaments-nav">
+          <button id="hub-btn-tab-registered" class="hub-tourney-tab-btn active" onclick="switchHubTourneyTab('registered')">⚔️ Registered (${upcoming.length})</button>
+          <button id="hub-btn-tab-recommended" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('recommended')">🎯 Near Me</button>
+          <button id="hub-btn-tab-search" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('search')">🔍 Search Events</button>
+        </div>
+
+        <!-- Tab 1: Registered Tournaments -->
+        <div id="hub-tourney-view-registered">
+          ${upcoming.length > 0 ? `
+            <div style="display: flex; flex-direction: column; gap: 0.6rem; max-height: 280px; overflow-y: auto;">
+              ${upcoming.map(ev => `
+                <div class="upcoming-event-pill" onclick="openEventModal('${ev.event_id}')">
+                  <div>
+                    <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(ev.event_name)}</div>
+                    <div style="font-size: 0.76rem; color: var(--text-secondary);">${ev.event_date ? ev.event_date.substring(0, 10) : 'TBD'} • ${escapeHtml(ev.city || '')} ${escapeHtml(ev.state || '')}</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <span class="tier-badge tier-A" style="font-size: 0.72rem;">${ev.total_players || 0} Players</span>
+                    <div style="font-size: 0.72rem; color: var(--accent); margin-top: 0.2rem;">${escapeHtml(ev.registered_faction || 'Registered')}</div>
+                  </div>
                 </div>
-                <div style="text-align: right;">
-                  <span class="tier-badge tier-A" style="font-size: 0.72rem;">${ev.total_players || 0} Players</span>
-                  <div style="font-size: 0.72rem; color: var(--accent); margin-top: 0.2rem;">${escapeHtml(ev.registered_faction || 'Registered')}</div>
-                </div>
-              </div>
-            `).join('')}
+              `).join('')}
+            </div>
+          ` : `
+            <div style="padding: 1.75rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+              <div>📅 No registered upcoming tournaments detected.</div>
+              <div style="margin-top: 0.35rem; font-size: 0.78rem;">${isBcpConnected ? 'Click "Near Me" or "Search Events" above to discover tournaments!' : '<button class="bcp-login-btn" style="margin-top:0.5rem; font-size:0.8rem;" onclick="openBcpLinkModal()">Link BCP Account to Sync Events</button>'}</div>
+            </div>
+          `}
+        </div>
+
+        <!-- Tab 2: Recommended Near Me -->
+        <div id="hub-tourney-view-recommended" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; font-size: 0.78rem; color: var(--text-secondary);">
+            <span id="hub-rec-location-label">📍 Recommendations based on your region</span>
+            <select id="hub-rec-state-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
+              <option value="">Auto-Detect</option>
+              <option value="CA">California (CA)</option>
+              <option value="TX">Texas (TX)</option>
+              <option value="FL">Florida (FL)</option>
+              <option value="NY">New York (NY)</option>
+              <option value="WA">Washington (WA)</option>
+              <option value="IL">Illinois (IL)</option>
+              <option value="OH">Ohio (OH)</option>
+              <option value="PA">Pennsylvania (PA)</option>
+              <option value="All">All States / Global</option>
+            </select>
           </div>
-        ` : `
-          <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-            <div>📅 No upcoming tournaments detected.</div>
-            <div style="margin-top: 0.35rem; font-size: 0.78rem;">${isBcpConnected ? 'When you register for BCP events, they will appear here automatically!' : '<button class="bcp-login-btn" style="margin-top:0.5rem; font-size:0.8rem;" onclick="openBcpLinkModal()">Link BCP Account to Sync Events</button>'}</div>
+          <div id="hub-recommended-list" style="max-height: 260px; overflow-y: auto;">
+            <div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>
           </div>
-        `}
+        </div>
+
+        <!-- Tab 3: Search Upcoming Events -->
+        <div id="hub-tourney-view-search" style="display: none;">
+          <div class="hub-search-bar">
+            <input type="text" id="hub-events-search-input" class="hub-search-input" placeholder="Search by name, city, state, or venue..." oninput="debounceHubEventsSearch()">
+            <select id="hub-search-state-filter" class="hub-state-select" onchange="executeHubEventsSearch()">
+              <option value="">All States</option>
+              <option value="CA">CA</option>
+              <option value="TX">TX</option>
+              <option value="FL">FL</option>
+              <option value="NY">NY</option>
+              <option value="WA">WA</option>
+              <option value="IL">IL</option>
+              <option value="OH">OH</option>
+              <option value="PA">PA</option>
+              <option value="UK">UK</option>
+            </select>
+          </div>
+          <div id="hub-search-results-list" style="max-height: 250px; overflow-y: auto;">
+            <div style="padding: 1.5rem 0; text-align: center; color: var(--text-muted); font-size: 0.82rem;">Type in the search bar to find upcoming tournaments.</div>
+          </div>
+        </div>
+
       </div>
 
     </div>
