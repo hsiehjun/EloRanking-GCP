@@ -369,7 +369,7 @@ if FASTAPI_AVAILABLE:
         auth_mgr = get_auth_manager()
         
         auth_header = request.headers.get("Authorization", "")
-        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         user_id = user["id"] if user else None
         user_name = user.get("display_name") if user else None
@@ -432,6 +432,14 @@ if FASTAPI_AVAILABLE:
                 }
                 for q in listeners:
                     await q.put(msg)
+            elif not room.get("user_id_p1"):
+                # User claims Player 1 slot!
+                room["user_id_p1"] = user_id
+                st["user_id_p1"] = user_id
+                if user_name:
+                    game["p1Name"] = user_name
+                role = "player1"
+                room["version"] += 1
         else:
             role = "spectator"
             
@@ -453,7 +461,7 @@ if FASTAPI_AVAILABLE:
         auth_mgr = get_auth_manager()
         
         auth_header = request.headers.get("Authorization", "")
-        session_token = payload.token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         user_id = user["id"] if user else None
         

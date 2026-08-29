@@ -224,6 +224,7 @@
         if (resp.ok) {
           const joinData = await resp.json();
           clientState.role = joinData.role || 'spectator';
+          injectMultiplayerHUD(); // Update HUD with confirmed role!
           if (joinData.state) {
             applyRemoteState(joinData.state);
           }
@@ -239,7 +240,7 @@
     }
   }
 
-  // 4. Landing Page: Inject 2-Player Room Key Generator & Join Card
+  // 4. Landing Page: Inject Mobile-Friendly 2-Player Room Key Generator & Join Card
   function injectLobbyHub() {
     const observer = new MutationObserver(() => {
       const newGameBtn = document.querySelector('button:has(svg.lucide-plus), button[class*="New Game"]');
@@ -248,31 +249,44 @@
 
         const lobbyCard = document.createElement('div');
         lobbyCard.id = 'gt-lobby-hub-card';
-        lobbyCard.style.cssText = "margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:20px 22px; box-shadow:0 12px 35px rgba(0,0,0,0.5);";
+        lobbyCard.style.cssText = "margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box;";
         lobbyCard.innerHTML = `
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:12px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
             <div>
-              <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
-              <p style="font-size:12px; color:#94a3b8; margin:4px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
+              <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
+              <p style="font-size:11px; color:#94a3b8; margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
             </div>
-            <span style="font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:4px 10px; border-radius:9999px;">2 Players Max</span>
+            <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
           </div>
 
-          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
             <!-- Host Card -->
-            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:16px; display:flex; flex-direction:column; justify-content:space-between;">
+            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
               <div>
-                <div style="font-size:13px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
-                <p style="font-size:11px; color:#94a3b8; margin:0 0 12px;">Generate a unique room key to invite Player 2 for collaborative army setup.</p>
+                <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
+                <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Generate a unique room key to invite Player 2 for collaborative army setup.</p>
               </div>
-              <button onclick="window.__handleCreateRoom()" style="width:100%; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
+              <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
                 GENERATE ROOM KEY ➔
               </button>
             </div>
 
             <!-- Join Card -->
-            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:16px; display:flex; flex-direction:column; justify-content:space-between;">
+            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
               <div>
+                <div style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
+                <p style="font-size:11px; color:#94a3b8; margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+              </div>
+              <div>
+                <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
+                <div style="display:flex; gap:8px;">
+                  <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
+                  <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">JOIN</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        `;
                 <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
                 <p style="font-size:11px; color:#94a3b8; margin:0 0 10px;">Enter the 8-character Room Key provided by your opponent.</p>
               </div>
@@ -636,11 +650,16 @@
 
   // 8. Floating Multiplayer Status HUD with Role Badge
   function injectMultiplayerHUD() {
-    if (document.getElementById('gt-sync-hud')) return;
+    let hud = document.getElementById('gt-sync-hud');
+    if (!hud) {
+      hud = document.createElement('div');
+      hud.id = 'gt-sync-hud';
+      document.body.appendChild(hud);
+    }
 
     const roleBadgeColor = {
       'player1': '#3b82f6',
-      'player2': '#ef4444',
+      'player2': '#10b981',
       'referee': '#a855f7',
       'spectator': '#64748b'
     }[clientState.role] || '#38bdf8';
@@ -652,20 +671,17 @@
       'spectator': 'SPECTATOR'
     }[clientState.role] || clientState.role.toUpperCase();
 
-    const hud = document.createElement('div');
-    hud.id = 'gt-sync-hud';
     hud.innerHTML = `
-      <div style="position:fixed; top:12px; right:16px; z-index:99999; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.92); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.5); backdrop-filter:blur(10px); padding:6px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:12px; color:#f8fafc;">
-        <span style="padding:2px 6px; border-radius:4px; font-size:10px; font-weight:800; background:${roleBadgeColor}; color:#fff; letter-spacing:0.04em;">${roleLabel}</span>
+      <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:6px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.5); backdrop-filter:blur(10px); padding:4px 10px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px);">
+        <span style="padding:2px 6px; border-radius:4px; font-size:9px; font-weight:800; background:${roleBadgeColor}; color:#fff; letter-spacing:0.04em;">${roleLabel}</span>
         <b style="font-family:'JetBrains Mono',monospace; color:#38bdf8;">#${clientState.matchId}</b>
         <span style="color:#64748b;">•</span>
-        <span id="gt-hud-online" style="color:#94a3b8;">1 online</span>
-        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; margin-left:4px;">
+        <span id="gt-hud-online" style="color:#94a3b8;">${clientState.onlineCount || 1} online</span>
+        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">
           🔗 Share
         </button>
       </div>
     `;
-    document.body.appendChild(hud);
   }
 
   // Auto-init on load
