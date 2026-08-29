@@ -309,14 +309,15 @@ if FASTAPI_AVAILABLE:
         
         # Persist room creation to DB
         try:
-            db.save_tracker_game(
+            saved = db.save_tracker_game(
                 match_id=match_id,
                 state=initial_state,
                 version=1,
                 user_id_p1=user_id_p1
             )
+            logger.info(f"💾 [CREATE ROOM] save_tracker_game for {match_id}: {saved}")
         except Exception as err:
-            logger.debug(f"DB save on create notice: {err}")
+            logger.error(f"❌ [CREATE ROOM] DB save error for {match_id}: {err}", exc_info=True)
             
         return {
             "success": True,
@@ -638,8 +639,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=8.2">
-  <script src="/tracker/tracker_sync.js?v=8.2"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=8.3">
+  <script src="/tracker/tracker_sync.js?v=8.3"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;

@@ -228,6 +228,11 @@ class PostgresDatabase:
                     p2_faction TEXT,
                     p2_detachment TEXT,
                     p2_score INT DEFAULT 0,
+                    user_id_p1 VARCHAR(64),
+                    user_id_p2 VARCHAR(64),
+                    p1_role TEXT DEFAULT 'player1',
+                    p2_role TEXT DEFAULT 'player2',
+                    referee_ids TEXT[] DEFAULT '{}',
                     primary_mission TEXT,
                     deployment TEXT,
                     mission_rule TEXT,
@@ -244,6 +249,8 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);
+                CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);
+                CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);
                 """)
 
                 for migration in [
