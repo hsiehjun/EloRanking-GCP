@@ -87,10 +87,12 @@ class PostgresDatabase:
         return PostgresConnectionContext(PostgresDatabase._pool, conn)
 
     def init_db(self):
-        """Creates PostgreSQL tables and performance indexes."""
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
+        """Creates PostgreSQL tables and performance indexes safely without deadlocking with active scraping jobs."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '4s';")
+                    cursor.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id VARCHAR(64) PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -220,8 +222,8 @@ class PostgresDatabase:
                         logger.debug(f"Migration notice: {e}")
 
             conn.commit()
-
-    def upsert_event(self, event_data: Dict[str, Any]):
+        except Exception as e:
+            logger.info(f"init_db notice (schema already created or active DDL lock): {e}")    def upsert_event(self, event_data: Dict[str, Any]):
         """Inserts or updates an event record in PostgreSQL."""
         event_id = event_data.get("id") or event_data.get("objectId")
         if not event_id:
