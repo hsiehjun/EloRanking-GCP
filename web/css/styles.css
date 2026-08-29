@@ -1836,3 +1836,36 @@ input, select, textarea {
   background: #38bdf8;
   color: #0a0c10;
 }
+
+
+/* Location Picker Modal Chips */
+.hub-location-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.hub-loc-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #f1f5f9;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.45rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hub-loc-chip:hover {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.hub-loc-chip.active {
+  background: #38bdf8;
+  border-color: #38bdf8;
+  color: #090d16;
+  font-weight: 700;
+}

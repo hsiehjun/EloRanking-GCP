@@ -483,6 +483,112 @@ function switchHubTourneyTab(tabName) {
   }
 }
 
+let customUserLocation = null;
+
+const GLOBAL_CITY_COORDS = {
+  'san diego': { name: 'San Diego, CA', lat: 32.7157, lng: -117.1611 },
+  'los angeles': { name: 'Los Angeles, CA', lat: 34.0522, lng: -118.2437 },
+  'san francisco': { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194 },
+  'san jose': { name: 'San Jose, CA', lat: 37.3382, lng: -121.8863 },
+  'sacramento': { name: 'Sacramento, CA', lat: 38.5816, lng: -121.4944 },
+  'seattle': { name: 'Seattle, WA', lat: 47.6062, lng: -122.3321 },
+  'portland': { name: 'Portland, OR', lat: 45.5152, lng: -122.6784 },
+  'phoenix': { name: 'Phoenix, AZ', lat: 33.4484, lng: -112.0740 },
+  'las vegas': { name: 'Las Vegas, NV', lat: 36.1699, lng: -115.1398 },
+  'denver': { name: 'Denver, CO', lat: 39.7392, lng: -104.9903 },
+  'austin': { name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
+  'dallas': { name: 'Dallas, TX', lat: 32.7767, lng: -96.7970 },
+  'houston': { name: 'Houston, TX', lat: 29.7604, lng: -95.3698 },
+  'san antonio': { name: 'San Antonio, TX', lat: 29.4241, lng: -98.4936 },
+  'chicago': { name: 'Chicago, IL', lat: 41.8781, lng: -87.6298 },
+  'minneapolis': { name: 'Minneapolis, MN', lat: 44.9778, lng: -93.2650 },
+  'new york': { name: 'New York, NY', lat: 40.7128, lng: -74.0060 },
+  'philadelphia': { name: 'Philadelphia, PA', lat: 39.9526, lng: -75.1652 },
+  'boston': { name: 'Boston, MA', lat: 42.3601, lng: -71.0589 },
+  'atlanta': { name: 'Atlanta, GA', lat: 33.7490, lng: -84.3880 },
+  'orlando': { name: 'Orlando, FL', lat: 28.5383, lng: -81.3792 },
+  'miami': { name: 'Miami, FL', lat: 25.7617, lng: -80.1918 },
+  'charlotte': { name: 'Charlotte, NC', lat: 35.2271, lng: -80.8431 },
+  'columbus': { name: 'Columbus, OH', lat: 39.9612, lng: -82.9988 },
+  'toronto': { name: 'Toronto, Canada', lat: 43.6532, lng: -79.3832 },
+  'vancouver': { name: 'Vancouver, Canada', lat: 49.2827, lng: -123.1207 },
+  'london': { name: 'London, UK', lat: 51.5074, lng: -0.1278 },
+  'manchester': { name: 'Manchester, UK', lat: 53.4808, lng: -2.2426 },
+  'paris': { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
+  'sydney': { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093 },
+  'melbourne': { name: 'Melbourne, Australia', lat: -37.8136, lng: 144.9631 }
+};
+
+function openLocationPickerModal() {
+  const modal = document.getElementById('hub-location-picker-modal');
+  if (modal) modal.classList.add('active');
+}
+
+function closeLocationPickerModal() {
+  const modal = document.getElementById('hub-location-picker-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+function setPresetLocation(cityKey) {
+  if (cityKey === 'gps') {
+    customUserLocation = null;
+    userDeviceGeo = null;
+    closeLocationPickerModal();
+    loadHubRecommendedEvents();
+    return;
+  }
+  const loc = GLOBAL_CITY_COORDS[cityKey.toLowerCase()];
+  if (loc) {
+    customUserLocation = { name: loc.name, lat: loc.lat, lng: loc.lng };
+    closeLocationPickerModal();
+    loadHubRecommendedEvents();
+  }
+}
+
+async function searchCustomLocationInput() {
+  const input = document.getElementById('custom-location-search-input');
+  if (!input) return;
+  const q = input.value.trim();
+  if (!q) return;
+
+  const qLower = q.toLowerCase();
+  for (const [key, val] of Object.entries(GLOBAL_CITY_COORDS)) {
+    if (key.includes(qLower) || val.name.toLowerCase().includes(qLower)) {
+      customUserLocation = { name: val.name, lat: val.lat, lng: val.lng };
+      closeLocationPickerModal();
+      loadHubRecommendedEvents();
+      return;
+    }
+  }
+
+  // Fallback client-side geocoding via OpenStreetMap Nominatim
+  try {
+    const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`);
+    const data = await resp.json();
+    if (data && data.length > 0) {
+      const item = data[0];
+      const displayName = item.display_name.split(',').slice(0, 2).join(',');
+      customUserLocation = {
+        name: displayName,
+        lat: parseFloat(item.lat),
+        lng: parseFloat(item.lon)
+      };
+      closeLocationPickerModal();
+      loadHubRecommendedEvents();
+      return;
+    }
+  } catch (err) {
+    console.warn('Geocoding notice:', err);
+  }
+
+  alert(`Could not find coordinates for "${q}". Please try a nearby major city.`);
+}
+
+window.openLocationPickerModal = openLocationPickerModal;
+window.closeLocationPickerModal = closeLocationPickerModal;
+window.setPresetLocation = setPresetLocation;
+window.searchCustomLocationInput = searchCustomLocationInput;
+
 let userDeviceGeo = null;
 
 function getDeviceCoordinates() {
@@ -546,24 +652,31 @@ async function loadHubRecommendedEvents() {
   const selectedTier = tierSelect ? tierSelect.value : '';
   const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 50;
 
-  // Obtain live browser device GPS coordinates if available
-  const geo = await getDeviceCoordinates();
-  const userLat = geo ? geo.lat : null;
-  const userLng = geo ? geo.lng : null;
+  // Determine coordinates: Custom chosen location > Live device GPS > Competitor Home fallback
+  let userLat = null;
+  let userLng = null;
+  let locName = null;
+
+  if (customUserLocation) {
+    userLat = customUserLocation.lat;
+    userLng = customUserLocation.lng;
+    locName = customUserLocation.name;
+  } else {
+    const geo = await getDeviceCoordinates();
+    if (geo) {
+      userLat = geo.lat;
+      userLng = geo.lng;
+      locName = 'Live GPS Location';
+    }
+  }
 
   try {
     const data = await window.api.getRecommendedEvents(playerId, query, selectedTier, userLat, userLng, selectedRadius, 40);
     const events = data.events || [];
     
     if (label) {
-      if (geo) {
-        label.innerHTML = `📍 <b>Live GPS Location</b> <span style="color:#10b981; font-size:0.75rem; font-weight:600;">(Active)</span>`;
-      } else if (data.detected_state || data.detected_city) {
-        const homeName = [data.detected_city, data.detected_state].filter(Boolean).join(', ');
-        label.innerHTML = `📍 Location: <b>${escapeHtml(homeName)}</b>`;
-      } else {
-        label.innerHTML = `📍 Nearby Tournaments`;
-      }
+      const activeName = locName || [data.detected_city, data.detected_state].filter(Boolean).join(', ') || 'San Diego, CA';
+      label.innerHTML = `📍 <b>${escapeHtml(activeName)}</b> <button class="hub-location-btn" onclick="openLocationPickerModal()">✏️ Change Location</button>`;
     }
 
     // If no GPS, no detected history, show prompt to enable location sharing
