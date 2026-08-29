@@ -614,7 +614,132 @@ if FASTAPI_AVAILABLE:
         from fastapi.responses import StreamingResponse
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
-    # Root & HTML routes
+    # =========================================================================
+    # REVERSE PROXY & DYNAMIC HTML BRIDGE INJECTION (UPSTREAM GDM SYNC)
+    # =========================================================================
+    GDM_UPSTREAM = "https://gdmissions.app"
+    GDM_STATIC_CACHE: Dict[str, Tuple[bytes, str, Dict[str, str]]] = {}
+
+    BRIDGE_INJECTION_HTML = """
+  <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=8.0">
+  <script src="/tracker/tracker_sync.js?v=8.0"></script>
+  <style>
+    header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
+      display: none !important;
+    }
+    button[aria-label*="Delete"],
+    button[aria-label*="delete"],
+    button:has(svg.lucide-trash),
+    button:has(svg.lucide-trash-2),
+    [class*="delete-game"],
+    [data-action="delete"] {
+      display: none !important;
+    }
+  </style>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (let registration of registrations) { registration.unregister(); }
+      });
+      navigator.serviceWorker.register = function() {
+        return Promise.reject(new Error('ServiceWorker bypassed'));
+      };
+    }
+  </script>
+"""
+
+    async def proxy_gdm_asset(rel_path: str) -> Response:
+        """Proxies static chunks, CSS, fonts, and images from upstream GDM with in-memory caching."""
+        cache_key = rel_path.lstrip("/")
+        if cache_key in GDM_STATIC_CACHE:
+            body, c_type, hdrs = GDM_STATIC_CACHE[cache_key]
+            return Response(content=body, media_type=c_type, headers=hdrs)
+
+        url = f"{GDM_UPSTREAM}/{cache_key}"
+
+        def _fetch():
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "*/*"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                content = resp.read()
+                c_type = resp.headers.get("Content-Type", "application/octet-stream")
+                return content, c_type
+
+        try:
+            content, c_type = await asyncio.to_thread(_fetch)
+
+            # Patch React context state setter hook dynamically in JS chunk stream
+            if cache_key.endswith(".js") and b"gdm-11e-tracker-state" in content:
+                txt = content.decode("utf-8", errors="ignore")
+                txt = txt.replace(
+                    "P(d()),j(!0)",
+                    "P(d()),j(!0),window.__gdmSetTrackerState=function(e){try{k(M(e))}catch(e){}},window.addEventListener('gdm-state-sync',function(e){e.detail&&window.__gdmSetTrackerState(e.detail)})"
+                )
+                txt = txt.replace(
+                    "function C(e){return!(e.game.p1Disposition&&e.game.p2Disposition)}",
+                    "function C(e){return!0}"
+                )
+                content = txt.encode("utf-8")
+
+            hdrs = {
+                "Cache-Control": "public, max-age=31536000, immutable" if "/_next/static/" in cache_key else "public, max-age=3600",
+                "Access-Control-Allow-Origin": "*"
+            }
+
+            if "/_next/static/" in cache_key or cache_key.endswith((".woff2", ".png", ".svg", ".ico", ".jpg", ".webp")):
+                GDM_STATIC_CACHE[cache_key] = (content, c_type, hdrs)
+
+            return Response(content=content, media_type=c_type, headers=hdrs)
+        except Exception as e:
+            logger.error(f"Error proxying GDM asset {url}: {e}")
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+    async def proxy_gdm_html(path: str, request: Request) -> Response:
+        """Proxies upstream GDM HTML page and injects the live multiplayer bridge script."""
+        # Enforce SSO authentication on all Tracker routes
+        if "tracker" in path.lower():
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "")
+            session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+            if not user:
+                redirect_target = f"/{path}"
+                if request.url.query:
+                    redirect_target += f"?{request.url.query}"
+                return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
+
+        url = f"{GDM_UPSTREAM}/{path.lstrip('/')}"
+
+        def _fetch():
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.read().decode("utf-8", errors="ignore")
+
+        try:
+            raw_html = await asyncio.to_thread(_fetch)
+            if "</head>" in raw_html:
+                modified_html = raw_html.replace("</head>", f"{BRIDGE_INJECTION_HTML}\n</head>", 1)
+            else:
+                modified_html = f"{BRIDGE_INJECTION_HTML}\n{raw_html}"
+
+            return HTMLResponse(content=modified_html, status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
+        except Exception as e:
+            logger.error(f"Error fetching GDM HTML {url}: {e}")
+            raise HTTPException(status_code=502, detail="Failed to fetch upstream GDM layout")
+
+    # Root Leaderboard & Competitor Hub
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
     async def serve_index():
@@ -623,25 +748,6 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(idx_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="index.html not found")
 
-
-
-    # Dedicated Local Static Tracker & Layout Asset Mounts
-    if (web_dir / "assets").exists():
-        app.mount("/assets", StaticFiles(directory=str(web_dir / "assets")), name="root_assets_static")
-        app.mount("/tracker/assets", StaticFiles(directory=str(web_dir / "assets")), name="tracker_assets_static")
-
-    if (web_dir / "tracker" / "_next").exists():
-        app.mount("/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="root_next_static")
-        app.mount("/tracker/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="tracker_next_static")
-
-    @app.get("/tracker/tracker_play.css", include_in_schema=False)
-    async def serve_tracker_play_css():
-        return FileResponse(str(web_dir / "tracker" / "tracker_play.css"), media_type="text/css")
-
-    @app.get("/tracker/tracker_play.js", include_in_schema=False)
-    async def serve_tracker_play_js():
-        return FileResponse(str(web_dir / "tracker" / "tracker_play.js"), media_type="application/javascript")
-
     @app.get("/tracker/tracker_sync.js", include_in_schema=False)
     async def serve_tracker_sync_js():
         return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript")
@@ -649,14 +755,6 @@ if FASTAPI_AVAILABLE:
     @app.get("/tracker/tracker_sync.css", include_in_schema=False)
     async def serve_tracker_sync_css():
         return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css")
-
-    @app.get("/logo-mark.svg", include_in_schema=False)
-    async def serve_logo_mark():
-        return FileResponse(str(web_dir / "tracker" / "logo-mark.svg"), media_type="image/svg+xml")
-
-    @app.get("/logo192w.png", include_in_schema=False)
-    async def serve_logo_png():
-        return FileResponse(str(web_dir / "tracker" / "logo192w.png"), media_type="image/png")
 
     @app.get("/login", include_in_schema=False)
     @app.get("/tracker/login", include_in_schema=False)
@@ -679,36 +777,39 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
-    @app.get("/tracker/index.html", include_in_schema=False)
-    @app.get("/11th/tracker", include_in_schema=False)
-    async def serve_tracker_home(request: Request, token: Optional[str] = Query(None)):
-        auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        if not user:
-            return RedirectResponse(url="/login?redirect=/11th/tracker", status_code=303)
-            
-        t_file = web_dir / "tracker" / "index.html"
-        if t_file.exists():
-            return FileResponse(str(t_file), media_type="text/html")
-        raise HTTPException(status_code=404, detail="Tracker bundle not found")
+    async def serve_tracker_alias():
+        return RedirectResponse(url="/11th/tracker", status_code=303)
 
     @app.get("/tracker/play", include_in_schema=False)
-    @app.get("/11th/tracker/play", include_in_schema=False)
-    async def serve_tracker_play(request: Request, match_id: Optional[str] = Query(None), token: Optional[str] = Query(None)):
-        auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        if not user:
-            target = f"/11th/tracker/play?match_id={match_id}" if match_id else "/11th/tracker/play"
-            return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(target)}", status_code=303)
-            
-        p_file = web_dir / "tracker" / "play.html"
-        if p_file.exists():
-            return FileResponse(str(p_file), media_type="text/html")
-        raise HTTPException(status_code=404, detail="Tracker play bundle not found")
+    async def serve_tracker_play_alias(request: Request):
+        query = f"?{request.url.query}" if request.url.query else ""
+        return RedirectResponse(url=f"/11th/tracker/play{query}", status_code=303)
+
+    # Dynamic Upstream Next.js Static Asset Streaming
+    @app.get("/_next/{path:path}", include_in_schema=False)
+    async def serve_next_assets(path: str):
+        return await proxy_gdm_asset(f"_next/{path}")
+
+    # Dynamic Upstream HTML Pages with Live Bridge Injection
+    @app.get("/11th/{path:path}", include_in_schema=False)
+    async def serve_11th_pages(path: str, request: Request):
+        return await proxy_gdm_html(f"11th/{path}", request)
+
+    @app.get("/11th", include_in_schema=False)
+    async def serve_11th_root(request: Request):
+        return await proxy_gdm_html("11th", request)
+
+    @app.get("/10th/{path:path}", include_in_schema=False)
+    async def serve_10th_pages(path: str, request: Request):
+        return await proxy_gdm_html(f"10th/{path}", request)
+
+    @app.get("/logo-mark.svg", include_in_schema=False)
+    @app.get("/logo192w.png", include_in_schema=False)
+    @app.get("/logo512w.png", include_in_schema=False)
+    @app.get("/manifest.json", include_in_schema=False)
+    @app.get("/favicon.ico", include_in_schema=False)
+    async def serve_gdm_brand_asset(request: Request):
+        return await proxy_gdm_asset(request.url.path.lstrip("/"))
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)

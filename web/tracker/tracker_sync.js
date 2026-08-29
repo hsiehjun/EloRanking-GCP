@@ -240,6 +240,84 @@
     }
   }
 
+  // Global Handlers for Room Creation and Joining
+  window.__handleCreateRoom = async function () {
+    try {
+      const resp = await fetch('/api/tracker/room/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({
+          token: getAuthToken(),
+          p1_name: currentUser ? (currentUser.display_name || 'Player 1') : 'Player 1'
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
+        showWaitingLobbyModal(data.match_id);
+        return;
+      }
+    } catch (err) {}
+    window.location.href = '/11th/tracker/play';
+  };
+
+  window.__handleJoinRoomInput = async function () {
+    const input = document.getElementById('gt-lobby-join-input');
+    const errDiv = document.getElementById('gt-lobby-join-error');
+    const btn = document.getElementById('gt-lobby-join-btn');
+    let code = (input.value || '').trim();
+    if (code.includes('match_id=')) {
+      try { code = new URL(code).searchParams.get('match_id') || code; } catch(e) {}
+    }
+    if (!code) {
+      if (errDiv) { errDiv.textContent = 'Please enter a Room Key.'; errDiv.style.display = 'block'; }
+      return;
+    }
+
+    code = code.toUpperCase().replace(/\s+/g, '');
+    if (!code.startsWith('WH40K-') && code.length === 8) {
+      code = `WH40K-${code.substring(0, 4)}-${code.substring(4)}`;
+    }
+
+    if (errDiv) errDiv.style.display = 'none';
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+    // Verify if room exists on the server!
+    try {
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(code)}/check`, {
+        headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.exists) {
+        if (errDiv) {
+          errDiv.textContent = `❌ Room "${code}" does not exist. Please check with your opponent.`;
+          errDiv.style.display = 'block';
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+        return;
+      }
+
+      if (data.is_full) {
+        const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). Join as a Spectator (View Only)?`);
+        if (!proceed) {
+          if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+          return;
+        }
+      }
+
+      window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id || code)}`;
+    } catch (err) {
+      if (errDiv) {
+        errDiv.textContent = 'Connection error checking room status. Please try again.';
+        errDiv.style.display = 'block';
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+    }
+  };
+
   // 4. Landing Page: Inject Mobile-Friendly 2-Player Room Key Generator & Join Card
   function injectLobbyHub() {
     function tryInject() {
@@ -298,86 +376,6 @@
 
     tryInject();
     const observer = new MutationObserver(tryInject);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-        window.__handleCreateRoom = async function () {
-          try {
-            const resp = await fetch('/api/tracker/room/create', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${getAuthToken()}`
-              },
-              body: JSON.stringify({
-                token: getAuthToken(),
-                p1_name: currentUser ? (currentUser.display_name || 'Player 1') : 'Player 1'
-              })
-            });
-            if (resp.ok) {
-              const data = await resp.json();
-              originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
-              showWaitingLobbyModal(data.match_id);
-              return;
-            }
-          } catch (err) {}
-          window.location.href = '/11th/tracker/play';
-        };
-
-        window.__handleJoinRoomInput = async function () {
-          const input = document.getElementById('gt-lobby-join-input');
-          const errDiv = document.getElementById('gt-lobby-join-error');
-          const btn = document.getElementById('gt-lobby-join-btn');
-          let code = (input.value || '').trim();
-          if (code.includes('match_id=')) {
-            try { code = new URL(code).searchParams.get('match_id') || code; } catch(e) {}
-          }
-          if (!code) {
-            if (errDiv) { errDiv.textContent = 'Please enter a Room Key.'; errDiv.style.display = 'block'; }
-            return;
-          }
-
-          code = code.toUpperCase().replace(/\s+/g, '');
-          if (!code.startsWith('WH40K-') && code.length === 8) {
-            code = `WH40K-${code.substring(0, 4)}-${code.substring(4)}`;
-          }
-
-          if (errDiv) errDiv.style.display = 'none';
-          if (btn) { btn.disabled = true; btn.textContent = '...'; }
-
-          // Verify if room exists on the server!
-          try {
-            const resp = await fetch(`/api/tracker/room/${encodeURIComponent(code)}/check`, {
-              headers: { 'Authorization': `Bearer ${getAuthToken()}` }
-            });
-            const data = await resp.json();
-            if (!resp.ok || !data.exists) {
-              if (errDiv) {
-                errDiv.textContent = `❌ Room "${code}" does not exist. Please check with your opponent.`;
-                errDiv.style.display = 'block';
-              }
-              if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
-              return;
-            }
-
-            if (data.is_full) {
-              const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). Join as a Spectator (View Only)?`);
-              if (!proceed) {
-                if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
-                return;
-              }
-            }
-
-            window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id || code)}`;
-          } catch (err) {
-            if (errDiv) {
-              errDiv.textContent = 'Connection error checking room status. Please try again.';
-              errDiv.style.display = 'block';
-            }
-            if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
-          }
-        };
-      }
-    });
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
