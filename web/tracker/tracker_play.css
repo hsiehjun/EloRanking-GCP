@@ -1,0 +1,598 @@
+/* ==========================================================================
+   WARHAMMER 40,000 11TH EDITION SYNCHRONIZED GAME TRACKER
+   ========================================================================== */
+
+:root {
+  --bg-dark: #070a10;
+  --panel-bg: #0f172a;
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --accent-cyan: #38bdf8;
+  --accent-amber: #f59e0b;
+  --accent-green: #10b981;
+  --accent-red: #ef4444;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+}
+
+body.gt-play-body {
+  background-color: var(--bg-dark);
+  color: var(--text-main);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  user-select: none;
+}
+
+.gt-play-shell {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 12px 16px 48px 16px;
+}
+
+/* Floating Multiplayer Header */
+.gt-stream-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 12px;
+  padding: 10px 16px;
+  margin-bottom: 14px;
+  backdrop-filter: blur(12px);
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gt-sb-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.gt-back-btn {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+  transition: color 0.15s ease;
+}
+.gt-back-btn:hover {
+  color: var(--accent-cyan);
+}
+
+.gt-edition-tag {
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #090d16;
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.gt-title-text {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gt-sb-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.gt-live-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 8px #10b981;
+}
+
+.gt-btn-primary {
+  background: var(--accent-cyan);
+  color: #090d16;
+  border: none;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.gt-btn-primary:hover {
+  opacity: 0.9;
+}
+
+.gt-btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.gt-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Round Navigation Tabs */
+.gt-round-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 6px 12px;
+  margin-bottom: 14px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.gt-rd-pills {
+  display: flex;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 3px;
+  border-radius: 8px;
+  gap: 4px;
+}
+
+.gt-rd-pill {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gt-rd-pill.active {
+  background: var(--accent-cyan);
+  color: #090d16;
+}
+
+/* Dual Competitor Scoreboard */
+.gt-duo-board {
+  display: grid;
+  grid-template-columns: 1fr 240px 1fr;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+  .gt-duo-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gt-scorecard {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.gt-scorecard.p1 {
+  border-left: 4px solid var(--accent-cyan);
+}
+
+.gt-scorecard.p2 {
+  border-right: 4px solid var(--accent-amber);
+}
+
+.gt-p-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.gt-role-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 3px;
+}
+.gt-role-tag.p1 { color: var(--accent-cyan); }
+.gt-role-tag.p2 { color: var(--accent-amber); }
+
+.gt-p-name {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gt-p-faction {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.gt-cp-box {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 4px 10px;
+  text-align: center;
+}
+
+.gt-cp-lbl {
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.gt-cp-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gt-cp-ctrls button {
+  background: transparent;
+  border: none;
+  color: var(--accent-cyan);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.gt-cp-ctrls b {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  color: #fff;
+}
+
+.gt-score-display {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+.gt-score-val {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+
+.gt-score-stats {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.gt-score-stats span {
+  color: var(--text-muted);
+  font-size: 10px;
+  display: block;
+}
+
+.gt-score-stats b {
+  font-family: 'JetBrains Mono', monospace;
+  color: #fff;
+}
+
+.gt-turn-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-border);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gt-turn-btn.active {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: var(--accent-cyan);
+  color: #fff;
+}
+
+/* Center Mission Banner */
+.gt-mission-center-card {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 5px;
+}
+
+.gt-pack-pill {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--accent-cyan);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.gt-mission-name {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gt-rule-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Active Turn Scoring Deck */
+.gt-turn-deck {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.gt-deck-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gt-deck-title {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.gt-deck-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.gt-scoring-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 820px) {
+  .gt-scoring-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.gt-panel-box {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.gt-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.gt-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gt-vp-pill {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-green);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.gt-panel-info {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0 0 12px 0;
+}
+
+.gt-pri-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 6px;
+}
+
+.gt-pri-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-border);
+  color: var(--text-main);
+  padding: 8px 6px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.gt-pri-btn.selected {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--accent-green);
+  color: var(--accent-green);
+  font-weight: 700;
+}
+
+/* Secondary Cards */
+.gt-sec-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.gt-card-unit {
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.gt-card-unit-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.gt-card-name {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.gt-card-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.35;
+  margin-bottom: 8px;
+}
+
+.gt-card-action-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.gt-chip-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--panel-border);
+  color: var(--text-main);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gt-chip-btn.achieved {
+  background: var(--accent-green);
+  border-color: var(--accent-green);
+  color: #042f1d;
+  font-weight: 700;
+}
+
+.gt-chip-btn.discard {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--accent-red);
+}
+
+.gt-draw-btn {
+  width: 100%;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px dashed rgba(56, 189, 248, 0.4);
+  color: var(--accent-cyan);
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.gt-draw-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+}
+
+/* Summary Scorecard Table */
+.gt-summary-matrix {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.gt-matrix-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.gt-matrix-top h4 {
+  font-family: 'Chakra Petch', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  margin: 0;
+}
+
+.gt-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.gt-matrix-table th, .gt-matrix-table td {
+  padding: 8px 10px;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.gt-matrix-table th:first-child, .gt-matrix-table td:first-child {
+  text-align: left;
+  font-family: 'Chakra Petch', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+}
