@@ -223,7 +223,9 @@ class PostgresDatabase:
 
             conn.commit()
         except Exception as e:
-            logger.info(f"init_db notice (schema already created or active DDL lock): {e}")    def upsert_event(self, event_data: Dict[str, Any]):
+            logger.info(f"init_db notice (schema already created or active DDL lock): {e}")
+
+    def upsert_event(self, event_data: Dict[str, Any]):
         """Inserts or updates an event record in PostgreSQL."""
         event_id = event_data.get("id") or event_data.get("objectId")
         if not event_id:
