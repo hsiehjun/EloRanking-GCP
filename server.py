@@ -392,15 +392,21 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
-    @app.get("/tracker/play", include_in_schema=False)
     @app.get("/tracker/index.html", include_in_schema=False)
     @app.get("/11th/tracker", include_in_schema=False)
-    @app.get("/11th/tracker/play", include_in_schema=False)
-    async def serve_tracker():
+    async def serve_tracker_home():
         t_file = web_dir / "tracker" / "index.html"
         if t_file.exists():
             return FileResponse(str(t_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="Tracker bundle not found")
+
+    @app.get("/tracker/play", include_in_schema=False)
+    @app.get("/11th/tracker/play", include_in_schema=False)
+    async def serve_tracker_play():
+        p_file = web_dir / "tracker" / "play.html"
+        if p_file.exists():
+            return FileResponse(str(p_file), media_type="text/html")
+        raise HTTPException(status_code=404, detail="Tracker play bundle not found")
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)
