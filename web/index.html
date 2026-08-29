@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css">
-  <link rel="stylesheet" href="/css/styles.css?v=7.0">
+  <link rel="stylesheet" href="/css/styles.css?v=7.1">
 </head>
 <body>
 
@@ -481,6 +481,47 @@
 
   </main>
 
+    <!-- Location Picker Modal -->
+  <div id="hub-location-picker-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-window" style="max-width: 620px;">
+      <div class="modal-header">
+        <h3 style="font-size: 1.15rem; font-weight: 700; color: #fff; margin: 0;">📍 Select Search Location</h3>
+        <button class="modal-close" onclick="closeLocationPickerModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem;">
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">
+          Select your location to discover upcoming Warhammer 40k tournaments anywhere globally.
+        </p>
+
+        <!-- Search Bar -->
+        <div style="display: flex; gap: 0.5rem; margin-bottom: 1.25rem;">
+          <input type="text" id="custom-location-search-input" class="search-input" style="flex: 1; padding: 0.55rem 0.85rem;" placeholder="Search any City, State, Postal Code, or Country..." onkeydown="if(event.key==='Enter') searchCustomLocationInput()">
+          <button class="btn btn-primary" onclick="searchCustomLocationInput()">Search</button>
+        </div>
+
+        <!-- Quick Presets -->
+        <div style="font-size: 0.78rem; font-weight: 700; color: var(--accent); margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.5px;">Quick Presets & Major Hubs</div>
+        <div class="hub-location-chip-grid">
+          <button class="hub-loc-chip active" onclick="setPresetLocation('gps')">📍 Use My Live GPS</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('san diego')">🌴 San Diego, CA</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('los angeles')">🎬 Los Angeles, CA</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('san francisco')">🌉 San Francisco, CA</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('seattle')">🌲 Seattle, WA</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('austin')">🤠 Austin, TX</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('dallas')">⭐ Dallas, TX</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('chicago')">🏙️ Chicago, IL</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('new york')">🗽 New York, NY</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('orlando')">☀️ Orlando, FL</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('denver')">🏔️ Denver, CO</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('toronto')">🍁 Toronto, Canada</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('london')">☕ London, UK</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('sydney')">🦘 Sydney, Australia</button>
+          <button class="hub-loc-chip" onclick="setPresetLocation('paris')">🏰 Paris, France</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Player Win Path Modal -->
   <div id="player-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window">
@@ -809,18 +850,18 @@
   </div>
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=7.0"></script>
-  <script src="/js/api.js?v=7.0"></script>
-  <script src="/js/leaderboard.js?v=7.0"></script>
-  <script src="/js/teams.js?v=7.0"></script>
-  <script src="/js/players.js?v=7.0"></script>
-  <script src="/js/tournaments.js?v=7.0"></script>
-  <script src="/js/factions.js?v=7.0"></script>
-  <script src="/js/predictor.js?v=7.0"></script>
-  <script src="/js/modals.js?v=7.0"></script>
-  <script src="/js/auth.js?v=7.0"></script>
-  <script src="/js/my_hub.js?v=7.0"></script>
-  <script src="/js/app.js?v=7.0"></script>
+  <script src="/js/utils.js?v=7.1"></script>
+  <script src="/js/api.js?v=7.1"></script>
+  <script src="/js/leaderboard.js?v=7.1"></script>
+  <script src="/js/teams.js?v=7.1"></script>
+  <script src="/js/players.js?v=7.1"></script>
+  <script src="/js/tournaments.js?v=7.1"></script>
+  <script src="/js/factions.js?v=7.1"></script>
+  <script src="/js/predictor.js?v=7.1"></script>
+  <script src="/js/modals.js?v=7.1"></script>
+  <script src="/js/auth.js?v=7.1"></script>
+  <script src="/js/my_hub.js?v=7.1"></script>
+  <script src="/js/app.js?v=7.1"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
