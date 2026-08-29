@@ -1,16 +1,16 @@
 /**
- * Synchronized Multiplayer Overlay Client for Static Game Tracker
- * Persists and broadcasts local state changes in real time across clients.
+ * Synchronized Multiplayer Overlay Client for GDM 11th Edition Game Tracker
+ * Intercepts gdm-11e-tracker-state and broadcasts changes live across all connected clients.
  */
 
 (function () {
   'use strict';
 
-  console.log('[Multiplayer Overlay] Initializing Synchronized Multiplayer Engine...');
+  console.log('[Multiplayer Overlay] Initializing Synchronized Multiplayer Engine for GDM 11th Tracker...');
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',
-    debounceMs: 150,
+    debounceMs: 120,
     pollIntervalMs: 2500
   };
 
@@ -33,16 +33,16 @@
     let role = params.get('role') || 'editor';
 
     if (!matchId) {
-      // Check if previously stored
       matchId = sessionStorage.getItem('gt_active_match_id');
+      if (!matchId) {
+        matchId = 'WH40K-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+      }
     }
 
-    if (matchId) {
-      clientState.matchId = matchId.toUpperCase();
-      clientState.role = role.toLowerCase();
-      sessionStorage.setItem('gt_active_match_id', clientState.matchId);
-      updateUrl(clientState.matchId, clientState.role);
-    }
+    clientState.matchId = matchId.toUpperCase();
+    clientState.role = role.toLowerCase();
+    sessionStorage.setItem('gt_active_match_id', clientState.matchId);
+    updateUrl(clientState.matchId, clientState.role);
   }
 
   function updateUrl(matchId, role) {
@@ -56,7 +56,7 @@
     window.history.replaceState({}, '', url.toString());
   }
 
-  // 2. Intercept localStorage Changes
+  // 2. Intercept localStorage Changes for GDM Tracker State
   const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
   const originalClear = window.localStorage.clear.bind(window.localStorage);
@@ -65,7 +65,7 @@
     const state = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && (key.startsWith('gdm') || key.startsWith('tracker') || key.startsWith('gtk') || key.includes('game') || key.includes('edition'))) {
+      if (key && (key.startsWith('gdm-') || key.includes('tracker'))) {
         state[key] = localStorage.getItem(key);
       }
     }
@@ -77,12 +77,13 @@
     clientState.isApplyingRemote = true;
 
     try {
+      let stateChanged = false;
       for (const [key, val] of Object.entries(remoteState)) {
         if (val !== null && val !== undefined) {
           const currentVal = localStorage.getItem(key);
           if (currentVal !== val) {
             originalSetItem(key, val);
-            // Dispatch standard storage event to trigger Next.js / React listener re-renders
+            stateChanged = true;
             try {
               window.dispatchEvent(new StorageEvent('storage', {
                 key: key,
@@ -95,17 +96,21 @@
           }
         }
       }
+      if (stateChanged) {
+        // Trigger generic window event for React components
+        window.dispatchEvent(new CustomEvent('gdm-sync-state-applied'));
+      }
     } finally {
       setTimeout(() => {
         clientState.isApplyingRemote = false;
-      }, 50);
+      }, 60);
     }
   }
 
-  function notifyLocalStateChanged() {
+  function notifyLocalStateChanged(key) {
     if (clientState.isApplyingRemote) return;
     if (clientState.role === 'spectator') {
-      console.warn('[Multiplayer Overlay] Local changes suppressed in Spectator mode');
+      console.warn('[Multiplayer Overlay] Local edits suppressed in Spectator mode');
       return;
     }
     if (!clientState.matchId) return;
@@ -118,17 +123,21 @@
 
   window.localStorage.setItem = function (key, value) {
     originalSetItem(key, value);
-    notifyLocalStateChanged();
+    if (key.startsWith('gdm-') || key.includes('tracker')) {
+      notifyLocalStateChanged(key);
+    }
   };
 
   window.localStorage.removeItem = function (key) {
     originalRemoveItem(key);
-    notifyLocalStateChanged();
+    if (key.startsWith('gdm-') || key.includes('tracker')) {
+      notifyLocalStateChanged(key);
+    }
   };
 
   window.localStorage.clear = function () {
     originalClear();
-    notifyLocalStateChanged();
+    notifyLocalStateChanged('all');
   };
 
   // 3. Network Broadcast & Real-Time Sync
@@ -154,7 +163,6 @@
         setSyncDotState('connected');
       }
     } catch (err) {
-      console.warn('[Multiplayer Overlay] Broadcast notice:', err);
       setSyncDotState('connected');
     }
   }
@@ -165,11 +173,14 @@
       const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}`);
       if (resp.ok) {
         const data = await resp.json();
-        if (data && data.state) {
+        if (data && data.state && Object.keys(data.state).length > 0) {
           if (data.version > clientState.version || clientState.version === 0) {
             clientState.version = data.version || 1;
             applyRemoteStorageState(data.state);
           }
+        } else {
+          // New room - broadcast initial pre-seeded state
+          broadcastCurrentState();
         }
       }
     } catch (err) {
@@ -180,7 +191,6 @@
   function startRealtimeStream() {
     if (!clientState.matchId) return;
 
-    // Close existing SSE if any
     if (clientState.eventSource) {
       clientState.eventSource.close();
     }
@@ -218,7 +228,6 @@
         setSyncDotState('disconnected');
       };
     } catch (e) {
-      // Fallback to periodic polling if SSE unsupported
       setInterval(fetchRemoteState, SYNC_CONFIG.pollIntervalMs);
     }
   }
@@ -232,13 +241,13 @@
     overlay.innerHTML = `
       <span class="gt-sync-dot ${clientState.connected ? '' : 'disconnected'}" id="gt-sync-dot"></span>
       <span id="gt-sync-label" class="gt-sync-room-tag">
-        ${clientState.matchId ? `#${clientState.matchId}` : 'Multiplayer: Off'}
+        #${clientState.matchId}
       </span>
       <span class="gt-sync-role-chip ${clientState.role}" id="gt-sync-role-label">
         ${clientState.role.toUpperCase()}
       </span>
       <button class="gt-sync-btn" onclick="window.gtMultiplayer.openShareModal()">
-        ${clientState.matchId ? '🔗 Share' : '➕ Host Room'}
+        🔗 Share Room
       </button>
     `;
     document.body.appendChild(overlay);
@@ -303,7 +312,7 @@
     const label = document.getElementById('gt-sync-label');
     const roleLabel = document.getElementById('gt-sync-role-label');
     if (label) {
-      label.textContent = clientState.matchId ? `#${clientState.matchId}` : 'Multiplayer: Off';
+      label.textContent = `#${clientState.matchId}`;
     }
     if (roleLabel) {
       roleLabel.textContent = clientState.role.toUpperCase();
@@ -311,7 +320,7 @@
     }
   }
 
-  // 5. Global API & Controls
+  // 5. Global Controls API
   window.gtMultiplayer = {
     createNewRoom: function () {
       const newId = 'WH40K-' + Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -326,10 +335,6 @@
     },
 
     openShareModal: function () {
-      if (!clientState.matchId) {
-        this.createNewRoom();
-        return;
-      }
       const modal = document.getElementById('gt-sync-modal-backdrop');
       const input = document.getElementById('gt-sync-share-url');
       if (input) {
@@ -361,26 +366,16 @@
 
     leaveRoom: function () {
       if (clientState.eventSource) clientState.eventSource.close();
-      clientState.matchId = null;
-      sessionStorage.removeItem('gt_active_match_id');
-      const url = new URL(window.location.href);
-      url.searchParams.delete('match_id');
-      url.searchParams.delete('role');
-      window.history.replaceState({}, '', url.toString());
-      this.closeShareModal();
-      updateHud();
-      setSyncDotState('disconnected');
+      this.createNewRoom();
     }
   };
 
   // Initialize on load
+  initRoomFromUrl();
   window.addEventListener('DOMContentLoaded', () => {
-    initRoomFromUrl();
     renderMultiplayerOverlay();
-    if (clientState.matchId) {
-      startRealtimeStream();
-      fetchRemoteState();
-    }
+    startRealtimeStream();
+    fetchRemoteState();
   });
 
 })();

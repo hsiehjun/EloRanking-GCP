@@ -333,12 +333,28 @@ if FASTAPI_AVAILABLE:
         app.mount("/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="root_next_static")
         app.mount("/tracker/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="tracker_next_static")
 
-    if (web_dir / "tracker").exists():
-        app.mount("/tracker/files", StaticFiles(directory=str(web_dir / "tracker")), name="tracker_files_static")
+    @app.get("/tracker/tracker_sync.js", include_in_schema=False)
+    async def serve_tracker_sync_js():
+        return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript")
+
+    @app.get("/tracker/tracker_sync.css", include_in_schema=False)
+    async def serve_tracker_sync_css():
+        return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css")
+
+    @app.get("/logo-mark.svg", include_in_schema=False)
+    async def serve_logo_mark():
+        return FileResponse(str(web_dir / "tracker" / "logo-mark.svg"), media_type="image/svg+xml")
+
+    @app.get("/logo192w.png", include_in_schema=False)
+    async def serve_logo_png():
+        return FileResponse(str(web_dir / "tracker" / "logo192w.png"), media_type="image/png")
 
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
+    @app.get("/tracker/play", include_in_schema=False)
     @app.get("/tracker/index.html", include_in_schema=False)
+    @app.get("/11th/tracker", include_in_schema=False)
+    @app.get("/11th/tracker/play", include_in_schema=False)
     async def serve_tracker():
         t_file = web_dir / "tracker" / "index.html"
         if t_file.exists():
