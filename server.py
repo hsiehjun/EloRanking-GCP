@@ -294,7 +294,7 @@ if FASTAPI_AVAILABLE:
         has_placements = any(p.get("placement") is not None and p.get("placement") > 0 for p in players)
 
         # If roster is empty OR legacy tournament without official BCP placements, sync on-demand from BCP
-        if not players or not has_placements:
+        if not players or not has_placements or not event_details.get("is_ended"):
             try:
                 scraper = BestCoastPairingsScraper(db=db)
                 enrolled = scraper.fetch_event_players(event_id_str)
