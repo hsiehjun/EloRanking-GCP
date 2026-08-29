@@ -2,9 +2,20 @@
 
 import logging
 import os
+import math
+import json
+import urllib.request
+import urllib.parse
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel
+
+try:
+    from psycopg2 import extras
+except ImportError:
+    extras = None
+
 
 try:
     from fastapi import FastAPI, HTTPException, Query, Request, Response
@@ -284,7 +295,7 @@ if FASTAPI_AVAILABLE:
         }
 
         with db.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 if player_id_clean:
                     cursor.execute("""
                     SELECT e.state, e.city, COUNT(*) as cnt
