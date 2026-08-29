@@ -582,24 +582,31 @@ function renderHubEventCard(ev) {
   const tierName = ev.tier || 'Tournament';
   const timeLabel = ev.time_label || 'Upcoming';
   const isNearby = ev.is_nearby;
+  const capacityLabel = ev.capacity_label || `${ev.total_players || 0} Enrolled`;
+  const skillLabel = ev.skill_match_label || 'Standard';
+  const skillBadge = ev.skill_match_badge || 'badge-match-prime';
+  const avgElo = ev.avg_elo_display || 1550.0;
 
   return `
     <div class="hub-rec-card" onclick="openEventModal('${ev.id}')">
       <div style="flex: 1; min-width: 0; padding-right: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.2rem;">
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
           <b style="font-size: 0.88rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ev.name)}</b>
           ${isNearby ? '<span class="hub-rec-badge-nearby">📍 Nearby</span>' : ''}
           <span class="tier-badge ${tierBadge}" style="font-size: 0.68rem; padding: 0.1rem 0.45rem;">${tierName}</span>
+          <span class="badge ${skillBadge}" style="font-size: 0.68rem; padding: 0.1rem 0.45rem;">${escapeHtml(skillLabel)}</span>
         </div>
         <div style="font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
           <span>📅 ${evDate} <b style="color:var(--accent);">(${timeLabel})</b></span>
           <span>•</span>
           <span>📍 ${escapeHtml(location)}</span>
+          <span>•</span>
+          <span>⭐ Avg Field Elo: <b style="color:#fff; font-family:var(--font-mono);">${avgElo}</b></span>
         </div>
       </div>
-      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; min-width: 140px;">
         <span class="badge" style="font-size: 0.72rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
-          👥 ${ev.total_players || 0} Enrolled
+          👥 ${escapeHtml(capacityLabel)}
         </span>
         <a href="https://www.bestcoastpairings.com/event/${ev.id}" target="_blank" onclick="event.stopPropagation()" style="font-size: 0.72rem; color: var(--accent); text-decoration: underline;">
           BCP Link ↗

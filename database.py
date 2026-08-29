@@ -869,14 +869,17 @@ class PostgresDatabase:
         query: Optional[str] = None,
         state: Optional[str] = None,
         city: Optional[str] = None,
-        limit: int = 20
+        limit: int = 25
     ) -> Dict[str, Any]:
-        """Returns personalized event recommendations based on player location history, state/city filters, and search queries."""
+        """Returns personalized upcoming event recommendations with Average Field Elo, player skill compatibility, and capacity metrics."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 detected_state = None
                 detected_city = None
+                user_elo = None
+
                 if player_id:
+                    # Detect home region
                     cursor.execute("""
                     SELECT e.state, e.city, COUNT(*) as cnt
                     FROM event_participants ep
@@ -892,6 +895,12 @@ class PostgresDatabase:
                     if loc_row:
                         detected_state = loc_row.get("state")
                         detected_city = loc_row.get("city")
+
+                    # Get user's current Elo
+                    cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id,))
+                    p_elo_row = cursor.fetchone()
+                    if p_elo_row:
+                        user_elo = float(p_elo_row.get("current_elo") or 1500.0)
 
                 target_state = (state.strip() if state and state.strip() else detected_state)
                 target_city = (city.strip() if city and city.strip() else detected_city)
@@ -922,9 +931,17 @@ class PostgresDatabase:
                     e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
                     e.total_players, e.num_rounds, e.current_round, e.is_ended,
                     COALESCE(e.raw_json->>'locationName', e.raw_json->>'gameStoreName', '') as venue_name,
-                    COALESCE(e.raw_json->>'formatted_address', '') as full_address
+                    COALESCE(e.raw_json->>'formatted_address', '') as full_address,
+                    COALESCE(NULLIF(e.raw_json->>'numTickets', '')::int, NULLIF(e.raw_json->>'queryNumPlayers', '')::int, e.total_players) as max_capacity,
+                    COALESCE(NULLIF(e.raw_json->>'checkedInPlayers', '')::int, 0) as checked_in_players,
+                    ROUND(AVG(pr.current_elo)::numeric, 1) as avg_field_elo,
+                    MAX(pr.current_elo) as top_seed_elo,
+                    COUNT(pr.player_id) as rated_players_count
                 FROM events e
+                LEFT JOIN event_participants ep ON e.id = ep.event_id
+                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                 WHERE {where_sql}
+                GROUP BY e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country, e.total_players, e.num_rounds, e.current_round, e.is_ended, e.raw_json
                 ORDER BY {order_sql}
                 LIMIT %s;
                 """, params + [limit])
@@ -951,7 +968,19 @@ class PostgresDatabase:
                     else:
                         r["time_label"] = "Upcoming"
 
-                    tp = r.get("total_players") or 0
+                    enrolled = int(r.get("total_players") or 0)
+                    cap = int(r.get("max_capacity") or enrolled)
+                    r["enrolled_count"] = enrolled
+                    r["capacity_cap"] = cap
+
+                    if cap > enrolled:
+                        r["capacity_label"] = f"{enrolled} / {cap} Spots Filled ({cap - enrolled} open)"
+                    elif cap == enrolled and cap > 0:
+                        r["capacity_label"] = f"{enrolled} / {cap} Spots (Sold Out)"
+                    else:
+                        r["capacity_label"] = f"{enrolled} Enrolled"
+
+                    tp = max(enrolled, cap)
                     if tp >= 60:
                         r["tier"] = "Major"
                         r["tier_badge"] = "tier-S"
@@ -962,6 +991,36 @@ class PostgresDatabase:
                         r["tier"] = "RTT / Local"
                         r["tier_badge"] = "tier-B"
 
+                    # Field Average Elo & Compatibility Matching
+                    avg_elo_val = float(r.get("avg_field_elo") or 1550.0)
+                    r["avg_elo_display"] = round(avg_elo_val, 1)
+
+                    if user_elo:
+                        diff = avg_elo_val - user_elo
+                        r["elo_diff"] = round(diff, 1)
+                        if abs(diff) <= 60:
+                            r["skill_match_label"] = "🎯 Prime Skill Match"
+                            r["skill_match_badge"] = "badge-match-prime"
+                        elif diff > 60 and diff <= 150:
+                            r["skill_match_label"] = f"⚔️ Tough Field (+{round(diff)} Elo)"
+                            r["skill_match_badge"] = "badge-match-hard"
+                        elif diff > 150:
+                            r["skill_match_label"] = f"🦈 Shark Tank (+{round(diff)} Elo)"
+                            r["skill_match_badge"] = "badge-match-extreme"
+                        else:
+                            r["skill_match_label"] = f"🏆 Favorable Match ({round(diff)} Elo)"
+                            r["skill_match_badge"] = "badge-match-favorable"
+                    else:
+                        if avg_elo_val >= 1650:
+                            r["skill_match_label"] = "⚔️ High Competitive Tier"
+                            r["skill_match_badge"] = "badge-match-hard"
+                        elif avg_elo_val >= 1520:
+                            r["skill_match_label"] = "⚖️ Standard Competitive"
+                            r["skill_match_badge"] = "badge-match-prime"
+                        else:
+                            r["skill_match_label"] = "🟢 Open / Casual Friendly"
+                            r["skill_match_badge"] = "badge-match-favorable"
+
                     r["is_nearby"] = bool(target_state and r.get("state") and r.get("state").strip().lower() == target_state.strip().lower())
                     r["bcp_url"] = f"https://www.bestcoastpairings.com/event/{r['id']}"
 
@@ -969,9 +1028,11 @@ class PostgresDatabase:
                     "detected_state": detected_state,
                     "detected_city": detected_city,
                     "target_state": target_state,
+                    "user_elo": user_elo,
                     "events": rows,
                     "total": len(rows)
                 }
+
 
     def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC") -> Dict[str, Any]:
         """Returns paginated tournaments list with match counts."""
