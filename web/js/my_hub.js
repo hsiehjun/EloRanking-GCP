@@ -152,8 +152,110 @@ function renderMyHub(data) {
       </div>
     </div>
 
-    <!-- 2-Column Grid: Trajectory Chart & Upcoming Events -->
-    <div class="hub-grid-2col">
+    <!-- Full-Width Showcase: Tournament Hub & Discovery Suite -->
+    <div class="hub-card" id="hub-tournament-discovery-card" style="margin-top: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">⚔️ Tournament Hub & Events</h3>
+          <span class="badge badge-win" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;">Live Schedule</span>
+        </div>
+        <span id="hub-tourney-tab-count" style="font-size: 0.8rem; color: var(--accent); font-weight: 700;">${upcoming.length} registered</span>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="hub-tournaments-nav" style="margin-bottom: 1rem;">
+        <button id="hub-btn-tab-registered" class="hub-tourney-tab-btn active" onclick="switchHubTourneyTab('registered')">⚔️ Registered (${upcoming.length})</button>
+        <button id="hub-btn-tab-recommended" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('recommended')">🎯 Recommended Near Me</button>
+        <button id="hub-btn-tab-search" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('search')">🔍 Search Upcoming Tournaments</button>
+      </div>
+
+      <!-- Tab 1: Registered Tournaments -->
+      <div id="hub-tourney-view-registered">
+        ${upcoming.length > 0 ? `
+          <div class="hub-events-grid">
+            ${upcoming.map(ev => `
+              <div class="hub-rec-card" onclick="openEventModal('${ev.event_id}')">
+                <div style="flex: 1; min-width: 0; padding-right: 0.75rem;">
+                  <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                    <b style="font-size: 0.92rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ev.event_name)}</b>
+                    <span class="tier-badge tier-A" style="font-size: 0.68rem; padding: 0.1rem 0.45rem;">Registered</span>
+                  </div>
+                  <div style="font-size: 0.78rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <span>📅 ${ev.event_date ? ev.event_date.substring(0, 10) : 'TBD'}</span>
+                    <span>•</span>
+                    <span>📍 ${escapeHtml(ev.city || '')} ${escapeHtml(ev.state || '')}</span>
+                  </div>
+                </div>
+                <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+                  <span class="badge" style="font-size: 0.72rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    👥 ${ev.total_players || 0} Players
+                  </span>
+                  <span style="font-size: 0.72rem; color: var(--accent); font-weight: 600;">${escapeHtml(ev.registered_faction || 'Confirmed')}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.88rem;">
+            <div style="font-size: 1.1rem; margin-bottom: 0.35rem;">📅 No registered upcoming tournaments detected.</div>
+            <div style="font-size: 0.8rem; max-width: 520px; margin: 0 auto;">${isBcpConnected ? 'Click <b>"Recommended Near Me"</b> or <b>"Search Upcoming Tournaments"</b> above to explore open events!' : '<button class="bcp-login-btn" style="margin-top:0.65rem; font-size:0.85rem;" onclick="openBcpLinkModal()">Link BCP Account to Auto-Sync</button>'}</div>
+          </div>
+        `}
+      </div>
+
+      <!-- Tab 2: Recommended Near Me -->
+      <div id="hub-tourney-view-recommended" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; font-size: 0.82rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.5rem;">
+          <span id="hub-rec-location-label" style="font-weight: 600;">📍 Recommendations based on your region</span>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-size: 0.78rem;">Region:</span>
+            <select id="hub-rec-state-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
+              <option value="">Auto-Detect</option>
+              <option value="CA">California (CA)</option>
+              <option value="TX">Texas (TX)</option>
+              <option value="FL">Florida (FL)</option>
+              <option value="NY">New York (NY)</option>
+              <option value="WA">Washington (WA)</option>
+              <option value="IL">Illinois (IL)</option>
+              <option value="OH">Ohio (OH)</option>
+              <option value="PA">Pennsylvania (PA)</option>
+              <option value="NC">North Carolina (NC)</option>
+              <option value="All">All States / Global</option>
+            </select>
+          </div>
+        </div>
+        <div id="hub-recommended-list" class="hub-events-grid">
+          <div class="empty-state" style="padding: 2rem 0; grid-column: 1 / -1;"><div class="spinner"></div></div>
+        </div>
+      </div>
+
+      <!-- Tab 3: Search Upcoming Events -->
+      <div id="hub-tourney-view-search" style="display: none;">
+        <div class="hub-search-bar" style="margin-bottom: 1rem;">
+          <input type="text" id="hub-events-search-input" class="hub-search-input" placeholder="Search tournaments by name, city, state, or venue..." oninput="debounceHubEventsSearch()">
+          <select id="hub-search-state-filter" class="hub-state-select" onchange="executeHubEventsSearch()">
+            <option value="">All States</option>
+            <option value="CA">CA</option>
+            <option value="TX">TX</option>
+            <option value="FL">FL</option>
+            <option value="NY">NY</option>
+            <option value="WA">WA</option>
+            <option value="IL">IL</option>
+            <option value="OH">OH</option>
+            <option value="PA">PA</option>
+            <option value="NC">NC</option>
+            <option value="UK">UK</option>
+          </select>
+        </div>
+        <div id="hub-search-results-list" class="hub-events-grid">
+          <div style="padding: 2rem 0; text-align: center; color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1;">Type in the search bar above to discover upcoming tournaments.</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 2-Column Grid: Trajectory Chart & Army Mastery -->
+    <div class="hub-grid-2col" style="margin-top: 1.25rem;">
       
       <!-- Card 1: Elo Trajectory Progression -->
       <div class="hub-card">
@@ -165,96 +267,6 @@ function renderMyHub(data) {
           <svg id="hub-trajectory-svg" style="width: 100%; height: 220px;"></svg>
         </div>
       </div>
-
-      <!-- Card 2: Tournament Hub (Registered, Recommended Near Me & Search) -->
-      <div class="hub-card" id="hub-tournament-discovery-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">⚔️ Tournament Hub & Events</h3>
-          <span id="hub-tourney-tab-count" style="font-size: 0.75rem; color: var(--accent); font-weight: 600;">${upcoming.length} registered</span>
-        </div>
-
-        <!-- Navigation Tabs -->
-        <div class="hub-tournaments-nav">
-          <button id="hub-btn-tab-registered" class="hub-tourney-tab-btn active" onclick="switchHubTourneyTab('registered')">⚔️ Registered (${upcoming.length})</button>
-          <button id="hub-btn-tab-recommended" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('recommended')">🎯 Near Me</button>
-          <button id="hub-btn-tab-search" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('search')">🔍 Search Events</button>
-        </div>
-
-        <!-- Tab 1: Registered Tournaments -->
-        <div id="hub-tourney-view-registered">
-          ${upcoming.length > 0 ? `
-            <div style="display: flex; flex-direction: column; gap: 0.6rem; max-height: 280px; overflow-y: auto;">
-              ${upcoming.map(ev => `
-                <div class="upcoming-event-pill" onclick="openEventModal('${ev.event_id}')">
-                  <div>
-                    <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">${escapeHtml(ev.event_name)}</div>
-                    <div style="font-size: 0.76rem; color: var(--text-secondary);">${ev.event_date ? ev.event_date.substring(0, 10) : 'TBD'} • ${escapeHtml(ev.city || '')} ${escapeHtml(ev.state || '')}</div>
-                  </div>
-                  <div style="text-align: right;">
-                    <span class="tier-badge tier-A" style="font-size: 0.72rem;">${ev.total_players || 0} Players</span>
-                    <div style="font-size: 0.72rem; color: var(--accent); margin-top: 0.2rem;">${escapeHtml(ev.registered_faction || 'Registered')}</div>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
-          ` : `
-            <div style="padding: 1.75rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-              <div>📅 No registered upcoming tournaments detected.</div>
-              <div style="margin-top: 0.35rem; font-size: 0.78rem;">${isBcpConnected ? 'Click "Near Me" or "Search Events" above to discover tournaments!' : '<button class="bcp-login-btn" style="margin-top:0.5rem; font-size:0.8rem;" onclick="openBcpLinkModal()">Link BCP Account to Sync Events</button>'}</div>
-            </div>
-          `}
-        </div>
-
-        <!-- Tab 2: Recommended Near Me -->
-        <div id="hub-tourney-view-recommended" style="display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; font-size: 0.78rem; color: var(--text-secondary);">
-            <span id="hub-rec-location-label">📍 Recommendations based on your region</span>
-            <select id="hub-rec-state-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
-              <option value="">Auto-Detect</option>
-              <option value="CA">California (CA)</option>
-              <option value="TX">Texas (TX)</option>
-              <option value="FL">Florida (FL)</option>
-              <option value="NY">New York (NY)</option>
-              <option value="WA">Washington (WA)</option>
-              <option value="IL">Illinois (IL)</option>
-              <option value="OH">Ohio (OH)</option>
-              <option value="PA">Pennsylvania (PA)</option>
-              <option value="All">All States / Global</option>
-            </select>
-          </div>
-          <div id="hub-recommended-list" style="max-height: 260px; overflow-y: auto;">
-            <div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>
-          </div>
-        </div>
-
-        <!-- Tab 3: Search Upcoming Events -->
-        <div id="hub-tourney-view-search" style="display: none;">
-          <div class="hub-search-bar">
-            <input type="text" id="hub-events-search-input" class="hub-search-input" placeholder="Search by name, city, state, or venue..." oninput="debounceHubEventsSearch()">
-            <select id="hub-search-state-filter" class="hub-state-select" onchange="executeHubEventsSearch()">
-              <option value="">All States</option>
-              <option value="CA">CA</option>
-              <option value="TX">TX</option>
-              <option value="FL">FL</option>
-              <option value="NY">NY</option>
-              <option value="WA">WA</option>
-              <option value="IL">IL</option>
-              <option value="OH">OH</option>
-              <option value="PA">PA</option>
-              <option value="UK">UK</option>
-            </select>
-          </div>
-          <div id="hub-search-results-list" style="max-height: 250px; overflow-y: auto;">
-            <div style="padding: 1.5rem 0; text-align: center; color: var(--text-muted); font-size: 0.82rem;">Type in the search bar to find upcoming tournaments.</div>
-          </div>
-        </div>
-
-      </div>
-
-    </div>
-
-    <!-- 2-Column Grid: Army Mastery & Opponent Matchup Matrix -->
-    <div class="hub-grid-2col">
       
       <!-- Card 3: Faction Mastery Breakdown -->
       <div class="hub-card">
