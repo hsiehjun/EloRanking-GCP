@@ -356,7 +356,7 @@ class BestCoastPairingsScraper:
                     team=team_name,
                     dropped=bool(p.get("dropped")),
                     checked_in=bool(p.get("checkedIn")),
-                    placing=placing_num,
+                    placement=placing_num,
                     battle_points=pts_num
                 )
         except Exception as e:

@@ -202,7 +202,7 @@ function renderEventResultsRows() {
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
 
     tr.innerHTML = `
-      <td class="rank-cell">#${p.placing && p.placing > 0 ? p.placing : (idx + 1)}</td>
+      <td class="rank-cell">#${p.placement && p.placement > 0 ? p.placement : (idx + 1)}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.full_name || 'Player')}</span>

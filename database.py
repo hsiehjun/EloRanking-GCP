@@ -183,7 +183,7 @@ class PostgresDatabase:
                     full_name TEXT,
                     faction TEXT,
                     team TEXT,
-                    placing INT,
+                    placement INT,
                     battle_points INT,
                     dropped BOOLEAN DEFAULT FALSE,
                     checked_in BOOLEAN DEFAULT FALSE,
@@ -211,7 +211,7 @@ class PostgresDatabase:
                 for migration in [
                     "ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;",
                     "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
-                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placing INT;",
+                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
                     "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;"
                 ]:
                     try:
@@ -299,7 +299,7 @@ class PostgresDatabase:
         team: str = "",
         dropped: bool = False,
         checked_in: bool = True,
-        placing: Optional[int] = None,
+        placement: Optional[int] = None,
         battle_points: Optional[int] = None
     ):
         """Inserts or updates a tournament participant with team affiliation and official BCP placing."""
@@ -307,7 +307,7 @@ class PostgresDatabase:
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO event_participants (
-                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placing, battle_points
+                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (event_id, player_id) DO UPDATE SET
                     first_name = EXCLUDED.first_name,
@@ -317,9 +317,9 @@ class PostgresDatabase:
                     team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                     dropped = EXCLUDED.dropped,
                     checked_in = EXCLUDED.checked_in,
-                    placing = COALESCE(EXCLUDED.placing, event_participants.placing),
+                    placement = COALESCE(EXCLUDED.placement, event_participants.placement),
                     battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points);
-                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in, placing, battle_points))
+                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in, placement, battle_points))
             conn.commit()
 
     def upsert_match(self, match_data: Dict[str, Any]):
@@ -696,7 +696,7 @@ class PostgresDatabase:
                     COALESCE(ep.faction, pr.top_faction, 'Unknown') as faction,
                     COALESCE(ep.team, pr.team, '') as team,
                     ep.dropped, ep.checked_in,
-                    ep.placing,
+                    ep.placement,
                     COALESCE(pr.current_elo, 1500.0) as current_elo,
                     COALESCE(pr.peak_elo, 1500.0) as peak_elo,
                     COALESCE(pr.win_rate, 0.0) as global_win_rate,
@@ -709,9 +709,9 @@ class PostgresDatabase:
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                 LEFT JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id)
                 WHERE ep.event_id = %s
-                GROUP BY ep.player_id, pr.player_name, ep.full_name, ep.faction, pr.top_faction, ep.team, pr.team, ep.dropped, ep.checked_in, ep.placing, pr.current_elo, pr.peak_elo, pr.win_rate
+                GROUP BY ep.player_id, pr.player_name, ep.full_name, ep.faction, pr.top_faction, ep.team, pr.team, ep.dropped, ep.checked_in, ep.placement, pr.current_elo, pr.peak_elo, pr.win_rate
                 ORDER BY 
-                    CASE WHEN ep.placing IS NOT NULL AND ep.placing > 0 THEN ep.placing ELSE 99999 END ASC,
+                    CASE WHEN ep.placement IS NOT NULL AND ep.placement > 0 THEN ep.placement ELSE 99999 END ASC,
                     event_wins DESC,
                     event_battle_points DESC,
                     current_elo DESC;
