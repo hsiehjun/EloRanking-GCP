@@ -10,7 +10,7 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from pydantic import BaseModel
 
 try:
@@ -22,7 +22,7 @@ except ImportError:
 try:
     from fastapi import FastAPI, HTTPException, Query, Request, Response
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
+    from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, HTMLResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     import uvicorn
     FASTAPI_AVAILABLE = True
