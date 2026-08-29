@@ -107,9 +107,11 @@ def process_page(path, dest_filename):
     for match in re.findall(r'/_next/static/media/[a-zA-Z0-9_\-\.]+\.woff2?', raw_html):
         download_asset(match)
 
-    # 1. Neutralize Service Workers, Suppress Delete Buttons & Inject Sync Bridge
+    # 1. Neutralize Service Workers, Suppress Delete Buttons & Inject Sync Bridge in HEAD
     sync_head_injection = """
   <!-- GDM MULTIPLAYER & DATABASE OVERLAY INJECTION -->
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=7.0">
+  <script src="/tracker/tracker_sync.js?v=7.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;
@@ -136,15 +138,8 @@ def process_page(path, dest_filename):
   </script>
 """
 
-    sync_body_injection = """
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=6.0">
-  <script src="/tracker/tracker_sync.js?v=6.0"></script>
-</body>
-"""
-
     cleaned_html = raw_html
     cleaned_html = cleaned_html.replace("<head>", "<head>" + sync_head_injection)
-    cleaned_html = cleaned_html.replace("</body>", sync_body_injection)
 
     cleaned_html = re.sub(r'<script[^>]*stats\.game-datacards\.eu[^>]*></script>', '', cleaned_html)
     cleaned_html = re.sub(r'<script[^>]*cloudflareinsights[^>]*></script>', '', cleaned_html)

@@ -25,10 +25,49 @@
     debounceTimer: null
   };
 
-  // 1. Storage interceptors
+  // Database-driven history cache (isolated from browser disk storage)
+  let dbHistoryCache = [];
+
+  // 1. Storage interceptors - immediate execution before React initializes
   const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
   const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
+
+  // Clean out stale disk history immediately
+  try {
+    originalRemoveItem('gdm-11e-tracker-history');
+  } catch (e) {}
+
+  // Override getItem so React ONLY reads from DB history cache
+  window.localStorage.getItem = function (key) {
+    if (key === 'gdm-11e-tracker-history') {
+      return JSON.stringify(dbHistoryCache);
+    }
+    return originalGetItem(key);
+  };
+
+  // Override setItem to prevent local-only saves from polluting history
+  window.localStorage.setItem = function (key, value) {
+    if (key === 'gdm-11e-tracker-history') {
+      // Ignored: Database is the sole source of truth for history
+      return;
+    }
+    originalSetItem(key, value);
+    if (key === 'gdm-11e-tracker-state') {
+      notifyStateChanged();
+    }
+  };
+
+  window.localStorage.removeItem = function (key) {
+    if (key === 'gdm-11e-tracker-history') {
+      dbHistoryCache = [];
+      return;
+    }
+    originalRemoveItem(key);
+    if (key === 'gdm-11e-tracker-state') {
+      notifyStateChanged();
+    }
+  };
 
   // 2. Initialize Match Room on /play vs /tracker
   function init() {
@@ -55,8 +94,6 @@
       startRealtimeStream();
     } else {
       // Landing page (/11th/tracker or /tracker) -> Pure DB History
-      // Clear any legacy client localStorage history
-      originalRemoveItem('gdm-11e-tracker-history');
       syncHistoryFromDatabase();
     }
   }
@@ -68,7 +105,7 @@
       if (resp.ok) {
         const data = await resp.json();
         if (data && data.history && Array.isArray(data.history)) {
-          const gdmHistory = data.history.map(item => {
+          dbHistoryCache = data.history.map(item => {
             let s = {};
             if (typeof item.state_json === 'string') {
               try { s = JSON.parse(item.state_json); } catch (e) {}
@@ -95,15 +132,16 @@
               winner: item.winner_name
             };
           });
-
-          // Inject fresh database records directly into React view
-          originalSetItem('gdm-11e-tracker-history', JSON.stringify(gdmHistory));
-          window.dispatchEvent(new StorageEvent('storage', {
-            key: 'gdm-11e-tracker-history',
-            newValue: JSON.stringify(gdmHistory),
-            storageArea: localStorage
-          }));
+        } else {
+          dbHistoryCache = [];
         }
+
+        // Trigger storage event so GDM React updates immediately
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'gdm-11e-tracker-history',
+          newValue: JSON.stringify(dbHistoryCache),
+          storageArea: localStorage
+        }));
       }
     } catch (e) {
       console.debug('Database history sync notice:', e);
@@ -122,24 +160,10 @@
     }, SYNC_CONFIG.debounceMs);
   }
 
-  window.localStorage.setItem = function (key, value) {
-    originalSetItem(key, value);
-    if (key === 'gdm-11e-tracker-state') {
-      notifyStateChanged();
-    }
-  };
-
-  window.localStorage.removeItem = function (key) {
-    originalRemoveItem(key);
-    if (key === 'gdm-11e-tracker-state') {
-      notifyStateChanged();
-    }
-  };
-
   // 5. Broadcast State to Room & Auto-Save in PostgreSQL DB
   async function broadcastState() {
     if (!clientState.matchId) return;
-    const raw = localStorage.getItem('gdm-11e-tracker-state');
+    const raw = originalGetItem('gdm-11e-tracker-state');
     if (!raw) return;
 
     let parsedState = {};
@@ -181,7 +205,7 @@
     clientState.isApplyingRemote = true;
     try {
       const serialized = typeof incoming === 'string' ? incoming : JSON.stringify(incoming);
-      const current = localStorage.getItem('gdm-11e-tracker-state');
+      const current = originalGetItem('gdm-11e-tracker-state');
       if (current !== serialized) {
         originalSetItem('gdm-11e-tracker-state', serialized);
         window.dispatchEvent(new StorageEvent('storage', {
@@ -245,8 +269,11 @@
     document.body.appendChild(hud);
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
+  // Trigger immediate sync
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
     init();
-  });
+  }
 
 })();
