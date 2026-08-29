@@ -183,6 +183,33 @@ def sync_workspaces():
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, target)
 
+def patch_react_chunks():
+    print("--> Patching React Context for Real-Time Bidirectional SSE State Synchronization...")
+    chunks_dir = DEST_DIR / "_next" / "static" / "chunks"
+    for js_file in chunks_dir.glob("**/*.js"):
+        try:
+            content = js_file.read_text(encoding="utf-8", errors="ignore")
+            changed = False
+            
+            # 1. Patch function C(e) so state is never prematurely discarded in steps 1-3
+            if "function C(e){return!!(e.game.p1Disposition&&e.game.p2Disposition)}" in content:
+                content = content.replace("function C(e){return!!(e.game.p1Disposition&&e.game.p2Disposition)}", "function C(e){return!0}")
+                changed = True
+                
+            # 2. Expose React setState hook to window.__gdmSetTrackerState for instantaneous live updates
+            if "P(d()),j(!0)},[])" in content and "window.__gdmSetTrackerState" not in content:
+                content = content.replace(
+                    "P(d()),j(!0)},[])",
+                    'P(d()),j(!0),window.__gdmSetTrackerState=function(e){try{k(M(e))}catch(e){}},window.addEventListener("gdm-state-sync",function(e){e.detail&&window.__gdmSetTrackerState(e.detail)})},[])'
+                )
+                changed = True
+                
+            if changed:
+                js_file.write_text(content, encoding="utf-8")
+                print(f"  [+] Patched {js_file.name} with live React bidirectional state sync!")
+        except Exception as e:
+            print(f"  [-] Notice in {js_file.name}: {e}")
+
 def main():
     print("=================================================================")
     print("  GDM 11th TRACKER AUTOMATED SCRAPER & SYNCHRONIZED BUILDER")
@@ -201,7 +228,10 @@ def main():
     # Scan for referenced sub-chunks
     download_sub_chunks()
 
-    # Sync
+    # Patch React state context for bidirectional SSE synchronization
+    patch_react_chunks()
+
+    # Sync across workspaces
     sync_workspaces()
     print("\n✅ All done! Authentic GDM bundle, maps, and database hooks are ready.")
 

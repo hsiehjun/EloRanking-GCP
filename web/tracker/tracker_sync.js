@@ -510,29 +510,41 @@
   function applyRemoteState(incoming) {
     clientState.isApplyingRemote = true;
     try {
-      const serialized = typeof incoming === 'string' ? incoming : JSON.stringify(incoming);
+      const stateObj = typeof incoming === 'string' ? JSON.parse(incoming) : incoming;
+      const serialized = JSON.stringify(stateObj);
       const current = originalGetItem('gdm-11e-tracker-state');
-      if (current !== serialized) {
-        originalSetItem('gdm-11e-tracker-state', serialized);
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: 'gdm-11e-tracker-state',
-          newValue: serialized,
-          oldValue: current,
-          url: window.location.href,
-          storageArea: localStorage
-        }));
+      
+      originalSetItem('gdm-11e-tracker-state', serialized);
 
-        // Refresh invite widget if P2 just connected
-        const widget = document.getElementById('gt-invite-widget');
-        if (widget && incoming.game && incoming.game.p2Name && incoming.game.p2Name !== 'Player 2') {
-          widget.innerHTML = `
-            <div style="display:flex; align-items:center; justify-content:space-between;">
-              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${incoming.game.p2Name})</span>
-              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players (Collaborative Live)</span>
-            </div>
-          `;
-        }
+      // 1. Direct React Context state injection
+      if (typeof window.__gdmSetTrackerState === 'function') {
+        window.__gdmSetTrackerState(stateObj);
       }
+
+      // 2. Custom event dispatch
+      window.dispatchEvent(new CustomEvent('gdm-state-sync', { detail: stateObj }));
+
+      // 3. Storage event dispatch
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'gdm-11e-tracker-state',
+        newValue: serialized,
+        oldValue: current,
+        url: window.location.href,
+        storageArea: localStorage
+      }));
+
+      // Refresh invite widget if P2 just connected
+      const widget = document.getElementById('gt-invite-widget');
+      if (widget && stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2') {
+        widget.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game.p2Name})</span>
+            <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players (Collaborative Live)</span>
+          </div>
+        `;
+      }
+    } catch (err) {
+      console.error('[GDM Sync Bridge] Error applying remote state:', err);
     } finally {
       setTimeout(() => { clientState.isApplyingRemote = false; }, 50);
     }
