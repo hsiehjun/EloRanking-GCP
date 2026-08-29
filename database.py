@@ -1232,10 +1232,11 @@ class PostgresDatabase:
                     COALESCE(m_stat.total_matches, 0) as total_matches,
                     ROUND((COALESCE(m_stat.wins, 0) * 100.0 / NULLIF(COALESCE(m_stat.total_matches, 0), 0))::numeric, 1) as team_win_rate,
                     ROUND((
-                        (0.50 * MAX(tr.current_elo) + 0.50 * AVG(tr.current_elo)) +
+                        (0.40 * MAX(tr.current_elo) + 0.60 * AVG(tr.current_elo)) +
                         (((COALESCE(m_stat.wins, 0) + 20.0) / (COALESCE(m_stat.total_matches, 0) + 40.0) - 0.50) * 80.0) +
-                        (40.0 * LOG(GREATEST(1.0, COALESCE(m_stat.wins, 0)::numeric) + 1.0)) +
-                        (20.0 * LOG(GREATEST(1.0, COUNT(DISTINCT tr.player_id)::numeric)))
+                        (50.0 * LOG(GREATEST(1.0, COALESCE(m_stat.wins, 0)::numeric) + 1.0)) +
+                        (2.0 * COUNT(DISTINCT tr.player_id)::numeric) +
+                        (35.0 * LOG(GREATEST(1.0, COUNT(DISTINCT tr.player_id)::numeric)))
                     )::numeric, 1) as power_rating,
                     CASE WHEN COUNT(DISTINCT tr.player_id) >= 3 AND COALESCE(m_stat.total_matches, 0) >= 20 THEN TRUE ELSE FALSE END as is_qualified
                 FROM team_rosters tr
@@ -1304,10 +1305,11 @@ class PostgresDatabase:
                 win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0
                 bayes_wr = (total_wins + 20.0) / (total_matches + 40.0) if (total_matches + 40.0) > 0 else 0.50
                 power_rating = round(
-                    (0.50 * top_elo + 0.50 * avg_elo) +
+                    (0.40 * top_elo + 0.60 * avg_elo) +
                     ((bayes_wr - 0.50) * 80.0) +
-                    (40.0 * math.log10(max(1.0, total_wins) + 1.0)) +
-                    (20.0 * math.log10(max(1.0, len(roster)))),
+                    (50.0 * math.log10(max(1.0, total_wins) + 1.0)) +
+                    (2.0 * len(roster)) +
+                    (35.0 * math.log10(max(1.0, len(roster)))),
                     1
                 )
 

@@ -324,20 +324,21 @@ if FASTAPI_AVAILABLE:
         if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
             user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-        # 2. Query BCP API live across upcoming months
+        # 2. Query BCP API live across 14-day intervals (next 3.5 months) to ensure 100% complete tournament coverage
         headers = {'client-id': 'web-app', 'User-Agent': 'Mozilla/5.0'}
         now_dt = datetime.now(timezone.utc)
         
-        windows = [
-            (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=35)).strftime("%Y-%m-%dT23:59:59.999Z")),
-            ((now_dt + timedelta(days=36)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=70)).strftime("%Y-%m-%dT23:59:59.999Z")),
-            ((now_dt + timedelta(days=71)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=105)).strftime("%Y-%m-%dT23:59:59.999Z"))
-        ]
+        intervals = []
+        curr = now_dt
+        for _ in range(8):  # 8 intervals x 14 days = 112 days (~3.5 months)
+            nxt = curr + timedelta(days=14)
+            intervals.append((curr.strftime("%Y-%m-%dT00:00:00.000Z"), nxt.strftime("%Y-%m-%dT23:59:59.999Z")))
+            curr = nxt + timedelta(days=1)
 
         bcp_events = []
-        for s_iso, e_iso in windows:
+        for s_iso, e_iso in intervals:
             next_key = None
-            for _ in range(5):  # 5 pages = 250 events per window
+            for _ in range(8):  # Up to 8 pages per 14-day interval = 400 events per interval
                 params = {
                     "limit": 50,
                     "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
@@ -350,7 +351,7 @@ if FASTAPI_AVAILABLE:
                 url = f"https://newprod-api.bestcoastpairings.com/v1/events?{urllib.parse.urlencode(params)}"
                 try:
                     req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=4) as resp:
+                    with urllib.request.urlopen(req, timeout=3.5) as resp:
                         data = json.loads(resp.read().decode())
                         evs = data.get("data", [])
                         bcp_events.extend(evs)
@@ -358,7 +359,7 @@ if FASTAPI_AVAILABLE:
                         if not next_key:
                             break
                 except Exception as e:
-                    logger.warning(f"Live BCP query error: {e}")
+                    logger.warning(f"Live BCP interval query notice: {e}")
                     break
 
         def haversine_miles(lat1, lon1, lat2, lon2):
