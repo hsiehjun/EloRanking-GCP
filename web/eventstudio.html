@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Event Studio | Tournament Director & BCP Organizer Suite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css?v=6.7">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=1.0">
+</head>
+<body class="es-body">
+  <div class="es-app-container">
+    <!-- Studio Header -->
+    <header class="es-header">
+      <div class="es-header-left">
+        <a href="/" class="es-back-link">❮ Back to Dashboard</a>
+        <div class="es-brand">
+          <span class="es-brand-badge">BCP TO</span>
+          <span class="es-brand-title">EVENT STUDIO</span>
+        </div>
+      </div>
+      <div class="es-header-right">
+        <div class="es-auth-badge" id="es-auth-status">
+          <span class="status-dot"></span>
+          <span id="es-auth-label">Local Studio Mode</span>
+        </div>
+        <button class="es-btn-secondary" onclick="openBcpTokenModal()">🔑 BCP Token</button>
+        <button class="es-btn-primary" onclick="switchStudioTab('create')">➕ Create Event</button>
+      </div>
+    </header>
+
+    <!-- Studio Navigation Tabs -->
+    <div class="es-nav-bar">
+      <button class="es-nav-tab active" id="tab-btn-events" onclick="switchStudioTab('events')">⚔️ My Events (<span id="es-events-count">1</span>)</button>
+      <button class="es-nav-tab" id="tab-btn-roster" onclick="switchStudioTab('roster')">👥 Player Roster (<span id="es-roster-count">8</span>)</button>
+      <button class="es-nav-tab" id="tab-btn-pairings" onclick="switchStudioTab('pairings')">🎲 Swiss Pairings & Rounds</button>
+      <button class="es-nav-tab" id="tab-btn-standings" onclick="switchStudioTab('standings')">🏆 Live Standings & SoS</button>
+      <button class="es-nav-tab" id="tab-btn-create" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+    </div>
+
+    <!-- Active Selected Tournament Banner -->
+    <div class="es-current-event-banner">
+      <div class="es-ce-info">
+        <div class="es-ce-tag" id="current-event-tier">GRAND TOURNAMENT • 5 ROUNDS</div>
+        <h2 class="es-ce-title" id="current-event-name">San Diego 40K Autumn Grand Tournament</h2>
+        <div class="es-ce-meta">
+          <span>📅 2026-09-26 to 2026-09-27</span>
+          <span>•</span>
+          <span>📍 San Diego, CA</span>
+          <span>•</span>
+          <span>👥 <b id="current-event-registered">8</b> / 32 Spots Filled</span>
+          <span>•</span>
+          <span class="es-status-chip">Round 1 In Progress</span>
+        </div>
+      </div>
+      <div class="es-ce-actions">
+        <button class="es-btn-secondary" onclick="openEditEventModal()">⚙️ Settings</button>
+        <button class="es-btn-accent" onclick="syncEventWithBcp()">🔄 Sync with BCP</button>
+      </div>
+    </div>
+
+    <!-- TAB 1: Events Directory -->
+    <div id="es-view-events" class="es-tab-view">
+      <div class="es-section-header">
+        <h3>Managed Tournaments</h3>
+        <button class="es-btn-primary" onclick="switchStudioTab('create')">+ New Event</button>
+      </div>
+      <div class="es-events-grid" id="es-events-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- TAB 2: Player Roster & Check-In -->
+    <div id="es-view-roster" class="es-tab-view" style="display: none;">
+      <div class="es-section-header">
+        <div>
+          <h3>Registered Competitor Roster</h3>
+          <span class="es-sec-sub">Manage player registrations, faction declarations, and check-in statuses</span>
+        </div>
+        <div class="es-header-actions">
+          <button class="es-btn-secondary" onclick="openAddPlayerModal()">+ Add Player</button>
+          <button class="es-btn-secondary" onclick="exportRosterCsv()">📥 Export Roster</button>
+        </div>
+      </div>
+      <div class="table-container">
+        <table class="data-table es-roster-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Player Name</th>
+              <th>Faction</th>
+              <th>Email / BCP ID</th>
+              <th>Status</th>
+              <th>List Submitted</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="es-roster-tbody">
+            <!-- Rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 3: Swiss Pairings & Rounds -->
+    <div id="es-view-pairings" class="es-tab-view" style="display: none;">
+      <div class="es-round-control-ribbon">
+        <div class="es-rc-left">
+          <span class="es-round-badge">ROUND <span id="pairings-current-round">1</span> OF 5</span>
+          <button class="es-round-switch-btn" onclick="switchPairingsRound(1)">R1</button>
+          <button class="es-round-switch-btn" onclick="switchPairingsRound(2)">R2</button>
+          <button class="es-round-switch-btn" onclick="switchPairingsRound(3)">R3</button>
+          <button class="es-round-switch-btn" onclick="switchPairingsRound(4)">R4</button>
+          <button class="es-round-switch-btn" onclick="switchPairingsRound(5)">R5</button>
+        </div>
+        <div class="es-rc-timer">
+          <span class="es-timer-display" id="round-timer">02:30:00</span>
+          <button class="es-timer-btn" id="btn-timer-toggle" onclick="toggleRoundTimer()">▶ Start</button>
+          <button class="es-timer-btn" onclick="resetRoundTimer()">↺</button>
+        </div>
+        <div class="es-rc-right">
+          <button class="es-btn-secondary" onclick="generateSwissPairings()">🎲 Auto-Pair Swiss</button>
+          <button class="es-btn-primary" onclick="publishRoundPairings()">📢 Publish Pairings</button>
+        </div>
+      </div>
+
+      <div class="es-pairings-deck" id="es-pairings-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- TAB 4: Live Standings & SoS -->
+    <div id="es-view-standings" class="es-tab-view" style="display: none;">
+      <div class="es-section-header">
+        <div>
+          <h3>Live Standings & Tiebreakers</h3>
+          <span class="es-sec-sub">Official Swiss standings with Battle Points, Margin of Victory, and Strength of Schedule</span>
+        </div>
+        <button class="es-btn-secondary" onclick="copyStandingsText()">📋 Copy Standings</button>
+      </div>
+      <div class="table-container">
+        <table class="data-table es-standings-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Competitor</th>
+              <th>Faction</th>
+              <th>Record (W-L-D)</th>
+              <th>Battle Points</th>
+              <th>VP Margin (Diff)</th>
+              <th>SoS %</th>
+              <th>Extended SoS</th>
+            </tr>
+          </thead>
+          <tbody id="es-standings-tbody">
+            <!-- Rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 5: Create Tournament Wizard -->
+    <div id="es-view-create" class="es-tab-view" style="display: none;">
+      <div class="es-form-card">
+        <div class="es-form-header">
+          <h3>➕ Create New Tournament</h3>
+          <span class="es-sec-sub">Publish a new competitive event to Best Coast Pairings or host locally</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label">Tournament Title</label>
+            <input type="text" id="create-event-name" class="form-input" placeholder="e.g. San Diego Autumn GT 2026">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Event Format & Tiers</label>
+            <select id="create-event-format" class="form-input" onchange="updateDefaultRounds()">
+              <option value="RTT">RTT / Local (3 Rounds • 1 Day)</option>
+              <option value="GT" selected>Grand Tournament (5 Rounds • 2 Days)</option>
+              <option value="Major">Major Championship (8 Rounds • 3 Days)</option>
+              <option value="Doubles">Doubles / Team Event (3-5 Rounds)</option>
+              <option value="League">Narrative / Escalation League</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Number of Scheduled Rounds</label>
+            <input type="number" id="create-event-rounds" class="form-input" value="5" min="1" max="12">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Start Date</label>
+            <input type="date" id="create-event-start-date" class="form-input" value="2026-09-26">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Player Capacity</label>
+            <input type="number" id="create-event-capacity" class="form-input" value="32" min="4" max="1000">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Venue / Store Name</label>
+            <input type="text" id="create-event-venue" class="form-input" placeholder="e.g. Game Empire San Diego">
+          </div>
+          <div class="form-group">
+            <label class="form-label">City & State</label>
+            <input type="text" id="create-event-city-state" class="form-input" placeholder="e.g. San Diego, CA">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mission Pack</label>
+            <select id="create-event-mission-pack" class="form-input">
+              <option value="11th_core">11th Edition Core / Armageddon</option>
+              <option value="pariah_nexus">Pariah Nexus Tournament Companion</option>
+              <option value="leviathan">Leviathan Tournament Pack</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Army Point Limit</label>
+            <select id="create-event-points" class="form-input">
+              <option value="2000" selected>2,000 Points (Standard Incursion)</option>
+              <option value="1000">1,000 Points (Combat Patrol / Incursion)</option>
+              <option value="3000">3,000 Points (Onslaught)</option>
+            </select>
+          </div>
+        </div>
+        <div class="es-form-actions">
+          <button class="es-btn-secondary" onclick="switchStudioTab('events')">Cancel</button>
+          <button class="es-btn-primary" onclick="submitCreateTournament()">🚀 Publish Tournament</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Score Entry Modal -->
+  <div id="score-entry-modal" class="modal">
+    <div class="modal-content" style="max-width: 540px;">
+      <div class="modal-header">
+        <div class="modal-title">⚔️ Submit Match Score (Table <span id="score-table-num">1</span>)</div>
+        <button class="modal-close" onclick="closeScoreEntryModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="es-matchup-score-grid">
+          <div class="es-p-score-col">
+            <b id="score-p1-name" style="font-size: 1.1rem; color: #fff;">Player 1</b>
+            <div id="score-p1-faction" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem;">Necrons</div>
+            <label class="form-label">Total VP Score</label>
+            <input type="number" id="input-p1-vp" class="form-input" style="font-size: 1.5rem; text-align: center;" value="75" min="0" max="100">
+          </div>
+          <div class="es-vs-tag">VS</div>
+          <div class="es-p-score-col">
+            <b id="score-p2-name" style="font-size: 1.1rem; color: #fff;">Player 2</b>
+            <div id="score-p2-faction" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem;">Space Marines</div>
+            <label class="form-label">Total VP Score</label>
+            <input type="number" id="input-p2-vp" class="form-input" style="font-size: 1.5rem; text-align: center;" value="60" min="0" max="100">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="es-btn-secondary" onclick="closeScoreEntryModal()">Cancel</button>
+        <button class="es-btn-primary" onclick="saveMatchScore()">💾 Save & Validate Score</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Player Modal -->
+  <div id="add-player-modal" class="modal">
+    <div class="modal-content" style="max-width: 500px;">
+      <div class="modal-header">
+        <div class="modal-title">👤 Add Competitor to Roster</div>
+        <button class="modal-close" onclick="closeAddPlayerModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Competitor Full Name</label>
+          <input type="text" id="add-p-name" class="form-input" placeholder="e.g. John Doe">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Faction / Detachment</label>
+          <input type="text" id="add-p-faction" class="form-input" placeholder="e.g. Aeldari (Battle Host)">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email or Best Coast Pairings User ID</label>
+          <input type="text" id="add-p-email" class="form-input" placeholder="e.g. john@example.com">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="es-btn-secondary" onclick="closeAddPlayerModal()">Cancel</button>
+        <button class="es-btn-primary" onclick="submitAddPlayer()">Add to Roster</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BCP Organizer Token Modal -->
+  <div id="bcp-token-modal" class="modal">
+    <div class="modal-content" style="max-width: 520px;">
+      <div class="modal-header">
+        <div class="modal-title">🔑 Connect Best Coast Pairings Organizer Token</div>
+        <button class="modal-close" onclick="closeBcpTokenModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1rem;">
+          Connect your official Best Coast Pairings TO token to automatically create and publish tournaments directly to the BCP global network.
+        </p>
+        <div class="form-group">
+          <label class="form-label">BCP Organizer JWT / Token</label>
+          <input type="password" id="bcp-organizer-token-input" class="form-input" placeholder="Bearer eyJhbGciOiJIUzI1Ni...">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="es-btn-secondary" onclick="closeBcpTokenModal()">Cancel</button>
+        <button class="es-btn-primary" onclick="saveBcpOrganizerToken()">Connect & Verify</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/eventstudio.js?v=1.0"></script>
+</body>
+</html>

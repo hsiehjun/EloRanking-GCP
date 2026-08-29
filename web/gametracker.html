@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>40K Game Tracker | 11th Edition Matched Play Companion</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css?v=6.7">
+  <link rel="stylesheet" href="/css/gametracker.css?v=1.0">
+</head>
+<body class="gt-body">
+  <div class="gt-app-container">
+    <!-- Top Navigation Header -->
+    <header class="gt-header">
+      <div class="gt-header-left">
+        <a href="/" class="gt-back-link">❮ Hub & Rankings</a>
+        <div class="gt-brand">
+          <span class="gt-brand-badge">11TH ED</span>
+          <span class="gt-brand-title">MISSION TRACKER</span>
+        </div>
+      </div>
+      <div class="gt-header-center">
+        <div class="gt-round-pill-bar">
+          <button class="gt-round-pill active" id="btn-rd-1" onclick="switchRound(1)">R1</button>
+          <button class="gt-round-pill" id="btn-rd-2" onclick="switchRound(2)">R2</button>
+          <button class="gt-round-pill" id="btn-rd-3" onclick="switchRound(3)">R3</button>
+          <button class="gt-round-pill" id="btn-rd-4" onclick="switchRound(4)">R4</button>
+          <button class="gt-round-pill" id="btn-rd-5" onclick="switchRound(5)">R5</button>
+        </div>
+      </div>
+      <div class="gt-header-right">
+        <button class="gt-btn-secondary" onclick="openMissionSetupModal()">⚙️ Mission Setup</button>
+        <button class="gt-btn-primary" onclick="openEndGameModal()">🏁 Finish Match</button>
+      </div>
+    </header>
+
+    <!-- Scoreboard Banner -->
+    <div class="gt-scoreboard-grid">
+      <!-- Player 1 Score Box -->
+      <div class="gt-player-box p1" id="p1-box">
+        <div class="gt-p-header">
+          <div>
+            <div class="gt-p-role" id="p1-turn-role">ATTACKER • TURN 1</div>
+            <div class="gt-p-name" id="p1-display-name">Player 1</div>
+            <div class="gt-p-faction" id="p1-display-faction">Necrons (Awakened Dynasty)</div>
+          </div>
+          <div class="gt-cp-badge">
+            <span class="gt-cp-label">CP</span>
+            <div class="gt-cp-controls">
+              <button onclick="adjustCp(1, -1)">-</button>
+              <b id="p1-cp-count">1</b>
+              <button onclick="adjustCp(1, 1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="gt-score-hero">
+          <div class="gt-vp-number" id="p1-total-vp">0</div>
+          <div class="gt-vp-subtext">TOTAL VICTORY POINTS</div>
+        </div>
+        <div class="gt-vp-breakdown-bar">
+          <div class="gt-vp-stat"><span>Primary:</span> <b id="p1-pri-score">0 / 50</b></div>
+          <div class="gt-vp-stat"><span>Secondary:</span> <b id="p1-sec-score">0 / 40</b></div>
+          <div class="gt-vp-stat"><span>Paint:</span> <b id="p1-paint-score">+10</b></div>
+        </div>
+      </div>
+
+      <!-- Center Match Info Badge -->
+      <div class="gt-match-mid-card">
+        <div class="gt-mid-tag" id="mission-pack-tag">11TH ED CORE</div>
+        <div class="gt-mission-name" id="primary-mission-name">Take & Hold</div>
+        <div class="gt-mission-sub" id="mission-rule-name">Rule: Swift Action</div>
+        <div class="gt-deployment-badge" id="deployment-name">Deployment: Search & Destroy</div>
+        <div class="gt-turn-switcher">
+          <button class="gt-turn-btn active" id="btn-turn-p1" onclick="setActiveTurn(1)">P1 Active Turn</button>
+          <button class="gt-turn-btn" id="btn-turn-p2" onclick="setActiveTurn(2)">P2 Active Turn</button>
+        </div>
+      </div>
+
+      <!-- Player 2 Score Box -->
+      <div class="gt-player-box p2" id="p2-box">
+        <div class="gt-p-header">
+          <div>
+            <div class="gt-p-role" id="p2-turn-role">DEFENDER • TURN 2</div>
+            <div class="gt-p-name" id="p2-display-name">Player 2</div>
+            <div class="gt-p-faction" id="p2-display-faction">Space Marines (Gladius Task Force)</div>
+          </div>
+          <div class="gt-cp-badge">
+            <span class="gt-cp-label">CP</span>
+            <div class="gt-cp-controls">
+              <button onclick="adjustCp(2, -1)">-</button>
+              <b id="p2-cp-count">1</b>
+              <button onclick="adjustCp(2, 1)">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="gt-score-hero">
+          <div class="gt-vp-number" id="p2-total-vp">0</div>
+          <div class="gt-vp-subtext">TOTAL VICTORY POINTS</div>
+        </div>
+        <div class="gt-vp-breakdown-bar">
+          <div class="gt-vp-stat"><span>Primary:</span> <b id="p2-pri-score">0 / 50</b></div>
+          <div class="gt-vp-stat"><span>Secondary:</span> <b id="p2-sec-score">0 / 40</b></div>
+          <div class="gt-vp-stat"><span>Paint:</span> <b id="p2-paint-score">+10</b></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Round Tracking Deck -->
+    <div class="gt-round-container">
+      <div class="gt-round-header">
+        <div class="gt-rh-title">
+          <h3>⚡ BATTLE ROUND <span id="current-round-number">1</span> OF 5</h3>
+          <span class="gt-rh-sub">Score Primary & Secondary objectives for each player's turn</span>
+        </div>
+        <div class="gt-rh-actions">
+          <button class="gt-btn-secondary" onclick="resetCurrentRound()">↺ Reset Round Scores</button>
+          <button class="gt-btn-primary" onclick="advanceToNextRound()">Advance Round ❯</button>
+        </div>
+      </div>
+
+      <div class="gt-two-column-workspace">
+        <!-- Player 1 Round Deck -->
+        <div class="gt-player-column">
+          <div class="gt-column-tag p1-tag"><span id="p1-col-name">Player 1</span> Round Actions</div>
+          
+          <!-- Primary Scoring Card -->
+          <div class="gt-action-card">
+            <div class="gt-card-title">
+              <span>🎯 Primary Objectives</span>
+              <span class="gt-vp-chip" id="p1-rd-pri-badge">+0 VP</span>
+            </div>
+            <div class="gt-card-body" id="p1-primary-controls">
+              <!-- Dynamically generated primary objective buttons -->
+            </div>
+          </div>
+
+          <!-- Secondary Objectives Card -->
+          <div class="gt-action-card">
+            <div class="gt-card-title">
+              <span>🎴 Secondary Objectives (<span id="p1-sec-mode-label">Tactical</span>)</span>
+              <span class="gt-vp-chip" id="p1-rd-sec-badge">+0 VP</span>
+            </div>
+            <div class="gt-card-body">
+              <div id="p1-secondary-slots" class="gt-sec-slots-container">
+                <!-- 2 Active Tactical Card Slots -->
+              </div>
+              <button class="gt-draw-card-btn" onclick="drawSecondaryCard(1)">+ Draw Tactical Card</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Player 2 Round Deck -->
+        <div class="gt-player-column">
+          <div class="gt-column-tag p2-tag"><span id="p2-col-name">Player 2</span> Round Actions</div>
+          
+          <!-- Primary Scoring Card -->
+          <div class="gt-action-card">
+            <div class="gt-card-title">
+              <span>🎯 Primary Objectives</span>
+              <span class="gt-vp-chip" id="p2-rd-pri-badge">+0 VP</span>
+            </div>
+            <div class="gt-card-body" id="p2-primary-controls">
+              <!-- Dynamically generated primary objective buttons -->
+            </div>
+          </div>
+
+          <!-- Secondary Objectives Card -->
+          <div class="gt-action-card">
+            <div class="gt-card-title">
+              <span>🎴 Secondary Objectives (<span id="p2-sec-mode-label">Tactical</span>)</span>
+              <span class="gt-vp-chip" id="p2-rd-sec-badge">+0 VP</span>
+            </div>
+            <div class="gt-card-body">
+              <div id="p2-secondary-slots" class="gt-sec-slots-container">
+                <!-- 2 Active Tactical Card Slots -->
+              </div>
+              <button class="gt-draw-card-btn" onclick="drawSecondaryCard(2)">+ Draw Tactical Card</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Match Summary Matrix & History -->
+    <div class="gt-summary-section">
+      <div class="gt-sec-header">
+        <h4>📊 Round-by-Round VP Matrix</h4>
+        <button class="gt-btn-secondary" onclick="exportMatchJson()">📋 Copy Match Data</button>
+      </div>
+      <div class="table-container">
+        <table class="data-table gt-matrix-table">
+          <thead>
+            <tr>
+              <th>Competitor</th>
+              <th>Round 1</th>
+              <th>Round 2</th>
+              <th>Round 3</th>
+              <th>Round 4</th>
+              <th>Round 5</th>
+              <th>Primary /50</th>
+              <th>Secondary /40</th>
+              <th>Paint</th>
+              <th>Total VP</th>
+            </tr>
+          </thead>
+          <tbody id="gt-matrix-body">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mission Setup Modal -->
+  <div id="mission-setup-modal" class="modal">
+    <div class="modal-content" style="max-width: 650px;">
+      <div class="modal-header">
+        <div class="modal-title">⚙️ Mission & Match Setup</div>
+        <button class="modal-close" onclick="closeMissionSetupModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Mission Pack</label>
+            <select id="setup-mission-pack" class="form-input">
+              <option value="11th_core">11th Edition Core / Armageddon (2026)</option>
+              <option value="pariah_nexus">Pariah Nexus Tournament Companion</option>
+              <option value="leviathan">Leviathan Tournament Pack</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Primary Mission</label>
+            <select id="setup-primary-mission" class="form-input">
+              <option value="take_and_hold">Take & Hold (4/8/12 VP)</option>
+              <option value="scorched_earth">Scorched Earth (Burn Objectives)</option>
+              <option value="purge_the_foe">Purge the Foe (Kill & Hold)</option>
+              <option value="supply_drop">Supply Drop (Disappearing Objectives)</option>
+              <option value="linchpin">Linchpin (Home vs Center)</option>
+              <option value="burden_of_trust">Burden of Trust</option>
+              <option value="the_ritual">The Ritual (Create Objectives)</option>
+              <option value="terraform">Terraform</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mission Rule</label>
+            <select id="setup-mission-rule" class="form-input">
+              <option value="swift_action">Swift Action (Actions + Advance)</option>
+              <option value="hidden_supplies">Hidden Supplies (+1 Objective)</option>
+              <option value="stalwarts">Stalwarts (Sticky Objectives)</option>
+              <option value="prepared_positions">Prepared Positions (Cover)</option>
+              <option value="smoke_and_mirrors">Smoke and Mirrors</option>
+              <option value="none">Standard Rules</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deployment Map</label>
+            <select id="setup-deployment" class="form-input">
+              <option value="search_and_destroy">Search & Destroy (Quarters)</option>
+              <option value="hammer_and_anvil">Hammer & Anvil (Short Edges)</option>
+              <option value="dawn_of_war">Dawn of War (Long Edges)</option>
+              <option value="sweeping_engagement">Sweeping Engagement</option>
+              <option value="crucible_of_battle">Crucible of Battle</option>
+              <option value="tipping_point">Tipping Point</option>
+            </select>
+          </div>
+        </div>
+
+        <h4 style="margin: 1.25rem 0 0.5rem 0; font-size: 0.92rem; color: var(--accent);">Player Configurations</h4>
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Player 1 (Attacker / Turn 1)</label>
+            <input type="text" id="setup-p1-name" class="form-input" value="Player 1">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Player 1 Faction</label>
+            <input type="text" id="setup-p1-faction" class="form-input" value="Necrons">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Player 2 (Defender / Turn 2)</label>
+            <input type="text" id="setup-p2-name" class="form-input" value="Player 2">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Player 2 Faction</label>
+            <input type="text" id="setup-p2-faction" class="form-input" value="Space Marines">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="gt-btn-secondary" onclick="closeMissionSetupModal()">Cancel</button>
+        <button class="gt-btn-primary" onclick="saveMissionSetup()">Apply Mission Setup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Draw Card Selector Modal -->
+  <div id="draw-card-modal" class="modal">
+    <div class="modal-content" style="max-width: 600px;">
+      <div class="modal-header">
+        <div class="modal-title">🎴 Select Tactical Secondary Card</div>
+        <button class="modal-close" onclick="closeDrawCardModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height: 450px; overflow-y: auto;">
+        <div class="gt-card-picker-grid" id="card-picker-list">
+          <!-- Dynamically populated 11th Edition tactical secondary deck -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Finish Match Modal -->
+  <div id="finish-match-modal" class="modal">
+    <div class="modal-content" style="max-width: 580px; text-align: center;">
+      <div class="modal-header">
+        <div class="modal-title">🏆 Match Conclusion & Results</div>
+        <button class="modal-close" onclick="closeEndGameModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem;">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;" id="match-outcome-icon">👑</div>
+        <h2 style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem;" id="match-winner-text">Player 1 Wins!</h2>
+        <div style="font-size: 1.1rem; color: var(--accent); font-weight: 600; margin-bottom: 1.5rem;" id="match-final-score">85 - 62 VP</div>
+        
+        <div class="gt-vp-breakdown-bar" style="max-width: 440px; margin: 0 auto 1.5rem auto;">
+          <div class="gt-vp-stat"><span>Victory Margin:</span> <b id="match-differential">+23 VP</b></div>
+          <div class="gt-vp-stat"><span>Rounds Played:</span> <b>5 of 5</b></div>
+        </div>
+
+        <button class="gt-btn-primary" style="width: 100%; margin-bottom: 0.5rem;" onclick="copyScorecardSummary()">📋 Copy Official Match Report</button>
+        <button class="gt-btn-secondary" style="width: 100%;" onclick="startFreshMatch()">↺ Start Fresh Match</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/gametracker.js?v=1.0"></script>
+</body>
+</html>
