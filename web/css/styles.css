@@ -1817,3 +1817,22 @@ input, select, textarea {
   background: #38bdf8;
   color: #0a0c10;
 }
+
+
+/* Location Prompt Button in Hub */
+.hub-location-btn {
+  background: rgba(56, 189, 248, 0.15);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #38bdf8;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 0.35rem;
+  transition: all 0.15s ease;
+}
+.hub-location-btn:hover {
+  background: #38bdf8;
+  color: #0a0c10;
+}

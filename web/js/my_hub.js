@@ -541,13 +541,34 @@ function getDeviceCoordinates() {
         () => {
           resolve(null);
         },
-        { timeout: 2500, maximumAge: 600000 }
+        { timeout: 2000, maximumAge: 600000 }
       );
     } else {
       resolve(null);
     }
   });
 }
+
+async function requestUserDeviceLocation() {
+  if (typeof navigator !== 'undefined' && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        userDeviceGeo = {
+          lat: Number(pos.coords.latitude.toFixed(4)),
+          lng: Number(pos.coords.longitude.toFixed(4))
+        };
+        loadHubRecommendedEvents();
+      },
+      (err) => {
+        alert('Location access was denied or unavailable. You can select your state or region from the dropdown menu.');
+      },
+      { timeout: 5000 }
+    );
+  } else {
+    alert('Geolocation is not supported by your browser. Please choose a region from the dropdown.');
+  }
+}
+window.requestUserDeviceLocation = requestUserDeviceLocation;
 
 async function loadHubRecommendedEvents() {
   const container = document.getElementById('hub-recommended-list');
@@ -572,15 +593,18 @@ async function loadHubRecommendedEvents() {
     const events = data.events || [];
     
     if (label) {
-      if (data.detected_state) {
-        label.innerHTML = `📍 Detected Home: <b>${escapeHtml(data.detected_state)}${data.detected_city ? ', ' + escapeHtml(data.detected_city) : ''}</b>`;
-        if (stateSelect && !stateSelect.value) {
+      if (geo) {
+        label.innerHTML = `📍 <b>Live GPS Location</b> <span style="color:#10b981; font-size:0.75rem; font-weight:600;">(Active)</span>`;
+      } else if (data.detected_state || data.detected_city) {
+        const homeName = [data.detected_city, data.detected_state].filter(Boolean).join(', ');
+        label.innerHTML = `📍 Guessing from history: <b>${escapeHtml(homeName)}</b> <button class="hub-location-btn" onclick="requestUserDeviceLocation()">📍 Enable GPS</button>`;
+        if (stateSelect && !stateSelect.value && data.detected_state) {
           stateSelect.value = data.detected_state;
         }
       } else if (selectedState) {
-        label.innerHTML = `📍 Filtered by: <b>${escapeHtml(selectedState)}</b>`;
+        label.innerHTML = `📍 Filtered by: <b>${escapeHtml(selectedState)}</b> <button class="hub-location-btn" onclick="requestUserDeviceLocation()">📍 Enable GPS</button>`;
       } else {
-        label.innerHTML = `📍 Featured Upcoming Tournaments`;
+        label.innerHTML = `📍 <button class="hub-location-btn" onclick="requestUserDeviceLocation()">📍 Enable Device Location</button> <span style="font-size:0.75rem; color:var(--text-muted);">(or pick region)</span>`;
       }
     }
 
