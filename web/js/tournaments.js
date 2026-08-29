@@ -262,11 +262,20 @@ function renderEventEloRows() {
   });
 }
 
+let selectedEventRound = 'all';
+
+function setEventRoundFilter(roundVal) {
+  selectedEventRound = roundVal;
+  renderEventPairingsRows();
+}
+
 function renderEventPairingsRows() {
   const tbody = document.getElementById('event-pairings-body');
+  const roundsContainer = document.getElementById('event-rounds-filter');
   if (!tbody) return;
 
   if (!eventMatchesCache || eventMatchesCache.length === 0) {
+    if (roundsContainer) roundsContainer.innerHTML = '';
     tbody.innerHTML = `
       <tr>
         <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
@@ -279,8 +288,32 @@ function renderEventPairingsRows() {
     return;
   }
 
+  // 1. Extract and render distinct round buttons (All, R1, R2, R3...)
+  const distinctRounds = [...new Set(eventMatchesCache.map(m => m.round || 1))].sort((a, b) => a - b);
+  if (roundsContainer) {
+    let pillsHtml = `
+      <button class="pill-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
+        All Rounds (${eventMatchesCache.length})
+      </button>
+    `;
+    distinctRounds.forEach(r => {
+      const rCount = eventMatchesCache.filter(m => (m.round || 1) === r).length;
+      pillsHtml += `
+        <button class="pill-btn ${selectedEventRound === r ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
+          Round ${r} (${rCount})
+        </button>
+      `;
+    });
+    roundsContainer.innerHTML = pillsHtml;
+  }
+
+  // 2. Filter matches by selected round
+  const matchesToRender = selectedEventRound === 'all' 
+    ? eventMatchesCache 
+    : eventMatchesCache.filter(m => (m.round || 1) === Number(selectedEventRound));
+
   tbody.innerHTML = '';
-  eventMatchesCache.forEach(m => {
+  matchesToRender.forEach(m => {
     const tr = document.createElement('tr');
     const isP1Win = m.winner_id && m.winner_id === m.player1_id;
     const isP2Win = m.winner_id && m.winner_id === m.player2_id;
