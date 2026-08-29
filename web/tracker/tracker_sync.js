@@ -162,8 +162,21 @@
       const params = new URLSearchParams(window.location.search);
       let matchId = params.get('match_id') || params.get('room') || params.get('match');
 
-      if (!matchId) {
-        // Create new collision-free room via API
+      if (matchId) {
+        // Direct URL access: verify that this room exists on the server!
+        try {
+          const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
+            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+          });
+          const chkData = await chk.json();
+          if (!chk.ok || !chkData.exists) {
+            alert(`❌ Room Key "${matchId}" does not exist or has expired.`);
+            window.location.href = '/11th/tracker';
+            return;
+          }
+        } catch (e) {}
+      } else {
+        // No match_id provided: create new collision-free room via API
         try {
           const resp = await fetch('/api/tracker/room/create', {
             method: 'POST',
@@ -187,7 +200,8 @@
       }
 
       if (!matchId) {
-        matchId = 'WH40K-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+        window.location.href = '/11th/tracker';
+        return;
       }
 
       clientState.matchId = matchId.toUpperCase();
@@ -262,9 +276,12 @@
                 <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
                 <p style="font-size:11px; color:#94a3b8; margin:0 0 10px;">Enter the 8-character Room Key provided by your opponent.</p>
               </div>
-              <div style="display:flex; gap:8px;">
-                <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f8fafc; outline:none; text-transform:uppercase;" />
-                <button onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">JOIN</button>
+              <div>
+                <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
+                <div style="display:flex; gap:8px;">
+                  <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f8fafc; outline:none; text-transform:uppercase;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
+                  <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">JOIN</button>
+                </div>
               </div>
             </div>
           </div>
@@ -294,18 +311,57 @@
           window.location.href = '/11th/tracker/play';
         };
 
-        window.__handleJoinRoomInput = function () {
+        window.__handleJoinRoomInput = async function () {
           const input = document.getElementById('gt-lobby-join-input');
+          const errDiv = document.getElementById('gt-lobby-join-error');
+          const btn = document.getElementById('gt-lobby-join-btn');
           let code = (input.value || '').trim();
           if (code.includes('match_id=')) {
-            code = new URL(code).searchParams.get('match_id') || code;
+            try { code = new URL(code).searchParams.get('match_id') || code; } catch(e) {}
           }
-          if (code) {
-            code = code.toUpperCase();
-            if (!code.startsWith('WH40K-') && code.length === 8) {
-              code = `WH40K-${code.substring(0, 4)}-${code.substring(4)}`;
+          if (!code) {
+            if (errDiv) { errDiv.textContent = 'Please enter a Room Key.'; errDiv.style.display = 'block'; }
+            return;
+          }
+
+          code = code.toUpperCase().replace(/\s+/g, '');
+          if (!code.startsWith('WH40K-') && code.length === 8) {
+            code = `WH40K-${code.substring(0, 4)}-${code.substring(4)}`;
+          }
+
+          if (errDiv) errDiv.style.display = 'none';
+          if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+          // Verify if room exists on the server!
+          try {
+            const resp = await fetch(`/api/tracker/room/${encodeURIComponent(code)}/check`, {
+              headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+            });
+            const data = await resp.json();
+            if (!resp.ok || !data.exists) {
+              if (errDiv) {
+                errDiv.textContent = `❌ Room "${code}" does not exist. Please check with your opponent.`;
+                errDiv.style.display = 'block';
+              }
+              if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+              return;
             }
-            window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(code)}`;
+
+            if (data.is_full) {
+              const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). Join as a Spectator (View Only)?`);
+              if (!proceed) {
+                if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
+                return;
+              }
+            }
+
+            window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id || code)}`;
+          } catch (err) {
+            if (errDiv) {
+              errDiv.textContent = 'Connection error checking room status. Please try again.';
+              errDiv.style.display = 'block';
+            }
+            if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
           }
         };
       }

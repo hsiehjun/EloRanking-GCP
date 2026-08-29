@@ -317,6 +317,51 @@ if FASTAPI_AVAILABLE:
             "state": initial_state
         }
 
+    @app.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
+    async def api_tracker_check_room(match_id: str, request: Request):
+        match_id = match_id.strip().upper()
+        if not match_id.startswith("WH40K-") and len(match_id) == 8:
+            match_id = f"WH40K-{match_id[:4]}-{match_id[4:]}"
+            
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+        
+        if match_id in TRACKER_ROOMS:
+            room = TRACKER_ROOMS[match_id]
+        else:
+            saved = db.get_tracker_game(match_id)
+            if saved and saved.get("state"):
+                room = {
+                    "match_id": match_id,
+                    "user_id_p1": saved.get("user_id_p1"),
+                    "user_id_p2": saved.get("user_id_p2"),
+                    "p1_name": saved.get("p1_name"),
+                    "p2_name": saved.get("p2_name"),
+                    "version": saved.get("version", 1),
+                    "state": saved["state"]
+                }
+                TRACKER_ROOMS[match_id] = room
+            else:
+                return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
+                
+        p1_id = room.get("user_id_p1")
+        p2_id = room.get("user_id_p2")
+        is_p1 = bool(user_id and p1_id == user_id)
+        is_p2 = bool(user_id and p2_id == user_id)
+        
+        return {
+            "exists": True,
+            "match_id": match_id,
+            "p1_name": room.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
+            "p2_name": room.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
+            "is_full": bool(p1_id is not None and p2_id is not None and not is_p1 and not is_p2),
+            "is_open_for_p2": bool(p2_id is None and not is_p1)
+        }
+
     @app.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
     async def api_tracker_join_room(match_id: str, request: Request, payload: Optional[TrackerJoinPayload] = None):
         match_id = match_id.upper()
