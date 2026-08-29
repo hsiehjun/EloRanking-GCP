@@ -1,12 +1,12 @@
 /**
- * Synchronized Multiplayer, Role-Based Access Control & PostgreSQL Database Bridge
+ * Synchronized Multiplayer, Strict Authentication Gatekeeper & 2-Player Collaborative Setup
  * for Warhammer 40,000 11th Edition Game Tracker
  */
 
 (function () {
   'use strict';
 
-  console.log('[GDM Sync Bridge] Initializing Authenticated Multiplayer Engine...');
+  console.log('[GDM Sync Bridge] Loading Authenticated Collaborative Engine...');
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',
@@ -28,7 +28,8 @@
     onlineCount: 1,
     isApplyingRemote: false,
     eventSource: null,
-    debounceTimer: null
+    debounceTimer: null,
+    p2Connected: false
   };
 
   let dbHistoryCache = [];
@@ -49,7 +50,13 @@
     }
   }
 
-  // On Landing Page: Clear local disk tracker state
+  function clearAuthToken() {
+    originalRemoveItem('elo_auth_token');
+    sessionStorage.removeItem('elo_auth_token');
+    currentUser = null;
+  }
+
+  // On Landing Page: Clean out any lingering disk storage
   if (!isPlay) {
     try {
       originalRemoveItem('gdm-11e-tracker-state');
@@ -90,8 +97,8 @@
     }
   };
 
-  // 2. Authentication Check & Seamless Modal
-  async function checkAuth() {
+  // 2. Strict Authentication Gatekeeper
+  async function verifySession() {
     const token = getAuthToken();
     if (token) {
       try {
@@ -102,54 +109,63 @@
           const data = await resp.json();
           if (data && data.authenticated && data.user) {
             currentUser = data.user;
-            updateUserBar();
+            removeAuthModal();
+            renderUserBar();
             return true;
           }
         }
       } catch (e) {}
     }
-    showAuthModal();
+    clearAuthToken();
+    renderAuthGatekeeper();
     return false;
   }
 
-  function showAuthModal() {
+  function removeAuthModal() {
+    const modal = document.getElementById('gt-auth-modal-root');
+    if (modal) modal.remove();
+    document.body.style.overflow = '';
+  }
+
+  function renderAuthGatekeeper() {
     if (document.getElementById('gt-auth-modal-root')) return;
 
+    document.body.style.overflow = 'hidden';
     const modal = document.createElement('div');
     modal.id = 'gt-auth-modal-root';
     modal.innerHTML = `
-      <div style="position:fixed; inset:0; z-index:999999; background:rgba(4,7,14,0.88); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:16px; font-family:'Inter',sans-serif;">
-        <div style="background:#0e1526; border:1px solid #1e293b; border-radius:18px; width:100%; max-width:420px; box-shadow:0 25px 60px rgba(0,0,0,0.8); overflow:hidden;">
-          <div style="padding:24px 24px 16px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:26px; margin-bottom:6px;">⚔️</div>
-            <h3 style="margin:0; font-size:20px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">TACTICAL HUB</h3>
-            <p style="margin:6px 0 0; font-size:13px; color:#94a3b8;">Sign in to create, collaborate, and track live 11th Edition games.</p>
+      <div style="position:fixed; inset:0; z-index:999999; background:rgba(4,7,14,0.94); backdrop-filter:blur(16px); display:flex; align-items:center; justify-content:center; padding:16px; font-family:'Inter',sans-serif;">
+        <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:440px; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden;">
+          <div style="padding:28px 24px 18px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.06); background:linear-gradient(180deg, rgba(30,41,59,0.3) 0%, transparent 100%);">
+            <div style="font-size:32px; margin-bottom:8px;">⚔️</div>
+            <h2 style="margin:0; font-size:22px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">TACTICAL HUB SIGN IN</h2>
+            <p style="margin:8px 0 0; font-size:13px; color:#94a3b8; line-height:1.4;">Sign in or create a player account to start, join rooms, and track 11th Edition games.</p>
           </div>
           
           <div style="display:flex; border-bottom:1px solid rgba(255,255,255,0.06); background:#090d18;">
-            <button id="gt-tab-login" onclick="window.__switchAuthTab('login')" style="flex:1; padding:12px; font-size:13px; font-weight:700; color:#38bdf8; background:transparent; border:none; border-bottom:2px solid #38bdf8; cursor:pointer;">SIGN IN</button>
-            <button id="gt-tab-register" onclick="window.__switchAuthTab('register')" style="flex:1; padding:12px; font-size:13px; font-weight:700; color:#64748b; background:transparent; border:none; border-bottom:2px solid transparent; cursor:pointer;">CREATE ACCOUNT</button>
+            <button id="gt-tab-login" onclick="window.__switchAuthTab('login')" style="flex:1; padding:13px; font-size:13px; font-weight:700; color:#38bdf8; background:transparent; border:none; border-bottom:2px solid #38bdf8; cursor:pointer;">SIGN IN</button>
+            <button id="gt-tab-register" onclick="window.__switchAuthTab('register')" style="flex:1; padding:13px; font-size:13px; font-weight:700; color:#64748b; background:transparent; border:none; border-bottom:2px solid transparent; cursor:pointer;">CREATE ACCOUNT</button>
           </div>
 
-          <form id="gt-auth-form" onsubmit="window.__handleAuthSubmit(event)" style="padding:20px 24px 24px;">
-            <div id="gt-auth-error" style="display:none; padding:10px; margin-bottom:14px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:8px; font-size:12px; color:#fca5a5; text-align:center;"></div>
+          <form id="gt-auth-form" onsubmit="window.__handleAuthSubmit(event)" style="padding:24px 24px 28px;">
+            <div id="gt-auth-error" style="display:none; padding:10px 14px; margin-bottom:16px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:8px; font-size:12px; color:#fca5a5; text-align:center;"></div>
 
-            <div id="gt-name-group" style="display:none; margin-bottom:14px;">
+            <div id="gt-name-group" style="display:none; margin-bottom:16px;">
               <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:6px; letter-spacing:0.05em;">Display Name / Player Handle</label>
               <input id="gt-auth-name" type="text" placeholder="e.g. Captain Titus" style="width:100%; box-sizing:border-box; padding:12px 14px; background:#070b14; border:1px solid #1e293b; border-radius:10px; font-size:14px; color:#f8fafc; outline:none;" />
             </div>
 
-            <div style="margin-bottom:14px;">
+            <div style="margin-bottom:16px;">
               <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:6px; letter-spacing:0.05em;">Email Address</label>
               <input id="gt-auth-email" type="email" required placeholder="player@chapter.com" style="width:100%; box-sizing:border-box; padding:12px 14px; background:#070b14; border:1px solid #1e293b; border-radius:10px; font-size:14px; color:#f8fafc; outline:none;" />
             </div>
 
-            <div style="margin-bottom:20px;">
+            <div style="margin-bottom:22px;">
               <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:6px; letter-spacing:0.05em;">Password</label>
               <input id="gt-auth-password" type="password" required placeholder="••••••••" style="width:100%; box-sizing:border-box; padding:12px 14px; background:#070b14; border:1px solid #1e293b; border-radius:10px; font-size:14px; color:#f8fafc; outline:none;" />
             </div>
 
-            <button id="gt-auth-btn" type="submit" style="width:100%; padding:14px; background:#f59e0b; color:#0f172a; font-weight:800; font-size:14px; border:none; border-radius:11px; cursor:pointer; text-transform:uppercase; letter-spacing:0.08em; transition:background 0.2s;">
+            <button id="gt-auth-btn" type="submit" style="width:100%; padding:14px; background:#f59e0b; color:#0f172a; font-weight:800; font-size:14px; border:none; border-radius:11px; cursor:pointer; text-transform:uppercase; letter-spacing:0.08em; transition:all 0.2s;">
               ENTER TRACKER ➔
             </button>
           </form>
@@ -219,10 +235,9 @@
 
         setAuthToken(data.session_token || data.token);
         currentUser = data.user;
-        modal.remove();
-        updateUserBar();
+        removeAuthModal();
+        renderUserBar();
 
-        // Proceed to initialize room or history
         init();
       } catch (err) {
         errEl.textContent = 'Connection error. Please try again.';
@@ -231,7 +246,7 @@
     };
   }
 
-  function updateUserBar() {
+  function renderUserBar() {
     if (!currentUser) return;
     let bar = document.getElementById('gt-user-status-bar');
     if (!bar) {
@@ -241,15 +256,21 @@
       document.body.appendChild(bar);
     }
     bar.innerHTML = `
-      <span style="width:8px; height:8px; border-radius:50%; background:#38bdf8;"></span>
-      <span style="color:#94a3b8;">Player:</span>
+      <span style="width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
+      <span style="color:#94a3b8;">Logged in:</span>
       <b style="color:#f8fafc;">${currentUser.display_name || currentUser.email}</b>
+      <button onclick="window.__handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:11px; cursor:pointer; margin-left:6px; font-weight:700;">Logout</button>
     `;
+
+    window.__handleLogout = function () {
+      clearAuthToken();
+      window.location.reload();
+    };
   }
 
   // 3. Initialize Match Room / Join / Create
   async function init() {
-    const isAuthed = await checkAuth();
+    const isAuthed = await verifySession();
     if (!isAuthed) return;
 
     if (isPlay) {
@@ -310,15 +331,46 @@
         }
       } catch (e) {}
 
+      // Inject 2-Player Invite & Setup Helper at Step 1
+      injectPlayer2InviteWidget();
       startRealtimeStream();
     } else {
-      // Landing page (/11th/tracker or /tracker) -> Pure DB History
+      // Landing page (/11th/tracker or /tracker)
+      injectJoinRoomWidget();
       hookNewGameButton();
       syncHistoryFromDatabase();
     }
   }
 
-  // 4. Hook "+ NEW GAME" Button to use Collision-Free Creator API
+  // 4. Landing Page: Inject "JOIN ROOM" and Hook "+ NEW GAME"
+  function injectJoinRoomWidget() {
+    const observer = new MutationObserver(() => {
+      const newGameBtn = document.querySelector('button:has(svg.lucide-plus), button[class*="New Game"]');
+      if (newGameBtn && !document.getElementById('gt-join-room-card')) {
+        const joinCard = document.createElement('div');
+        joinCard.id = 'gt-join-room-card';
+        joinCard.style.cssText = "margin-top:12px; background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px 16px; display:flex; align-items:center; gap:8px;";
+        joinCard.innerHTML = `
+          <input id="gt-join-code-input" type="text" placeholder="Enter Room Code (e.g. WH40K-7A9B-3C4D)" style="flex:1; background:#0b0f19; border:1px solid #374151; border-radius:8px; padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase;" />
+          <button onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:700; font-size:12px; text-transform:uppercase; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">CONNECT ➔</button>
+        `;
+        newGameBtn.parentNode.insertBefore(joinCard, newGameBtn.nextSibling);
+
+        window.__handleJoinRoomInput = function () {
+          const input = document.getElementById('gt-join-code-input');
+          let code = (input.value || '').trim();
+          if (code.includes('match_id=')) {
+            code = new URL(code).searchParams.get('match_id') || code;
+          }
+          if (code) {
+            window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(code.toUpperCase())}`;
+          }
+        };
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
   function hookNewGameButton() {
     const observer = new MutationObserver(() => {
       const btn = document.querySelector('button:has(svg.lucide-plus), button[class*="New Game"], button');
@@ -327,6 +379,10 @@
         btn.onclick = async function (e) {
           e.preventDefault();
           e.stopPropagation();
+
+          const isAuthed = await verifySession();
+          if (!isAuthed) return;
+
           try {
             const resp = await fetch('/api/tracker/room/create', {
               method: 'POST',
@@ -353,7 +409,55 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  // 5. PostgreSQL Database as Sole Source of Truth for History
+  // 5. Step 1: 2-Player Invite & Real-Time Opponent Connect Widget
+  function injectPlayer2InviteWidget() {
+    const observer = new MutationObserver(() => {
+      const stepTitle = document.querySelector('h2');
+      if (stepTitle && stepTitle.textContent.includes('PLAYERS') && !document.getElementById('gt-invite-widget')) {
+        const rawState = originalGetItem('gdm-11e-tracker-state');
+        let stateObj = {};
+        try { stateObj = JSON.parse(rawState); } catch(e) {}
+
+        const p2Claimed = !!(stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2'));
+        const inviteUrl = window.location.href;
+
+        const widget = document.createElement('div');
+        widget.id = 'gt-invite-widget';
+        widget.style.cssText = "margin-bottom:16px; background:#0f172a; border:1px solid #1e293b; border-radius:14px; padding:14px 16px;";
+        
+        if (!p2Claimed) {
+          widget.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <span style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">⚔️ Step 1: Invite Opponent (Player 2)</span>
+              <span style="display:flex; align-items:center; gap:6px; font-size:11px; color:#f59e0b;">
+                <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block; animation:pulse 1.5s infinite;"></span>
+                Waiting for Player 2...
+              </span>
+            </div>
+            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Send this room invite link to your opponent. When they connect, their name and army will auto-link for collaborative setup:</p>
+            <div style="display:flex; gap:8px;">
+              <input readonly value="${inviteUrl}" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
+              <button onclick="navigator.clipboard.writeText('${inviteUrl}'); alert('📋 Invite Link Copied! Send this to Player 2 to collaborate on setup.');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">
+                📋 COPY LINK
+              </button>
+            </div>
+          `;
+        } else {
+          widget.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game.p2Name})</span>
+              <span style="font-size:11px; color:#94a3b8;">Both players collaborating live</span>
+            </div>
+          `;
+        }
+
+        stepTitle.parentNode.insertBefore(widget, stepTitle.nextSibling);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  // 6. PostgreSQL Database as Sole Source of Truth for History
   async function syncHistoryFromDatabase() {
     try {
       const token = getAuthToken();
@@ -403,7 +507,7 @@
     } catch (e) {}
   }
 
-  // 6. Broadcast State with Role & Session Validation
+  // 7. Broadcast State with Role & Session Validation
   function notifyStateChanged() {
     if (clientState.isApplyingRemote) return;
     if (clientState.role === 'spectator') return;
@@ -457,6 +561,17 @@
           url: window.location.href,
           storageArea: localStorage
         }));
+
+        // Refresh invite widget if P2 just connected
+        const widget = document.getElementById('gt-invite-widget');
+        if (widget && incoming.game && incoming.game.p2Name && incoming.game.p2Name !== 'Player 2') {
+          widget.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${incoming.game.p2Name})</span>
+              <span style="font-size:11px; color:#94a3b8;">Both players collaborating live</span>
+            </div>
+          `;
+        }
       }
     } finally {
       setTimeout(() => { clientState.isApplyingRemote = false; }, 50);
@@ -491,7 +606,7 @@
     } catch (e) {}
   }
 
-  // 7. Floating Multiplayer Status HUD with Role Badge
+  // 8. Floating Multiplayer Status HUD with Role Badge
   function injectMultiplayerHUD() {
     if (document.getElementById('gt-sync-hud')) return;
 
