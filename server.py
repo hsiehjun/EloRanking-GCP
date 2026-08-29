@@ -593,6 +593,15 @@ if FASTAPI_AVAILABLE:
     async def api_tracker_debug_test_save():
         import traceback
         db = get_database()
+        
+        # 1. Force ensure all schema columns exist
+        migration_log = []
+        try:
+            db.ensure_tracker_table()
+            migration_log.append("ensure_tracker_table executed successfully")
+        except Exception as me:
+            migration_log.append(f"ensure_tracker_table error: {me}")
+
         test_id = f"WH40K-TEST-{secrets.token_hex(2).upper()}"
         test_state = {
             "id": "g-test",
@@ -635,6 +644,7 @@ if FASTAPI_AVAILABLE:
 
         return {
             "test_match_id": test_id,
+            "migration_log": migration_log,
             "saved_success": res,
             "save_error": save_err,
             "loaded_from_db": loaded,

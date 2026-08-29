@@ -79,6 +79,7 @@ class PostgresDatabase:
 
         if not PostgresDatabase._db_initialized:
             self.init_db()
+            self.ensure_tracker_table()
             PostgresDatabase._db_initialized = True
 
     @property
