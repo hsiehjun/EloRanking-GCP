@@ -1,12 +1,12 @@
 /**
- * Synchronized Multiplayer, Strict Authentication Gatekeeper & 2-Player Collaborative Setup
+ * Synchronized Multiplayer, Room Key Generator & Strict 2-Player Collaborative Match Engine
  * for Warhammer 40,000 11th Edition Game Tracker
  */
 
 (function () {
   'use strict';
 
-  console.log('[GDM Sync Bridge] Loading Authenticated Collaborative Engine...');
+  console.log('[GDM Sync Bridge] Initializing 2-Player Room Key & Multiplayer Engine...');
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',
@@ -40,19 +40,24 @@
   const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
 
   function getAuthToken() {
-    return originalGetItem('elo_auth_token') || sessionStorage.getItem('elo_auth_token') || '';
+    return originalGetItem('elo_auth_token') || originalGetItem('native_session_token') || sessionStorage.getItem('elo_auth_token') || '';
   }
 
   function setAuthToken(token) {
     if (token) {
       originalSetItem('elo_auth_token', token);
+      originalSetItem('native_session_token', token);
       sessionStorage.setItem('elo_auth_token', token);
+      document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
     }
   }
 
   function clearAuthToken() {
     originalRemoveItem('elo_auth_token');
+    originalRemoveItem('native_session_token');
+    originalRemoveItem('native_user_profile');
     sessionStorage.removeItem('elo_auth_token');
+    document.cookie = 'session_token=; path=/; max-age=0';
     currentUser = null;
   }
 
@@ -97,7 +102,7 @@
     }
   };
 
-  // 2. Strict Authentication Gatekeeper
+  // 2. Strict Authentication Verification
   async function verifySession() {
     const token = getAuthToken();
     if (token) {
@@ -120,125 +125,6 @@
     return false;
   }
 
-  function renderAuthGatekeeper() {
-    if (document.getElementById('gt-auth-modal-root')) return;
-
-    document.body.style.overflow = 'hidden';
-    const modal = document.createElement('div');
-    modal.id = 'gt-auth-modal-root';
-    modal.innerHTML = `
-      <div style="position:fixed; inset:0; z-index:999999; background:rgba(4,7,14,0.94); backdrop-filter:blur(16px); display:flex; align-items:center; justify-content:center; padding:16px; font-family:'Inter',sans-serif;">
-        <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:440px; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden;">
-          <div style="padding:28px 24px 18px; text-align:center; border-bottom:1px solid rgba(255,255,255,0.06); background:linear-gradient(180deg, rgba(30,41,59,0.3) 0%, transparent 100%);">
-            <div style="font-size:32px; margin-bottom:8px;">⚔️</div>
-            <h2 style="margin:0; font-size:22px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">TACTICAL HUB SIGN IN</h2>
-            <p style="margin:8px 0 0; font-size:13px; color:#94a3b8; line-height:1.4;">Sign in or create a player account to start, join rooms, and track 11th Edition games.</p>
-          </div>
-          
-          <div style="display:flex; border-bottom:1px solid rgba(255,255,255,0.06); background:#090d18;">
-            <button id="gt-tab-login" onclick="window.__switchAuthTab('login')" style="flex:1; padding:13px; font-size:13px; font-weight:700; color:#38bdf8; background:transparent; border:none; border-bottom:2px solid #38bdf8; cursor:pointer;">SIGN IN</button>
-            <button id="gt-tab-register" onclick="window.__switchAuthTab('register')" style="flex:1; padding:13px; font-size:13px; font-weight:700; color:#64748b; background:transparent; border:none; border-bottom:2px solid transparent; cursor:pointer;">CREATE ACCOUNT</button>
-          </div>
-
-          <form id="gt-auth-form" onsubmit="window.__handleAuthSubmit(event)" style="padding:24px 24px 28px;">
-            <div id="gt-auth-error" style="display:none; padding:10px 14px; margin-bottom:16px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); border-radius:8px; font-size:12px; color:#fca5a5; text-align:center;"></div>
-
-            <div id="gt-name-group" style="display:none; margin-bottom:16px;">
-              <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:6px; letter-spacing:0.05em;">Display Name / Player Handle</label>
-              <input id="gt-auth-name" type="text" placeholder="e.g. Captain Titus" style="width:100%; box-sizing:border-box; padding:12px 14px; background:#070b14; border:1px solid #1e293b; border-radius:10px; font-size:14px; color:#f8fafc; outline:none;" />
-            </div>
-
-            <div style="margin-bottom:16px;">
-              <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:6px; letter-spacing:0.05em;">Email Address</label>
-              <input id="gt-auth-email" type="email" required placeholder="player@chapter.com" style="width:100%; box-sizing:border-box; padding:12px 14px; background:#070b14; border:1px solid #1e293b; border-radius:10px; font-size:14px; color:#f8fafc; outline:none;" />
-            </div>
-
-            <div style="margin-bottom:22px;">
-              <label style="display:block; font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:6px; letter-spacing:0.05em;">Password</label>
-              <input id="gt-auth-password" type="password" required placeholder="••••••••" style="width:100%; box-sizing:border-box; padding:12px 14px; background:#070b14; border:1px solid #1e293b; border-radius:10px; font-size:14px; color:#f8fafc; outline:none;" />
-            </div>
-
-            <button id="gt-auth-btn" type="submit" style="width:100%; padding:14px; background:#f59e0b; color:#0f172a; font-weight:800; font-size:14px; border:none; border-radius:11px; cursor:pointer; text-transform:uppercase; letter-spacing:0.08em; transition:all 0.2s;">
-              ENTER TRACKER ➔
-            </button>
-          </form>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
-
-    let activeTab = 'login';
-    window.__switchAuthTab = function (tab) {
-      activeTab = tab;
-      const tabLog = document.getElementById('gt-tab-login');
-      const tabReg = document.getElementById('gt-tab-register');
-      const nameGroup = document.getElementById('gt-name-group');
-      const btn = document.getElementById('gt-auth-btn');
-      const err = document.getElementById('gt-auth-error');
-      if (err) err.style.display = 'none';
-
-      if (tab === 'login') {
-        tabLog.style.color = '#38bdf8';
-        tabLog.style.borderBottomColor = '#38bdf8';
-        tabReg.style.color = '#64748b';
-        tabReg.style.borderBottomColor = 'transparent';
-        nameGroup.style.display = 'none';
-        btn.textContent = 'ENTER TRACKER ➔';
-      } else {
-        tabReg.style.color = '#38bdf8';
-        tabReg.style.borderBottomColor = '#38bdf8';
-        tabLog.style.color = '#64748b';
-        tabLog.style.borderBottomColor = 'transparent';
-        nameGroup.style.display = 'block';
-        btn.textContent = 'CREATE ACCOUNT & ENTER ➔';
-      }
-    };
-
-    window.__handleAuthSubmit = async function (e) {
-      e.preventDefault();
-      const email = document.getElementById('gt-auth-email').value.trim();
-      const password = document.getElementById('gt-auth-password').value;
-      const name = (document.getElementById('gt-auth-name').value || '').trim();
-      const errEl = document.getElementById('gt-auth-error');
-
-      errEl.style.display = 'none';
-
-      try {
-        let resp, data;
-        if (activeTab === 'login') {
-          resp = await fetch(SYNC_CONFIG.authLoginEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-          });
-        } else {
-          resp = await fetch(SYNC_CONFIG.authRegisterEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password, display_name: name || email.split('@')[0] })
-          });
-        }
-
-        data = await resp.json();
-        if (!resp.ok || !data.success) {
-          errEl.textContent = data.detail || data.error || 'Authentication failed. Please check credentials.';
-          errEl.style.display = 'block';
-          return;
-        }
-
-        setAuthToken(data.session_token || data.token);
-        currentUser = data.user;
-        removeAuthModal();
-        renderUserBar();
-
-        init();
-      } catch (err) {
-        errEl.textContent = 'Connection error. Please try again.';
-        errEl.style.display = 'block';
-      }
-    };
-  }
-
   function renderUserBar() {
     if (!currentUser) return;
     let bar = document.getElementById('gt-user-status-bar');
@@ -257,11 +143,11 @@
 
     window.__handleLogout = function () {
       clearAuthToken();
-      window.location.reload();
+      window.location.href = '/login';
     };
   }
 
-  // 3. Initialize Match Room / Join / Create
+  // 3. Initialize Match Room / Play / Setup / Landing
   async function init() {
     const isAuthed = await verifySession();
     if (!isAuthed) return;
@@ -305,7 +191,7 @@
 
       injectMultiplayerHUD();
 
-      // Join room to bind Player 2 slot or Spectator
+      // Join room to bind Player 2 slot or Spectator (Strict 2-Player Capacity)
       try {
         const resp = await fetch(`/api/tracker/room/${clientState.matchId}/join`, {
           method: 'POST',
@@ -324,58 +210,62 @@
         }
       } catch (e) {}
 
-      // Inject 2-Player Invite & Setup Helper at Step 1
       injectPlayer2InviteWidget();
       startRealtimeStream();
     } else {
       // Landing page (/11th/tracker or /tracker)
-      injectJoinRoomWidget();
-      hookNewGameButton();
+      injectLobbyHub();
       syncHistoryFromDatabase();
     }
   }
 
-  // 4. Landing Page: Inject "JOIN ROOM" and Hook "+ NEW GAME"
-  function injectJoinRoomWidget() {
+  // 4. Landing Page: Inject 2-Player Room Key Generator & Join Card
+  function injectLobbyHub() {
     const observer = new MutationObserver(() => {
       const newGameBtn = document.querySelector('button:has(svg.lucide-plus), button[class*="New Game"]');
-      if (newGameBtn && !document.getElementById('gt-join-room-card')) {
-        const joinCard = document.createElement('div');
-        joinCard.id = 'gt-join-room-card';
-        joinCard.style.cssText = "margin-top:12px; background:#111827; border:1px solid #1f2937; border-radius:12px; padding:12px 16px; display:flex; align-items:center; gap:8px;";
-        joinCard.innerHTML = `
-          <input id="gt-join-code-input" type="text" placeholder="Enter Room Code (e.g. WH40K-7A9B-3C4D)" style="flex:1; background:#0b0f19; border:1px solid #374151; border-radius:8px; padding:10px 12px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase;" />
-          <button onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:700; font-size:12px; text-transform:uppercase; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">CONNECT ➔</button>
+      if (newGameBtn && !document.getElementById('gt-lobby-hub-card')) {
+        newGameBtn.style.display = 'none'; // Replace with comprehensive 2-player lobby card
+
+        const lobbyCard = document.createElement('div');
+        lobbyCard.id = 'gt-lobby-hub-card';
+        lobbyCard.style.cssText = "margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:20px 22px; box-shadow:0 12px 35px rgba(0,0,0,0.5);";
+        lobbyCard.innerHTML = `
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:12px;">
+            <div>
+              <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
+              <p style="font-size:12px; color:#94a3b8; margin:4px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
+            </div>
+            <span style="font-size:11px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:4px 10px; border-radius:9999px;">2 Players Max</span>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+            <!-- Host Card -->
+            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:16px; display:flex; flex-direction:column; justify-content:space-between;">
+              <div>
+                <div style="font-size:13px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
+                <p style="font-size:11px; color:#94a3b8; margin:0 0 12px;">Generate a unique room key to invite Player 2 for collaborative army setup.</p>
+              </div>
+              <button onclick="window.__handleCreateRoom()" style="width:100%; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
+                GENERATE ROOM KEY ➔
+              </button>
+            </div>
+
+            <!-- Join Card -->
+            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:16px; display:flex; flex-direction:column; justify-content:space-between;">
+              <div>
+                <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
+                <p style="font-size:11px; color:#94a3b8; margin:0 0 10px;">Enter the 8-character Room Key provided by your opponent.</p>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f8fafc; outline:none; text-transform:uppercase;" />
+                <button onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">JOIN</button>
+              </div>
+            </div>
+          </div>
         `;
-        newGameBtn.parentNode.insertBefore(joinCard, newGameBtn.nextSibling);
+        newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
 
-        window.__handleJoinRoomInput = function () {
-          const input = document.getElementById('gt-join-code-input');
-          let code = (input.value || '').trim();
-          if (code.includes('match_id=')) {
-            code = new URL(code).searchParams.get('match_id') || code;
-          }
-          if (code) {
-            window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(code.toUpperCase())}`;
-          }
-        };
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
-  }
-
-  function hookNewGameButton() {
-    const observer = new MutationObserver(() => {
-      const btn = document.querySelector('button:has(svg.lucide-plus), button[class*="New Game"], button');
-      if (btn && btn.textContent.includes('New Game') && !btn.__hooked) {
-        btn.__hooked = true;
-        btn.onclick = async function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-
-          const isAuthed = await verifySession();
-          if (!isAuthed) return;
-
+        window.__handleCreateRoom = async function () {
           try {
             const resp = await fetch('/api/tracker/room/create', {
               method: 'POST',
@@ -391,18 +281,89 @@
             if (resp.ok) {
               const data = await resp.json();
               originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
-              window.location.href = `/11th/tracker/play?match_id=${data.match_id}`;
+              showWaitingLobbyModal(data.match_id);
               return;
             }
           } catch (err) {}
           window.location.href = '/11th/tracker/play';
+        };
+
+        window.__handleJoinRoomInput = function () {
+          const input = document.getElementById('gt-lobby-join-input');
+          let code = (input.value || '').trim();
+          if (code.includes('match_id=')) {
+            code = new URL(code).searchParams.get('match_id') || code;
+          }
+          if (code) {
+            code = code.toUpperCase();
+            if (!code.startsWith('WH40K-') && code.length === 8) {
+              code = `WH40K-${code.substring(0, 4)}-${code.substring(4)}`;
+            }
+            window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(code)}`;
+          }
         };
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  // 5. Step 1: 2-Player Invite & Real-Time Opponent Connect Widget
+  // Waiting Room Modal for Host
+  function showWaitingLobbyModal(matchId) {
+    const inviteUrl = `${window.location.origin}/11th/tracker/play?match_id=${matchId}`;
+    const modal = document.createElement('div');
+    modal.id = 'gt-waiting-modal';
+    modal.innerHTML = `
+      <div style="position:fixed; inset:0; z-index:999999; background:rgba(4,7,14,0.92); backdrop-filter:blur(14px); display:flex; align-items:center; justify-content:center; padding:16px; font-family:'Inter',sans-serif;">
+        <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:480px; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden; padding:28px 24px; text-align:center;">
+          <div style="font-size:32px; margin-bottom:6px;">⚔️</div>
+          <h2 style="font-size:20px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">ROOM KEY GENERATED</h2>
+          <p style="font-size:13px; color:#94a3b8; margin:6px 0 18px;">Share this Room Key with Player 2 to begin collaborative setup.</p>
+          
+          <div style="background:#070b14; border:2px dashed #f59e0b; border-radius:14px; padding:16px; margin-bottom:18px;">
+            <div style="font-size:11px; font-weight:700; text-transform:uppercase; color:#94a3b8; margin-bottom:4px; letter-spacing:0.08em;">ROOM KEY</div>
+            <div style="font-size:26px; font-weight:900; color:#f59e0b; font-family:'JetBrains Mono',monospace; letter-spacing:0.1em;">${matchId}</div>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-bottom:20px;">
+            <input readonly value="${inviteUrl}" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
+            <button onclick="navigator.clipboard.writeText('${inviteUrl}'); alert('📋 Invite Link Copied! Send to Player 2.');" style="background:#0284c7; color:#fff; font-weight:800; font-size:11px; border:none; padding:10px 14px; border-radius:8px; cursor:pointer;">
+              COPY LINK
+            </button>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:24px; font-size:13px; color:#f59e0b;">
+            <span style="width:8px; height:8px; border-radius:50%; background:#f59e0b; display:inline-block; animation:pulse 1.5s infinite;"></span>
+            <span id="gt-waiting-status-text">Waiting for Player 2 to join (1/2 Players)...</span>
+          </div>
+
+          <button onclick="window.location.href='/11th/tracker/play?match_id=${matchId}'" style="width:100%; background:#10b981; color:#0f172a; font-weight:800; font-size:14px; text-transform:uppercase; border:none; padding:14px; border-radius:11px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.06em;">
+            ENTER SETUP SCREEN ➔
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Listen for P2 connection
+    const sse = new EventSource(`/api/tracker/room/${matchId}/stream?client_id=host_${Date.now()}`);
+    sse.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'state_update' && msg.state && msg.state.user_id_p2) {
+          const statusText = document.getElementById('gt-waiting-status-text');
+          if (statusText) {
+            statusText.textContent = `🟢 Player 2 Connected! (2/2 Players Ready)`;
+            statusText.style.color = '#10b981';
+          }
+          setTimeout(() => {
+            window.location.href = `/11th/tracker/play?match_id=${matchId}`;
+          }, 800);
+        }
+      } catch (e) {}
+    };
+  }
+
+  // 5. Step 1: 2-Player Invite & Setup Helper inside Play Screen
   function injectPlayer2InviteWidget() {
     const observer = new MutationObserver(() => {
       const stepTitle = document.querySelector('h2');
@@ -421,16 +382,16 @@
         if (!p2Claimed) {
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-              <span style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">⚔️ Step 1: Invite Opponent (Player 2)</span>
+              <span style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">⚔️ Room Key: ${clientState.matchId} (1/2 Players)</span>
               <span style="display:flex; align-items:center; gap:6px; font-size:11px; color:#f59e0b;">
-                <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block; animation:pulse 1.5s infinite;"></span>
+                <span style="width:6px; height:6px; border-radius:50%; background:#f59e0b; display:inline-block;"></span>
                 Waiting for Player 2...
               </span>
             </div>
-            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Send this room invite link to your opponent. When they connect, their name and army will auto-link for collaborative setup:</p>
+            <p style="margin:0 0 10px; font-size:12px; color:#94a3b8;">Share this Room Key with Player 2 to collaborate live on army setup:</p>
             <div style="display:flex; gap:8px;">
               <input readonly value="${inviteUrl}" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 10px; font-size:11px; color:#cbd5e1; font-family:'JetBrains Mono',monospace; outline:none;" />
-              <button onclick="navigator.clipboard.writeText('${inviteUrl}'); alert('📋 Invite Link Copied! Send this to Player 2 to collaborate on setup.');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">
+              <button onclick="navigator.clipboard.writeText('${inviteUrl}'); alert('📋 Invite Link Copied! Send this to Player 2.');" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; text-transform:uppercase; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; letter-spacing:0.04em;">
                 📋 COPY LINK
               </button>
             </div>
@@ -438,8 +399,8 @@
         } else {
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between;">
-              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game.p2Name})</span>
-              <span style="font-size:11px; color:#94a3b8;">Both players collaborating live</span>
+              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game ? stateObj.game.p2Name : 'Opponent'})</span>
+              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players (Collaborative Live)</span>
             </div>
           `;
         }
@@ -561,7 +522,7 @@
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between;">
               <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${incoming.game.p2Name})</span>
-              <span style="font-size:11px; color:#94a3b8;">Both players collaborating live</span>
+              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players (Collaborative Live)</span>
             </div>
           `;
         }
@@ -625,7 +586,7 @@
         <b style="font-family:'JetBrains Mono',monospace; color:#38bdf8;">#${clientState.matchId}</b>
         <span style="color:#64748b;">•</span>
         <span id="gt-hud-online" style="color:#94a3b8;">1 online</span>
-        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent or spectators.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; margin-left:4px;">
+        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; margin-left:4px;">
           🔗 Share
         </button>
       </div>
