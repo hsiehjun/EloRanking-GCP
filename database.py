@@ -651,7 +651,7 @@ class PostgresDatabase:
                 }
 
     def get_event_details(self, event_id: str) -> Dict[str, Any]:
-        """Returns tournament details, participant roster with event scores and Elo, and all round pairings."""
+        """Returns tournament details, participant roster with official BCP tiebreaker standings, and all round pairings."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 # 1. Event metadata
@@ -673,10 +673,11 @@ class PostgresDatabase:
                         "total_players": 0,
                         "num_rounds": 0,
                         "current_round": 0,
-                        "is_ended": True
+                        "is_ended": False
                     }
+                res = dict(event_row)
 
-                # 2. Event Matches
+                # 2. Match pairings
                 cursor.execute("""
                 SELECT id, event_id, round, table_number, match_date,
                        player1_id, player1_name, player1_faction, player1_score,
@@ -688,7 +689,7 @@ class PostgresDatabase:
                 """, (event_id,))
                 matches = [dict(r) for r in cursor.fetchall()]
 
-                # 3. Event Participants / Roster with Official BCP Placings
+                # 3. Participants roster
                 cursor.execute("""
                 SELECT 
                     ep.player_id, 
@@ -699,67 +700,164 @@ class PostgresDatabase:
                     ep.placement,
                     COALESCE(pr.current_elo, 1500.0) as current_elo,
                     COALESCE(pr.peak_elo, 1500.0) as peak_elo,
-                    COALESCE(pr.win_rate, 0.0) as global_win_rate,
-                    COUNT(m.id) as event_matches_count,
-                    SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) as event_wins,
-                    SUM(CASE WHEN m.loser_id = ep.player_id THEN 1 ELSE 0 END) as event_losses,
-                    SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as event_draws,
-                    COALESCE(MAX(ep.battle_points), SUM(CASE WHEN m.player1_id = ep.player_id THEN COALESCE(m.player1_score, 0) ELSE (CASE WHEN m.player2_id = ep.player_id THEN COALESCE(m.player2_score, 0) ELSE 0 END) END)) as event_battle_points
+                    COALESCE(pr.win_rate, 0.0) as global_win_rate
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
-                LEFT JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id)
-                WHERE ep.event_id = %s
-                GROUP BY ep.player_id, pr.player_name, ep.full_name, ep.faction, pr.top_faction, ep.team, pr.team, ep.dropped, ep.checked_in, ep.placement, pr.current_elo, pr.peak_elo, pr.win_rate
-                ORDER BY 
-                    CASE WHEN ep.placement IS NOT NULL AND ep.placement > 0 THEN ep.placement ELSE 99999 END ASC,
-                    event_wins DESC,
-                    event_battle_points DESC,
-                    current_elo DESC;
+                WHERE ep.event_id = %s;
                 """, (event_id,))
-                players = [dict(r) for r in cursor.fetchall()]
+                participants = {r["player_id"]: dict(r) for r in cursor.fetchall()}
 
-                # If no event_participants rows exist, synthesize roster from matches
-                if not players and matches:
-                    cursor.execute("""
-                    WITH match_players AS (
-                        SELECT player1_id as p_id, player1_name as p_name, player1_faction as p_fac,
-                               (winner_id = player1_id) as is_win, is_draw, (loser_id = player1_id) as is_loss,
-                               COALESCE(player1_score, 0) as score
-                        FROM matches WHERE event_id = %s AND player1_id IS NOT NULL AND player1_id != ''
-                        UNION ALL
-                        SELECT player2_id as p_id, player2_name as p_name, player2_faction as p_fac,
-                               (winner_id = player2_id) as is_win, is_draw, (loser_id = player2_id) as is_loss,
-                               COALESCE(player2_score, 0) as score
-                        FROM matches WHERE event_id = %s AND player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE
-                    )
-                    SELECT 
-                        mp.p_id as player_id,
-                        COALESCE(MAX(pr.player_name), MAX(mp.p_name), 'Player') as full_name,
-                        COALESCE(MAX(mp.p_fac), MAX(pr.top_faction), 'Unknown') as faction,
-                        COALESCE(MAX(pr.team), '') as team,
-                        FALSE as dropped, TRUE as checked_in,
-                        COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
-                        COALESCE(MAX(pr.peak_elo), 1500.0) as peak_elo,
-                        COALESCE(MAX(pr.win_rate), 0.0) as global_win_rate,
-                        COUNT(*) as event_matches_count,
-                        SUM(CASE WHEN mp.is_win THEN 1 ELSE 0 END) as event_wins,
-                        SUM(CASE WHEN mp.is_loss THEN 1 ELSE 0 END) as event_losses,
-                        SUM(CASE WHEN mp.is_draw THEN 1 ELSE 0 END) as event_draws,
-                        SUM(mp.score) as event_battle_points
-                    FROM match_players mp
-                    LEFT JOIN player_ratings pr ON mp.p_id = pr.player_id
-                    GROUP BY mp.p_id
-                    ORDER BY event_wins DESC, event_battle_points DESC, current_elo DESC;
-                    """, (event_id, event_id))
-                    players = [dict(r) for r in cursor.fetchall()]
+                # 4. Compute official Best Coast Pairings Swiss standings & tiebreakers
+                player_stats = {}
+                for m in matches:
+                    p1_id = m.get("player1_id")
+                    p2_id = m.get("player2_id")
+                    p1_name = m.get("player1_name") or "Player 1"
+                    p2_name = m.get("player2_name") or ("BYE" if m.get("is_bye") else "Player 2")
+                    p1_fac = m.get("player1_faction") or "Unknown"
+                    p2_fac = m.get("player2_faction") or "Unknown"
+                    p1_score = m.get("player1_score") or 0
+                    p2_score = m.get("player2_score") or 0
+                    r_num = m.get("round", 1)
 
-                res = dict(event_row)
-                res["players"] = players
+                    is_p1_win = m.get("winner_id") == p1_id or (m.get("winner_id") is None and p1_score > p2_score)
+                    is_p2_win = m.get("winner_id") == p2_id or (m.get("winner_id") is None and p2_score > p1_score)
+                    is_draw = m.get("is_draw") or (p1_score == p2_score and not is_p1_win and not is_p2_win)
+
+                    if p1_id:
+                        if p1_id not in player_stats:
+                            p_info = participants.get(p1_id, {})
+                            player_stats[p1_id] = {
+                                "player_id": p1_id,
+                                "full_name": p_info.get("full_name") or p1_name,
+                                "faction": p_info.get("faction") or p1_fac,
+                                "team": p_info.get("team") or "",
+                                "dropped": p_info.get("dropped", False),
+                                "checked_in": p_info.get("checked_in", True),
+                                "current_elo": p_info.get("current_elo", 1500.0),
+                                "peak_elo": p_info.get("peak_elo", 1500.0),
+                                "global_win_rate": p_info.get("global_win_rate", 0.0),
+                                "event_wins": 0,
+                                "event_losses": 0,
+                                "event_draws": 0,
+                                "event_matches_count": 0,
+                                "event_battle_points": 0,
+                                "round_wins": {},
+                                "opponents": []
+                            }
+                        ps = player_stats[p1_id]
+                        ps["event_matches_count"] += 1
+                        ps["event_battle_points"] += p1_score
+                        if is_p1_win:
+                            ps["event_wins"] += 1
+                            ps["round_wins"][r_num] = 1
+                        elif is_draw:
+                            ps["event_draws"] += 1
+                            ps["round_wins"][r_num] = 0.5
+                        else:
+                            ps["event_losses"] += 1
+                            ps["round_wins"][r_num] = 0
+                        if p2_id and not m.get("is_bye") and p2_name != "BYE":
+                            ps["opponents"].append(p2_id)
+
+                    if p2_id and not m.get("is_bye") and p2_name != "BYE":
+                        if p2_id not in player_stats:
+                            p_info = participants.get(p2_id, {})
+                            player_stats[p2_id] = {
+                                "player_id": p2_id,
+                                "full_name": p_info.get("full_name") or p2_name,
+                                "faction": p_info.get("faction") or p2_fac,
+                                "team": p_info.get("team") or "",
+                                "dropped": p_info.get("dropped", False),
+                                "checked_in": p_info.get("checked_in", True),
+                                "current_elo": p_info.get("current_elo", 1500.0),
+                                "peak_elo": p_info.get("peak_elo", 1500.0),
+                                "global_win_rate": p_info.get("global_win_rate", 0.0),
+                                "event_wins": 0,
+                                "event_losses": 0,
+                                "event_draws": 0,
+                                "event_matches_count": 0,
+                                "event_battle_points": 0,
+                                "round_wins": {},
+                                "opponents": []
+                            }
+                        ps = player_stats[p2_id]
+                        ps["event_matches_count"] += 1
+                        ps["event_battle_points"] += p2_score
+                        if is_p2_win:
+                            ps["event_wins"] += 1
+                            ps["round_wins"][r_num] = 1
+                        elif is_draw:
+                            ps["event_draws"] += 1
+                            ps["round_wins"][r_num] = 0.5
+                        else:
+                            ps["event_losses"] += 1
+                            ps["round_wins"][r_num] = 0
+                        if p1_id:
+                            ps["opponents"].append(p1_id)
+
+                # Add any enrolled players who haven't played a round yet
+                for p_id, p_info in participants.items():
+                    if p_id not in player_stats:
+                        player_stats[p_id] = {
+                            "player_id": p_id,
+                            "full_name": p_info.get("full_name") or "Player",
+                            "faction": p_info.get("faction") or "Unknown",
+                            "team": p_info.get("team") or "",
+                            "dropped": p_info.get("dropped", False),
+                            "checked_in": p_info.get("checked_in", True),
+                            "current_elo": p_info.get("current_elo", 1500.0),
+                            "peak_elo": p_info.get("peak_elo", 1500.0),
+                            "global_win_rate": p_info.get("global_win_rate", 0.0),
+                            "event_wins": 0,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_matches_count": 0,
+                            "event_battle_points": 0,
+                            "round_wins": {},
+                            "opponents": []
+                        }
+
+                # Compute win% and Path to Victory (PTV)
+                for p_id, ps in player_stats.items():
+                    tot = ps["event_matches_count"]
+                    ps["win_pct"] = (ps["event_wins"] + 0.5 * ps["event_draws"]) / max(1, tot)
+                    ptv = 0
+                    for r, w in ps["round_wins"].items():
+                        if w == 1:
+                            ptv += (1 << (r - 1))
+                    ps["ptv"] = ptv
+
+                # Compute Opponent Game Win % (SoS)
+                for p_id, ps in player_stats.items():
+                    opp_pcts = [max(0.33, player_stats[opp]["win_pct"]) for opp in ps["opponents"] if opp in player_stats]
+                    ps["sos"] = sum(opp_pcts) / max(1, len(opp_pcts)) if opp_pcts else 0.0
+
+                # Sort by BCP Official Tiebreakers:
+                # 1. Match Wins
+                # 2. Path to Victory (PTV)
+                # 3. Opponent Win % (SoS)
+                # 4. Battle Points
+                sorted_roster = sorted(
+                    player_stats.values(),
+                    key=lambda p: (
+                        p["event_wins"] + 0.5 * p["event_draws"],
+                        p["ptv"],
+                        p["sos"],
+                        p["event_battle_points"],
+                        p["current_elo"]
+                    ),
+                    reverse=True
+                )
+
+                for rank_idx, p in enumerate(sorted_roster, 1):
+                    p["placement"] = rank_idx
+
+                res["players"] = sorted_roster
                 res["matches"] = matches
-                res["total_players"] = res.get("total_players") or len(players)
+                res["total_players"] = res.get("total_players") or len(sorted_roster)
                 res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
                 return res
-
 
     def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC") -> Dict[str, Any]:
         """Returns paginated tournaments list with match counts."""
