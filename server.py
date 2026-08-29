@@ -240,7 +240,14 @@ if FASTAPI_AVAILABLE:
         room["version"] = payload.version
         room["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-        # Optional Supabase persistence if configured in environment
+        # 1. Persistent Storage in PostgreSQL Database
+        try:
+            db = get_database()
+            db.save_tracker_game(match_id=match_id, state=payload.state, version=payload.version)
+        except Exception as db_err:
+            logger.debug(f"Tracker DB save notice: {db_err}")
+
+        # 2. Optional Supabase persistence if configured in environment
         supabase_url = os.environ.get("SUPABASE_URL")
         supabase_key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
         if supabase_url and supabase_key:
@@ -284,9 +291,35 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/tracker/room/{match_id}", summary="Get current match room state")
     async def api_tracker_get_state(match_id: str):
         match_id = match_id.upper()
-        if match_id not in TRACKER_ROOMS:
-            return {"match_id": match_id, "version": 0, "state": {}}
-        return TRACKER_ROOMS[match_id]
+        if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
+            return TRACKER_ROOMS[match_id]
+        
+        # Fallback to persistent database record
+        try:
+            db = get_database()
+            saved = db.get_tracker_game(match_id)
+            if saved and saved.get("state"):
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "version": saved.get("version", 1),
+                    "state": saved["state"],
+                    "updated_at": saved.get("updated_at")
+                }
+                return TRACKER_ROOMS[match_id]
+        except Exception as err:
+            logger.debug(f"Tracker DB load notice: {err}")
+
+        return {"match_id": match_id, "version": 0, "state": {}}
+
+    @app.get("/api/tracker/history", summary="Get persistent history of tracker games")
+    async def api_tracker_history(limit: int = 50, search: Optional[str] = None):
+        try:
+            db = get_database()
+            history = db.get_tracker_history(limit=limit, search=search)
+            return {"success": True, "history": history}
+        except Exception as err:
+            logger.error(f"Error fetching tracker history: {err}")
+            return {"success": False, "history": []}
 
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
     async def api_tracker_stream(match_id: str, client_id: str = "anon"):

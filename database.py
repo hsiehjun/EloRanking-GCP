@@ -217,6 +217,33 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_faction ON player_ratings(top_faction);
                 CREATE INDEX IF NOT EXISTS idx_pg_events_date ON events(event_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);
+
+                CREATE TABLE IF NOT EXISTS tracker_games (
+                    match_id VARCHAR(64) PRIMARY KEY,
+                    p1_name TEXT,
+                    p1_faction TEXT,
+                    p1_detachment TEXT,
+                    p1_score INT DEFAULT 0,
+                    p2_name TEXT,
+                    p2_faction TEXT,
+                    p2_detachment TEXT,
+                    p2_score INT DEFAULT 0,
+                    primary_mission TEXT,
+                    deployment TEXT,
+                    mission_rule TEXT,
+                    current_round INT DEFAULT 1,
+                    started BOOLEAN DEFAULT FALSE,
+                    is_finished BOOLEAN DEFAULT FALSE,
+                    winner_name TEXT,
+                    version INT DEFAULT 1,
+                    state_json JSONB,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);
+                CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);
                 """)
 
                 for migration in [
@@ -1676,6 +1703,151 @@ class PostgresDatabase:
                     "matches": recent_matches,
                     "matchups": matchups
                 }
+
+    def save_tracker_game(self, match_id: str, state: Dict[str, Any], version: int = 1) -> bool:
+        """Persists or updates a live multiplayer tracker game in PostgreSQL."""
+        if not match_id or not state:
+            return False
+        
+        match_id = match_id.strip().upper()
+        p1_name = state.get("p1Name") or "Player 1"
+        p1_faction = state.get("p1Faction") or "Necrons"
+        p1_detachment = state.get("p1Detachment") or ""
+        p2_name = state.get("p2Name") or "Player 2"
+        p2_faction = state.get("p2Faction") or "Space Marines"
+        p2_detachment = state.get("p2Detachment") or ""
+        primary_mission = state.get("primaryMission") or "Take & Hold"
+        deployment = state.get("deployment") or "Search & Destroy"
+        mission_rule = state.get("missionRule") or "Swift Action"
+        current_round = int(state.get("currentRound") or 1)
+        started = bool(state.get("started"))
+        
+        def calc_vp(rds):
+            pri = sum([rds.get(str(r), {}).get("primary", 0) for r in range(1, 6)]) if isinstance(rds, dict) else 0
+            sec = 0
+            if isinstance(rds, dict):
+                for r in range(1, 6):
+                    for c in rds.get(str(r), {}).get("secondaries", []):
+                        if c.get("status") == "achieved":
+                            sec += c.get("vp", 0)
+            return min(100, min(50, pri) + min(40, sec) + 10)
+
+        p1_score = calc_vp(state.get("p1Rounds", {}))
+        p2_score = calc_vp(state.get("p2Rounds", {}))
+        is_finished = current_round >= 5 and started
+
+        winner_name = None
+        if is_finished:
+            if p1_score > p2_score:
+                winner_name = p1_name
+            elif p2_score > p1_score:
+                winner_name = p2_name
+            else:
+                winner_name = "Tied"
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO tracker_games (
+                    match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                    p2_name, p2_faction, p2_detachment, p2_score,
+                    primary_mission, deployment, mission_rule,
+                    current_round, started, is_finished, winner_name,
+                    version, state_json, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, NOW()
+                )
+                ON CONFLICT (match_id) DO UPDATE SET
+                    p1_name = EXCLUDED.p1_name,
+                    p1_faction = EXCLUDED.p1_faction,
+                    p1_detachment = EXCLUDED.p1_detachment,
+                    p1_score = EXCLUDED.p1_score,
+                    p2_name = EXCLUDED.p2_name,
+                    p2_faction = EXCLUDED.p2_faction,
+                    p2_detachment = EXCLUDED.p2_detachment,
+                    p2_score = EXCLUDED.p2_score,
+                    primary_mission = EXCLUDED.primary_mission,
+                    deployment = EXCLUDED.deployment,
+                    mission_rule = EXCLUDED.mission_rule,
+                    current_round = EXCLUDED.current_round,
+                    started = EXCLUDED.started,
+                    is_finished = EXCLUDED.is_finished,
+                    winner_name = EXCLUDED.winner_name,
+                    version = EXCLUDED.version,
+                    state_json = EXCLUDED.state_json,
+                    updated_at = NOW();
+                """, (
+                    match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                    p2_name, p2_faction, p2_detachment, p2_score,
+                    primary_mission, deployment, mission_rule,
+                    current_round, started, is_finished, winner_name,
+                    version, json.dumps(state)
+                ))
+            conn.commit()
+        return True
+
+    def get_tracker_game(self, match_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves a persisted tracker game by match_id."""
+        if not match_id:
+            return None
+        match_id = match_id.strip().upper()
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT * FROM tracker_games WHERE match_id = %s;
+                """, (match_id,))
+                row = cursor.fetchone()
+                if row:
+                    d = dict(row)
+                    if isinstance(d.get("state_json"), str):
+                        try:
+                            d["state"] = json.loads(d["state_json"])
+                        except Exception:
+                            d["state"] = {}
+                    elif isinstance(d.get("state_json"), dict):
+                        d["state"] = d["state_json"]
+                    return d
+                return None
+
+    def get_tracker_history(self, limit: int = 50, search: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns recent persistent tracker games."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                if search:
+                    cursor.execute("""
+                    SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                           p2_name, p2_faction, p2_detachment, p2_score,
+                           primary_mission, deployment, mission_rule,
+                           current_round, started, is_finished, winner_name,
+                           version, created_at, updated_at
+                    FROM tracker_games
+                    WHERE match_id ILIKE %s OR p1_name ILIKE %s OR p2_name ILIKE %s
+                    ORDER BY updated_at DESC
+                    LIMIT %s;
+                    """, (f"%{search}%", f"%{search}%", f"%{search}%", limit))
+                else:
+                    cursor.execute("""
+                    SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                           p2_name, p2_faction, p2_detachment, p2_score,
+                           primary_mission, deployment, mission_rule,
+                           current_round, started, is_finished, winner_name,
+                           version, created_at, updated_at
+                    FROM tracker_games
+                    ORDER BY updated_at DESC
+                    LIMIT %s;
+                    """, (limit,))
+                rows = cursor.fetchall()
+                res = []
+                for r in rows:
+                    d = dict(r)
+                    if d.get("updated_at"):
+                        d["date"] = d["updated_at"].strftime("%b %d, %Y")
+                    res.append(d)
+                return res
 
 
 class PostgresConnectionContext:

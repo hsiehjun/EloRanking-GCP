@@ -128,13 +128,49 @@ function showHomeDashboard() {
   loadGameHistory();
 }
 
-function loadGameHistory() {
+async function loadGameHistory() {
   const container = document.getElementById('history-list-wrap');
   if (!container) return;
 
+  container.innerHTML = `
+    <div style="text-align: center; padding: 24px; color: var(--text-muted);">
+      <div class="pulse-dot" style="margin: 0 auto 8px auto;"></div>
+      Loading persistent game history...
+    </div>
+  `;
+
   let history = [];
   try {
-    history = JSON.parse(localStorage.getItem('gt_local_history') || '[]');
+    const resp = await fetch('/api/tracker/history');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && data.history && Array.isArray(data.history)) {
+        history = data.history.map(item => ({
+          matchId: item.match_id,
+          p1Name: item.p1_name,
+          p2Name: item.p2_name,
+          p1Score: item.p1_score,
+          p2Score: item.p2_score,
+          primaryMission: item.primary_mission,
+          currentRound: item.current_round,
+          started: item.started,
+          isFinished: item.is_finished,
+          date: item.date || 'Recent'
+        }));
+      }
+    }
+  } catch (err) {
+    console.debug('Cloud history fetch notice:', err);
+  }
+
+  // Merge with local history fallback
+  try {
+    const local = JSON.parse(localStorage.getItem('gt_local_history') || '[]');
+    for (const l of local) {
+      if (!history.some(h => h.matchId === l.matchId)) {
+        history.push(l);
+      }
+    }
   } catch (e) {}
 
   if (history.length === 0) {
@@ -156,7 +192,7 @@ function loadGameHistory() {
           <span class="gt-pack-pill">#${g.matchId}</span>
         </div>
         <div style="font-size: 12px; color: var(--text-muted);">
-          ${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.started ? `Round ${g.currentRound || 1}` : 'Setup Mode'}
+          ${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.isFinished ? '🏁 Finalized' : g.started ? `⚔️ Round ${g.currentRound || 1}` : '⚙️ Setup Mode'}
         </div>
       </div>
       <div style="text-align: right;">
