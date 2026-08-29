@@ -595,40 +595,79 @@ async function executeHubEventsSearch() {
 
 function renderHubEventCard(ev) {
   const evDate = ev.event_date ? ev.event_date.substring(0, 10) : 'TBD';
-  const location = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Global';
+  
+  // Clean location string (remove trailing United States for cleaner cards)
+  let locParts = [ev.city, ev.state].filter(Boolean);
+  if (ev.country && ev.country.trim() !== 'United States' && ev.country.trim() !== 'US') {
+    locParts.push(ev.country);
+  }
+  const cleanLoc = locParts.join(', ') || 'Online / Global';
+
   const tierBadge = ev.tier_badge || 'tier-B';
   const tierName = ev.tier || 'Tournament';
   const timeLabel = ev.time_label || 'Upcoming';
   const isNearby = ev.is_nearby;
-  const capacityLabel = ev.capacity_label || `${ev.total_players || 0} Enrolled`;
-  const skillLabel = ev.skill_match_label || 'Standard';
+  const enrolled = ev.enrolled_count !== undefined ? ev.enrolled_count : (ev.total_players || 0);
+  const capacity = ev.capacity_cap !== undefined ? ev.capacity_cap : enrolled;
+  const spotsOpen = capacity > enrolled ? (capacity - enrolled) : 0;
+  
+  let capacityText = `👥 <b>${enrolled}</b> Enrolled`;
+  if (capacity > 0 && capacity > enrolled) {
+    capacityText = `👥 <b>${enrolled} / ${capacity}</b> Spots <span style="color:#10b981; font-size:0.75rem;">(${spotsOpen} open)</span>`;
+  } else if (capacity > 0 && capacity === enrolled) {
+    capacityText = `👥 <b>${enrolled} / ${capacity}</b> <span style="color:#f59e0b; font-size:0.75rem;">(Sold Out)</span>`;
+  }
+
+  const skillLabel = ev.skill_match_label || 'Standard Field';
   const skillBadge = ev.skill_match_badge || 'badge-match-prime';
   const avgElo = ev.avg_elo_display || 1550.0;
 
   return `
-    <div class="hub-rec-card" onclick="openEventModal('${ev.id}')">
-      <div style="flex: 1; min-width: 0; padding-right: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-          <b style="font-size: 0.88rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ev.name)}</b>
-          ${isNearby ? '<span class="hub-rec-badge-nearby">📍 Nearby</span>' : ''}
-          <span class="tier-badge ${tierBadge}" style="font-size: 0.68rem; padding: 0.1rem 0.45rem;">${tierName}</span>
-          <span class="badge ${skillBadge}" style="font-size: 0.68rem; padding: 0.1rem 0.45rem;">${escapeHtml(skillLabel)}</span>
+    <div class="hub-event-card-pro" onclick="openEventModal('${ev.id}')">
+      <div>
+        <!-- Card Header: Title & Badges -->
+        <div class="hub-card-header">
+          <h4 class="hub-card-title">${escapeHtml(ev.name)}</h4>
+          <div class="hub-card-badges">
+            ${isNearby ? '<span class="hub-rec-badge-nearby" style="font-size:0.7rem;">📍 Nearby</span>' : ''}
+            <span class="tier-badge ${tierBadge}" style="font-size:0.7rem; padding:0.15rem 0.5rem;">${tierName}</span>
+          </div>
         </div>
-        <div style="font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <span>📅 ${evDate} <b style="color:var(--accent);">(${timeLabel})</b></span>
+
+        <!-- Meta Row: Date & Location -->
+        <div class="hub-card-meta-row" style="margin-top: 0.5rem;">
+          <span class="hub-meta-item">
+            <span style="color:var(--accent);">📅</span> <b>${evDate}</b> <span style="color:var(--text-muted);">(${timeLabel})</span>
+          </span>
           <span>•</span>
-          <span>📍 ${escapeHtml(location)}</span>
-          <span>•</span>
-          <span>⭐ Avg Field Elo: <b style="color:#fff; font-family:var(--font-mono);">${avgElo}</b></span>
+          <span class="hub-meta-item">
+            <span style="color:#a855f7;">📍</span> ${escapeHtml(cleanLoc)}
+          </span>
         </div>
       </div>
-      <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; min-width: 140px;">
-        <span class="badge" style="font-size: 0.72rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
-          👥 ${escapeHtml(capacityLabel)}
+
+      <!-- Tactical Analytics Bar -->
+      <div class="hub-card-analytics-bar">
+        <div style="display:flex; align-items:center; gap:0.4rem;">
+          <span style="color:#f59e0b;">⭐</span>
+          <span>Field Avg: <b style="color:#fff; font-family:var(--font-mono);">${avgElo}</b> Elo</span>
+        </div>
+        <span class="badge ${skillBadge}" style="font-size:0.72rem; padding:0.2rem 0.55rem; font-weight:700;">
+          ${escapeHtml(skillLabel)}
         </span>
-        <a href="https://www.bestcoastpairings.com/event/${ev.id}" target="_blank" onclick="event.stopPropagation()" style="font-size: 0.72rem; color: var(--accent); text-decoration: underline;">
-          BCP Link ↗
-        </a>
+      </div>
+
+      <!-- Footer Action Row -->
+      <div class="hub-card-footer">
+        <div class="hub-capacity-badge">
+          ${capacityText}
+        </div>
+        <div style="display:flex; align-items:center; gap:0.5rem;">
+          <span style="color:var(--text-muted); font-size:0.75rem;">View Roster & Pairings ⚔️</span>
+          <a href="https://www.bestcoastpairings.com/event/${ev.id}" target="_blank" onclick="event.stopPropagation()" class="hub-card-action-btn">
+            BCP ↗
+          </a>
+        </div>
       </div>
     </div>
   `;
