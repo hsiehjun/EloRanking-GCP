@@ -27,8 +27,7 @@ function switchTab(tabName) {
   else if (tabName === 'players') loadPlayersDirectory();
   else if (tabName === 'factions') loadFactionMeta();
   else if (tabName === 'my-hub') {
-    const hasToken = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || (document.cookie.includes('session_token='));
-    if (!currentUser && !hasToken) {
+    if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');
       return;
     }

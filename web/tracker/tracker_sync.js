@@ -141,9 +141,15 @@
       <button onclick="window.__handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:11px; cursor:pointer; margin-left:6px; font-weight:700;">Logout</button>
     `;
 
-    window.__handleLogout = function () {
+    window.__handleLogout = async function () {
+      try {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        });
+      } catch (e) {}
       clearAuthToken();
-      window.location.href = '/login';
+      window.location.href = '/';
     };
   }
 

@@ -230,7 +230,25 @@ async function handleDisconnectBcp() {
 }
 
 async function handleLogout() {
-  await window.api.logout();
+  try {
+    await window.api.logout();
+  } catch (e) {}
   currentUser = null;
-  switchTab('my-hub');
+  localStorage.removeItem('native_session_token');
+  localStorage.removeItem('native_user_profile');
+  localStorage.removeItem('elo_auth_token');
+  localStorage.removeItem('bcp_session_token');
+  document.cookie = 'session_token=; path=/; max-age=0';
+  
+  // Clear ?tab=my-hub if present in URL
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('tab') === 'my-hub') {
+      url.searchParams.delete('tab');
+      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
+    }
+  } catch (e) {}
+
+  switchTab('leaderboard');
+  if (typeof loadLeaderboard === 'function') loadLeaderboard();
 }
