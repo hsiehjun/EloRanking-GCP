@@ -1080,6 +1080,13 @@ if FASTAPI_AVAILABLE:
         processed_events = []
         seen_ids = set()
 
+        # Batch query enrolled player stats from DB for all incoming events
+        ev_all_ids = [str(ev.get("id") or ev.get("objectId")) for ev in bcp_events if (ev.get("id") or ev.get("objectId"))]
+        try:
+            field_stats = db.get_events_field_stats(ev_all_ids)
+        except Exception:
+            field_stats = {}
+
         for ev in bcp_events:
             ev_id = ev.get("id") or ev.get("objectId")
             if not ev_id or ev_id in seen_ids:
@@ -1154,31 +1161,39 @@ if FASTAPI_AVAILABLE:
             if rounds >= 7:
                 tier = "Major"
                 tier_badge = "tier-S"
+                tier_baseline = 1680.0
             elif rounds >= 4:
                 tier = "Grand Tournament"
                 tier_badge = "tier-A"
+                tier_baseline = 1580.0
             else:
                 tier = "RTT / Local"
                 tier_badge = "tier-B"
+                tier_baseline = 1500.0
 
-            # Field Avg Elo
-            avg_elo_val = 1550.0
+            # Dynamic Field Avg Elo from Enrolled Roster in PostgreSQL
+            stats_entry = field_stats.get(str(ev_id)) or field_stats.get(ev_id)
+            if stats_entry and stats_entry.get("avg_field_elo"):
+                avg_elo_val = float(stats_entry["avg_field_elo"])
+            else:
+                avg_elo_val = tier_baseline
+
             if user_elo:
                 diff = avg_elo_val - user_elo
-                if abs(diff) <= 60:
+                if abs(diff) <= 35:
                     skill_label = "🎯 Prime Skill Match"
                     skill_badge = "badge-match-prime"
-                elif diff > 60 and diff <= 150:
+                elif diff > 35 and diff <= 110:
                     skill_label = f"⚔️ Tough Field (+{round(diff)} Elo)"
                     skill_badge = "badge-match-hard"
-                elif diff > 150:
+                elif diff > 110:
                     skill_label = f"🦈 Shark Tank (+{round(diff)} Elo)"
                     skill_badge = "badge-match-extreme"
                 else:
                     skill_label = f"🏆 Favorable Match ({round(diff)} Elo)"
                     skill_badge = "badge-match-favorable"
             else:
-                skill_label = "⚖️ Standard Field"
+                skill_label = f"⭐ Field Avg: {round(avg_elo_val)} Elo"
                 skill_badge = "badge-match-prime"
 
             processed_events.append({

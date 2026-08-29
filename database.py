@@ -1143,6 +1143,26 @@ class PostgresDatabase:
                     "total": len(sorted_events)
                 }
 
+    def get_events_field_stats(self, event_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Returns computed average Elo, top seed Elo, and rated player count for a list of event IDs based on enrolled participants."""
+        if not event_ids:
+            return {}
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT 
+                    ep.event_id,
+                    ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
+                    MAX(COALESCE(pr.current_elo, 1500.0)) as top_seed_elo,
+                    COUNT(ep.player_id) as total_enrolled,
+                    COUNT(pr.player_id) as rated_players_count
+                FROM event_participants ep
+                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                WHERE ep.event_id = ANY(%s)
+                GROUP BY ep.event_id;
+                """, (event_ids,))
+                rows = cursor.fetchall()
+                return {r["event_id"]: dict(r) for r in rows}
 
     def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC") -> Dict[str, Any]:
         """Returns paginated tournaments list with match counts."""
