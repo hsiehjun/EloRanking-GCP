@@ -543,6 +543,13 @@ class AuthManager:
             if ev_date_str >= datetime.now(timezone.utc).strftime("%Y-%m-%d"):
                 upcoming_events.append(ev)
 
+        # 5. Live Game Tracker Matches from 11th Edition /tracker
+        tracker_history = []
+        try:
+            tracker_history = self.db.get_tracker_history(limit=50, user_id=user_id)
+        except Exception as e:
+            logger.debug(f"Tracker history error: {e}")
+
         return {
             "player": p_stat,
             "rankings": {
@@ -551,6 +558,7 @@ class AuthManager:
                 "total_ranked_players": 77322
             },
             "history": history_points,
+            "tracker_history": tracker_history,
             "faction_mastery": faction_mastery,
             "matchup_matrix": matchup_matrix,
             "events_attended": events_attended,
