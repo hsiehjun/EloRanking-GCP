@@ -197,7 +197,7 @@ function renderMyHub(data) {
         ` : `
           <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.88rem;">
             <div style="font-size: 1.1rem; margin-bottom: 0.35rem;">📅 No registered upcoming tournaments detected.</div>
-            <div style="font-size: 0.8rem; max-width: 520px; margin: 0 auto;">${isBcpConnected ? 'Click <b>"Recommended Near Me"</b> or <b>"Search Upcoming Tournaments"</b> above to explore open events!' : '<button class="bcp-login-btn" style="margin-top:0.65rem; font-size:0.85rem;" onclick="openBcpLinkModal()">Link BCP Account to Auto-Sync</button>'}</div>
+            <div style="font-size: 0.8rem; max-width: 520px; margin: 0 auto;">${isBcpConnected ? 'Click <b>"Recommended Near Me"</b> above to explore open events!' : '<button class="bcp-login-btn" style="margin-top:0.65rem; font-size:0.85rem;" onclick="openBcpLinkModal()">Link BCP Account to Auto-Sync</button>'}</div>
           </div>
         `}
       </div>
@@ -209,28 +209,21 @@ function renderMyHub(data) {
           <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
             <input type="text" id="hub-rec-search-input" class="hub-search-input" style="width: 180px; padding: 0.35rem 0.65rem; font-size: 0.78rem;" placeholder="Search keyword..." oninput="debounceHubEventsSearch()">
             <div style="display: flex; align-items: center; gap: 0.35rem;">
-              <span style="font-size: 0.78rem;">Radius:</span>
+              <span style="font-size: 0.78rem;">Tier:</span>
+              <select id="hub-rec-tier-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
+                <option value="">All Formats</option>
+                <option value="Major">Major (7+ Rds)</option>
+                <option value="Grand Tournament">Grand Tournament (4–6 Rds)</option>
+                <option value="RTT / Local">RTT / Local (≤3 Rds)</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <span style="font-size: 0.78rem;">Distance:</span>
               <select id="hub-rec-radius-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
                 <option value="50" selected>Within 50 miles</option>
                 <option value="100">Within 100 miles</option>
                 <option value="250">Within 250 miles</option>
                 <option value="">Any Distance</option>
-              </select>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.35rem;">
-              <span style="font-size: 0.78rem;">Region:</span>
-              <select id="hub-rec-state-select" class="hub-state-select" onchange="loadHubRecommendedEvents()">
-                <option value="">Auto-Detect</option>
-                <option value="CA">California (CA)</option>
-                <option value="TX">Texas (TX)</option>
-                <option value="FL">Florida (FL)</option>
-                <option value="NY">New York (NY)</option>
-                <option value="WA">Washington (WA)</option>
-                <option value="IL">Illinois (IL)</option>
-                <option value="OH">Ohio (OH)</option>
-                <option value="PA">Pennsylvania (PA)</option>
-                <option value="NC">North Carolina (NC)</option>
-                <option value="All">All States / Global</option>
               </select>
             </div>
           </div>
@@ -540,7 +533,7 @@ window.requestUserDeviceLocationPrompt = requestUserDeviceLocationPrompt;
 
 async function loadHubRecommendedEvents() {
   const container = document.getElementById('hub-recommended-list');
-  const stateSelect = document.getElementById('hub-rec-state-select');
+  const tierSelect = document.getElementById('hub-rec-tier-select');
   const radiusSelect = document.getElementById('hub-rec-radius-select');
   const label = document.getElementById('hub-rec-location-label');
   if (!container) return;
@@ -550,7 +543,7 @@ async function loadHubRecommendedEvents() {
   const searchInput = document.getElementById('hub-rec-search-input');
   const query = searchInput ? searchInput.value.trim() : '';
   const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
-  const selectedState = stateSelect ? stateSelect.value : '';
+  const selectedTier = tierSelect ? tierSelect.value : '';
   const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 50;
 
   // Obtain live browser device GPS coordinates if available
@@ -559,7 +552,7 @@ async function loadHubRecommendedEvents() {
   const userLng = geo ? geo.lng : null;
 
   try {
-    const data = await window.api.getRecommendedEvents(playerId, query, selectedState, userLat, userLng, selectedRadius, 40);
+    const data = await window.api.getRecommendedEvents(playerId, query, selectedTier, userLat, userLng, selectedRadius, 40);
     const events = data.events || [];
     
     if (label) {
@@ -568,18 +561,13 @@ async function loadHubRecommendedEvents() {
       } else if (data.detected_state || data.detected_city) {
         const homeName = [data.detected_city, data.detected_state].filter(Boolean).join(', ');
         label.innerHTML = `📍 Location: <b>${escapeHtml(homeName)}</b>`;
-        if (stateSelect && !stateSelect.value && data.detected_state) {
-          stateSelect.value = data.detected_state;
-        }
-      } else if (selectedState) {
-        label.innerHTML = `📍 Filtered by: <b>${escapeHtml(selectedState)}</b>`;
       } else {
-        label.innerHTML = `📍 Featured Tournaments`;
+        label.innerHTML = `📍 Nearby Tournaments`;
       }
     }
 
-    // If no GPS, no detected history, and no region selected, show dedicated prompt to enable location sharing
-    if (!geo && !data.detected_state && !data.detected_city && !selectedState && !query) {
+    // If no GPS, no detected history, show prompt to enable location sharing
+    if (!geo && !data.detected_state && !data.detected_city && !query) {
       container.innerHTML = `
         <div style="padding: 2.5rem 1.5rem; text-align: center; color: var(--text-secondary); max-width: 480px; margin: 0 auto; grid-column: 1 / -1;">
           <div style="font-size: 2.2rem; margin-bottom: 0.6rem;">📍</div>
@@ -590,9 +578,6 @@ async function loadHubRecommendedEvents() {
           <button class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="requestUserDeviceLocationPrompt()">
             📍 Enable Location Sharing
           </button>
-          <div style="margin-top: 0.85rem; font-size: 0.76rem; color: var(--text-muted);">
-            Or choose your state from the <b>Region dropdown</b> above.
-          </div>
         </div>
       `;
       return;

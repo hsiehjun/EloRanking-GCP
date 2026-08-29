@@ -263,6 +263,7 @@ if FASTAPI_AVAILABLE:
     async def api_events_recommended(
         player_id: Optional[str] = Query(None),
         query: Optional[str] = Query(None),
+        tier: Optional[str] = Query(None),
         state: Optional[str] = Query(None),
         city: Optional[str] = Query(None),
         lat: Optional[float] = Query(None),
@@ -500,6 +501,16 @@ if FASTAPI_AVAILABLE:
                 db.upsert_event(ev)
             except Exception:
                 pass
+
+        # Filter by tier if specified
+        if tier and tier.strip():
+            t_target = tier.strip().lower()
+            if t_target == "major":
+                processed_events = [e for e in processed_events if e["tier"] == "Major"]
+            elif "grand tournament" in t_target or t_target == "gt":
+                processed_events = [e for e in processed_events if e["tier"] == "Grand Tournament"]
+            elif "rtt" in t_target or "local" in t_target:
+                processed_events = [e for e in processed_events if e["tier"] == "RTT / Local"]
 
         # Sort: Nearest distance first, then soonest date
         def event_sort_key(e):
