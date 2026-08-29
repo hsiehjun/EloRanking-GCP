@@ -426,40 +426,48 @@ class BestCoastPairingsScraper:
         logger.info(f"Finished scraping date range [{start_date} to {end_date}]: {events_count} events, {matches_count} matches.")
         return {"events_scraped": events_count, "matches_scraped": matches_count}
 
-    def sync_upcoming_events(self, max_pages: int = 25) -> int:
-        """Fetches live future upcoming tournaments from Best Coast Pairings API and caches them."""
-        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00.000Z")
-        one_year_iso = datetime.fromtimestamp(time.time() + 365 * 86400, tz=timezone.utc).strftime("%Y-%m-%dT23:59:59.999Z")
+    def sync_upcoming_events(self, max_pages_per_month: int = 15) -> int:
+        """Fetches live future upcoming tournaments across multiple monthly windows (next 3-4 months) from Best Coast Pairings API and caches them."""
+        now_dt = datetime.now(timezone.utc)
+        
+        # Monthly windows to ensure full global coverage without hitting API pagination limits
+        month_windows = [
+            (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), datetime(now_dt.year, 8, 31, 23, 59, 59, tzinfo=timezone.utc).strftime("%Y-%m-%dT23:59:59.999Z")),
+            ("2026-09-01T00:00:00.000Z", "2026-09-30T23:59:59.999Z"),
+            ("2026-10-01T00:00:00.000Z", "2026-10-31T23:59:59.999Z"),
+            ("2026-11-01T00:00:00.000Z", "2026-11-30T23:59:59.999Z")
+        ]
         
         total_synced = 0
-        next_key = None
 
-        for _ in range(max_pages):
-            params = {
-                "limit": 50,
-                "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
-                "startDate": now_iso,
-                "endDate": one_year_iso
-            }
-            if next_key:
-                params["nextKey"] = next_key
+        for start_iso, end_iso in month_windows:
+            next_key = None
+            for _ in range(max_pages_per_month):
+                params = {
+                    "limit": 50,
+                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                    "startDate": start_iso,
+                    "endDate": end_iso
+                }
+                if next_key:
+                    params["nextKey"] = next_key
 
-            resp = self._make_request("/events", params=params)
-            if not resp or "data" not in resp:
-                break
+                resp = self._make_request("/events", params=params)
+                if not resp or "data" not in resp:
+                    break
 
-            events = resp.get("data", [])
-            if not events:
-                break
+                events = resp.get("data", [])
+                if not events:
+                    break
 
-            for ev in events:
-                self.db.upsert_event(ev)
-                total_synced += 1
+                for ev in events:
+                    self.db.upsert_event(ev)
+                    total_synced += 1
 
-            next_key = resp.get("nextKey")
-            if not next_key:
-                break
+                next_key = resp.get("nextKey")
+                if not next_key:
+                    break
 
-        logger.info(f"Successfully synced {total_synced} live upcoming events from BCP API.")
+        logger.info(f"Successfully synced {total_synced} live upcoming events across next 3 months from BCP API.")
         return total_synced
 
