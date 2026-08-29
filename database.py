@@ -1960,8 +1960,8 @@ class PostgresDatabase:
             except Exception:
                 return None
 
-    def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns recent persistent tracker games, optionally filtered by player user_id and excluding soft-deleted games."""
+    def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns recent persistent tracker games, optionally filtered by player user_id/name and excluding soft-deleted games."""
         def do_query():
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -1978,8 +1978,12 @@ class PostgresDatabase:
                     params = []
                     
                     if user_id:
-                        conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
-                        params.extend([user_id, user_id])
+                        if user_name:
+                            conditions.append("((user_id_p1 = %s OR user_id_p2 = %s) OR (p1_name ILIKE %s OR p2_name ILIKE %s))")
+                            params.extend([user_id, user_id, f"%{user_name}%", f"%{user_name}%"])
+                        else:
+                            conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
+                            params.extend([user_id, user_id])
                         conditions.append("NOT (%s = ANY(COALESCE(hidden_user_ids, '{}')))")
                         params.append(user_id)
                         
