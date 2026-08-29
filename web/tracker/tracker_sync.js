@@ -577,6 +577,16 @@
     } catch (e) {}
   }
 
+  // Comprehensive 40k Factions Directory for bulletproof DOM recognition
+  const KNOWN_40K_FACTIONS = [
+    "Adepta Sororitas", "Adeptus Custodes", "Adeptus Mechanicus", "Aeldari", "Agents of the Imperium",
+    "Astra Militarum", "Black Templars", "Blood Angels", "Chaos Daemons", "Chaos Knights",
+    "Chaos Space Marines", "Dark Angels", "Death Guard", "Deathwatch", "Drukhari",
+    "Genestealer Cults", "Grey Knights", "Imperial Fists", "Imperial Knights", "Iron Hands",
+    "Leagues of Votann", "Necrons", "Orks", "Raven Guard", "Salamanders", "Space Marines",
+    "Space Wolves", "Tau Empire", "Thousand Sons", "Tyranids", "Ultramarines", "White Scars", "World Eaters"
+  ];
+
   // React Synthetic Value Setter (Bypasses React internal value tracking)
   function setReactInputValue(inputEl, value) {
     if (!inputEl || inputEl.value === value) return;
@@ -599,28 +609,41 @@
     const stepHeader = document.querySelector('h2');
     if (!stepHeader || !stepHeader.textContent.includes('PLAYERS')) return null;
 
-    const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+    const inputs = Array.from(document.querySelectorAll('input'));
     const p1Input = inputs[0];
     const p2Input = inputs[1];
 
     const p1Name = p1Input ? p1Input.value.trim() : null;
     const p2Name = p2Input ? p2Input.value.trim() : null;
 
-    const buttons = Array.from(document.querySelectorAll('button'));
-    
-    // Find battle ready buttons
-    const battleReadyBtns = buttons.filter(b => b.textContent && b.textContent.includes('BATTLE READY'));
-    const p1BattleReady = battleReadyBtns[0] ? (battleReadyBtns[0].classList.contains('active') || getComputedStyle(battleReadyBtns[0]).backgroundColor.includes('rgb(')) : true;
-    const p2BattleReady = battleReadyBtns[1] ? (battleReadyBtns[1].classList.contains('active') || getComputedStyle(battleReadyBtns[1]).backgroundColor.includes('rgb(')) : true;
+    const p2Top = p2Input ? p2Input.getBoundingClientRect().top : 9999;
 
-    // Find faction dropdown buttons
-    const factionButtons = buttons.filter(b => {
-      const txt = (b.textContent || '').trim();
-      return !txt.includes('BATTLE READY') && !txt.includes('BACK') && !txt.includes('NEXT') && !txt.includes('Share') && !txt.includes('Logout') && !txt.includes('Logged in') && !txt.includes('STEP');
+    let p1Faction = null;
+    let p2Faction = null;
+
+    // Scan all visible elements in the DOM for faction names
+    const candidateElements = Array.from(document.querySelectorAll('div, button, span, p')).filter(el => {
+      const txt = (el.textContent || '').trim();
+      return el.children.length <= 2 && txt.length >= 4 && !txt.includes('PLAYERS') && !txt.includes('STEP');
     });
 
-    const p1Faction = factionButtons[0] && !factionButtons[0].textContent.includes('Faction (optional)') ? factionButtons[0].textContent.trim() : null;
-    const p2Faction = factionButtons[1] && !factionButtons[1].textContent.includes('Faction (optional)') ? factionButtons[1].textContent.trim() : null;
+    for (const el of candidateElements) {
+      const txt = el.textContent.trim();
+      const matched = KNOWN_40K_FACTIONS.find(f => f.toLowerCase() === txt.toLowerCase());
+      if (matched) {
+        const top = el.getBoundingClientRect().top;
+        if (top < p2Top) {
+          p1Faction = matched;
+        } else {
+          p2Faction = matched;
+        }
+      }
+    }
+
+    // Battle Ready buttons
+    const battleReadyBtns = Array.from(document.querySelectorAll('button')).filter(b => b.textContent && b.textContent.includes('BATTLE READY'));
+    const p1BattleReady = battleReadyBtns[0] ? (battleReadyBtns[0].classList.contains('active') || getComputedStyle(battleReadyBtns[0]).backgroundColor.includes('rgb(')) : true;
+    const p2BattleReady = battleReadyBtns[1] ? (battleReadyBtns[1].classList.contains('active') || getComputedStyle(battleReadyBtns[1]).backgroundColor.includes('rgb(')) : true;
 
     return {
       p1Name: p1Name || undefined,
@@ -638,7 +661,7 @@
     const stepHeader = document.querySelector('h2');
     if (!stepHeader || !stepHeader.textContent.includes('PLAYERS')) return;
 
-    const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+    const inputs = Array.from(document.querySelectorAll('input'));
     const p1Input = inputs[0];
     const p2Input = inputs[1];
 
@@ -649,24 +672,33 @@
       setReactInputValue(p2Input, gameObj.p2Name);
     }
 
-    const buttons = Array.from(document.querySelectorAll('button'));
-    const factionButtons = buttons.filter(b => {
-      const txt = (b.textContent || '').trim();
-      return !txt.includes('BATTLE READY') && !txt.includes('BACK') && !txt.includes('NEXT') && !txt.includes('Share') && !txt.includes('Logout') && !txt.includes('Logged in') && !txt.includes('STEP');
+    const p2Top = p2Input ? p2Input.getBoundingClientRect().top : 9999;
+
+    // Find faction triggers with chevron SVGs
+    const allChevrons = Array.from(document.querySelectorAll('svg')).filter(svg => {
+      const p = svg.parentElement;
+      return p && p.textContent && !p.textContent.includes('PLAYERS') && !p.textContent.includes('NEXT') && !p.textContent.includes('BACK');
     });
 
-    if (factionButtons[0] && gameObj.p1Faction && factionButtons[0].textContent.trim() !== gameObj.p1Faction) {
-      factionButtons[0].textContent = gameObj.p1Faction;
-      factionButtons[0].style.color = '#f8fafc';
+    if (allChevrons[0] && gameObj.p1Faction) {
+      const trigger = allChevrons[0].parentElement;
+      if (trigger && !trigger.textContent.includes(gameObj.p1Faction)) {
+        trigger.childNodes[0].textContent = gameObj.p1Faction;
+        trigger.style.color = '#f8fafc';
+      }
     }
 
-    if (factionButtons[1] && gameObj.p2Faction && factionButtons[1].textContent.trim() !== gameObj.p2Faction) {
-      factionButtons[1].textContent = gameObj.p2Faction;
-      factionButtons[1].style.color = '#f8fafc';
+    if (allChevrons[1] && gameObj.p2Faction) {
+      const trigger = allChevrons[1].parentElement;
+      if (trigger && !trigger.textContent.includes(gameObj.p2Faction)) {
+        trigger.childNodes[0].textContent = gameObj.p2Faction;
+        trigger.style.color = '#f8fafc';
+      }
     }
   }
 
   // 7. Broadcast State with Instant Role & Session Sync
+  let lastScrapedJson = '';
   function notifyStateChanged() {
     if (clientState.isApplyingRemote) return;
     if (!clientState.matchId) return;
@@ -692,7 +724,7 @@
     clearTimeout(clientState.debounceTimer);
     clientState.debounceTimer = setTimeout(() => {
       broadcastState();
-    }, 80);
+    }, 60);
   }
 
   async function broadcastState() {
@@ -791,6 +823,17 @@
     if (fastPollTimer) clearInterval(fastPollTimer);
     fastPollTimer = setInterval(async () => {
       if (!clientState.matchId || clientState.isApplyingRemote) return;
+      
+      // Check if user changed DOM wizard without triggering click
+      const wizard = scrapeSetupWizardState();
+      if (wizard) {
+        const wizardJson = JSON.stringify(wizard);
+        if (wizardJson !== lastScrapedJson) {
+          lastScrapedJson = wizardJson;
+          notifyStateChanged();
+        }
+      }
+
       try {
         const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}`, {
           headers: { 'Authorization': `Bearer ${getAuthToken()}` }
@@ -807,7 +850,7 @@
           }
         }
       } catch (e) {}
-    }, 400);
+    }, 350);
   }
 
   function startRealtimeStream() {
@@ -839,23 +882,21 @@
   }
 
   function attachDomActionInterceptors() {
-    document.addEventListener('input', (e) => {
-      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
-        setTimeout(() => {
-          notifyStateChanged();
-          injectMultiplayerHUD();
-        }, 60);
-      }
+    document.addEventListener('input', () => {
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 40);
     }, true);
 
-    document.addEventListener('click', (e) => {
-      const btn = e.target.closest('button');
-      if (btn) {
-        setTimeout(() => {
-          notifyStateChanged();
-          injectMultiplayerHUD();
-        }, 60);
-      }
+    document.addEventListener('change', () => {
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 40);
+    }, true);
+
+    document.addEventListener('click', () => {
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 50);
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 200);
+    }, true);
+
+    document.addEventListener('pointerup', () => {
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 60);
     }, true);
   }
 
