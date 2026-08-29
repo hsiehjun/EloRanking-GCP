@@ -130,13 +130,7 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(idx_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="index.html not found")
 
-    @app.get("/gametracker", include_in_schema=False)
-    @app.get("/gametracker.html", include_in_schema=False)
-    async def serve_gametracker():
-        gt_file = web_dir / "gametracker.html"
-        if gt_file.exists():
-            return FileResponse(str(gt_file), media_type="text/html")
-        raise HTTPException(status_code=404, detail="gametracker.html not found")
+
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)
