@@ -208,6 +208,114 @@ if FASTAPI_AVAILABLE:
             "synced_at": datetime.now(timezone.utc).isoformat()
         }
 
+
+    # =========================================================================
+    # MULTIPLAYER REALTIME GAME TRACKER ENGINE & SUPABASE SYNC
+    # =========================================================================
+
+    TRACKER_ROOMS: Dict[str, Dict[str, Any]] = {}
+    TRACKER_LISTENERS: Dict[str, List[asyncio.Queue]] = {}
+
+    class TrackerStatePayload(BaseModel):
+        match_id: str
+        client_id: Optional[str] = "anon"
+        role: Optional[str] = "editor"
+        version: int = 1
+        state: Dict[str, Any]
+
+    @app.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state")
+    async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload):
+        match_id = match_id.upper()
+        if match_id not in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id] = {
+                "match_id": match_id,
+                "version": 0,
+                "state": {},
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+        
+        room = TRACKER_ROOMS[match_id]
+        room["state"] = payload.state
+        room["version"] = payload.version
+        room["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Optional Supabase persistence if configured in environment
+        supabase_url = os.environ.get("SUPABASE_URL")
+        supabase_key = os.environ.get("SUPABASE_ANON_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        if supabase_url and supabase_key:
+            try:
+                import urllib.request
+                import json
+                sb_endpoint = f"{supabase_url.rstrip('/')}/rest/v1/tracker_rooms"
+                sb_req = urllib.request.Request(
+                    sb_endpoint,
+                    data=json.dumps({
+                        "match_id": match_id,
+                        "version": payload.version,
+                        "state": payload.state,
+                        "updated_at": room["updated_at"]
+                    }).encode("utf-8"),
+                    headers={
+                        "apikey": supabase_key,
+                        "Authorization": f"Bearer {supabase_key}",
+                        "Content-Type": "application/json",
+                        "Prefer": "resolution=merge-duplicates"
+                    },
+                    method="POST"
+                )
+                urllib.request.urlopen(sb_req, timeout=3)
+            except Exception as sb_err:
+                logger.debug(f"Supabase sync notice: {sb_err}")
+
+        # Broadcast to all connected SSE clients in this room
+        listeners = TRACKER_LISTENERS.get(match_id, [])
+        msg = {
+            "type": "state_update",
+            "sender": payload.client_id,
+            "version": payload.version,
+            "state": payload.state
+        }
+        for q in listeners:
+            await q.put(msg)
+
+        return {"success": True, "match_id": match_id, "version": payload.version}
+
+    @app.get("/api/tracker/room/{match_id}", summary="Get current match room state")
+    async def api_tracker_get_state(match_id: str):
+        match_id = match_id.upper()
+        if match_id not in TRACKER_ROOMS:
+            return {"match_id": match_id, "version": 0, "state": {}}
+        return TRACKER_ROOMS[match_id]
+
+    @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
+    async def api_tracker_stream(match_id: str, client_id: str = "anon"):
+        match_id = match_id.upper()
+        q = asyncio.Queue()
+        if match_id not in TRACKER_LISTENERS:
+            TRACKER_LISTENERS[match_id] = []
+        TRACKER_LISTENERS[match_id].append(q)
+
+        async def event_generator():
+            try:
+                # Send initial connection presence event
+                yield f"data: {json.dumps({'type': 'presence', 'count': len(TRACKER_LISTENERS.get(match_id, []))})}\\n\\n"
+                
+                # Send current state if available
+                if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id]["state"]:
+                    yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': TRACKER_ROOMS[match_id]['version'], 'state': TRACKER_ROOMS[match_id]['state']})}\\n\\n"
+
+                while True:
+                    msg = await q.get()
+                    yield f"data: {json.dumps(msg)}\\n\\n"
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if match_id in TRACKER_LISTENERS and q in TRACKER_LISTENERS[match_id]:
+                    TRACKER_LISTENERS[match_id].remove(q)
+
+        from fastapi.responses import StreamingResponse
+        return StreamingResponse(event_generator(), media_type="text/event-stream")
+
     # Root & HTML routes
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
@@ -218,6 +326,23 @@ if FASTAPI_AVAILABLE:
         raise HTTPException(status_code=404, detail="index.html not found")
 
 
+
+    # Dedicated Local Static Tracker Mounts
+    if (web_dir / "tracker" / "_next").exists():
+        app.mount("/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="root_next_static")
+        app.mount("/tracker/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="tracker_next_static")
+
+    if (web_dir / "tracker").exists():
+        app.mount("/tracker/files", StaticFiles(directory=str(web_dir / "tracker")), name="tracker_files_static")
+
+    @app.get("/tracker", include_in_schema=False)
+    @app.get("/tracker/", include_in_schema=False)
+    @app.get("/tracker/index.html", include_in_schema=False)
+    async def serve_tracker():
+        t_file = web_dir / "tracker" / "index.html"
+        if t_file.exists():
+            return FileResponse(str(t_file), media_type="text/html")
+        raise HTTPException(status_code=404, detail="Tracker bundle not found")
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)
