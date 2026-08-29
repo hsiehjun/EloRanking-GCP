@@ -1,2 +1,27 @@
-/* Tracker sync minimal reset */
-#gt-sync-modal-backdrop { display: none; }
+/* GDM Clean Layout Overrides */
+
+/* 1. Hide GDM upstream nav header and footer */
+header.tac-header,
+footer.tac-footer,
+.tac-header,
+.tac-footer {
+  display: none !important;
+}
+
+/* 2. Hide Top-Right Action Trio (Profile, Stats, Settings) */
+header .gtk-icon-btn,
+header .flex.flex-none.items-center.gap-2,
+button[aria-label="Tracker settings"],
+a[aria-label="Statistics"] {
+  display: none !important;
+}
+
+/* 3. Disable Delete Options on Shared Matches */
+button[aria-label*="Delete"],
+button[aria-label*="delete"],
+button:has(svg.lucide-trash),
+button:has(svg.lucide-trash-2),
+[class*="delete-game"],
+[data-action="delete"] {
+  display: none !important;
+}

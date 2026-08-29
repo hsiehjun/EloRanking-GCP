@@ -6,13 +6,15 @@
 (function () {
   'use strict';
 
-  console.log('[GDM Sync Bridge] Database-First Source of Truth Engine initialized.');
+  console.log('[GDM Sync Bridge] Database-First Source of Truth Engine active.');
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',
     historyEndpoint: '/api/tracker/history',
     debounceMs: 100
   };
+
+  const isPlay = window.location.pathname.includes('/play');
 
   let clientState = {
     matchId: null,
@@ -25,32 +27,37 @@
     debounceTimer: null
   };
 
-  // Database-driven history cache (isolated from browser disk storage)
+  // Database-driven history cache
   let dbHistoryCache = [];
 
-  // 1. Storage interceptors - immediate execution before React initializes
+  // 1. Storage interceptors - immediate execution in HEAD
   const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
   const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
 
-  // Clean out stale disk history immediately
-  try {
-    originalRemoveItem('gdm-11e-tracker-history');
-  } catch (e) {}
+  // On Landing Page: Clean out any lingering local storage state so no phantom games appear
+  if (!isPlay) {
+    try {
+      originalRemoveItem('gdm-11e-tracker-state');
+      originalRemoveItem('gdm-11e-tracker-history');
+    } catch (e) {}
+  }
 
-  // Override getItem so React ONLY reads from DB history cache
+  // Override getItem
   window.localStorage.getItem = function (key) {
     if (key === 'gdm-11e-tracker-history') {
       return JSON.stringify(dbHistoryCache);
     }
+    if (!isPlay && key === 'gdm-11e-tracker-state') {
+      return null;
+    }
     return originalGetItem(key);
   };
 
-  // Override setItem to prevent local-only saves from polluting history
+  // Override setItem
   window.localStorage.setItem = function (key, value) {
     if (key === 'gdm-11e-tracker-history') {
-      // Ignored: Database is the sole source of truth for history
-      return;
+      return; // Database is sole source of truth
     }
     originalSetItem(key, value);
     if (key === 'gdm-11e-tracker-state') {
@@ -71,8 +78,6 @@
 
   // 2. Initialize Match Room on /play vs /tracker
   function init() {
-    const isPlay = window.location.pathname.includes('/play');
-
     if (isPlay) {
       const params = new URLSearchParams(window.location.search);
       let matchId = params.get('match_id') || params.get('room') || params.get('match');
@@ -104,7 +109,7 @@
       const resp = await fetch(SYNC_CONFIG.historyEndpoint);
       if (resp.ok) {
         const data = await resp.json();
-        if (data && data.history && Array.isArray(data.history)) {
+        if (data && data.history && Array.isArray(data.history) && data.history.length > 0) {
           dbHistoryCache = data.history.map(item => {
             let s = {};
             if (typeof item.state_json === 'string') {
