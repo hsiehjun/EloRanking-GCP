@@ -40,7 +40,7 @@ steps:
       - '--add-cloudsql-instances'
       - '$_CLOUDSQL_INSTANCE'
       - '--set-env-vars'
-      - 'DATABASE_URL=postgresql://$_DB_USER:$_DB_PASS@/$_DB_NAME?host=/cloudsql/$_CLOUDSQL_INSTANCE,CRON_SECRET_KEY=$_CRON_SECRET'
+      - 'DATABASE_URL=dbname=$_DB_NAME user=$_DB_USER password=$_DB_PASS host=/cloudsql/$_CLOUDSQL_INSTANCE,CRON_SECRET_KEY=$_CRON_SECRET'
       - '--memory'
       - '1Gi'
       - '--cpu'
@@ -61,7 +61,7 @@ substitutions:
   _CLOUDSQL_INSTANCE: '$PROJECT_ID:us-central1:elo-ranking-db'
   _DB_NAME: 'elo_ranking'
   _DB_USER: 'elo_user'
-  _DB_PASS: 'EloSecurePass2026!'
+  _DB_PASS: 'Jung@1475369'
   _CRON_SECRET: 'wh40k-elo-secret-cron-key'
 
 options:

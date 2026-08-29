@@ -37,16 +37,18 @@ class PostgresDatabase:
 
         raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:elo_password@localhost:5432/elo_ranking"
         
-        # Robustly convert Cloud SQL Unix socket URI to keyword DSN expected by libpq
-        if "/cloudsql/" in raw_dsn:
+        # If already in keyword DSN format (e.g. dbname=... user=... password=... host=...)
+        if raw_dsn.startswith("dbname=") or ("user=" in raw_dsn and "password=" in raw_dsn):
+            self.dsn = raw_dsn
+        elif "/cloudsql/" in raw_dsn:
             try:
                 import urllib.parse
                 parsed = urllib.parse.urlparse(raw_dsn)
                 qs = urllib.parse.parse_qs(parsed.query)
                 host = qs.get("host", [""])[0] or (f"/cloudsql/{parsed.hostname}" if parsed.hostname else "")
                 dbname = parsed.path.lstrip("/") or "elo_ranking"
-                user = parsed.username or "elo_user"
-                password = parsed.password or ""
+                user = urllib.parse.unquote(parsed.username or "elo_user")
+                password = urllib.parse.unquote(parsed.password or "")
                 self.dsn = f"dbname={dbname} user={user} password={password} host={host}"
             except Exception as e:
                 logger.warning(f"Error normalizing Cloud SQL DSN: {e}")
