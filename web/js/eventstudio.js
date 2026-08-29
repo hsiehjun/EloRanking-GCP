@@ -226,9 +226,14 @@ function renderPairings() {
           <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.05rem; font-weight: 700; color: #fff;">
             ${isCompleted ? `${pair.p1Score} - ${pair.p2Score} VP` : 'Scores Pending'}
           </div>
-          <button class="es-btn-secondary" style="font-size: 0.76rem; padding: 0.35rem 0.65rem;" onclick="openScoreEntryModal(${pair.table})">
-            ${isCompleted ? '✏️ Edit Score' : '⚔️ Enter Score'}
-          </button>
+          <div style="display: flex; gap: 0.4rem;">
+            <a href="/gametracker?event_id=${studioState.activeTournament.id}&table=${pair.table}&p1=${encodeURIComponent(p1.name)}&p2=${encodeURIComponent(p2.name)}&f1=${encodeURIComponent(p1.faction)}&f2=${encodeURIComponent(p2.faction)}" target="_blank" class="es-btn-secondary" style="text-decoration:none; font-size: 0.76rem; padding: 0.35rem 0.65rem;">
+              🎯 Live Tracker ↗
+            </a>
+            <button class="es-btn-primary" style="font-size: 0.76rem; padding: 0.35rem 0.65rem;" onclick="openScoreEntryModal(${pair.table})">
+              ${isCompleted ? '✏️ Edit Score' : '⚔️ Quick Score'}
+            </button>
+          </div>
         </div>
       </div>
     `;
