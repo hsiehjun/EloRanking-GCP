@@ -339,7 +339,7 @@ function renderMyHub(data) {
             <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Live Game Tracker History</h3>
             <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
           </div>
-          <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">+ New Match ➔</a>
+          <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
         </div>
         ${(data.tracker_history && data.tracker_history.length > 0) ? `
           <div class="table-container" style="max-height: 260px; overflow-y: auto;">
