@@ -202,7 +202,7 @@ function renderEventResultsRows() {
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
 
     tr.innerHTML = `
-      <td class="rank-cell">#${idx + 1}</td>
+      <td class="rank-cell">#${p.placing && p.placing > 0 ? p.placing : (idx + 1)}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.full_name || 'Player')}</span>
@@ -230,7 +230,7 @@ function renderEventEloRows() {
   if (!tbody) return;
 
   if (!eventPlayersCache || eventPlayersCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No registered competitors found for this tournament yet.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No registered competitors found for this tournament yet.</td></tr>';
     return;
   }
 
@@ -243,11 +243,6 @@ function renderEventEloRows() {
     tr.onclick = () => openPlayerModal(p.player_id);
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
-    const careerMatches = p.total_career_matches || 0;
-    const careerWins = p.career_wins || 0;
-    const careerLosses = p.career_losses || 0;
-    const careerDraws = p.career_draws || 0;
-    const careerWinRate = careerMatches > 0 ? Math.round((careerWins / careerMatches) * 100) : 0;
 
     tr.innerHTML = `
       <td class="rank-cell">#${idx + 1}</td>
@@ -261,16 +256,6 @@ function renderEventEloRows() {
       </td>
       <td class="elo-badge ${eloBadgeClass}">
         ${Number(p.current_elo || 1500).toFixed(1)}
-      </td>
-      <td style="font-family:var(--font-mono); font-size:0.85rem;">
-        <span style="color:var(--win); font-weight:600;">${careerWins}W</span> - 
-        <span style="color:var(--loss); font-weight:600;">${careerLosses}L</span>
-        ${careerDraws ? ` - <span style="color:var(--draw); font-weight:600;">${careerDraws}D</span>` : ''}
-      </td>
-      <td style="font-family:var(--font-mono); font-weight:600;">
-        <span style="color: ${careerWinRate >= 60 ? 'var(--win)' : (careerWinRate >= 45 ? 'var(--accent)' : 'var(--text-secondary)')};">
-          ${careerWinRate}%
-        </span>
       </td>
     `;
     tbody.appendChild(tr);

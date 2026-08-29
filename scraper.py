@@ -131,38 +131,42 @@ class BestCoastPairingsScraper:
         return []
 
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
-        """Fetches registered player roster for an event from BCP."""
-        # 1. Try /events/{event_id}/players
-        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 250})
+        """Fetches registered player roster and official placings for an event from BCP."""
+        # 1. Try /events/{event_id}/placings first (contains official BCP tournament standings)
+        resp_placings = self._make_request(f"/events/{event_id}/placings", params={"limit": 300})
         players = []
-        if resp:
-            if isinstance(resp, dict):
-                if "active" in resp and isinstance(resp["active"], list):
-                    players = resp["active"]
-                elif "data" in resp and isinstance(resp["data"], list):
-                    players = resp["data"]
-                elif "players" in resp and isinstance(resp["players"], list):
-                    players = resp["players"]
-            elif isinstance(resp, list):
-                players = resp
+        if resp_placings:
+            if isinstance(resp_placings, dict):
+                if "data" in resp_placings and isinstance(resp_placings["data"], list):
+                    players = resp_placings["data"]
+                elif "active" in resp_placings and isinstance(resp_placings["active"], list):
+                    players = resp_placings["active"]
+                elif "placings" in resp_placings and isinstance(resp_placings["placings"], list):
+                    players = resp_placings["placings"]
+            elif isinstance(resp_placings, list):
+                players = resp_placings
 
-        # 2. If empty, try /events/{event_id}/placings
+        # 2. If empty, try /events/{event_id}/players
         if not players:
-            resp_placings = self._make_request(f"/events/{event_id}/placings", params={"limit": 250})
-            if resp_placings:
-                if isinstance(resp_placings, dict):
-                    if "data" in resp_placings and isinstance(resp_placings["data"], list):
-                        players = resp_placings["data"]
-                    elif "active" in resp_placings and isinstance(resp_placings["active"], list):
-                        players = resp_placings["active"]
-                elif isinstance(resp_placings, list):
-                    players = resp_placings
+            resp = self._make_request(f"/events/{event_id}/players", params={"limit": 300})
+            if resp:
+                if isinstance(resp, dict):
+                    if "active" in resp and isinstance(resp["active"], list):
+                        players = resp["active"]
+                    elif "data" in resp and isinstance(resp["data"], list):
+                        players = resp["data"]
+                    elif "players" in resp and isinstance(resp["players"], list):
+                        players = resp["players"]
+                elif isinstance(resp, list):
+                    players = resp
 
         # 3. If still empty, check full event details object
         if not players:
             ev_data = self.fetch_event_details(event_id)
             if ev_data and isinstance(ev_data, dict):
-                if "players" in ev_data and isinstance(ev_data["players"], list):
+                if "placings" in ev_data and isinstance(ev_data["placings"], list):
+                    players = ev_data["placings"]
+                elif "players" in ev_data and isinstance(ev_data["players"], list):
                     players = ev_data["players"]
                 elif "users" in ev_data and isinstance(ev_data["users"], list):
                     players = ev_data["users"]
@@ -325,6 +329,22 @@ class BestCoastPairingsScraper:
                     team_name = team_name.get("name") or team_name.get("teamName") or ""
                 team_name = str(team_name).strip()
 
+                raw_place = p.get("placing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
+                placing_num = None
+                if raw_place is not None:
+                    try:
+                        placing_num = int(raw_place)
+                    except (ValueError, TypeError):
+                        pass
+
+                raw_pts = p.get("points") or p.get("battlePoints") or p.get("totalPoints")
+                pts_num = None
+                if raw_pts is not None:
+                    try:
+                        pts_num = int(raw_pts)
+                    except (ValueError, TypeError):
+                        pass
+
                 self.db.upsert_player(user_id, first_name, last_name, full_name, team=team_name)
                 self.db.upsert_event_participant(
                     event_id=event_id,
@@ -335,7 +355,9 @@ class BestCoastPairingsScraper:
                     faction=faction_name,
                     team=team_name,
                     dropped=bool(p.get("dropped")),
-                    checked_in=bool(p.get("checkedIn"))
+                    checked_in=bool(p.get("checkedIn")),
+                    placing=placing_num,
+                    battle_points=pts_num
                 )
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")

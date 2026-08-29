@@ -192,6 +192,8 @@ class PostgresDatabase:
                                 -- Ensure team columns exist on legacy databases
                 ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;
                 ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;
+                ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placing INT;
+                ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_event ON matches(event_id);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_date ON matches(match_date, round, table_number);
@@ -289,15 +291,17 @@ class PostgresDatabase:
         faction: str = "",
         team: str = "",
         dropped: bool = False,
-        checked_in: bool = True
+        checked_in: bool = True,
+        placing: Optional[int] = None,
+        battle_points: Optional[int] = None
     ):
-        """Inserts or updates a tournament participant with team affiliation."""
+        """Inserts or updates a tournament participant with team affiliation and official BCP placing."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO event_participants (
-                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placing, battle_points
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (event_id, player_id) DO UPDATE SET
                     first_name = EXCLUDED.first_name,
                     last_name = EXCLUDED.last_name,
@@ -305,8 +309,10 @@ class PostgresDatabase:
                     faction = EXCLUDED.faction,
                     team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                     dropped = EXCLUDED.dropped,
-                    checked_in = EXCLUDED.checked_in;
-                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in))
+                    checked_in = EXCLUDED.checked_in,
+                    placing = COALESCE(EXCLUDED.placing, event_participants.placing),
+                    battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points);
+                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in, placing, battle_points))
             conn.commit()
 
     def upsert_match(self, match_data: Dict[str, Any]):
@@ -675,7 +681,7 @@ class PostgresDatabase:
                 """, (event_id,))
                 matches = [dict(r) for r in cursor.fetchall()]
 
-                # 3. Event Participants / Roster
+                # 3. Event Participants / Roster with Official BCP Placings
                 cursor.execute("""
                 SELECT 
                     ep.player_id, 
@@ -683,6 +689,7 @@ class PostgresDatabase:
                     COALESCE(ep.faction, pr.top_faction, 'Unknown') as faction,
                     COALESCE(ep.team, pr.team, '') as team,
                     ep.dropped, ep.checked_in,
+                    ep.placing,
                     COALESCE(pr.current_elo, 1500.0) as current_elo,
                     COALESCE(pr.peak_elo, 1500.0) as peak_elo,
                     COALESCE(pr.win_rate, 0.0) as global_win_rate,
@@ -690,13 +697,17 @@ class PostgresDatabase:
                     SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) as event_wins,
                     SUM(CASE WHEN m.loser_id = ep.player_id THEN 1 ELSE 0 END) as event_losses,
                     SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as event_draws,
-                    SUM(CASE WHEN m.player1_id = ep.player_id THEN COALESCE(m.player1_score, 0) ELSE (CASE WHEN m.player2_id = ep.player_id THEN COALESCE(m.player2_score, 0) ELSE 0 END) END) as event_battle_points
+                    COALESCE(MAX(ep.battle_points), SUM(CASE WHEN m.player1_id = ep.player_id THEN COALESCE(m.player1_score, 0) ELSE (CASE WHEN m.player2_id = ep.player_id THEN COALESCE(m.player2_score, 0) ELSE 0 END) END)) as event_battle_points
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                 LEFT JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id)
                 WHERE ep.event_id = %s
-                GROUP BY ep.player_id, pr.player_name, ep.full_name, ep.faction, pr.top_faction, ep.team, pr.team, ep.dropped, ep.checked_in, pr.current_elo, pr.peak_elo, pr.win_rate
-                ORDER BY event_wins DESC, event_battle_points DESC, current_elo DESC;
+                GROUP BY ep.player_id, pr.player_name, ep.full_name, ep.faction, pr.top_faction, ep.team, pr.team, ep.dropped, ep.checked_in, ep.placing, pr.current_elo, pr.peak_elo, pr.win_rate
+                ORDER BY 
+                    CASE WHEN ep.placing IS NOT NULL AND ep.placing > 0 THEN ep.placing ELSE 99999 END ASC,
+                    event_wins DESC,
+                    event_battle_points DESC,
+                    current_elo DESC;
                 """, (event_id,))
                 players = [dict(r) for r in cursor.fetchall()]
 
