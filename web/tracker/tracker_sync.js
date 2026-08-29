@@ -14,7 +14,7 @@
     authMeEndpoint: '/api/auth/me',
     authLoginEndpoint: '/api/auth/login',
     authRegisterEndpoint: '/api/auth/register',
-    debounceMs: 120
+    debounceMs: 80
   };
 
   const isPlay = window.location.pathname.includes('/play');
@@ -585,6 +585,17 @@
       // 1. Direct React Context state injection
       if (typeof window.__gdmSetTrackerState === 'function') {
         window.__gdmSetTrackerState(stateObj);
+      } else {
+        let attempts = 0;
+        const retryTimer = setInterval(() => {
+          attempts++;
+          if (typeof window.__gdmSetTrackerState === 'function') {
+            window.__gdmSetTrackerState(stateObj);
+            clearInterval(retryTimer);
+          } else if (attempts >= 20) {
+            clearInterval(retryTimer);
+          }
+        }, 50);
       }
 
       // 2. Custom event dispatch

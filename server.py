@@ -6,6 +6,7 @@ import math
 import json
 import secrets
 import asyncio
+import re
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -679,12 +680,9 @@ if FASTAPI_AVAILABLE:
                 txt = content.decode("utf-8", errors="ignore")
                 txt = txt.replace(
                     "P(d()),j(!0)",
-                    "P(d()),j(!0),window.__gdmSetTrackerState=function(e){try{k(M(e))}catch(e){}},window.addEventListener('gdm-state-sync',function(e){e.detail&&window.__gdmSetTrackerState(e.detail)})"
+                    "P(d()),j(!0),window.__gdmSetTrackerState=function(e){try{k(M(e))}catch(err){console.error('StateSync err:',err)}},window.addEventListener('gdm-state-sync',function(e){if(e.detail&&window.__gdmSetTrackerState)window.__gdmSetTrackerState(e.detail)})"
                 )
-                txt = txt.replace(
-                    "function C(e){return!(e.game.p1Disposition&&e.game.p2Disposition)}",
-                    "function C(e){return!0}"
-                )
+                txt = re.sub(r"function C\(e\)\{return.*?\}", "function C(e){return!0}", txt)
                 content = txt.encode("utf-8")
 
             hdrs = {
