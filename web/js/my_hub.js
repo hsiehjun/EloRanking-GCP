@@ -157,7 +157,7 @@ function renderMyHub(data) {
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
           <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">⚔️ Tournament Hub & Events</h3>
-          <span class="badge badge-win" style="font-size: 0.72rem; padding: 0.15rem 0.5rem;">Live Schedule</span>
+          <span class="badge-live"><span class="live-indicator-dot"></span>Live Schedule</span>
         </div>
         <span id="hub-tourney-tab-count" style="font-size: 0.8rem; color: var(--accent); font-weight: 700;">${upcoming.length} registered</span>
       </div>
