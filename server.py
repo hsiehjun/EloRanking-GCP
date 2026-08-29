@@ -119,6 +119,23 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(idx_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="index.html not found")
 
+
+    # Global Structured Error Handler
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Unhandled error on {request.method} {request.url.path}: {exc}\n{tb}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "detail": str(exc),
+                "error_type": type(exc).__name__,
+                "path": str(request.url.path)
+            }
+        )
+
     # API: Summary Stats Ribbon
     @app.get("/api/stats", summary="Get global summary statistics")
     async def api_stats():
