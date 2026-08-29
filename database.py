@@ -249,29 +249,84 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);
-                CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);
-                CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);
                 """)
-
-                for migration in [
-                    "ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;",
-                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
-                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
-                    "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;",
-                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p1 VARCHAR(64);",
-                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p2 VARCHAR(64);",
-                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
-                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
-                    "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';"
-                ]:
-                    try:
-                        cursor.execute(migration)
-                    except Exception as e:
-                        logger.debug(f"Migration notice: {e}")
-
             conn.commit()
         except Exception as e:
             logger.info(f"init_db notice (schema already created or active DDL lock): {e}")
+
+        # Run independent column migrations
+        for migration in [
+            "ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p1 VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p2 VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS state_json JSONB;",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);"
+        ]:
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(migration)
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"Migration notice: {e}")
+
+    def ensure_tracker_table(self):
+        """Guarantees that tracker_games table and all required columns exist."""
+        stmts = [
+            """CREATE TABLE IF NOT EXISTS tracker_games (
+                match_id VARCHAR(64) PRIMARY KEY,
+                p1_name TEXT,
+                p1_faction TEXT,
+                p1_detachment TEXT,
+                p1_score INT DEFAULT 0,
+                p2_name TEXT,
+                p2_faction TEXT,
+                p2_detachment TEXT,
+                p2_score INT DEFAULT 0,
+                user_id_p1 VARCHAR(64),
+                user_id_p2 VARCHAR(64),
+                p1_role TEXT DEFAULT 'player1',
+                p2_role TEXT DEFAULT 'player2',
+                referee_ids TEXT[] DEFAULT '{}',
+                primary_mission TEXT,
+                deployment TEXT,
+                mission_rule TEXT,
+                current_round INT DEFAULT 1,
+                started BOOLEAN DEFAULT FALSE,
+                is_finished BOOLEAN DEFAULT FALSE,
+                winner_name TEXT,
+                version INT DEFAULT 1,
+                state_json JSONB,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p1 VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p2 VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS state_json JSONB;",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);"
+        ]
+        for s in stmts:
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(s)
+                    conn.commit()
+            except Exception as e:
+                logger.debug(f"Tracker ensure table notice: {e}")
 
     def upsert_event(self, event_data: Dict[str, Any]):
         """Inserts or updates an event record in PostgreSQL."""
@@ -1803,7 +1858,7 @@ class PostgresDatabase:
         refs_list = list(refs) if isinstance(refs, (list, tuple)) else []
         refs_sql = "{" + ",".join([f'"{r}"' for r in refs_list]) + "}"
 
-        try:
+        def do_insert():
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute("""
@@ -1856,72 +1911,104 @@ class PostgresDatabase:
                     ))
                 conn.commit()
             return True
+
+        try:
+            return do_insert()
         except Exception as err:
-            logger.error(f"Error persisting tracker game {match_id} to DB: {err}", exc_info=True)
-            return False
+            logger.warning(f"First attempt saving tracker game {match_id} failed ({err}). Running ensure_tracker_table()...")
+            try:
+                self.ensure_tracker_table()
+                return do_insert()
+            except Exception as retry_err:
+                logger.error(f"Final error persisting tracker game {match_id} to DB: {retry_err}", exc_info=True)
+                return False
 
     def get_tracker_game(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves a persisted tracker game by match_id."""
         if not match_id:
             return None
         match_id = match_id.strip().upper()
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                SELECT * FROM tracker_games WHERE match_id = %s;
-                """, (match_id,))
-                row = cursor.fetchone()
-                if row:
-                    d = dict(row)
-                    if isinstance(d.get("state_json"), str):
-                        try:
-                            d["state"] = json.loads(d["state_json"])
-                        except Exception:
-                            d["state"] = {}
-                    elif isinstance(d.get("state_json"), dict):
-                        d["state"] = d["state_json"]
-                    return d
+        
+        def do_select():
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                    SELECT * FROM tracker_games WHERE match_id = %s;
+                    """, (match_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        d = dict(row)
+                        if isinstance(d.get("state_json"), str):
+                            try:
+                                d["state"] = json.loads(d["state_json"])
+                            except Exception:
+                                d["state"] = {}
+                        elif isinstance(d.get("state_json"), dict):
+                            d["state"] = d["state_json"]
+                        return d
+                    return None
+
+        try:
+            return do_select()
+        except Exception as e:
+            logger.warning(f"Tracker load notice ({e}). Running ensure_tracker_table()...")
+            self.ensure_tracker_table()
+            try:
+                return do_select()
+            except Exception:
                 return None
 
     def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns recent persistent tracker games, optionally filtered by player user_id."""
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                query = """
-                SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
-                       p2_name, p2_faction, p2_detachment, p2_score,
-                       user_id_p1, user_id_p2,
-                       primary_mission, deployment, mission_rule,
-                       current_round, started, is_finished, winner_name,
-                       version, created_at, updated_at
-                FROM tracker_games
-                """
-                conditions = []
-                params = []
-                
-                if user_id:
-                    conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
-                    params.extend([user_id, user_id])
+        def do_query():
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    query = """
+                    SELECT match_id, p1_name, p1_faction, p1_detachment, p1_score,
+                           p2_name, p2_faction, p2_detachment, p2_score,
+                           user_id_p1, user_id_p2,
+                           primary_mission, deployment, mission_rule,
+                           current_round, started, is_finished, winner_name,
+                           version, created_at, updated_at
+                    FROM tracker_games
+                    """
+                    conditions = []
+                    params = []
                     
-                if search:
-                    conditions.append("(match_id ILIKE %s OR p1_name ILIKE %s OR p2_name ILIKE %s)")
-                    params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+                    if user_id:
+                        conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
+                        params.extend([user_id, user_id])
+                        
+                    if search:
+                        conditions.append("(match_id ILIKE %s OR p1_name ILIKE %s OR p2_name ILIKE %s)")
+                        params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+                        
+                    if conditions:
+                        query += " WHERE " + " AND ".join(conditions)
+                        
+                    query += " ORDER BY updated_at DESC LIMIT %s;"
+                    params.append(limit)
                     
-                if conditions:
-                    query += " WHERE " + " AND ".join(conditions)
-                    
-                query += " ORDER BY updated_at DESC LIMIT %s;"
-                params.append(limit)
-                
-                cursor.execute(query, tuple(params))
-                rows = cursor.fetchall()
-                res = []
-                for r in rows:
-                    d = dict(r)
-                    if d.get("updated_at"):
-                        d["date"] = d["updated_at"].strftime("%b %d, %Y")
-                    res.append(d)
-                return res
+                    cursor.execute(query, tuple(params))
+                    rows = cursor.fetchall()
+                    res = []
+                    for r in rows:
+                        d = dict(r)
+                        if d.get("updated_at"):
+                            d["date"] = d["updated_at"].strftime("%b %d, %Y")
+                        res.append(d)
+                    return res
+
+        try:
+            return do_query()
+        except Exception as e:
+            logger.warning(f"Tracker history load notice ({e}). Running ensure_tracker_table()...")
+            self.ensure_tracker_table()
+            try:
+                return do_query()
+            except Exception as err:
+                logger.error(f"Error fetching tracker history: {err}")
+                return []
 
 
 class PostgresConnectionContext:
