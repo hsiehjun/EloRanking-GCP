@@ -405,7 +405,7 @@
           </div>
 
           <div style="display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:24px; font-size:13px; color:#f59e0b;">
-            <span style="width:8px; height:8px; border-radius:50%; background:#f59e0b; display:inline-block; animation:pulse 1.5s infinite;"></span>
+            <span id="gt-waiting-status-dot" style="width:8px; height:8px; border-radius:50%; background:#f59e0b; display:inline-block; animation:pulse 1.5s infinite;"></span>
             <span id="gt-waiting-status-text">Waiting for Player 2 to join (1/2 Players)...</span>
           </div>
 
@@ -417,42 +417,73 @@
     `;
     document.body.appendChild(modal);
 
-    // Listen for P2 connection
+    let hasAdvanced = false;
+    function advanceToSetup(name) {
+      if (hasAdvanced) return;
+      hasAdvanced = true;
+      const statusText = document.getElementById('gt-waiting-status-text');
+      const statusDot = document.getElementById('gt-waiting-status-dot');
+      if (statusText) {
+        statusText.textContent = `🟢 Player 2 Connected (${name || 'Ready'})! Entering setup...`;
+        statusText.style.color = '#10b981';
+      }
+      if (statusDot) {
+        statusDot.style.background = '#10b981';
+      }
+      setTimeout(() => {
+        window.location.href = `/11th/tracker/play?match_id=${matchId}`;
+      }, 700);
+    }
+
+    // 1. Listen for P2 connection over SSE
     const sse = new EventSource(`/api/tracker/room/${matchId}/stream?client_id=host_${Date.now()}`);
     sse.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'state_update' && msg.state && msg.state.user_id_p2) {
-          const statusText = document.getElementById('gt-waiting-status-text');
-          if (statusText) {
-            statusText.textContent = `🟢 Player 2 Connected! (2/2 Players Ready)`;
-            statusText.style.color = '#10b981';
-          }
-          setTimeout(() => {
-            window.location.href = `/11th/tracker/play?match_id=${matchId}`;
-          }, 800);
+        if (msg.type === 'presence' && msg.count >= 2) {
+          advanceToSetup();
+        } else if (msg.type === 'state_update' && msg.state && (msg.state.user_id_p2 || (msg.state.game && msg.state.game.p2Name && msg.state.game.p2Name !== 'Player 2'))) {
+          advanceToSetup(msg.state.game ? msg.state.game.p2Name : '');
         }
       } catch (e) {}
     };
+
+    // 2. Fallback Fast Poll every 800ms
+    const pollTimer = setInterval(async () => {
+      if (hasAdvanced) { clearInterval(pollTimer); return; }
+      try {
+        const resp = await fetch(`/api/tracker/room/${matchId}`);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.online_count >= 2 || data.user_id_p2 || (data.state && data.state.user_id_p2)) {
+            clearInterval(pollTimer);
+            advanceToSetup(data.state && data.state.game ? data.state.game.p2Name : '');
+          }
+        }
+      } catch (e) {}
+    }, 800);
   }
 
   // 5. Step 1: 2-Player Invite & Setup Helper inside Play Screen
   function injectPlayer2InviteWidget() {
-    const observer = new MutationObserver(() => {
+    function tryInjectWidget() {
+      const existing = document.getElementById('gt-invite-widget');
+      if (existing && document.body.contains(existing)) return;
+
       const stepTitle = document.querySelector('h2');
-      if (stepTitle && stepTitle.textContent.includes('PLAYERS') && !document.getElementById('gt-invite-widget')) {
+      if (stepTitle && stepTitle.textContent.includes('PLAYERS')) {
         const rawState = originalGetItem('gdm-11e-tracker-state');
         let stateObj = {};
         try { stateObj = JSON.parse(rawState); } catch(e) {}
 
-        const p2Claimed = !!(stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2'));
+        const p2Connected = clientState.onlineCount >= 2 || !!(stateObj.user_id_p2 || (stateObj.game && stateObj.game.p2Name && stateObj.game.p2Name !== 'Player 2'));
         const inviteUrl = window.location.href;
 
         const widget = document.createElement('div');
         widget.id = 'gt-invite-widget';
         widget.style.cssText = "margin-bottom:16px; background:#0f172a; border:1px solid #1e293b; border-radius:14px; padding:14px 16px;";
         
-        if (!p2Claimed) {
+        if (!p2Connected) {
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
               <span style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">⚔️ Room Key: ${clientState.matchId} (1/2 Players)</span>
@@ -472,15 +503,18 @@
         } else {
           widget.innerHTML = `
             <div style="display:flex; align-items:center; justify-content:space-between;">
-              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game ? stateObj.game.p2Name : 'Opponent'})</span>
-              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players (Collaborative Live)</span>
+              <span style="font-size:12px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">🟢 Connected: Player 1 vs Player 2 (${stateObj.game && stateObj.game.p2Name ? stateObj.game.p2Name : 'Opponent'})</span>
+              <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">2/2 Players Active (Collaborative Live)</span>
             </div>
           `;
         }
 
         stepTitle.parentNode.insertBefore(widget, stepTitle.nextSibling);
       }
-    });
+    }
+
+    tryInjectWidget();
+    const observer = new MutationObserver(tryInjectWidget);
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
