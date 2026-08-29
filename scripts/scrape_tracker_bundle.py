@@ -61,16 +61,14 @@ def download_map_assets():
     dispos = ['take-and-hold', 'purge-the-foe', 'reconnaissance', 'priority-assets', 'disruption']
     for d in dispos:
         rel = f"assets/11th/force-disposition/{d}.png"
-        target1 = WEB_DIR / rel
-        target2 = DEST_DIR / rel
-        target1.parent.mkdir(parents=True, exist_ok=True)
-        target2.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            data = fetch(f"{BASE_URL}/{rel}")
-            target1.write_bytes(data)
-            target2.write_bytes(data)
-        except Exception:
-            pass
+        target = WEB_DIR / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists() or target.stat().st_size == 0:
+            try:
+                data = fetch(f"{BASE_URL}/{rel}")
+                target.write_bytes(data)
+            except Exception:
+                pass
 
     matchups = [
         'disruption-mirror', 'disruption-vs-priority-assets', 'disruption-vs-purge-the-foe', 'disruption-vs-reconnaissance',
@@ -84,16 +82,13 @@ def download_map_assets():
             for mode in ['no-measurements', 'with-measurements']:
                 for suffix in ['', '-portrait']:
                     rel = f"assets/11th/layouts/{mode}/{m}-{num}{suffix}.png"
-                    target1 = WEB_DIR / rel
-                    target2 = DEST_DIR / rel
-                    if target1.exists() and target1.stat().st_size > 0:
+                    target = WEB_DIR / rel
+                    if target.exists() and target.stat().st_size > 0:
                         continue
-                    target1.parent.mkdir(parents=True, exist_ok=True)
-                    target2.parent.mkdir(parents=True, exist_ok=True)
+                    target.parent.mkdir(parents=True, exist_ok=True)
                     try:
                         data = fetch(f"{BASE_URL}/{rel}")
-                        target1.write_bytes(data)
-                        target2.write_bytes(data)
+                        target.write_bytes(data)
                     except Exception:
                         pass
 
