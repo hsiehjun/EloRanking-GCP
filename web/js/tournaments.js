@@ -292,14 +292,14 @@ function renderEventPairingsRows() {
   const distinctRounds = [...new Set(eventMatchesCache.map(m => m.round || 1))].sort((a, b) => a - b);
   if (roundsContainer) {
     let pillsHtml = `
-      <button class="pill-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
+      <button class="round-filter-btn ${selectedEventRound === 'all' ? 'active' : ''}" onclick="setEventRoundFilter('all')">
         All Rounds (${eventMatchesCache.length})
       </button>
     `;
     distinctRounds.forEach(r => {
       const rCount = eventMatchesCache.filter(m => (m.round || 1) === r).length;
       pillsHtml += `
-        <button class="pill-btn ${selectedEventRound === r ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
+        <button class="round-filter-btn ${selectedEventRound === r ? 'active' : ''}" onclick="setEventRoundFilter(${r})">
           Round ${r} (${rCount})
         </button>
       `;
