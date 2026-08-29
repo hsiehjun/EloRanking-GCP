@@ -235,6 +235,10 @@ if FASTAPI_AVAILABLE:
     class TrackerJoinPayload(BaseModel):
         token: Optional[str] = None
 
+    class TrackerActionPayload(BaseModel):
+        token: Optional[str] = None
+        match_id: Optional[str] = None
+
     class TrackerStatePayload(BaseModel):
         match_id: str
         client_id: Optional[str] = "anon"
