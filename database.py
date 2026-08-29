@@ -1,0 +1,1263 @@
+"""PostgreSQL Database backend for Warhammer 40k Elo Ranking and BCP scraper."""
+
+import json
+import logging
+import math
+import os
+import time
+from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+
+try:
+    import psycopg2
+    from psycopg2 import pool, extras
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+
+logger = logging.getLogger("elo.db_postgres")
+
+
+class PostgresDatabase:
+    """Manages high-concurrency, MVCC PostgreSQL storage for events, matches, ratings, and players."""
+
+    _pool = None
+    _stats_cache = None
+    _db_initialized = False
+    _stats_cache_time = 0
+    _faction_meta_cache = None
+    _faction_meta_cache_time = 0
+    _factions_cache = None
+    _factions_cache_time = 0
+    CACHE_TTL_SECONDS = 600
+
+    def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
+        if not PSYCOPG2_AVAILABLE:
+            raise ImportError("psycopg2 is not installed. Run 'pip install psycopg2-binary' or 'sudo apt install python3-psycopg2'.")
+
+        self.dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:elo_password@localhost:5432/elo_ranking"
+        
+        if PostgresDatabase._pool is None:
+            try:
+                PostgresDatabase._pool = pool.ThreadedConnectionPool(
+                    minconn=2,
+                    maxconn=60,
+                    dsn=self.dsn
+                )
+                logger.info(f"PostgreSQL connection pool initialized with DSN: {self._sanitize_dsn(self.dsn)}")
+            except Exception as e:
+                logger.error(f"Failed to connect to PostgreSQL pool: {e}")
+                raise
+
+        if not PostgresDatabase._db_initialized:
+            self.init_db()
+            PostgresDatabase._db_initialized = True
+
+    @property
+    def db_path(self) -> str:
+        return self._sanitize_dsn(self.dsn)
+
+    def _sanitize_dsn(self, dsn: str) -> str:
+        if "@" in dsn:
+            return dsn.split("@")[-1]
+        return dsn
+
+    def get_connection(self):
+        """Context manager yielding a pooled PostgreSQL connection."""
+        conn = PostgresDatabase._pool.getconn()
+        return PostgresConnectionContext(PostgresDatabase._pool, conn)
+
+    def init_db(self):
+        """Creates PostgreSQL tables and performance indexes."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id VARCHAR(64) PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    event_date TIMESTAMPTZ,
+                    end_date TIMESTAMPTZ,
+                    city TEXT,
+                    state TEXT,
+                    country TEXT,
+                    total_players INT DEFAULT 0,
+                    num_rounds INT DEFAULT 0,
+                    current_round INT DEFAULT 0,
+                    is_ended BOOLEAN DEFAULT FALSE,
+                    game_system_id VARCHAR(64),
+                    raw_json JSONB,
+                    scraped_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS players (
+                    id VARCHAR(64) PRIMARY KEY,
+                    first_name TEXT,
+                    last_name TEXT,
+                    full_name TEXT,
+                    team TEXT,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS matches (
+                    id VARCHAR(64) PRIMARY KEY,
+                    event_id VARCHAR(64) REFERENCES events(id) ON DELETE CASCADE,
+                    round INT NOT NULL,
+                    table_number INT DEFAULT 1,
+                    match_date TIMESTAMPTZ,
+                    player1_id VARCHAR(64),
+                    player1_name TEXT,
+                    player1_faction TEXT,
+                    player1_score INT,
+                    player2_id VARCHAR(64),
+                    player2_name TEXT,
+                    player2_faction TEXT,
+                    player2_score INT,
+                    winner_id VARCHAR(64),
+                    loser_id VARCHAR(64),
+                    is_draw BOOLEAN DEFAULT FALSE,
+                    is_bye BOOLEAN DEFAULT FALSE,
+                    is_done BOOLEAN DEFAULT TRUE,
+                    raw_json JSONB
+                );
+
+                CREATE TABLE IF NOT EXISTS player_ratings (
+                    player_id VARCHAR(64) PRIMARY KEY,
+                    player_name TEXT,
+                    current_elo DOUBLE PRECISION DEFAULT 1500.0,
+                    peak_elo DOUBLE PRECISION DEFAULT 1500.0,
+                    matches_played INT DEFAULT 0,
+                    wins INT DEFAULT 0,
+                    losses INT DEFAULT 0,
+                    draws INT DEFAULT 0,
+                    win_rate DOUBLE PRECISION DEFAULT 0.0,
+                    top_faction TEXT,
+                    team TEXT,
+                    last_active_date TIMESTAMPTZ,
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS rating_history (
+                    id BIGSERIAL PRIMARY KEY,
+                    player_id VARCHAR(64) NOT NULL,
+                    match_id VARCHAR(64) NOT NULL,
+                    event_id VARCHAR(64) NOT NULL,
+                    round INT,
+                    match_date TIMESTAMPTZ,
+                    old_elo DOUBLE PRECISION,
+                    new_elo DOUBLE PRECISION,
+                    delta_elo DOUBLE PRECISION,
+                    opponent_id VARCHAR(64),
+                    opponent_name TEXT,
+                    opponent_elo DOUBLE PRECISION,
+                    result VARCHAR(8),
+                    player_faction TEXT,
+                    opponent_faction TEXT,
+                    player_score INT,
+                    opponent_score INT
+                );
+
+                CREATE TABLE IF NOT EXISTS event_participants (
+                    event_id VARCHAR(64) NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+                    player_id VARCHAR(64) NOT NULL,
+                    first_name TEXT,
+                    last_name TEXT,
+                    full_name TEXT,
+                    faction TEXT,
+                    team TEXT,
+                    dropped BOOLEAN DEFAULT FALSE,
+                    checked_in BOOLEAN DEFAULT FALSE,
+                    PRIMARY KEY (event_id, player_id)
+                );
+
+                -- Indexes for MVCC parallel query execution
+                                -- Ensure team columns exist on legacy databases
+                ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;
+                ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;
+
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_event ON matches(event_id);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_date ON matches(match_date, round, table_number);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_chrono ON matches(match_date ASC NULLS FIRST, round ASC, table_number ASC) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p1 ON matches(player1_id);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p2 ON matches(player2_id);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_p2 ON matches(player1_id, player2_id);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_fac1 ON matches(player1_faction, is_done);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_fac2 ON matches(player2_faction, is_done);
+
+                CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_ratings_elo ON player_ratings(current_elo DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_ratings_name ON player_ratings(player_name);
+                CREATE INDEX IF NOT EXISTS idx_pg_ratings_team ON player_ratings(team, current_elo DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_ratings_faction ON player_ratings(top_faction);
+                CREATE INDEX IF NOT EXISTS idx_pg_events_date ON events(event_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);
+                """)
+            conn.commit()
+
+    def upsert_event(self, event_data: Dict[str, Any]):
+        """Inserts or updates an event record in PostgreSQL."""
+        event_id = event_data.get("id") or event_data.get("objectId")
+        if not event_id:
+            return
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO events (
+                    id, name, event_date, end_date, city, state, country,
+                    total_players, num_rounds, current_round, is_ended,
+                    game_system_id, raw_json, scraped_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    event_date = EXCLUDED.event_date,
+                    end_date = EXCLUDED.end_date,
+                    city = EXCLUDED.city,
+                    state = EXCLUDED.state,
+                    country = EXCLUDED.country,
+                    total_players = EXCLUDED.total_players,
+                    num_rounds = EXCLUDED.num_rounds,
+                    current_round = EXCLUDED.current_round,
+                    is_ended = EXCLUDED.is_ended,
+                    game_system_id = EXCLUDED.game_system_id,
+                    raw_json = EXCLUDED.raw_json,
+                    scraped_at = EXCLUDED.scraped_at;
+                """, (
+                    event_id,
+                    event_data.get("name") or "Unnamed Tournament",
+                    event_data.get("eventDate") or event_data.get("event_date"),
+                    event_data.get("endDate") or event_data.get("end_date"),
+                    event_data.get("city"),
+                    event_data.get("state"),
+                    event_data.get("country"),
+                    event_data.get("totalPlayers", event_data.get("total_players", 0)),
+                    event_data.get("numberOfRounds", event_data.get("num_rounds", 0)),
+                    event_data.get("currentRound", event_data.get("current_round", 0)),
+                    bool(event_data.get("isEnded", event_data.get("is_ended", False))),
+                    event_data.get("gameSystemId", event_data.get("game_system_id")),
+                    json.dumps(event_data.get("raw_json", event_data)),
+                    datetime.now(timezone.utc)
+                ))
+            conn.commit()
+
+    def upsert_player(self, player_id: str, first_name: str = "", last_name: str = "", full_name: str = "", team: str = ""):
+        """Inserts or updates player metadata including team affiliation."""
+        if not player_id:
+            return
+        if not full_name:
+            full_name = f"{first_name} {last_name}".strip() or "Unknown Player"
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO players (id, first_name, last_name, full_name, team, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name,
+                    full_name = EXCLUDED.full_name,
+                    team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team),
+                    updated_at = EXCLUDED.updated_at;
+                """, (player_id, first_name, last_name, full_name, team or None, datetime.now(timezone.utc)))
+            conn.commit()
+
+    def upsert_event_participant(
+        self,
+        event_id: str,
+        player_id: str,
+        first_name: str = "",
+        last_name: str = "",
+        full_name: str = "",
+        faction: str = "",
+        team: str = "",
+        dropped: bool = False,
+        checked_in: bool = True
+    ):
+        """Inserts or updates a tournament participant with team affiliation."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO event_participants (
+                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (event_id, player_id) DO UPDATE SET
+                    first_name = EXCLUDED.first_name,
+                    last_name = EXCLUDED.last_name,
+                    full_name = EXCLUDED.full_name,
+                    faction = EXCLUDED.faction,
+                    team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
+                    dropped = EXCLUDED.dropped,
+                    checked_in = EXCLUDED.checked_in;
+                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in))
+            conn.commit()
+
+    def upsert_match(self, match_data: Dict[str, Any]):
+        """Inserts or updates a match pairing."""
+        event_id = match_data.get("event_id")
+        if not event_id or not match_data.get("id"):
+            return
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO events (id, name, event_date, scraped_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING;
+                """, (
+                    event_id,
+                    match_data.get("event_name") or "Tournament",
+                    match_data.get("match_date"),
+                    datetime.now(timezone.utc)
+                ))
+
+                cursor.execute("""
+                INSERT INTO matches (
+                    id, event_id, round, table_number, match_date,
+                    player1_id, player1_name, player1_faction, player1_score,
+                    player2_id, player2_name, player2_faction, player2_score,
+                    winner_id, loser_id, is_draw, is_bye, is_done, raw_json
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET
+                    event_id = EXCLUDED.event_id,
+                    round = EXCLUDED.round,
+                    table_number = EXCLUDED.table_number,
+                    match_date = EXCLUDED.match_date,
+                    player1_id = EXCLUDED.player1_id,
+                    player1_name = EXCLUDED.player1_name,
+                    player1_faction = EXCLUDED.player1_faction,
+                    player1_score = EXCLUDED.player1_score,
+                    player2_id = EXCLUDED.player2_id,
+                    player2_name = EXCLUDED.player2_name,
+                    player2_faction = EXCLUDED.player2_faction,
+                    player2_score = EXCLUDED.player2_score,
+                    winner_id = EXCLUDED.winner_id,
+                    loser_id = EXCLUDED.loser_id,
+                    is_draw = EXCLUDED.is_draw,
+                    is_bye = EXCLUDED.is_bye,
+                    is_done = EXCLUDED.is_done,
+                    raw_json = EXCLUDED.raw_json;
+                """, (
+                    match_data.get("id"),
+                    event_id,
+                    match_data.get("round", 1),
+                    match_data.get("table_number", 1),
+                    match_data.get("match_date"),
+                    match_data.get("player1_id"),
+                    match_data.get("player1_name"),
+                    match_data.get("player1_faction"),
+                    match_data.get("player1_score"),
+                    match_data.get("player2_id"),
+                    match_data.get("player2_name"),
+                    match_data.get("player2_faction"),
+                    match_data.get("player2_score"),
+                    match_data.get("winner_id"),
+                    match_data.get("loser_id"),
+                    bool(match_data.get("is_draw")),
+                    bool(match_data.get("is_bye")),
+                    bool(match_data.get("is_done", True)),
+                    json.dumps(match_data.get("raw_json", {}))
+                ))
+            conn.commit()
+
+    def get_total_matches_count(self) -> int:
+        """Returns total count of valid completed matches."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                SELECT COUNT(*) FROM matches
+                WHERE is_done = TRUE
+                  AND player1_id IS NOT NULL AND player1_id != ''
+                  AND player2_id IS NOT NULL AND player2_id != '';
+                """)
+                row = cursor.fetchone()
+                return row[0] if row else 0
+
+    def get_matches_chunk(self, offset: int, limit: int = 50000) -> List[Dict[str, Any]]:
+        """Fetches a chunk of matches ordered chronologically (low memory footprint)."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT 
+                    m.id, m.event_id, m.round, m.table_number, m.match_date,
+                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                    m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                    m.winner_id, m.is_draw, m.is_bye
+                FROM matches m
+                WHERE m.is_done = TRUE
+                  AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                  AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                LIMIT %s OFFSET %s;
+                """, (limit, offset))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def get_unranked_matches(self, limit: int = 50000) -> List[Dict[str, Any]]:
+        """Returns new matches that do not yet have a record in rating_history."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT 
+                    m.id, m.event_id, m.round, m.table_number, m.match_date,
+                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                    m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                    m.winner_id, m.is_draw, m.is_bye
+                FROM matches m
+                WHERE m.is_done = TRUE
+                  AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                  AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                  AND NOT EXISTS (
+                      SELECT 1 FROM rating_history rh WHERE rh.match_id = m.id LIMIT 1
+                  )
+                ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                LIMIT %s;
+                """, (limit,))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def get_all_matches_chronological(self) -> List[Dict[str, Any]]:
+        """Returns all completed matches ordered chronologically (optimized for low-memory GCP VMs)."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT 
+                    m.id, m.event_id, m.round, m.table_number, m.match_date,
+                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                    m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                    m.winner_id, m.is_draw, m.is_bye
+                FROM matches m
+                WHERE m.is_done = TRUE
+                  AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                  AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
+                """)
+                return cursor.fetchall()
+
+
+    def get_summary_stats(self) -> Dict[str, Any]:
+        """Returns dashboard summary counts (instant cached)."""
+        now = time.time()
+        if PostgresDatabase._stats_cache and (now - PostgresDatabase._stats_cache_time) < PostgresDatabase.CACHE_TTL_SECONDS:
+            return PostgresDatabase._stats_cache
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("SELECT COUNT(*) as cnt FROM player_ratings WHERE matches_played > 0;")
+                total_players = cursor.fetchone()["cnt"]
+
+                cursor.execute("SELECT COUNT(*) as cnt FROM matches WHERE is_done = TRUE;")
+                total_matches = cursor.fetchone()["cnt"]
+
+                cursor.execute("SELECT COUNT(*) as cnt FROM events;")
+                total_events = cursor.fetchone()["cnt"]
+
+                cursor.execute("SELECT player_name, current_elo FROM player_ratings WHERE matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;")
+                top_p = cursor.fetchone() or {"player_name": "None", "current_elo": 1500.0}
+
+                cursor.execute("""
+                SELECT DISTINCT top_faction as f 
+                FROM player_ratings 
+                WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
+                ORDER BY f;
+                """)
+                factions = [r["f"] for r in cursor.fetchall() if r["f"]]
+
+                res = {
+                    "total_players": total_players,
+                    "total_matches": total_matches,
+                    "total_events": total_events,
+                    "top_player_name": top_p["player_name"],
+                    "top_player_elo": round(top_p["current_elo"], 1),
+                    "factions": factions
+                }
+                PostgresDatabase._stats_cache = res
+                PostgresDatabase._stats_cache_time = now
+                return res
+
+    def get_top_ranked_players(self, page=1, page_size=25, limit=None, min_matches=3, query=None, faction=None, sort_by="current_elo", order="DESC") -> Dict[str, Any]:
+        return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order)
+
+    def get_players_directory(self, page=1, page_size=25, limit=None, query=None, faction=None, min_matches=0, sort_by="current_elo", order="DESC") -> Dict[str, Any]:
+        """Returns paginated directory of players with total count."""
+        if limit is not None and limit > 0:
+            page_size = limit
+        page = max(1, int(page or 1))
+        page_size = max(1, min(int(page_size or 25), 200))
+        offset = (page - 1) * page_size
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                allowed_cols = {
+                    "player_name": "player_name",
+                    "current_elo": "current_elo",
+                    "peak_elo": "peak_elo",
+                    "matches_played": "matches_played",
+                    "wins": "wins",
+                    "losses": "losses",
+                    "draws": "draws",
+                    "win_rate": "win_rate",
+                    "last_active_date": "last_active_date"
+                }
+                col = allowed_cols.get(sort_by, "current_elo")
+                dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
+
+                if faction and faction != "All" and faction != "All Factions":
+                    # Faction isolated aggregation
+                    count_sql = """
+                    WITH faction_player_matches AS (
+                        SELECT player1_id as p_id, (player1_faction ILIKE %s) as is_match_fac
+                        FROM matches
+                        WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
+                          AND player1_faction ILIKE %s
+                        UNION ALL
+                        SELECT player2_id as p_id, (player2_faction ILIKE %s) as is_match_fac
+                        FROM matches
+                        WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
+                          AND player2_faction ILIKE %s
+                    )
+                    SELECT COUNT(DISTINCT fpm.p_id) as total_count
+                    FROM faction_player_matches fpm
+                    LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
+                    WHERE 1=1
+                    """
+                    count_params = [f"%{faction}%", f"%{faction}%", f"%{faction}%", f"%{faction}%"]
+                    if query:
+                        count_sql += " AND (r.player_name ILIKE %s OR fpm.p_id = %s)"
+                        count_params.extend([f"%{query}%", query])
+
+                    cursor.execute(count_sql, count_params)
+                    total_count = cursor.fetchone()["total_count"] or 0
+
+                    sql = """
+                    WITH faction_player_matches AS (
+                        SELECT 
+                            player1_id as p_id,
+                            player1_name as p_name,
+                            match_date as m_date,
+                            CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
+                          AND player1_faction ILIKE %s
+                        UNION ALL
+                        SELECT 
+                            player2_id as p_id,
+                            player2_name as p_name,
+                            match_date as m_date,
+                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
+                          AND player2_faction ILIKE %s
+                    )
+                    SELECT 
+                        fpm.p_id as player_id,
+                        COALESCE(MAX(r.player_name), MAX(fpm.p_name), fpm.p_id) as player_name,
+                        COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                        COALESCE(MAX(r.peak_elo), 1500.0) as peak_elo,
+                        COUNT(*) as matches_played,
+                        SUM(fpm.is_win) as wins,
+                        SUM(fpm.is_loss) as losses,
+                        SUM(fpm.is_draw) as draws,
+                        ROUND((SUM(fpm.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                        %s as top_faction,
+                        COALESCE(MAX(r.team), '') as team,
+                        MAX(fpm.m_date) as last_active_date
+                    FROM faction_player_matches fpm
+                    LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
+                    WHERE 1=1
+                    """
+                    params = [f"%{faction}%", f"%{faction}%", faction]
+                    if query:
+                        sql += " AND (fpm.p_name ILIKE %s OR fpm.p_id = %s)"
+                        params.extend([f"%{query}%", query])
+                    sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s"
+                    params.append(min_matches)
+                    sql += f" ORDER BY {col} {dir_str} NULLS LAST LIMIT %s OFFSET %s;"
+                    params.extend([page_size, offset])
+                    cursor.execute(sql, params)
+                    rows = [dict(r) for r in cursor.fetchall()]
+
+                    return {
+                        "items": rows,
+                        "total": total_count,
+                        "page": page,
+                        "page_size": page_size,
+                        "total_pages": max(1, (total_count + page_size - 1) // page_size)
+                    }
+
+                # Global player ratings directory
+                where_clauses = ["matches_played >= %s"]
+                params = [min_matches]
+                if query:
+                    where_clauses.append("(player_name ILIKE %s OR player_id = %s)")
+                    params.extend([f"%{query}%", query])
+
+                where_sql = "WHERE " + " AND ".join(where_clauses)
+                
+                cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings {where_sql};", params)
+                total_count = cursor.fetchone()["total_count"] or 0
+
+                sql = f"""
+                SELECT player_id, player_name, current_elo, peak_elo,
+                       matches_played, wins, losses, draws, win_rate,
+                       top_faction, team, last_active_date
+                FROM player_ratings
+                {where_sql}
+                ORDER BY {col} {dir_str} NULLS LAST
+                LIMIT %s OFFSET %s;
+                """
+                params.extend([page_size, offset])
+                cursor.execute(sql, params)
+                rows = [dict(r) for r in cursor.fetchall()]
+
+                return {
+                    "items": rows,
+                    "total": total_count,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": max(1, (total_count + page_size - 1) // page_size)
+                }
+
+    def get_event_details(self, event_id: str) -> Dict[str, Any]:
+        """Returns tournament details, participant roster with event scores and Elo, and all round pairings."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                # 1. Event metadata
+                cursor.execute("""
+                SELECT id, name, event_date, end_date, city, state, country,
+                       total_players, num_rounds, current_round, is_ended
+                FROM events
+                WHERE id = %s;
+                """, (event_id,))
+                event_row = cursor.fetchone()
+                if not event_row:
+                    event_row = {
+                        "id": event_id,
+                        "name": "Tournament",
+                        "event_date": None,
+                        "city": "",
+                        "state": "",
+                        "country": "",
+                        "total_players": 0,
+                        "num_rounds": 0,
+                        "current_round": 0,
+                        "is_ended": True
+                    }
+
+                # 2. Event Matches
+                cursor.execute("""
+                SELECT id, event_id, round, table_number, match_date,
+                       player1_id, player1_name, player1_faction, player1_score,
+                       player2_id, player2_name, player2_faction, player2_score,
+                       winner_id, loser_id, is_draw, is_bye, is_done
+                FROM matches
+                WHERE event_id = %s
+                ORDER BY round ASC, table_number ASC;
+                """, (event_id,))
+                matches = [dict(r) for r in cursor.fetchall()]
+
+                # 3. Event Participants / Roster
+                cursor.execute("""
+                SELECT 
+                    ep.player_id, 
+                    COALESCE(pr.player_name, ep.full_name, 'Player') as full_name,
+                    COALESCE(ep.faction, pr.top_faction, 'Unknown') as faction,
+                    COALESCE(ep.team, pr.team, '') as team,
+                    ep.dropped, ep.checked_in,
+                    COALESCE(pr.current_elo, 1500.0) as current_elo,
+                    COALESCE(pr.peak_elo, 1500.0) as peak_elo,
+                    COALESCE(pr.win_rate, 0.0) as global_win_rate,
+                    COUNT(m.id) as event_matches_count,
+                    SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) as event_wins,
+                    SUM(CASE WHEN m.loser_id = ep.player_id THEN 1 ELSE 0 END) as event_losses,
+                    SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as event_draws,
+                    SUM(CASE WHEN m.player1_id = ep.player_id THEN COALESCE(m.player1_score, 0) ELSE (CASE WHEN m.player2_id = ep.player_id THEN COALESCE(m.player2_score, 0) ELSE 0 END) END) as event_battle_points
+                FROM event_participants ep
+                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                LEFT JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id)
+                WHERE ep.event_id = %s
+                GROUP BY ep.player_id, pr.player_name, ep.full_name, ep.faction, pr.top_faction, ep.team, pr.team, ep.dropped, ep.checked_in, pr.current_elo, pr.peak_elo, pr.win_rate
+                ORDER BY event_wins DESC, event_battle_points DESC, current_elo DESC;
+                """, (event_id,))
+                players = [dict(r) for r in cursor.fetchall()]
+
+                # If no event_participants rows exist, synthesize roster from matches
+                if not players and matches:
+                    cursor.execute("""
+                    WITH match_players AS (
+                        SELECT player1_id as p_id, player1_name as p_name, player1_faction as p_fac,
+                               (winner_id = player1_id) as is_win, is_draw, (loser_id = player1_id) as is_loss,
+                               COALESCE(player1_score, 0) as score
+                        FROM matches WHERE event_id = %s AND player1_id IS NOT NULL AND player1_id != ''
+                        UNION ALL
+                        SELECT player2_id as p_id, player2_name as p_name, player2_faction as p_fac,
+                               (winner_id = player2_id) as is_win, is_draw, (loser_id = player2_id) as is_loss,
+                               COALESCE(player2_score, 0) as score
+                        FROM matches WHERE event_id = %s AND player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE
+                    )
+                    SELECT 
+                        mp.p_id as player_id,
+                        COALESCE(MAX(pr.player_name), MAX(mp.p_name), 'Player') as full_name,
+                        COALESCE(MAX(mp.p_fac), MAX(pr.top_faction), 'Unknown') as faction,
+                        COALESCE(MAX(pr.team), '') as team,
+                        FALSE as dropped, TRUE as checked_in,
+                        COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
+                        COALESCE(MAX(pr.peak_elo), 1500.0) as peak_elo,
+                        COALESCE(MAX(pr.win_rate), 0.0) as global_win_rate,
+                        COUNT(*) as event_matches_count,
+                        SUM(CASE WHEN mp.is_win THEN 1 ELSE 0 END) as event_wins,
+                        SUM(CASE WHEN mp.is_loss THEN 1 ELSE 0 END) as event_losses,
+                        SUM(CASE WHEN mp.is_draw THEN 1 ELSE 0 END) as event_draws,
+                        SUM(mp.score) as event_battle_points
+                    FROM match_players mp
+                    LEFT JOIN player_ratings pr ON mp.p_id = pr.player_id
+                    GROUP BY mp.p_id
+                    ORDER BY event_wins DESC, event_battle_points DESC, current_elo DESC;
+                    """, (event_id, event_id))
+                    players = [dict(r) for r in cursor.fetchall()]
+
+                res = dict(event_row)
+                res["players"] = players
+                res["matches"] = matches
+                res["total_players"] = res.get("total_players") or len(players)
+                res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
+                return res
+
+
+    def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC") -> Dict[str, Any]:
+        """Returns paginated tournaments list with match counts."""
+        if limit is not None and limit > 0:
+            page_size = limit
+        page = max(1, int(page or 1))
+        page_size = max(1, min(int(page_size or 25), 200))
+        offset = (page - 1) * page_size
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                where_clauses = ["1=1"]
+                params: List[Any] = []
+
+                if query:
+                    where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
+                    params.extend([f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
+
+                if status == "completed":
+                    where_clauses.append("e.is_ended = TRUE")
+                elif status == "in_progress":
+                    where_clauses.append("e.is_ended = FALSE")
+
+                where_sql = " AND ".join(where_clauses)
+                dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
+
+                # Count total
+                cursor.execute(f"SELECT COUNT(*) as total_count FROM events e WHERE {where_sql};", params)
+                total_count = cursor.fetchone()["total_count"] or 0
+
+                allowed_cols = {
+                    "name": "e.name",
+                    "event_date": "e.event_date",
+                    "location": "e.city",
+                    "total_players": "e.total_players",
+                    "num_rounds": "e.num_rounds",
+                    "match_count": "e.total_players",
+                    "is_ended": "e.is_ended"
+                }
+                col = allowed_cols.get(sort_by, "e.event_date")
+
+                sql = f"""
+                SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                       e.total_players, e.num_rounds, e.current_round, e.is_ended,
+                       (SELECT COUNT(*) FROM matches m WHERE m.event_id = e.id) as match_count
+                FROM events e
+                WHERE {where_sql}
+                ORDER BY {col} {dir_str} NULLS LAST
+                LIMIT %s OFFSET %s;
+                """
+                params.extend([page_size, offset])
+
+                cursor.execute(sql, params)
+                rows = [dict(r) for r in cursor.fetchall()]
+
+                return {
+                    "items": rows,
+                    "total": total_count,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": max(1, (total_count + page_size - 1) // page_size)
+                }
+
+    def get_teams_leaderboard(self, page=1, page_size=25, limit=None, min_members=2, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
+        """Returns paginated power rankings of teams and gaming clubs."""
+        if limit is not None and limit > 0:
+            page_size = limit
+        page = max(1, int(page or 1))
+        page_size = max(1, min(int(page_size or 25), 200))
+        offset = (page - 1) * page_size
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                where_clauses = ["team IS NOT NULL AND TRIM(team) != ''"]
+                params: List[Any] = []
+                if query:
+                    where_clauses.append("team ILIKE %s")
+                    params.append(f"%{query}%")
+
+                where_sql = "WHERE " + " AND ".join(where_clauses)
+                dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
+
+                # Count total distinct teams meeting roster threshold
+                count_params = list(params) + [min_members]
+                cursor.execute(f"""
+                SELECT COUNT(*) as total_count FROM (
+                    SELECT team FROM player_ratings
+                    {where_sql}
+                    GROUP BY team
+                    HAVING COUNT(*) >= %s
+                ) t_sub;
+                """, count_params)
+                total_count = cursor.fetchone()["total_count"] or 0
+
+                sql = f"""
+                SELECT 
+                    team,
+                    COUNT(*) as roster_count,
+                    ROUND(AVG(current_elo)::numeric, 1) as avg_elo,
+                    ROUND(MAX(current_elo)::numeric, 1) as top_player_elo,
+                    (ARRAY_AGG(player_name ORDER BY current_elo DESC))[1] as top_player_name,
+                    (ARRAY_AGG(player_id ORDER BY current_elo DESC))[1] as top_player_id,
+                    SUM(wins) as total_wins,
+                    SUM(losses) as total_losses,
+                    SUM(draws) as total_draws,
+                    SUM(matches_played) as total_matches,
+                    ROUND((SUM(wins) * 100.0 / NULLIF(SUM(matches_played), 0))::numeric, 1) as team_win_rate,
+                    ROUND((
+                        0.70 * AVG(current_elo) +
+                        0.30 * MAX(current_elo) +
+                        1.5 * ((SUM(wins) * 100.0 / NULLIF(SUM(matches_played), 0)) - 50.0) +
+                        30.0 * LOG(GREATEST(1.0, COUNT(*)::numeric))
+                    )::numeric, 1) as power_rating
+                FROM player_ratings
+                {where_sql}
+                GROUP BY team
+                HAVING COUNT(*) >= %s
+                ORDER BY {sort_by} {dir_str}, roster_count DESC
+                LIMIT %s OFFSET %s;
+                """
+                params.extend([min_members, page_size, offset])
+                cursor.execute(sql, params)
+                rows = [dict(r) for r in cursor.fetchall()]
+
+                return {
+                    "items": rows,
+                    "total": total_count,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": max(1, (total_count + page_size - 1) // page_size)
+                }
+
+
+    def get_team_roster(self, team_name: str) -> Dict[str, Any]:
+        """Returns full member roster for a specific team."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT player_id, player_name, current_elo, peak_elo,
+                       matches_played, wins, losses, draws, win_rate, top_faction, last_active_date
+                FROM player_ratings
+                WHERE team = %s
+                ORDER BY current_elo DESC;
+                """, (team_name,))
+                roster = [dict(r) for r in cursor.fetchall()]
+                if not roster:
+                    return {"team": team_name, "roster": [], "stats": {}}
+
+                total_matches = sum(p["matches_played"] for p in roster)
+                total_wins = sum(p["wins"] for p in roster)
+                total_losses = sum(p["losses"] for p in roster)
+                avg_elo = round(sum(p["current_elo"] for p in roster) / len(roster), 1)
+                top_elo = roster[0]["current_elo"] if roster else 1500.0
+                win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0
+                power_rating = round(
+                    0.70 * avg_elo +
+                    0.30 * top_elo +
+                    1.5 * (win_rate - 50.0) +
+                    30.0 * math.log10(max(1.0, len(roster))),
+                    1
+                )
+
+                return {
+                    "team": team_name,
+                    "roster": roster,
+                    "stats": {
+                        "roster_count": len(roster),
+                        "power_rating": power_rating,
+                        "avg_elo": avg_elo,
+                        "top_player_elo": round(top_elo, 1),
+                        "total_matches": total_matches,
+                        "total_wins": total_wins,
+                        "total_losses": total_losses,
+                        "win_rate": win_rate
+                    }
+                }
+
+    def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
+        """Returns overall faction balance metrics, timeline trends, and tier ratings reflecting the chosen timeframe."""
+        cache_key = f"{start_date}_{end_date}"
+        now = time.time()
+        if not start_date and not end_date and PostgresDatabase._faction_meta_cache and (now - PostgresDatabase._faction_meta_cache_time) < PostgresDatabase.CACHE_TTL_SECONDS:
+            return PostgresDatabase._faction_meta_cache
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                where_clauses = ["is_done = TRUE"]
+                params: List[Any] = []
+                if start_date:
+                    where_clauses.append("match_date >= %s")
+                    params.append(start_date)
+                if end_date:
+                    where_clauses.append("match_date <= %s")
+                    params.append(end_date)
+                
+                date_filter_sql = " AND ".join(where_clauses)
+
+                cursor.execute(f"""
+                WITH match_sides AS (
+                    SELECT id, match_date, player1_faction as faction, player1_score as score,
+                           CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                           CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
+                    FROM matches
+                    WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction' AND {date_filter_sql}
+                    UNION ALL
+                    SELECT id, match_date, player2_faction as faction, player2_score as score,
+                           CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                           CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
+                    FROM matches
+                    WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL AND {date_filter_sql}
+                )
+                SELECT 
+                    faction,
+                    COUNT(*) as total_matches,
+                    SUM(is_win) as wins,
+                    SUM(is_loss) as losses,
+                    SUM(is_draw) as draws,
+                    COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
+                    COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
+                FROM match_sides
+                GROUP BY faction
+                HAVING COUNT(*) >= 1
+                ORDER BY win_rate DESC, total_matches DESC;
+                """, params + params)
+                overall = [dict(r) for r in cursor.fetchall()]
+
+                for f in overall:
+                    wr = float(f.get("win_rate") or 0.0)
+                    if wr >= 55.0:
+                        f["tier"] = "S"
+                        f["tier_label"] = "Overperforming (55%+)"
+                    elif wr >= 50.0:
+                        f["tier"] = "A"
+                        f["tier_label"] = "Balanced High (50-55%)"
+                    elif wr >= 45.0:
+                        f["tier"] = "B"
+                        f["tier_label"] = "Balanced Low (45-50%)"
+                    else:
+                        f["tier"] = "C"
+                        f["tier_label"] = "Underperforming (<45%)"
+
+                # Dynamic timeline trends reflecting the exact chosen timeframe
+                is_short_window = False
+                if start_date and end_date:
+                    try:
+                        d1 = datetime.fromisoformat(start_date[:10])
+                        d2 = datetime.fromisoformat(end_date[:10])
+                        if (d2 - d1).days <= 75:
+                            is_short_window = True
+                    except Exception:
+                        pass
+                elif start_date:
+                    is_short_window = True
+
+                period_format = "YYYY-MM-DD" if is_short_window else "YYYY-MM"
+                period_trunc = "week" if is_short_window else "month"
+
+                trend_where_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
+                trend_params: List[Any] = []
+                if start_date:
+                    trend_where_clauses.append("match_date >= %s")
+                    trend_params.append(start_date)
+                if end_date:
+                    trend_where_clauses.append("match_date <= %s")
+                    trend_params.append(end_date)
+                if not start_date and not end_date:
+                    trend_where_clauses.append("match_date >= (CURRENT_DATE - INTERVAL '18 months')")
+
+                trend_filter_sql = " AND ".join(trend_where_clauses)
+
+                cursor.execute(f"""
+                WITH monthly_sides AS (
+                    SELECT TO_CHAR(DATE_TRUNC('{period_trunc}', match_date), '{period_format}') as month,
+                           player1_faction as faction,
+                           CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win
+                    FROM matches
+                    WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' 
+                      AND player1_faction != 'Unknown Faction' AND {trend_filter_sql}
+                    UNION ALL
+                    SELECT TO_CHAR(DATE_TRUNC('{period_trunc}', match_date), '{period_format}') as month,
+                           player2_faction as faction,
+                           CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win
+                    FROM matches
+                    WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' 
+                      AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL AND {trend_filter_sql}
+                )
+                SELECT 
+                    month,
+                    faction,
+                    COUNT(*) as matches_in_month,
+                    SUM(is_win) as wins,
+                    ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
+                FROM monthly_sides
+                GROUP BY month, faction
+                HAVING COUNT(*) >= 2
+                ORDER BY month ASC, win_rate DESC;
+                """, trend_params + trend_params)
+                monthly = [dict(r) for r in cursor.fetchall()]
+
+                res = {
+                    "factions": overall,
+                    "monthly_trends": monthly,
+                    "total_factions_tracked": len(overall),
+                    "filter": {
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "is_short_window": is_short_window,
+                        "granularity": "Weekly" if is_short_window else "Monthly"
+                    }
+                }
+                if not start_date and not end_date:
+                    PostgresDatabase._faction_meta_cache = res
+                    PostgresDatabase._faction_meta_cache_time = now
+                return res
+
+
+    def get_player_history(self, player_id: str) -> List[Dict[str, Any]]:
+        """Returns rating progression history for a player."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT h.*, e.name as event_name
+                FROM rating_history h
+                LEFT JOIN events e ON h.event_id = e.id
+                WHERE h.player_id = %s
+                ORDER BY h.match_date ASC, h.round ASC;
+                """, (player_id,))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def get_player_matches(self, player_id: str) -> List[Dict[str, Any]]:
+        """Returns all matches for a specific player."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT m.*, e.name as event_name
+                FROM matches m
+                LEFT JOIN events e ON m.event_id = e.id
+                WHERE m.player1_id = %s OR m.player2_id = %s
+                ORDER BY COALESCE(m.match_date, e.event_date) ASC, m.round ASC;
+                """, (player_id, player_id))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def search_players(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
+        """Searches players for prediction autocomplete."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction
+                FROM player_ratings
+                WHERE player_name ILIKE %s OR player_id = %s
+                ORDER BY matches_played DESC, current_elo DESC
+                LIMIT %s;
+                """, (f"%{query}%", query, limit))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def get_head_to_head(self, p1_id: str, p2_id: str) -> List[Dict[str, Any]]:
+        """Returns past head-to-head encounters."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT m.*, e.name as event_name, e.event_date
+                FROM matches m
+                LEFT JOIN events e ON m.event_id = e.id
+                WHERE (m.player1_id = %s AND m.player2_id = %s)
+                   OR (m.player1_id = %s AND m.player2_id = %s)
+                ORDER BY COALESCE(m.match_date, e.event_date) ASC;
+                """, (p1_id, p2_id, p2_id, p1_id))
+                return [dict(r) for r in cursor.fetchall()]
+
+
+
+    def get_faction_details(self, faction_name: str, limit: int = 100) -> Dict[str, Any]:
+        """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                # 1. Pure Match-Level Commander Records strictly for games played WITH this faction
+                cursor.execute("""
+                WITH faction_player_games AS (
+                    SELECT 
+                        player1_id as p_id,
+                        player1_name as p_name,
+                        player1_score as score,
+                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE
+                    UNION ALL
+                    SELECT 
+                        player2_id as p_id,
+                        player2_name as p_name,
+                        player2_score as score,
+                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE
+                )
+                SELECT 
+                    fpg.p_id as player_id,
+                    COALESCE(MAX(fpg.p_name), 'Player') as player_name,
+                    COALESCE(MAX(r.team), '') as team,
+                    COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                    COUNT(*) as matches_played,
+                    SUM(fpg.is_win) as wins,
+                    SUM(fpg.is_loss) as losses,
+                    SUM(fpg.is_draw) as draws,
+                    ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                    ROUND(AVG(fpg.score)::numeric, 1) as avg_score
+                FROM faction_player_games fpg
+                LEFT JOIN player_ratings r ON fpg.p_id = r.player_id
+                GROUP BY fpg.p_id
+                HAVING COUNT(*) >= 1
+                ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                LIMIT 25;
+                """, (f"%{faction_name}%", f"%{faction_name}%"))
+                top_players = [dict(r) for r in cursor.fetchall()]
+
+                # 2. Recent matches involving this faction
+                cursor.execute("""
+                SELECT m.id, m.event_id, e.name as event_name, m.round, m.table_number, m.match_date,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_id ELSE m.player2_id END as player_id,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_name ELSE m.player2_name END as player_name,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_faction ELSE m.player2_faction END as player_faction,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_score ELSE m.player2_score END as player_score,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_id ELSE m.player1_id END as opponent_id,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_name ELSE m.player1_name END as opponent_name,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_faction ELSE m.player1_faction END as opponent_faction,
+                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_score ELSE m.player1_score END as opponent_score,
+                       CASE 
+                           WHEN m.is_draw THEN 'D'
+                           WHEN (m.winner_id = m.player1_id AND m.player1_faction ILIKE %s) OR (m.winner_id = m.player2_id AND m.player2_faction ILIKE %s) THEN 'W'
+                           ELSE 'L'
+                       END as outcome
+                FROM matches m
+                LEFT JOIN events e ON m.event_id = e.id
+                WHERE (m.player1_faction ILIKE %s OR m.player2_faction ILIKE %s)
+                  AND m.is_done = TRUE
+                ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
+                LIMIT %s;
+                """, (
+                    f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%",
+                    f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%",
+                    f"%{faction_name}%", f"%{faction_name}%",
+                    f"%{faction_name}%", f"%{faction_name}%",
+                    limit
+                ))
+                recent_matches = [dict(r) for r in cursor.fetchall()]
+
+                # 3. Matchup win rates against other factions (Excluding Mirrors)
+                cursor.execute("""
+                WITH faction_games AS (
+                    SELECT 
+                        player2_faction as opp_faction,
+                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE player1_faction ILIKE %s AND player2_faction IS NOT NULL AND player2_faction != '' 
+                      AND player2_faction != 'Unknown Faction' AND NOT (player2_faction ILIKE %s)
+                    UNION ALL
+                    SELECT 
+                        player1_faction as opp_faction,
+                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE player2_faction ILIKE %s AND player1_faction IS NOT NULL AND player1_faction != '' 
+                      AND player1_faction != 'Unknown Faction' AND is_bye = FALSE AND NOT (player1_faction ILIKE %s)
+                )
+                SELECT 
+                    opp_faction as opponent_faction,
+                    COUNT(*) as total_matches,
+                    SUM(is_win) as wins,
+                    SUM(is_loss) as losses,
+                    SUM(is_draw) as draws,
+                    ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
+                FROM faction_games
+                GROUP BY opp_faction
+                HAVING COUNT(*) >= 1
+                ORDER BY win_rate DESC, total_matches DESC
+                LIMIT 35;
+                """, (f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%"))
+                matchups = [dict(r) for r in cursor.fetchall()]
+
+                # Summary metrics
+                total_m = len(recent_matches)
+                total_w = sum(1 for m in recent_matches if m.get("outcome") == "W")
+                total_l = sum(1 for m in recent_matches if m.get("outcome") == "L")
+                total_d = sum(1 for m in recent_matches if m.get("outcome") == "D")
+
+                return {
+                    "faction": faction_name,
+                    "stats": {
+                        "total_recent_sample": total_m,
+                        "recent_wins": total_w,
+                        "recent_losses": total_l,
+                        "recent_draws": total_d,
+                        "top_player_count": len(top_players)
+                    },
+                    "top_players": top_players,
+                    "matches": recent_matches,
+                    "matchups": matchups
+                }
+
+
+class PostgresConnectionContext:
+    """Manages connection acquisition and release back to ThreadedConnectionPool."""
+    def __init__(self, pool_instance, conn):
+        self.pool = pool_instance
+        self.conn = conn
+
+    def __enter__(self):
+        return self.conn
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if exc_type is not None:
+                self.conn.rollback()
+            else:
+                self.conn.commit()
+        except Exception:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+        finally:
+            self.pool.putconn(self.conn)
+
+
+# Compatibility Aliases
+Database = PostgresDatabase
+
+def get_db(dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs) -> PostgresDatabase:
+    """Returns the active PostgresDatabase instance."""
+    return PostgresDatabase(dsn=dsn)

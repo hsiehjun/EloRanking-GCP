@@ -1,0 +1,63 @@
+# ==============================================================================
+# GOOGLE CLOUD BUILD PIPELINE FOR ELO RANKING
+# ==============================================================================
+steps:
+  # 1. Build container image with caching
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - '-t'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:latest'
+      - '.'
+
+  # 2. Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '$_SERVICE_NAME'
+      - '--image'
+      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+      - '--region'
+      - '$_REGION'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - '$_CLOUDSQL_INSTANCE'
+      - '--set-env-vars'
+      - 'DATABASE_URL=postgresql://$_DB_USER:$_DB_PASS@/$_DB_NAME?host=/cloudsql/$_CLOUDSQL_INSTANCE,CRON_SECRET_KEY=$_CRON_SECRET'
+      - '--memory'
+      - '2Gi'
+      - '--cpu'
+      - '2'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+
+images:
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$COMMIT_SHA'
+  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:latest'
+
+substitutions:
+  _REGION: 'us-central1'
+  _REPO_NAME: 'elo-ranking'
+  _SERVICE_NAME: 'elo-ranking'
+  _CLOUDSQL_INSTANCE: '$PROJECT_ID:us-central1:elo-ranking-db'
+  _DB_NAME: 'elo_ranking'
+  _DB_USER: 'elo_user'
+  _DB_PASS: 'EloSecurePass2026!'
+  _CRON_SECRET: 'wh40k-elo-secret-cron-key'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
