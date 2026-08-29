@@ -744,14 +744,17 @@ if FASTAPI_AVAILABLE:
   </script>
 """
 
-    async def proxy_gdm_asset(rel_path: str) -> Response:
+    async def proxy_gdm_asset(rel_path: str, query: str = "") -> Response:
         """Proxies static chunks, CSS, fonts, and images from upstream GDM with in-memory caching."""
         cache_key = rel_path.lstrip("/")
-        if cache_key in GDM_STATIC_CACHE:
-            body, c_type, hdrs = GDM_STATIC_CACHE[cache_key]
+        full_cache_key = f"{cache_key}?{query}" if query else cache_key
+        if full_cache_key in GDM_STATIC_CACHE:
+            body, c_type, hdrs = GDM_STATIC_CACHE[full_cache_key]
             return Response(content=body, media_type=c_type, headers=hdrs)
 
         url = f"{GDM_UPSTREAM}/{cache_key}"
+        if query:
+            url += f"?{query}"
 
         def _fetch():
             req = urllib.request.Request(
@@ -784,8 +787,8 @@ if FASTAPI_AVAILABLE:
                 "Access-Control-Allow-Origin": "*"
             }
 
-            if "/_next/static/" in cache_key or cache_key.endswith((".woff2", ".png", ".svg", ".ico", ".jpg", ".webp")):
-                GDM_STATIC_CACHE[cache_key] = (content, c_type, hdrs)
+            if "/_next/static/" in cache_key or cache_key.endswith((".woff2", ".png", ".svg", ".ico", ".jpg", ".jpeg", ".webp", ".gif", ".avif")):
+                GDM_STATIC_CACHE[full_cache_key] = (content, c_type, hdrs)
 
             return Response(content=content, media_type=c_type, headers=hdrs)
         except Exception as e:
@@ -877,10 +880,24 @@ if FASTAPI_AVAILABLE:
         query = f"?{request.url.query}" if request.url.query else ""
         return RedirectResponse(url=f"/11th/tracker/play{query}", status_code=303)
 
-    # Dynamic Upstream Next.js Static Asset Streaming
+    # Dynamic Upstream Next.js Static Asset & Image Optimization Streaming
     @app.get("/_next/{path:path}", include_in_schema=False)
-    async def serve_next_assets(path: str):
-        return await proxy_gdm_asset(f"_next/{path}")
+    async def serve_next_assets(path: str, request: Request):
+        return await proxy_gdm_asset(f"_next/{path}", request.url.query)
+
+    # Dynamic Upstream Terrain, Cards, Layouts, and Media Assets
+    @app.get("/terrain/{path:path}", include_in_schema=False)
+    @app.get("/cards/{path:path}", include_in_schema=False)
+    @app.get("/images/{path:path}", include_in_schema=False)
+    @app.get("/icons/{path:path}", include_in_schema=False)
+    @app.get("/assets/{path:path}", include_in_schema=False)
+    @app.get("/svg/{path:path}", include_in_schema=False)
+    @app.get("/factions/{path:path}", include_in_schema=False)
+    @app.get("/data/{path:path}", include_in_schema=False)
+    @app.get("/battlemaster/{path:path}", include_in_schema=False)
+    async def serve_gdm_media_assets(request: Request):
+        rel_path = request.url.path.lstrip("/")
+        return await proxy_gdm_asset(rel_path, request.url.query)
 
     # Dynamic Upstream HTML Pages with Live Bridge Injection
     @app.get("/11th/{path:path}", include_in_schema=False)
@@ -901,7 +918,7 @@ if FASTAPI_AVAILABLE:
     @app.get("/manifest.json", include_in_schema=False)
     @app.get("/favicon.ico", include_in_schema=False)
     async def serve_gdm_brand_asset(request: Request):
-        return await proxy_gdm_asset(request.url.path.lstrip("/"))
+        return await proxy_gdm_asset(request.url.path.lstrip("/"), request.url.query)
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)
