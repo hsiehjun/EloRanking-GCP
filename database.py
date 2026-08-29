@@ -786,8 +786,8 @@ class PostgresDatabase:
                     "total_pages": max(1, (total_count + page_size - 1) // page_size)
                 }
 
-    def get_teams_leaderboard(self, page=1, page_size=25, limit=None, min_members=2, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
-        """Returns paginated power rankings of teams and gaming clubs."""
+    def get_teams_leaderboard(self, page=1, page_size=25, min_members=2, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
+        """Returns paginated power rankings of teams & gaming clubs computed per-match/tournament from event_participants."""
         if limit is not None and limit > 0:
             page_size = limit
         page = max(1, int(page or 1))
@@ -796,55 +796,103 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                where_clauses = ["team IS NOT NULL AND TRIM(team) != ''"]
+                where_query = ""
                 params: List[Any] = []
                 if query:
-                    where_clauses.append("team ILIKE %s")
+                    where_query = "AND ep.team ILIKE %s"
                     params.append(f"%{query}%")
 
-                where_sql = "WHERE " + " AND ".join(where_clauses)
+                allowed_cols = {
+                    "team": "team",
+                    "roster_count": "roster_count",
+                    "avg_elo": "avg_elo",
+                    "top_player_elo": "top_player_elo",
+                    "total_wins": "total_wins",
+                    "total_losses": "total_losses",
+                    "total_draws": "total_draws",
+                    "total_matches": "total_matches",
+                    "team_win_rate": "team_win_rate",
+                    "power_rating": "power_rating"
+                }
+                col = allowed_cols.get(sort_by, "power_rating")
                 dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
 
-                # Count total distinct teams meeting roster threshold
+                # 1. Count distinct teams
+                count_sql = f"""
+                SELECT COUNT(DISTINCT TRIM(team)) as total_count
+                FROM event_participants ep
+                WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
+                {where_query}
+                GROUP BY TRIM(team)
+                HAVING COUNT(DISTINCT player_id) >= %s;
+                """
                 count_params = list(params) + [min_members]
-                cursor.execute(f"""
-                SELECT COUNT(*) as total_count FROM (
-                    SELECT team FROM player_ratings
-                    {where_sql}
-                    GROUP BY team
-                    HAVING COUNT(*) >= %s
-                ) t_sub;
-                """, count_params)
+                cursor.execute(f"SELECT COUNT(*) as total_count FROM ({count_sql}) sub;", count_params)
                 total_count = cursor.fetchone()["total_count"] or 0
 
+                # 2. Main aggregation query
                 sql = f"""
+                WITH team_rosters AS (
+                    SELECT 
+                        TRIM(ep.team) as team_name,
+                        ep.player_id,
+                        COALESCE(MAX(pr.player_name), MAX(ep.full_name), 'Player') as player_name,
+                        COALESCE(MAX(pr.current_elo), 1500.0) as current_elo
+                    FROM event_participants ep
+                    LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                    WHERE ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
+                    {where_query}
+                    GROUP BY TRIM(ep.team), ep.player_id
+                ),
+                team_matches AS (
+                    SELECT 
+                        TRIM(ep.team) as team_name,
+                        m.id as match_id,
+                        (m.winner_id = ep.player_id) as is_win,
+                        (m.loser_id = ep.player_id) as is_loss,
+                        m.is_draw
+                    FROM event_participants ep
+                    JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id)
+                    WHERE ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
+                    {where_query}
+                      AND m.is_done = TRUE
+                )
                 SELECT 
-                    team,
-                    COUNT(*) as roster_count,
-                    ROUND(AVG(current_elo)::numeric, 1) as avg_elo,
-                    ROUND(MAX(current_elo)::numeric, 1) as top_player_elo,
-                    (ARRAY_AGG(player_name ORDER BY current_elo DESC))[1] as top_player_name,
-                    (ARRAY_AGG(player_id ORDER BY current_elo DESC))[1] as top_player_id,
-                    SUM(wins) as total_wins,
-                    SUM(losses) as total_losses,
-                    SUM(draws) as total_draws,
-                    SUM(matches_played) as total_matches,
-                    ROUND((SUM(wins) * 100.0 / NULLIF(SUM(matches_played), 0))::numeric, 1) as team_win_rate,
+                    tr.team_name as team,
+                    COUNT(DISTINCT tr.player_id) as roster_count,
+                    ROUND(AVG(tr.current_elo)::numeric, 1) as avg_elo,
+                    ROUND(MAX(tr.current_elo)::numeric, 1) as top_player_elo,
+                    (ARRAY_AGG(tr.player_name ORDER BY tr.current_elo DESC))[1] as top_player_name,
+                    (ARRAY_AGG(tr.player_id ORDER BY tr.current_elo DESC))[1] as top_player_id,
+                    COALESCE(m_stat.wins, 0) as total_wins,
+                    COALESCE(m_stat.losses, 0) as total_losses,
+                    COALESCE(m_stat.draws, 0) as total_draws,
+                    COALESCE(m_stat.total_matches, 0) as total_matches,
+                    ROUND((COALESCE(m_stat.wins, 0) * 100.0 / NULLIF(COALESCE(m_stat.total_matches, 0), 0))::numeric, 1) as team_win_rate,
                     ROUND((
-                        0.70 * AVG(current_elo) +
-                        0.30 * MAX(current_elo) +
-                        1.5 * ((SUM(wins) * 100.0 / NULLIF(SUM(matches_played), 0)) - 50.0) +
-                        30.0 * LOG(GREATEST(1.0, COUNT(*)::numeric))
+                        0.70 * AVG(tr.current_elo) +
+                        0.30 * MAX(tr.current_elo) +
+                        1.5 * ((COALESCE(m_stat.wins, 0) * 100.0 / NULLIF(COALESCE(m_stat.total_matches, 0), 0)) - 50.0) +
+                        30.0 * LOG(GREATEST(1.0, COUNT(DISTINCT tr.player_id)::numeric))
                     )::numeric, 1) as power_rating
-                FROM player_ratings
-                {where_sql}
-                GROUP BY team
-                HAVING COUNT(*) >= %s
-                ORDER BY {sort_by} {dir_str}, roster_count DESC
+                FROM team_rosters tr
+                LEFT JOIN (
+                    SELECT 
+                        team_name,
+                        COUNT(*) as total_matches,
+                        SUM(CASE WHEN is_win THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN is_loss THEN 1 ELSE 0 END) as losses,
+                        SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws
+                    FROM team_matches
+                    GROUP BY team_name
+                ) m_stat ON tr.team_name = m_stat.team_name
+                GROUP BY tr.team_name, m_stat.wins, m_stat.losses, m_stat.draws, m_stat.total_matches
+                HAVING COUNT(DISTINCT tr.player_id) >= %s
+                ORDER BY {col} {dir_str} NULLS LAST, roster_count DESC
                 LIMIT %s OFFSET %s;
                 """
-                params.extend([min_members, page_size, offset])
-                cursor.execute(sql, params)
+                main_params = list(params) + list(params) + [min_members, page_size, offset]
+                cursor.execute(sql, main_params)
                 rows = [dict(r) for r in cursor.fetchall()]
 
                 return {
@@ -855,25 +903,39 @@ class PostgresDatabase:
                     "total_pages": max(1, (total_count + page_size - 1) // page_size)
                 }
 
-
     def get_team_roster(self, team_name: str) -> Dict[str, Any]:
-        """Returns full member roster for a specific team."""
+        """Returns full member roster and historical tournament record for a specific team."""
+        team_name = team_name.strip()
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
-                SELECT player_id, player_name, current_elo, peak_elo,
-                       matches_played, wins, losses, draws, win_rate, top_faction, last_active_date
-                FROM player_ratings
-                WHERE team = %s
-                ORDER BY current_elo DESC;
+                SELECT 
+                    ep.player_id, 
+                    COALESCE(MAX(pr.player_name), MAX(ep.full_name), 'Player') as player_name,
+                    COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
+                    COALESCE(MAX(pr.peak_elo), 1500.0) as peak_elo,
+                    COALESCE(MAX(pr.top_faction), MAX(ep.faction), 'Unknown') as top_faction,
+                    COUNT(m.id) as matches_played,
+                    SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) as wins,
+                    SUM(CASE WHEN m.loser_id = ep.player_id THEN 1 ELSE 0 END) as losses,
+                    SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as draws,
+                    ROUND((SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(m.id), 0))::numeric, 1) as win_rate,
+                    MAX(e.event_date) as last_active_date
+                FROM event_participants ep
+                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                LEFT JOIN events e ON ep.event_id = e.id
+                LEFT JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id) AND m.is_done = TRUE
+                WHERE TRIM(ep.team) ILIKE %s
+                GROUP BY ep.player_id
+                ORDER BY current_elo DESC NULLS LAST;
                 """, (team_name,))
                 roster = [dict(r) for r in cursor.fetchall()]
                 if not roster:
                     return {"team": team_name, "roster": [], "stats": {}}
 
-                total_matches = sum(p["matches_played"] for p in roster)
-                total_wins = sum(p["wins"] for p in roster)
-                total_losses = sum(p["losses"] for p in roster)
+                total_matches = sum(p["matches_played"] or 0 for p in roster)
+                total_wins = sum(p["wins"] or 0 for p in roster)
+                total_losses = sum(p["losses"] or 0 for p in roster)
                 avg_elo = round(sum(p["current_elo"] for p in roster) / len(roster), 1)
                 top_elo = roster[0]["current_elo"] if roster else 1500.0
                 win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0

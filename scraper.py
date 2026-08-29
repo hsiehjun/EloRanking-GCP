@@ -317,7 +317,9 @@ class BestCoastPairingsScraper:
                 team_name = (
                     p.get("team") or p.get("teamName") or 
                     user.get("team") or user.get("teamName") or 
-                    p.get("club") or user.get("club") or ""
+                    p.get("club") or user.get("club") or 
+                    p.get("gamingClub") or user.get("gamingClub") or 
+                    p.get("clubName") or user.get("clubName") or ""
                 )
                 if isinstance(team_name, dict):
                     team_name = team_name.get("name") or team_name.get("teamName") or ""
