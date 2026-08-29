@@ -631,7 +631,7 @@
         const factionSubtitle = (p1F || p2F) ? `<span style="font-size:11px; color:#94a3b8; margin-left:4px;">(${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')})</span>` : '';
 
         return `
-          <div onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#090d18; border:1px solid #1e293b; border-radius:12px; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:border-color 0.2s; box-sizing:border-box;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
+          <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#090d18; border:1px solid #1e293b; border-radius:12px; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
             <div style="min-width:0; flex:1;">
               <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
                 <b style="color:#f8fafc; font-size:13px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
@@ -645,13 +645,16 @@
                 <span>${dateStr}</span>
               </div>
             </div>
-            <div style="display:flex; align-items:center; gap:12px; margin-left:12px;">
+            <div style="display:flex; align-items:center; gap:10px; margin-left:12px;">
               <span style="font-size:14px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
                 ${p1S} - ${p2S}
               </span>
               <span style="background:${isDone ? '#10b981' : '#f59e0b'}; color:#0f172a; font-weight:800; font-size:11px; padding:5px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
                 ${isDone ? (winner ? `${escapeHtml(winner)} WON` : 'FINAL') : 'RESUME ➔'}
               </span>
+              <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:4px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
         `;
@@ -662,6 +665,39 @@
     const obs = new MutationObserver(tryRender);
     obs.observe(document.body, { childList: true, subtree: true });
   }
+
+  // Soft Delete: Hide tracker game for current user
+  window.__gdmHideTrackerGame = async function(matchId, cardEl) {
+    if (!matchId) return;
+    if (!confirm(`Hide match #${matchId} from your personal history?\n\n(Note: This will only hide it from your view. The match remains safely preserved in the database for the other player.)`)) {
+      return;
+    }
+
+    if (cardEl) {
+      cardEl.style.transition = 'opacity 0.25s, transform 0.25s';
+      cardEl.style.opacity = '0';
+      cardEl.style.transform = 'translateX(20px)';
+      setTimeout(() => { cardEl.remove(); }, 260);
+    }
+
+    try {
+      const token = getAuthToken();
+      await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/hide`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ token: token, match_id: matchId })
+      });
+
+      // Update local cache
+      dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
+      originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
+    } catch (err) {
+      console.error('[GDM Sync] Error hiding game:', err);
+    }
+  };
 
   // Comprehensive 40k Factions Directory for bulletproof DOM recognition
   const KNOWN_40K_FACTIONS = [

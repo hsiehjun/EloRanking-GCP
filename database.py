@@ -313,6 +313,7 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS hidden_user_ids TEXT[] DEFAULT '{}';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS state_json JSONB;",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);",
@@ -1960,7 +1961,7 @@ class PostgresDatabase:
                 return None
 
     def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns recent persistent tracker games, optionally filtered by player user_id."""
+        """Returns recent persistent tracker games, optionally filtered by player user_id and excluding soft-deleted games."""
         def do_query():
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -1979,6 +1980,8 @@ class PostgresDatabase:
                     if user_id:
                         conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
                         params.extend([user_id, user_id])
+                        conditions.append("NOT (%s = ANY(COALESCE(hidden_user_ids, '{}')))")
+                        params.append(user_id)
                         
                     if search:
                         conditions.append("(match_id ILIKE %s OR p1_name ILIKE %s OR p2_name ILIKE %s)")
@@ -2010,6 +2013,40 @@ class PostgresDatabase:
             except Exception as err:
                 logger.error(f"Error fetching tracker history: {err}")
                 return []
+
+    def hide_tracker_game_for_user(self, match_id: str, user_id: str) -> bool:
+        """Soft-deletes/hides a tracker game for a specific user without affecting opponents/referees."""
+        if not match_id or not user_id:
+            return False
+        match_id = match_id.strip().upper()
+        self.ensure_tracker_table()
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                UPDATE tracker_games
+                SET hidden_user_ids = ARRAY(
+                    SELECT DISTINCT unnest(COALESCE(hidden_user_ids, '{}') || ARRAY[%s::TEXT])
+                )
+                WHERE match_id = %s;
+                """, (user_id, match_id))
+            conn.commit()
+        return True
+
+    def unhide_tracker_game_for_user(self, match_id: str, user_id: str) -> bool:
+        """Unhides a tracker game for a specific user."""
+        if not match_id or not user_id:
+            return False
+        match_id = match_id.strip().upper()
+        self.ensure_tracker_table()
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                UPDATE tracker_games
+                SET hidden_user_ids = array_remove(COALESCE(hidden_user_ids, '{}'), %s::TEXT)
+                WHERE match_id = %s;
+                """, (user_id, match_id))
+            conn.commit()
+        return True
 
 
 class PostgresConnectionContext:

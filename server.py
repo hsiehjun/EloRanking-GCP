@@ -598,6 +598,34 @@ if FASTAPI_AVAILABLE:
             logger.error(f"Error fetching tracker history: {err}")
             return {"success": False, "history": []}
 
+    @app.post("/api/tracker/room/{match_id}/hide", summary="Soft-delete/hide a game from the user's personal history")
+    async def api_tracker_hide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
+        match_id = normalize_tracker_match_id(match_id)
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required to hide game")
+        
+        db = get_database()
+        success = db.hide_tracker_game_for_user(match_id, user["id"])
+        return {"success": success, "match_id": match_id, "hidden_for_user": user["id"]}
+
+    @app.post("/api/tracker/room/{match_id}/unhide", summary="Unhide a game in the user's personal history")
+    async def api_tracker_unhide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
+        match_id = normalize_tracker_match_id(match_id)
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required to unhide game")
+        
+        db = get_database()
+        success = db.unhide_tracker_game_for_user(match_id, user["id"])
+        return {"success": success, "match_id": match_id, "unhidden_for_user": user["id"]}
+
     @app.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
     async def api_tracker_debug_test_save():
         import traceback
@@ -713,8 +741,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=8.9">
-  <script src="/tracker/tracker_sync.js?v=8.9"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=9.0">
+  <script src="/tracker/tracker_sync.js?v=9.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;
