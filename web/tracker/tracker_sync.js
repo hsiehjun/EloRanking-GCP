@@ -242,9 +242,14 @@
 
   // 4. Landing Page: Inject Mobile-Friendly 2-Player Room Key Generator & Join Card
   function injectLobbyHub() {
-    const observer = new MutationObserver(() => {
-      const newGameBtn = document.querySelector('button:has(svg.lucide-plus), button[class*="New Game"]');
-      if (newGameBtn && !document.getElementById('gt-lobby-hub-card')) {
+    function tryInject() {
+      const existing = document.getElementById('gt-lobby-hub-card');
+      if (existing && document.body.contains(existing)) return;
+
+      const buttons = Array.from(document.querySelectorAll('button'));
+      const newGameBtn = buttons.find(b => b.textContent && b.textContent.includes('New Game')) || document.querySelector('button:has(svg)');
+
+      if (newGameBtn) {
         newGameBtn.style.display = 'none'; // Replace with comprehensive 2-player lobby card
 
         const lobbyCard = document.createElement('div');
@@ -287,20 +292,13 @@
             </div>
           </div>
         `;
-                <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
-                <p style="font-size:11px; color:#94a3b8; margin:0 0 10px;">Enter the 8-character Room Key provided by your opponent.</p>
-              </div>
-              <div>
-                <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
-                <div style="display:flex; gap:8px;">
-                  <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f8fafc; outline:none; text-transform:uppercase;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                  <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">JOIN</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        `;
         newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
+      }
+    }
+
+    tryInject();
+    const observer = new MutationObserver(tryInject);
+    observer.observe(document.body, { childList: true, subtree: true });
 
         window.__handleCreateRoom = async function () {
           try {

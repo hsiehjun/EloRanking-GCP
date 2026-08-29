@@ -242,13 +242,22 @@ if FASTAPI_AVAILABLE:
         version: int = 1
         state: Dict[str, Any]
 
+    def normalize_tracker_match_id(raw: str) -> str:
+        s = raw.strip().upper().replace(" ", "")
+        if s.startswith("WH40K-"):
+            return s
+        s_clean = s.replace("-", "")
+        if len(s_clean) == 8:
+            return f"WH40K-{s_clean[:4]}-{s_clean[4:]}"
+        return s
+
     @app.post("/api/tracker/room/create", summary="Create a new collision-free multiplayer match room with host player")
     async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
         db = get_database()
         auth_mgr = get_auth_manager()
         
         auth_header = request.headers.get("Authorization", "")
-        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         
         match_id = generate_unique_match_id(db)
@@ -319,9 +328,7 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
     async def api_tracker_check_room(match_id: str, request: Request):
-        match_id = match_id.strip().upper()
-        if not match_id.startswith("WH40K-") and len(match_id) == 8:
-            match_id = f"WH40K-{match_id[:4]}-{match_id[4:]}"
+        match_id = normalize_tracker_match_id(match_id)
             
         db = get_database()
         auth_mgr = get_auth_manager()
@@ -364,7 +371,7 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
     async def api_tracker_join_room(match_id: str, request: Request, payload: Optional[TrackerJoinPayload] = None):
-        match_id = match_id.upper()
+        match_id = normalize_tracker_match_id(match_id)
         db = get_database()
         auth_mgr = get_auth_manager()
         
@@ -456,7 +463,7 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")
     async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
-        match_id = match_id.upper()
+        match_id = normalize_tracker_match_id(match_id)
         db = get_database()
         auth_mgr = get_auth_manager()
         
@@ -537,7 +544,7 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/api/tracker/room/{match_id}", summary="Get current match room state")
     async def api_tracker_get_state(match_id: str):
-        match_id = match_id.upper()
+        match_id = normalize_tracker_match_id(match_id)
         if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
             return TRACKER_ROOMS[match_id]
         
@@ -580,7 +587,7 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
     async def api_tracker_stream(match_id: str, client_id: str = "anon"):
-        match_id = match_id.upper()
+        match_id = normalize_tracker_match_id(match_id)
         q = asyncio.Queue()
         if match_id not in TRACKER_LISTENERS:
             TRACKER_LISTENERS[match_id] = []
