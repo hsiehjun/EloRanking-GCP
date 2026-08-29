@@ -1016,11 +1016,21 @@ class PostgresDatabase:
                         except Exception:
                             pass
 
-                    tp = max(enrolled, cap)
-                    if tp >= 60:
+                    # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major
+                    rounds = int(r.get("num_rounds") or 0)
+                    if rounds == 0:
+                        name_lower = (r.get("name") or "").lower()
+                        if "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
+                            rounds = 7
+                        elif "gt" in name_lower or "grand tournament" in name_lower or "open" in name_lower:
+                            rounds = 5
+                        else:
+                            rounds = 3
+
+                    if rounds >= 7:
                         r["tier"] = "Major"
                         r["tier_badge"] = "tier-S"
-                    elif tp >= 24:
+                    elif rounds >= 4:
                         r["tier"] = "Grand Tournament"
                         r["tier_badge"] = "tier-A"
                     else:

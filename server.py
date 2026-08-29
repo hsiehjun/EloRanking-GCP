@@ -432,12 +432,21 @@ if FASTAPI_AVAILABLE:
                 except Exception:
                     pass
 
-            # Tier
-            tp = max(enrolled, cap)
-            if tp >= 60:
+            # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major
+            rounds = int(ev.get("numberOfRounds") or ev.get("numRounds") or ev.get("numberOf_rounds") or ev.get("rounds") or 0)
+            if rounds == 0:
+                name_lower = ev_name.lower()
+                if "major" in name_lower or "super major" in name_lower or "championship" in name_lower:
+                    rounds = 7
+                elif "gt" in name_lower or "grand tournament" in name_lower or "open" in name_lower:
+                    rounds = 5
+                else:
+                    rounds = 3
+
+            if rounds >= 7:
                 tier = "Major"
                 tier_badge = "tier-S"
-            elif tp >= 24:
+            elif rounds >= 4:
                 tier = "Grand Tournament"
                 tier_badge = "tier-A"
             else:
