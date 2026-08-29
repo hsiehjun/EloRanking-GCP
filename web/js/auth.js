@@ -4,10 +4,15 @@
 
 let currentUser = null;
 
+function getCookieToken() {
+  const match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
+  return match ? match[2] : null;
+}
+
 // Synchronously restore user from localStorage immediately
 try {
   const cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
-  const token = localStorage.getItem('native_session_token') || localStorage.getItem('bcp_session_token');
+  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
   if (cached && token) {
     currentUser = JSON.parse(cached);
   }
@@ -16,21 +21,23 @@ try {
 }
 
 async function initAuth() {
-  const token = localStorage.getItem('native_session_token') || localStorage.getItem('bcp_session_token');
+  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
   if (!token) {
     currentUser = null;
     return;
   }
 
   try {
-    const res = await window.api.getAuthMe();
+    const res = await window.api.getAuthMe(token);
     if (res && res.authenticated && res.user) {
       currentUser = res.user;
       localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
       localStorage.setItem('native_session_token', token);
+      localStorage.setItem('elo_auth_token', token);
     } else {
       currentUser = null;
       localStorage.removeItem('native_session_token');
+      localStorage.removeItem('elo_auth_token');
       localStorage.removeItem('native_user_profile');
     }
   } catch (e) {

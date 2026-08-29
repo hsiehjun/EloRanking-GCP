@@ -27,6 +27,11 @@ function switchTab(tabName) {
   else if (tabName === 'players') loadPlayersDirectory();
   else if (tabName === 'factions') loadFactionMeta();
   else if (tabName === 'my-hub') {
+    const hasToken = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || (document.cookie.includes('session_token='));
+    if (!currentUser && !hasToken) {
+      window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');
+      return;
+    }
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   }
 }
@@ -98,5 +103,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     await initAuth();
   }
   loadGlobalStats();
-  loadLeaderboard();
+
+  const params = new URLSearchParams(window.location.search);
+  const targetTab = params.get('tab') || (window.location.hash ? window.location.hash.replace('#', '') : null);
+  if (targetTab) {
+    switchTab(targetTab);
+  } else {
+    loadLeaderboard();
+  }
 });

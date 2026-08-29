@@ -8,57 +8,12 @@ async function loadMyHubDashboard() {
   const container = document.getElementById('my-hub-content');
   if (!container) return;
 
-  if (!currentUser && (localStorage.getItem('native_session_token') || localStorage.getItem('bcp_session_token'))) {
+  if (!currentUser && (localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || (document.cookie.includes('session_token=')))) {
     if (typeof initAuth === 'function') await initAuth();
   }
 
   if (!currentUser) {
-    container.innerHTML = `
-      <div style="max-width: 440px; margin: 2rem auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: 0 8px 24px rgba(0,0,0,0.4);">
-        
-        <div style="display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 1.25rem;">
-          <button id="auth-tab-btn-login" class="login-tab-btn active" onclick="setAuthCardTab('login')">Sign In</button>
-          <button id="auth-tab-btn-register" class="login-tab-btn" onclick="setAuthCardTab('register')">Create Account</button>
-        </div>
-
-        <!-- Tab 1: Native Sign In -->
-        <form id="auth-form-login" onsubmit="handleNativeLogin(event)">
-          <div style="margin-bottom: 1rem;">
-            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Email Address</label>
-            <input type="email" id="login-email" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="e.g. competitor@example.com" required>
-          </div>
-          <div style="margin-bottom: 1.25rem;">
-            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Password</label>
-            <input type="password" id="login-password" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="••••••••••••" required>
-          </div>
-          <div id="login-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.5rem; background: rgba(239,68,68,0.1); border-radius: 6px;"></div>
-          <button type="submit" id="login-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.7rem; font-size: 0.92rem;">
-            Sign In to My Hub
-          </button>
-        </form>
-
-        <!-- Tab 2: Native Create Account -->
-        <form id="auth-form-register" style="display: none;" onsubmit="handleNativeRegister(event)">
-          <div style="margin-bottom: 0.85rem;">
-            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Player Name</label>
-            <input type="text" id="reg-name" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="e.g. John Hsieh" required>
-          </div>
-          <div style="margin-bottom: 0.85rem;">
-            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Email Address</label>
-            <input type="email" id="reg-email" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="e.g. competitor@example.com" required>
-          </div>
-          <div style="margin-bottom: 1.25rem;">
-            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Password (6+ chars)</label>
-            <input type="password" id="reg-password" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="••••••••••••" minlength="6" required>
-          </div>
-          <div id="reg-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.5rem; background: rgba(239,68,68,0.1); border-radius: 6px;"></div>
-          <button type="submit" id="reg-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.7rem; font-size: 0.92rem;">
-            Create Free Account
-          </button>
-        </form>
-
-      </div>
-    `;
+    window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');
     return;
   }
 

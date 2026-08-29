@@ -606,6 +606,17 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(login_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="login.html not found")
 
+    @app.get("/my-hub", include_in_schema=False)
+    @app.get("/hub", include_in_schema=False)
+    async def serve_my_hub(request: Request, token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return RedirectResponse(url="/login?redirect=/?tab=my-hub", status_code=303)
+        return RedirectResponse(url="/?tab=my-hub", status_code=303)
+
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
     @app.get("/tracker/index.html", include_in_schema=False)
