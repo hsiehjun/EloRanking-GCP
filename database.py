@@ -35,8 +35,25 @@ class PostgresDatabase:
         if not PSYCOPG2_AVAILABLE:
             raise ImportError("psycopg2 is not installed. Run 'pip install psycopg2-binary' or 'sudo apt install python3-psycopg2'.")
 
-        self.dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:elo_password@localhost:5432/elo_ranking"
+        raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:elo_password@localhost:5432/elo_ranking"
         
+        # Robustly convert Cloud SQL Unix socket URI to keyword DSN expected by libpq
+        if "/cloudsql/" in raw_dsn:
+            try:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(raw_dsn)
+                qs = urllib.parse.parse_qs(parsed.query)
+                host = qs.get("host", [""])[0] or (f"/cloudsql/{parsed.hostname}" if parsed.hostname else "")
+                dbname = parsed.path.lstrip("/") or "elo_ranking"
+                user = parsed.username or "elo_user"
+                password = parsed.password or ""
+                self.dsn = f"dbname={dbname} user={user} password={password} host={host}"
+            except Exception as e:
+                logger.warning(f"Error normalizing Cloud SQL DSN: {e}")
+                self.dsn = raw_dsn
+        else:
+            self.dsn = raw_dsn
+
         if PostgresDatabase._pool is None:
             try:
                 PostgresDatabase._pool = pool.ThreadedConnectionPool(
@@ -46,7 +63,7 @@ class PostgresDatabase:
                 )
                 logger.info(f"PostgreSQL connection pool initialized with DSN: {self._sanitize_dsn(self.dsn)}")
             except Exception as e:
-                logger.error(f"Failed to connect to PostgreSQL pool: {e}")
+                logger.error(f"Failed to connect to PostgreSQL pool ({self._sanitize_dsn(self.dsn)}): {e}")
                 raise
 
         if not PostgresDatabase._db_initialized:
