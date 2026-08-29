@@ -251,41 +251,62 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
     async def api_event_details(event_id: str):
         db = get_database()
-        event_details = db.get_event_details(event_id.strip())
-        if event_details and len(event_details.get("players", [])) == 0:
-            # On-demand roster fetch for in-progress tournaments
+        event_id_str = event_id.strip()
+        event_details = db.get_event_details(event_id_str)
+        players = event_details.get("players", []) if event_details else []
+        has_placements = any(p.get("placement") is not None and p.get("placement") > 0 for p in players)
+
+        # If roster is empty OR legacy tournament without official BCP placements, sync on-demand from BCP
+        if not players or not has_placements:
             try:
                 scraper = BestCoastPairingsScraper(db=db)
-                enrolled = scraper.fetch_event_players(event_id)
+                enrolled = scraper.fetch_event_players(event_id_str)
                 if enrolled:
                     for p in enrolled:
                         user = p.get("user") or {}
-                        user_id = user.get("id") or p.get("userId") or p.get("user_id") or p.get("id")
-                        if not user_id:
-                            continue
-                        first_name = user.get("firstName") or p.get("firstName") or ""
-                        last_name = user.get("lastName") or p.get("lastName") or ""
-                        full_name = f"{first_name} {last_name}".strip() or p.get("name") or user.get("name") or "Player"
-                        
-                        faction_obj = p.get("faction") or p.get("parentFaction") or ""
-                        faction_name = faction_obj.get("name", "") if isinstance(faction_obj, dict) else str(faction_obj or "")
-                        team_obj = p.get("team") or ""
-                        team_name = team_obj.get("name", "") if isinstance(team_obj, dict) else str(team_obj or "")
+                        u_id = user.get("id") or p.get("userId") or p.get("id")
+                        if u_id:
+                            f_name = user.get("firstName") or p.get("firstName") or ""
+                            l_name = user.get("lastName") or p.get("lastName") or ""
+                            full_name = f"{f_name} {l_name}".strip() or p.get("name") or "Player"
+                            faction_obj = p.get("faction") or p.get("parentFaction") or ""
+                            faction_name = faction_obj.get("name", "") if isinstance(faction_obj, dict) else str(faction_obj or "")
+                            team_name = p.get("team") or p.get("teamName") or user.get("team") or ""
+                            if isinstance(team_name, dict):
+                                team_name = team_name.get("name") or ""
+                            
+                            raw_place = p.get("placing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
+                            placing_num = None
+                            if raw_place is not None:
+                                try:
+                                    placing_num = int(raw_place)
+                                except (ValueError, TypeError):
+                                    pass
 
-                        db.upsert_player(user_id, first_name, last_name, full_name, team_name)
-                        db.upsert_event_participant(
-                            event_id=event_id,
-                            player_id=user_id,
-                            first_name=first_name,
-                            last_name=last_name,
-                            full_name=full_name,
-                            faction=faction_name,
-                            dropped=bool(p.get("dropped")),
-                            checked_in=bool(p.get("checkedIn"))
-                        )
-                    event_details = db.get_event_details(event_id.strip())
+                            raw_pts = p.get("points") or p.get("battlePoints") or p.get("totalPoints")
+                            pts_num = None
+                            if raw_pts is not None:
+                                try:
+                                    pts_num = int(raw_pts)
+                                except (ValueError, TypeError):
+                                    pass
+
+                            db.upsert_event_participant(
+                                event_id=event_id_str,
+                                player_id=u_id,
+                                first_name=f_name,
+                                last_name=l_name,
+                                full_name=full_name,
+                                faction=faction_name,
+                                team=str(team_name).strip(),
+                                dropped=bool(p.get("dropped")),
+                                checked_in=bool(p.get("checkedIn")),
+                                placement=placing_num,
+                                battle_points=pts_num
+                            )
+                    event_details = db.get_event_details(event_id_str)
             except Exception as e:
-                logger.warning(f"On-demand roster fetch failed for {event_id}: {e}")
+                logger.warning(f"Failed to auto-sync BCP placings for event {event_id_str}: {e}")
 
         return event_details
 
