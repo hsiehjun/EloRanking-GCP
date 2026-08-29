@@ -1,103 +1,432 @@
-<!DOCTYPE html><html lang="en"><head>
-  <!-- PRE-SEED ACTIVE 11TH GAME STATE FOR DIRECT PLAY -->
-  <script>
-    (function() {
-      try {
-        var existing = localStorage.getItem('gdm-11e-tracker-state');
-        if (!existing || existing === '{}' || existing === 'null') {
-          var initDeck = [
-            "a-grievous-blow", "a-tempting-target", "assassination", "beacon",
-            "behind-enemy-lines", "bring-it-down", "burden-of-trust", "centre-ground",
-            "cleanse", "containment", "cull-the-horde", "defend-stronghold",
-            "deploy-teleport-homers", "disruption", "engage-on-all-fronts",
-            "extend-battle-lines", "marked-for-death", "no-prisoners", "overwhelming-force",
-            "raise-banners", "sabotage", "secure-no-mans-land", "storm-hostile-objective"
-          ];
-          var initialGame = {
-            id: "g-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7),
-            game: {
-              p1Name: "Player 1",
-              p2Name: "Player 2",
-              p1Faction: null,
-              p2Faction: null,
-              p1Detachments: [],
-              p2Detachments: [],
-              p1Disposition: null,
-              p2Disposition: null,
-              p1Primary: null,
-              p2Primary: null,
-              p1Role: "attacker",
-              p2Role: "defender",
-              p1MissionType: null,
-              p2MissionType: null,
-              rollOffWinner: 1,
-              firstTurn: 1,
-              deployment: "search-and-destroy",
-              terrainLayout: null
-            },
-            p1: {
-              deck: { available: initDeck.slice() },
-              hand: [],
-              rounds: [
-                { primaryScore: 0 },
-                { primaryScore: 0 },
-                { primaryScore: 0 },
-                { primaryScore: 0 },
-                { primaryScore: 0 }
-              ],
-              cp: 1,
-              battleReady: true,
-              currentRound: 1
-            },
-            p2: {
-              deck: { available: initDeck.slice() },
-              hand: [],
-              rounds: [
-                { primaryScore: 0 },
-                { primaryScore: 0 },
-                { primaryScore: 0 },
-                { primaryScore: 0 },
-                { primaryScore: 0 }
-              ],
-              cp: 1,
-              battleReady: true,
-              currentRound: 1
-            },
-            round: 1,
-            started: true
-          };
-          localStorage.setItem('gdm-11e-tracker-state', JSON.stringify(initialGame));
-          localStorage.setItem('gdm-11e-tracker-settings', JSON.stringify({
-            defaultName: "",
-            defaultFaction: null,
-            defaultDetachments: [],
-            trackCP: true,
-            showScoreGroups: true
-          }));
-        }
-      } catch(e) {
-        console.warn('Pre-seed notice:', e);
-      }
-    })();
-  </script>
-<meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><link rel="preload" href="/_next/static/media/3d26d2f3aa81a833-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/4b657decd6407698-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/558ca1a6aa3cb55e-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/60c9b95e8d9e49be-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/61d96c4884191721-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/6ad0344ed98ac2e9-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/6e1768769e6f59a2-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/ab2e3a11646b0499-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" href="/_next/static/media/b0bb26939bb40fdb-s.p.woff2" as="font" crossorigin="" type="font/woff2"/><link rel="preload" as="image" href="/logo-mark.svg"/><link rel="stylesheet" href="/_next/static/css/e0229c27516cacab.css" data-precedence="next"/><link rel="stylesheet" href="/_next/static/css/9f99d55fbe42acec.css" data-precedence="next"/><link rel="stylesheet" href="/_next/static/css/32ff1ff2177a7837.css" data-precedence="next"/><link rel="preload" as="script" fetchPriority="low" href="/_next/static/chunks/webpack-45d1bdc6c41966dc.js"/><script src="/_next/static/chunks/4bd1b696-bbeab23ee0fdabb1.js" async=""></script><script src="/_next/static/chunks/1684-27ec063aa0ccfae7.js" async=""></script><script src="/_next/static/chunks/main-app-ab2e903fedf02b6f.js" async=""></script><script src="/_next/static/chunks/44530001-ef73aac55ed7e630.js" async=""></script><script src="/_next/static/chunks/4277-9390ae7f84a2686d.js" async=""></script><script src="/_next/static/chunks/3441-91609d42899ffea9.js" async=""></script><script src="/_next/static/chunks/9689-8d63a7c84c894d2d.js" async=""></script><script src="/_next/static/chunks/4434-78093e6ddc3e3a83.js" async=""></script><script src="/_next/static/chunks/7764-28403c2683464344.js" async=""></script><script src="/_next/static/chunks/395-b5ae49a1180f50f1.js" async=""></script><script src="/_next/static/chunks/app/layout-1218884c4d5c10bf.js" async=""></script><script src="/_next/static/chunks/6874-daba28aa3eeced5f.js" async=""></script><script src="/_next/static/chunks/1619-3023e1cb7c6e6c49.js" async=""></script><script src="/_next/static/chunks/4531-d9829bad287c8103.js" async=""></script><script src="/_next/static/chunks/897-62aea33284b9270b.js" async=""></script><script src="/_next/static/chunks/app/11th/layout-6584b0be19dba72d.js" async=""></script><script src="/_next/static/chunks/app/not-found-f92247c8f5a300fd.js" async=""></script><script src="/_next/static/chunks/6002-659ffa9e485b6036.js" async=""></script><script src="/_next/static/chunks/5526-3d54ffe848a767d2.js" async=""></script><script src="/_next/static/chunks/5928-f8de61758fbfd31e.js" async=""></script><script src="/_next/static/chunks/app/11th/tracker/layout-d32300186d3c7292.js" async=""></script><script src="/_next/static/chunks/5158-192e5d369f0cf015.js" async=""></script><script src="/_next/static/chunks/9534-74fd2df9db3cc8b1.js" async=""></script><script src="/_next/static/chunks/916-2c60a322f2dd71c9.js" async=""></script><script src="/_next/static/chunks/8572-3d461f1e62f39fa6.js" async=""></script><script src="/_next/static/chunks/3420-dd1f11da60ec8d06.js" async=""></script><script src="/_next/static/chunks/app/11th/tracker/play/page-4236e61d214a2e6d.js" async=""></script><meta name="next-size-adjust" content=""/><link rel="manifest" href="/manifest.json"/><meta name="theme-color" content="#f59e0b"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/><meta name="apple-mobile-web-app-title" content="GDM 2026"/><link rel="apple-touch-icon" href="/logo192w.png"/><meta name="theme-color" content="#f59e0b"/><script>try{if(location.pathname==='/'){if(localStorage.getItem('gdm-edition')!=='10th'){location.replace('/11th')}}}catch(e){}</script><script type="application/ld+json">[{"@context":"https://schema.org","@type":"WebSite","name":"GDM 2026","url":"https://gdmissions.app","description":"Browse Warhammer 40,000 mission cards from GDM 2026. Primary missions, secondary missions, challenger cards, twists, deployment zones, and battle layouts.","publisher":{"@type":"Organization","name":"GDM 2026","url":"https://gdmissions.app","logo":{"@type":"ImageObject","url":"https://gdmissions.app/logo512w.png"}}},{"@context":"https://schema.org","@type":"WebApplication","name":"GDM 2026","url":"https://gdmissions.app","applicationCategory":"GameApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Progressive Web App for browsing Warhammer 40K mission cards from GDM 2026."}]</script><title>Play - Game Tracker - 11th Edition | GDM 2026</title><meta name="description" content="Set up and play a game of Warhammer 40,000 11th edition: pick force dispositions, resolve primaries, draw and score secondaries, and track both players&#x27; VP round by round."/><link rel="manifest" href="/manifest.json"/><meta name="robots" content="index, follow"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/><meta name="mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-title" content="GDM 2026"/><meta name="apple-mobile-web-app-status-bar-style" content="default"/><meta property="og:title" content="GDM 2026"/><meta property="og:description" content="Browse Warhammer 40,000 mission cards from GDM 2026. Primary missions, secondary missions, challenger cards, twists, deployment zones, and battle layouts."/><meta property="og:url" content="https://gdmissions.app"/><meta property="og:site_name" content="GDM 2026"/><meta property="og:image" content="https://gdmissions.app/logo512w.png"/><meta property="og:image:width" content="512"/><meta property="og:image:height" content="512"/><meta property="og:image:alt" content="GDM 2026"/><meta property="og:type" content="website"/><meta name="twitter:card" content="summary"/><meta name="twitter:title" content="GDM 2026"/><meta name="twitter:description" content="Browse Warhammer 40,000 mission cards from GDM 2026."/><meta name="twitter:image" content="https://gdmissions.app/logo512w.png"/><link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16"/><script>document.querySelectorAll('body link[rel="icon"], body link[rel="apple-touch-icon"]').forEach(el => document.head.appendChild(el))</script><script src="/_next/static/chunks/polyfills-42372ed130431b0a.js" noModule=""></script></head><body class="__variable_4fe6d1 __variable_52f0b0 __variable_e896d9 antialiased"><script>((e,t,r,n,i,a,s,o)=>{let l=document.documentElement,u=["light","dark"];function c(t){var r;(Array.isArray(e)?e:[e]).forEach(e=>{let r="class"===e,n=r&&a?i.map(e=>a[e]||e):i;r?(l.classList.remove(...n),l.classList.add(a&&a[t]?a[t]:t)):l.setAttribute(e,t)}),r=t,o&&u.includes(r)&&(l.style.colorScheme=r)}if(n)c(n);else try{let e=localStorage.getItem(t)||r,n=s&&"system"===e?window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light":e;c(n)}catch(e){}})("class","theme","system",null,["light","dark"],null,true,true)</script><div class="relative flex min-h-screen flex-col"><a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:border focus:border-border focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:text-foreground focus:shadow-lg">Skip to content</a><div class="hidden md:block"></div><main id="main-content" tabindex="-1" class="flex-1 w-full relative z-[1] outline-none flex flex-col"><div class="py-4"><div class="min-h-[40vh]" aria-hidden="true"></div></div><!--$--><!--/$--><!--$--><!--/$--></main></div><div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-full max-w-[calc(100vw-2rem)] sm:max-w-sm px-4 sm:px-0"></div><script src="/_next/static/chunks/webpack-45d1bdc6c41966dc.js" async=""></script><script>(self.__next_f=self.__next_f||[]).push([0])</script><script>self.__next_f.push([1,"1:\"$Sreact.fragment\"\n2:I[9304,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"ThemeProvider\"]\n3:I[2727,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"GameSetupProvider\"]\n4:I[1134,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"NavbarTitleProvider\"]\n5:I[8739,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"ToastProvider\"]\n6:I[395,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180"])</script><script>self.__next_f.push([1,"f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"AuthProvider\"]\n7:I[5823,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"ServiceWorkerRegistration\"]\n8:I[2209,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"4434\",\"static/chunks/4434-78093e6ddc3e3a83.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"7177\",\"static/chunks/app/layout-1218884c4d5c10bf.js\"],\"UmamiSessionIdentifier\"]\n9:I[7555,[],\"\"]\na:I[1295,[],\"\"]\nb:I[897,[\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"6874\",\"static/chunks/6874-daba28aa3eeced5f.js\",\"1619\",\"static/chunks/1619-3023e1cb7c6e6c49.js\",\"4531\",\"static/chunks/4531-d9829bad287c8103.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"897\",\"static/chunks/897-62aea33284b9270b.js\",\"7890\",\"static/chunks/app/11th/layout-6584b0be19dba72d.js\"],\"SiteLayout\"]\nc:I[6874,[\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"6874\",\"static/chunks/6874-daba28aa3eeced5f.js\",\"1619\",\"static/chunks/1619-3023e1cb7c6e6c49.js\",\"4531\",\"static/chunks/4531-d9829bad287c8103.js\",\"7764\",\"static/chunks/7764-28403c2683464344.js\",\"897\",\"static/chunks/897-62aea33284b9270b.js\",\"4345\",\"static/chunks/app/not-found-f92247c8f5a300fd.js\"],\"\"]\nd:I[5928,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"6002\",\"static/chunks/6002-659ffa9e485b6036.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"5526\",\"static/chunks/5526-3d54ffe848a767d2.js\""])</script><script>self.__next_f.push([1,",\"5928\",\"static/chunks/5928-f8de61758fbfd31e.js\",\"8457\",\"static/chunks/app/11th/tracker/layout-d32300186d3c7292.js\"],\"TrackerProvider\"]\ne:I[6378,[\"5730\",\"static/chunks/44530001-ef73aac55ed7e630.js\",\"4277\",\"static/chunks/4277-9390ae7f84a2686d.js\",\"6874\",\"static/chunks/6874-daba28aa3eeced5f.js\",\"1619\",\"static/chunks/1619-3023e1cb7c6e6c49.js\",\"3441\",\"static/chunks/3441-91609d42899ffea9.js\",\"5158\",\"static/chunks/5158-192e5d369f0cf015.js\",\"9689\",\"static/chunks/9689-8d63a7c84c894d2d.js\",\"9534\",\"static/chunks/9534-74fd2df9db3cc8b1.js\",\"916\",\"static/chunks/916-2c60a322f2dd71c9.js\",\"395\",\"static/chunks/395-b5ae49a1180f50f1.js\",\"5526\",\"static/chunks/5526-3d54ffe848a767d2.js\",\"5928\",\"static/chunks/5928-f8de61758fbfd31e.js\",\"8572\",\"static/chunks/8572-3d461f1e62f39fa6.js\",\"3420\",\"static/chunks/3420-dd1f11da60ec8d06.js\",\"961\",\"static/chunks/app/11th/tracker/play/page-4236e61d214a2e6d.js\"],\"TrackerClient\"]\nf:I[9665,[],\"MetadataBoundary\"]\n11:I[9665,[],\"OutletBoundary\"]\n14:I[4911,[],\"AsyncMetadataOutlet\"]\n16:I[9665,[],\"ViewportBoundary\"]\n18:I[6614,[],\"\"]\n:HL[\"/_next/static/media/3d26d2f3aa81a833-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/4b657decd6407698-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/558ca1a6aa3cb55e-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/60c9b95e8d9e49be-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/61d96c4884191721-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/6ad0344ed98ac2e9-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/6e1768769e6f59a2-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/ab2e3a11646b0499-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/media/b0bb26939bb40fdb-s.p.woff2\",\"font\",{\"crossOrigin\":\"\",\"type\":\"font/woff2\"}]\n:HL[\"/_next/static/css/e0229c27516cacab.css\",\"style\"]\n:HL[\"/_next/static/css/9f99d55fbe42acec."])</script><script>self.__next_f.push([1,"css\",\"style\"]\n:HL[\"/_next/static/css/32ff1ff2177a7837.css\",\"style\"]\n"])</script><script>self.__next_f.push([1,"0:{\"P\":null,\"b\":\"XlUcY5fovCDcxIDLepXFc\",\"p\":\"\",\"c\":[\"\",\"11th\",\"tracker\",\"play\"],\"i\":false,\"f\":[[[\"\",{\"children\":[\"11th\",{\"children\":[\"tracker\",{\"children\":[\"play\",{\"children\":[\"__PAGE__\",{}]}]}]}]},\"$undefined\",\"$undefined\",true],[\"\",[\"$\",\"$1\",\"c\",{\"children\":[[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/e0229c27516cacab.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}],[\"$\",\"link\",\"1\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/9f99d55fbe42acec.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"html\",null,{\"lang\":\"en\",\"suppressHydrationWarning\":true,\"children\":[[\"$\",\"head\",null,{\"children\":[[\"$\",\"script\",null,{\"children\":\"try{if(location.pathname==='/'){if(localStorage.getItem('gdm-edition')!=='10th'){location.replace('/11th')}}}catch(e){}\"}],[\"$\",\"link\",null,{\"rel\":\"manifest\",\"href\":\"/manifest.json\"}],[\"$\",\"meta\",null,{\"name\":\"theme-color\",\"content\":\"#f59e0b\"}],[\"$\",\"meta\",null,{\"name\":\"apple-mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",null,{\"name\":\"apple-mobile-web-app-status-bar-style\",\"content\":\"default\"}],[\"$\",\"meta\",null,{\"name\":\"apple-mobile-web-app-title\",\"content\":\"GDM 2026\"}],[\"$\",\"link\",null,{\"rel\":\"apple-touch-icon\",\"href\":\"/logo192w.png\"}],[\"$\",\"script\",null,{\"type\":\"application/ld+json\",\"dangerouslySetInnerHTML\":{\"__html\":\"[{\\\"@context\\\":\\\"https://schema.org\\\",\\\"@type\\\":\\\"WebSite\\\",\\\"name\\\":\\\"GDM 2026\\\",\\\"url\\\":\\\"https://gdmissions.app\\\",\\\"description\\\":\\\"Browse Warhammer 40,000 mission cards from GDM 2026. Primary missions, secondary missions, challenger cards, twists, deployment zones, and battle layouts.\\\",\\\"publisher\\\":{\\\"@type\\\":\\\"Organization\\\",\\\"name\\\":\\\"GDM 2026\\\",\\\"url\\\":\\\"https://gdmissions.app\\\",\\\"logo\\\":{\\\"@type\\\":\\\"ImageObject\\\",\\\"url\\\":\\\"https://gdmissions.app/logo512w.png\\\"}}},{\\\"@context\\\":\\\"https://schema.org\\\",\\\"@type\\\":\\\"WebApplication\\\",\\\"name\\\":\\\"GDM 2026\\\",\\\"url\\\":\\\"https://gdmissions.app\\\",\\\"applicationCategory\\\":\\\"GameApplication\\\",\\\"operatingSystem\\\":\\\"Any\\\",\\\"offers\\\":{\\\"@type\\\":\\\"Offer\\\",\\\"price\\\":\\\"0\\\",\\\"priceCurrency\\\":\\\"USD\\\"},\\\"description\\\":\\\"Progressive Web App for browsing Warhammer 40K mission cards from GDM 2026.\\\"}]\"}}],[\"$\",\"script\",null,{\"defer\":true,\"src\":\"https://stats.game-datacards.eu/script.js\",\"data-website-id\":\"d77467c4-8a9a-43da-990a-94334e961413\"}]]}],[\"$\",\"body\",null,{\"className\":\"__variable_4fe6d1 __variable_52f0b0 __variable_e896d9 antialiased\",\"children\":[\"$\",\"$L2\",null,{\"attribute\":\"class\",\"defaultTheme\":\"system\",\"enableSystem\":true,\"disableTransitionOnChange\":true,\"children\":[\"$\",\"$L3\",null,{\"children\":[\"$\",\"$L4\",null,{\"children\":[\"$\",\"$L5\",null,{\"children\":[\"$\",\"$L6\",null,{\"children\":[[\"$\",\"$L7\",null,{}],[\"$\",\"$L8\",null,{}],[\"$\",\"$L9\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$La\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":[[\"$\",\"$Lb\",null,{\"children\":[\"$\",\"div\",null,{\"className\":\"flex flex-col items-center justify-center min-h-[60vh] text-center\",\"children\":[[\"$\",\"h1\",null,{\"className\":\"text-6xl font-bold\",\"children\":\"404\"}],[\"$\",\"h2\",null,{\"className\":\"text-2xl mt-4\",\"children\":\"Mission Card Not Found\"}],[\"$\",\"p\",null,{\"className\":\"text-muted-foreground mt-2 max-w-lg\",\"children\":\"The mission card you are looking for doesn't exist in the GDM 2026 database.\"}],[\"$\",\"div\",null,{\"className\":\"mt-8\",\"children\":[\"$\",\"$Lc\",null,{\"href\":\"/\",\"children\":[\"$\",\"button\",null,{\"data-slot\":\"button\",\"className\":\"inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [\u0026_svg]:pointer-events-none [\u0026_svg:not([class*='size-'])]:size-4 shrink-0 [\u0026_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 h-9 px-4 py-2 has-[\u003esvg]:px-3\",\"children\":\"Return to Mission Selection\"}]}]}]]}]}],[]],\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}]}]}]}]}]}]]}]]}],{\"children\":[\"11th\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$Lb\",null,{\"children\":[\"$\",\"$L9\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$La\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]]}],{\"children\":[\"tracker\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$Ld\",null,{\"children\":[\"$\",\"$L9\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$La\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]}]]}],{\"children\":[\"play\",[\"$\",\"$1\",\"c\",{\"children\":[null,[\"$\",\"$L9\",null,{\"parallelRouterKey\":\"children\",\"error\":\"$undefined\",\"errorStyles\":\"$undefined\",\"errorScripts\":\"$undefined\",\"template\":[\"$\",\"$La\",null,{}],\"templateStyles\":\"$undefined\",\"templateScripts\":\"$undefined\",\"notFound\":\"$undefined\",\"forbidden\":\"$undefined\",\"unauthorized\":\"$undefined\"}]]}],{\"children\":[\"__PAGE__\",[\"$\",\"$1\",\"c\",{\"children\":[[\"$\",\"div\",null,{\"className\":\"py-4\",\"children\":[\"$\",\"$Le\",null,{}]}],[\"$\",\"$Lf\",null,{\"children\":\"$L10\"}],[[\"$\",\"link\",\"0\",{\"rel\":\"stylesheet\",\"href\":\"/_next/static/css/32ff1ff2177a7837.css\",\"precedence\":\"next\",\"crossOrigin\":\"$undefined\",\"nonce\":\"$undefined\"}]],[\"$\",\"$L11\",null,{\"children\":[\"$L12\",\"$L13\",[\"$\",\"$L14\",null,{\"promise\":\"$@15\"}]]}]]}],{},null,false]},null,false]},null,false]},null,false]},null,false],[\"$\",\"$1\",\"h\",{\"children\":[null,[\"$\",\"$1\",\"cv9GjZ5lA-LMGEDkUWK2l\",{\"children\":[[\"$\",\"$L16\",null,{\"children\":\"$L17\"}],[\"$\",\"meta\",null,{\"name\":\"next-size-adjust\",\"content\":\"\"}]]}],null]}],false]],\"m\":\"$undefined\",\"G\":[\"$18\",\"$undefined\"],\"s\":false,\"S\":true}\n"])</script><script>self.__next_f.push([1,"19:\"$Sreact.suspense\"\n1a:I[4911,[],\"AsyncMetadata\"]\n10:[\"$\",\"$19\",null,{\"fallback\":null,\"children\":[\"$\",\"$L1a\",null,{\"promise\":\"$@1b\"}]}]\n"])</script><script>self.__next_f.push([1,"13:null\n"])</script><script>self.__next_f.push([1,"17:[[\"$\",\"meta\",\"0\",{\"charSet\":\"utf-8\"}],[\"$\",\"meta\",\"1\",{\"name\":\"viewport\",\"content\":\"width=device-width, initial-scale=1\"}],[\"$\",\"meta\",\"2\",{\"name\":\"theme-color\",\"content\":\"#f59e0b\"}]]\n12:null\n"])</script><script>self.__next_f.push([1,"1b:{\"metadata\":[[\"$\",\"title\",\"0\",{\"children\":\"Play - Game Tracker - 11th Edition | GDM 2026\"}],[\"$\",\"meta\",\"1\",{\"name\":\"description\",\"content\":\"Set up and play a game of Warhammer 40,000 11th edition: pick force dispositions, resolve primaries, draw and score secondaries, and track both players' VP round by round.\"}],[\"$\",\"link\",\"2\",{\"rel\":\"manifest\",\"href\":\"/manifest.json\",\"crossOrigin\":\"$undefined\"}],[\"$\",\"meta\",\"3\",{\"name\":\"robots\",\"content\":\"index, follow\"}],[\"$\",\"meta\",\"4\",{\"name\":\"mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"5\",{\"name\":\"apple-mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"6\",{\"name\":\"apple-mobile-web-app-status-bar-style\",\"content\":\"default\"}],[\"$\",\"meta\",\"7\",{\"name\":\"mobile-web-app-capable\",\"content\":\"yes\"}],[\"$\",\"meta\",\"8\",{\"name\":\"apple-mobile-web-app-title\",\"content\":\"GDM 2026\"}],[\"$\",\"meta\",\"9\",{\"name\":\"apple-mobile-web-app-status-bar-style\",\"content\":\"default\"}],[\"$\",\"meta\",\"10\",{\"property\":\"og:title\",\"content\":\"GDM 2026\"}],[\"$\",\"meta\",\"11\",{\"property\":\"og:description\",\"content\":\"Browse Warhammer 40,000 mission cards from GDM 2026. Primary missions, secondary missions, challenger cards, twists, deployment zones, and battle layouts.\"}],[\"$\",\"meta\",\"12\",{\"property\":\"og:url\",\"content\":\"https://gdmissions.app\"}],[\"$\",\"meta\",\"13\",{\"property\":\"og:site_name\",\"content\":\"GDM 2026\"}],[\"$\",\"meta\",\"14\",{\"property\":\"og:image\",\"content\":\"https://gdmissions.app/logo512w.png\"}],[\"$\",\"meta\",\"15\",{\"property\":\"og:image:width\",\"content\":\"512\"}],[\"$\",\"meta\",\"16\",{\"property\":\"og:image:height\",\"content\":\"512\"}],[\"$\",\"meta\",\"17\",{\"property\":\"og:image:alt\",\"content\":\"GDM 2026\"}],[\"$\",\"meta\",\"18\",{\"property\":\"og:type\",\"content\":\"website\"}],[\"$\",\"meta\",\"19\",{\"name\":\"twitter:card\",\"content\":\"summary\"}],[\"$\",\"meta\",\"20\",{\"name\":\"twitter:title\",\"content\":\"GDM 2026\"}],[\"$\",\"meta\",\"21\",{\"name\":\"twitter:description\",\"content\":\"Browse Warhammer 40,000 mission cards from GDM 2026.\"}],[\"$\",\"meta\",\"22\",{\"name\":\"twitter:image\",\"content\":\"https://gdmissions.app/logo512w.png\"}],[\"$\",\"link\",\"23\",{\"rel\":\"icon\",\"href\":\"/favicon.ico\",\"type\":\"image/x-icon\",\"sizes\":\"16x16\"}]],\"error\":null,\"digest\":\"$undefined\"}\n"])</script><script>self.__next_f.push([1,"15:{\"metadata\":\"$1b:metadata\",\"error\":null,\"digest\":\"$undefined\"}\n"])</script>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Warhammer 40k 11th Edition Game Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/tracker/tracker_play.css?v=3.0">
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=3.0">
+</head>
+<body class="gt-play-body">
+  <div class="gt-play-shell">
 
-  <!-- NEUTRALIZE UPSTREAM SERVICE WORKERS -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (let registration of registrations) {
-          registration.unregister();
-        }
-      });
-      navigator.serviceWorker.register = function() {
-        return Promise.reject(new Error('ServiceWorker neutralized'));
-      };
-    }
-  </script>
+    <!-- ====================================================================
+         1. HOME / DASHBOARD VIEW (/tracker)
+         ==================================================================== -->
+    <div id="view-home-container" style="display: none;">
+      
+      <!-- Top Navigation -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+        <a href="/" class="gt-back-btn" style="font-size: 14px;">❮ Back to Elo Leaderboard</a>
+        <span class="gt-edition-tag">11TH EDITION CORE</span>
+      </div>
 
-  <!-- MULTIPLAYER SYNCHRONIZATION OVERLAY CLIENT -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=2.2">
-  <script src="/tracker/tracker_sync.js?v=2.2"></script>
+      <!-- Hero Header -->
+      <div class="gt-landing-hero">
+        <h1 class="gt-landing-title">GAME TRACKER</h1>
+        <p class="gt-landing-subtitle">
+          Configure army detachments, force dispositions, draw official 11th Edition tactical secondaries, and track live VP across all connected devices in real time.
+        </p>
+
+        <div style="display: flex; justify-content: center; gap: 12px; margin-bottom: 24px; flex-wrap: wrap;">
+          <button class="gt-btn-gold" onclick="startNewGame()" style="font-size: 16px; padding: 12px 28px;">
+            + NEW GAME
+          </button>
+        </div>
+
+        <!-- Join with Room Code -->
+        <div style="display: inline-flex; align-items: center; background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px; padding: 4px 6px; gap: 6px;">
+          <input type="text" id="join-code-input" placeholder="Join Code (e.g. WH40K-7A9B)" style="background: transparent; border: none; color: #fff; padding: 6px 10px; font-family:'JetBrains Mono',monospace; font-size: 13px; outline: none; width: 210px;">
+          <button class="gt-btn-primary" onclick="joinMatchByCode()">Join Room</button>
+        </div>
+      </div>
+
+      <!-- Game History Section -->
+      <div class="gt-history-section">
+        <div class="gt-history-head">
+          <h3>📜 Game History</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Saved Locally & Live Cloud</span>
+        </div>
+        <div id="history-list-wrap" class="gt-history-grid">
+          <!-- Rendered dynamically -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ====================================================================
+         2. PLAY & SETUP VIEW (/tracker/play?match_id=...)
+         ==================================================================== -->
+    <div id="view-play-container" style="display: none;">
+
+      <!-- FLOATING MULTIPLAYER STREAM BANNER -->
+      <header class="gt-stream-banner">
+        <div class="gt-sb-left">
+          <a href="/tracker" class="gt-back-btn">❮ Tracker Home</a>
+          <span class="gt-edition-tag">11TH EDITION</span>
+          <span class="gt-title-text">GAME TRACKER</span>
+        </div>
+        <div class="gt-sb-right">
+          <div class="gt-live-badge">
+            <span class="pulse-dot"></span>
+            <span id="match-room-code" style="font-family:'JetBrains Mono',monospace; font-weight:700; color:#38bdf8;">#LOADING</span>
+            <span>•</span>
+            <span id="match-online-count">1 online</span>
+          </div>
+          <span class="gt-role-tag editor" id="match-role-badge">EDITOR</span>
+          <button class="gt-btn-primary" onclick="copyShareLink()">🔗 Share Room</button>
+        </div>
+      </header>
+
+      <!-- 2A. SETUP WIZARD SHELL (When started === false) -->
+      <div id="setup-wizard-shell" style="display: none;">
+        <div class="gt-setup-container">
+          
+          <div class="gt-setup-header">
+            <h2 class="gt-setup-title">⚔️ Match Configuration & Setup</h2>
+            <p class="gt-setup-desc">Configure players, army detachments, force dispositions, and mission parameters before deploying.</p>
+          </div>
+
+          <!-- STEP 1: PLAYERS & ARMIES -->
+          <div class="gt-setup-step-block">
+            <div class="gt-step-num-title"><span>1</span> Competitors & Detachments</div>
+            <div class="gt-form-row-2col">
+              
+              <!-- Player 1 -->
+              <div class="gt-form-group">
+                <label class="gt-form-label" style="color: var(--accent-cyan);">Player 1 (Attacker)</label>
+                <input type="text" id="setup-p1-name" class="gt-input" placeholder="Player 1 Name">
+                <select id="setup-p1-faction" class="gt-select">
+                  <option value="Necrons">Necrons</option>
+                  <option value="Space Marines">Space Marines</option>
+                  <option value="Dark Angels">Dark Angels</option>
+                  <option value="Blood Angels">Blood Angels</option>
+                  <option value="Space Wolves">Space Wolves</option>
+                  <option value="Black Templars">Black Templars</option>
+                  <option value="Adeptus Custodes">Adeptus Custodes</option>
+                  <option value="Adepta Sororitas">Adepta Sororitas</option>
+                  <option value="Astra Militarum">Astra Militarum</option>
+                  <option value="Grey Knights">Grey Knights</option>
+                  <option value="Imperial Knights">Imperial Knights</option>
+                  <option value="Chaos Space Marines">Chaos Space Marines</option>
+                  <option value="World Eaters">World Eaters</option>
+                  <option value="Thousand Sons">Thousand Sons</option>
+                  <option value="Death Guard">Death Guard</option>
+                  <option value="Chaos Knights">Chaos Knights</option>
+                  <option value="Chaos Daemons">Chaos Daemons</option>
+                  <option value="Aeldari">Aeldari</option>
+                  <option value="Drukhari">Drukhari</option>
+                  <option value="Orks">Orks</option>
+                  <option value="T'au Empire">T'au Empire</option>
+                  <option value="Tyranids">Tyranids</option>
+                  <option value="Genestealer Cults">Genestealer Cults</option>
+                  <option value="Leagues of Votann">Leagues of Votann</option>
+                </select>
+                <input type="text" id="setup-p1-detachment" class="gt-input" placeholder="Detachment (e.g. Awakened Dynasty)">
+              </div>
+
+              <!-- Player 2 -->
+              <div class="gt-form-group">
+                <label class="gt-form-label" style="color: var(--accent-amber);">Player 2 (Defender)</label>
+                <input type="text" id="setup-p2-name" class="gt-input" placeholder="Player 2 Name">
+                <select id="setup-p2-faction" class="gt-select">
+                  <option value="Space Marines">Space Marines</option>
+                  <option value="Necrons">Necrons</option>
+                  <option value="Dark Angels">Dark Angels</option>
+                  <option value="Blood Angels">Blood Angels</option>
+                  <option value="Space Wolves">Space Wolves</option>
+                  <option value="Black Templars">Black Templars</option>
+                  <option value="Adeptus Custodes">Adeptus Custodes</option>
+                  <option value="Adepta Sororitas">Adepta Sororitas</option>
+                  <option value="Astra Militarum">Astra Militarum</option>
+                  <option value="Grey Knights">Grey Knights</option>
+                  <option value="Imperial Knights">Imperial Knights</option>
+                  <option value="Chaos Space Marines">Chaos Space Marines</option>
+                  <option value="World Eaters">World Eaters</option>
+                  <option value="Thousand Sons">Thousand Sons</option>
+                  <option value="Death Guard">Death Guard</option>
+                  <option value="Chaos Knights">Chaos Knights</option>
+                  <option value="Chaos Daemons">Chaos Daemons</option>
+                  <option value="Aeldari">Aeldari</option>
+                  <option value="Drukhari">Drukhari</option>
+                  <option value="Orks">Orks</option>
+                  <option value="T'au Empire">T'au Empire</option>
+                  <option value="Tyranids">Tyranids</option>
+                  <option value="Genestealer Cults">Genestealer Cults</option>
+                  <option value="Leagues of Votann">Leagues of Votann</option>
+                </select>
+                <input type="text" id="setup-p2-detachment" class="gt-input" placeholder="Detachment (e.g. Gladius Task Force)">
+              </div>
+
+            </div>
+          </div>
+
+          <!-- STEP 2: MISSION & DEPLOYMENT -->
+          <div class="gt-setup-step-block">
+            <div class="gt-step-num-title"><span>2</span> Primary Mission & Battle Map</div>
+            <div class="gt-form-row-2col" style="margin-bottom: 12px;">
+              <div class="gt-form-group">
+                <label class="gt-form-label">Primary Mission</label>
+                <select id="setup-mission-select" class="gt-select">
+                  <option value="Take & Hold">Take & Hold (4/8/12 VP)</option>
+                  <option value="Purge the Foe">Purge the Foe (Kill & Hold)</option>
+                  <option value="Scorched Earth">Scorched Earth (Burn Objectives)</option>
+                  <option value="Crucible of Battle">Crucible of Battle</option>
+                  <option value="Priority Targets">Priority Targets</option>
+                  <option value="Supply Drop">Supply Drop</option>
+                  <option value="The Ritual">The Ritual</option>
+                </select>
+              </div>
+
+              <div class="gt-form-group">
+                <label class="gt-form-label">Deployment Map</label>
+                <select id="setup-deploy-select" class="gt-select">
+                  <option value="Search & Destroy">Search & Destroy (Quarters)</option>
+                  <option value="Dawn of War">Dawn of War (Long Edges)</option>
+                  <option value="Hammer and Anvil">Hammer and Anvil (Short Edges)</option>
+                  <option value="Sweeping Engagement">Sweeping Engagement</option>
+                  <option value="Tipping Point">Tipping Point</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="gt-form-group">
+              <label class="gt-form-label">Mission Rule / Twist</label>
+              <select id="setup-twist-select" class="gt-select">
+                <option value="Swift Action">Swift Action (Advance & Action)</option>
+                <option value="Supply Lines">Supply Lines (CP on Home Control)</option>
+                <option value="Fog of War">Fog of War</option>
+                <option value="Hidden Supplies">Hidden Supplies</option>
+                <option value="Minefields">Minefields</option>
+                <option value="Target of Opportunity">Target of Opportunity</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- STEP 3: ROLL-OFF & FIRST TURN -->
+          <div class="gt-setup-step-block">
+            <div class="gt-step-num-title"><span>3</span> Roll-Off & First Turn</div>
+            <div class="gt-form-row-2col">
+              <div class="gt-form-group">
+                <label class="gt-form-label">Player 1 Role</label>
+                <div class="gt-choice-grid">
+                  <div class="gt-choice-btn selected" data-group="p1-role" data-val="attacker" onclick="onSetupChoice('p1-role', 'attacker')">⚔️ Attacker</div>
+                  <div class="gt-choice-btn" data-group="p1-role" data-val="defender" onclick="onSetupChoice('p1-role', 'defender')">🛡️ Defender</div>
+                </div>
+              </div>
+
+              <div class="gt-form-group">
+                <label class="gt-form-label">First Turn</label>
+                <div class="gt-choice-grid">
+                  <div class="gt-choice-btn selected" data-group="first-turn" data-val="1" onclick="onSetupChoice('first-turn', 1)">Player 1 (Turn 1)</div>
+                  <div class="gt-choice-btn" data-group="first-turn" data-val="2" onclick="onSetupChoice('first-turn', 2)">Player 2 (Turn 1)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Launch Button -->
+          <div style="text-align: right; margin-top: 20px;">
+            <button class="gt-btn-gold" style="padding: 12px 32px; font-size: 16px;" onclick="startBattleFromSetup()">
+              ▶ START BATTLE
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 2B. LIVE SCORECARD SHELL (When started === true) -->
+      <div id="live-scorecard-shell" style="display: none;">
+        
+        <!-- ROUND NAVIGATION SELECTOR -->
+        <div class="gt-round-bar">
+          <div class="gt-rd-pills">
+            <button class="gt-rd-pill active" id="btn-rd-1" onclick="switchRound(1)">ROUND 1</button>
+            <button class="gt-rd-pill" id="btn-rd-2" onclick="switchRound(2)">ROUND 2</button>
+            <button class="gt-rd-pill" id="btn-rd-3" onclick="switchRound(3)">ROUND 3</button>
+            <button class="gt-rd-pill" id="btn-rd-4" onclick="switchRound(4)">ROUND 4</button>
+            <button class="gt-rd-pill" id="btn-rd-5" onclick="switchRound(5)">ROUND 5</button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="gt-btn-secondary" onclick="editSetupAgain()">⚙️ Edit Setup</button>
+            <button class="gt-btn-secondary" onclick="copyScoreSummary()">📋 Copy Scorecard</button>
+          </div>
+        </div>
+
+        <!-- DUAL COMPETITOR SCOREBOARD -->
+        <div class="gt-duo-board">
+          
+          <!-- PLAYER 1 SCORECARD -->
+          <div class="gt-scorecard p1">
+            <div class="gt-p-top">
+              <div>
+                <div class="gt-role-tag p1">ATTACKER</div>
+                <div class="gt-p-name" id="p1-name-txt">Player 1</div>
+                <div class="gt-p-faction" id="p1-army-txt">Necrons</div>
+              </div>
+              <div class="gt-cp-box">
+                <div class="gt-cp-lbl">CP</div>
+                <div class="gt-cp-ctrls">
+                  <button onclick="changeCp(1, -1)">−</button>
+                  <b id="p1-cp-num">1</b>
+                  <button onclick="changeCp(1, 1)">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="gt-score-display">
+              <div class="gt-score-val" id="p1-score-big">0</div>
+              <div class="gt-score-stats">
+                <div><span>Primary</span><b id="p1-pri-score">0/50</b></div>
+                <div><span>Secondary</span><b id="p1-sec-score">0/40</b></div>
+                <div><span>Paint</span><b>+10</b></div>
+              </div>
+            </div>
+            <button class="gt-turn-btn active" id="p1-turn-selector" onclick="setActivePlayer(1)">
+              ▶ Active Turn (Player 1)
+            </button>
+          </div>
+
+          <!-- CENTER MISSION BANNER -->
+          <div class="gt-mission-center-card">
+            <span class="gt-pack-pill">11TH ED CORE</span>
+            <div class="gt-mission-name" id="center-mission-title">Take & Hold</div>
+            <div class="gt-rule-sub" id="center-rule-sub">Rule: Swift Action</div>
+            <div class="gt-rule-sub" id="center-map-sub">Map: Search & Destroy</div>
+          </div>
+
+          <!-- PLAYER 2 SCORECARD -->
+          <div class="gt-scorecard p2">
+            <div class="gt-p-top">
+              <div>
+                <div class="gt-role-tag p2">DEFENDER</div>
+                <div class="gt-p-name" id="p2-name-txt">Player 2</div>
+                <div class="gt-p-faction" id="p2-army-txt">Space Marines</div>
+              </div>
+              <div class="gt-cp-box">
+                <div class="gt-cp-lbl">CP</div>
+                <div class="gt-cp-ctrls">
+                  <button onclick="changeCp(2, -1)">−</button>
+                  <b id="p2-cp-num">1</b>
+                  <button onclick="changeCp(2, 1)">+</button>
+                </div>
+              </div>
+            </div>
+            <div class="gt-score-display">
+              <div class="gt-score-val" id="p2-score-big">0</div>
+              <div class="gt-score-stats">
+                <div><span>Primary</span><b id="p2-pri-score">0/50</b></div>
+                <div><span>Secondary</span><b id="p2-sec-score">0/40</b></div>
+                <div><span>Paint</span><b>+10</b></div>
+              </div>
+            </div>
+            <button class="gt-turn-btn" id="p2-turn-selector" onclick="setActivePlayer(2)">
+              ▶ Active Turn (Player 2)
+            </button>
+          </div>
+
+        </div>
+
+        <!-- ACTIVE TURN SCORING DECK -->
+        <div class="gt-turn-deck">
+          <div class="gt-deck-topbar">
+            <h3 class="gt-deck-title" id="active-deck-title">Player 1's Turn (Round 1)</h3>
+            <div class="gt-deck-actions">
+              <button class="gt-btn-primary" onclick="advanceTurn()">Next Turn ❯</button>
+            </div>
+          </div>
+
+          <div class="gt-scoring-grid">
+            
+            <!-- 1. PRIMARY OBJECTIVES -->
+            <div class="gt-panel-box">
+              <div class="gt-panel-head">
+                <div class="gt-panel-title">
+                  <span class="pulse-dot" style="background:#10b981;"></span>
+                  <span>Primary Objectives</span>
+                </div>
+                <span class="gt-vp-pill" id="rd-pri-vp-tag">+0 VP</span>
+              </div>
+              <p class="gt-panel-info">
+                Score VP at the end of your Command Phase for controlling objective markers (Max 15 VP/round, capped at 50 VP total).
+              </p>
+              <div class="gt-pri-buttons" id="pri-buttons-wrap">
+                <!-- Rendered dynamically -->
+              </div>
+            </div>
+
+            <!-- 2. TACTICAL SECONDARY CARDS -->
+            <div class="gt-panel-box">
+              <div class="gt-panel-head">
+                <div class="gt-panel-title">
+                  <span class="pulse-dot" style="background:#38bdf8;"></span>
+                  <span>Tactical Secondary Cards</span>
+                </div>
+                <span class="gt-vp-pill" id="rd-sec-vp-tag">+0 VP</span>
+              </div>
+              <p class="gt-panel-info">
+                Score VP upon completion or discard at end of turn to gain +1 CP (Max 40 VP total).
+              </p>
+              <div class="gt-sec-cards-list" id="sec-cards-container">
+                <!-- Rendered dynamically -->
+              </div>
+              <button class="gt-draw-btn" onclick="openCardDrawer()">
+                🎴 + Draw Tactical Secondary Card
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- MATCH SCORE MATRIX -->
+        <div class="gt-summary-matrix">
+          <div class="gt-matrix-top">
+            <h4>📊 Match Score Matrix</h4>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="gt-matrix-table">
+              <thead>
+                <tr>
+                  <th>Competitor</th>
+                  <th>R1</th>
+                  <th>R2</th>
+                  <th>R3</th>
+                  <th>R4</th>
+                  <th>R5</th>
+                  <th>Primary /50</th>
+                  <th>Secondary /40</th>
+                  <th>Paint</th>
+                  <th>Total VP</th>
+                </tr>
+              </thead>
+              <tbody id="matrix-tbody">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- MODAL: DRAW TACTICAL SECONDARY CARD -->
+  <div id="draw-card-modal" class="modal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.75); backdrop-filter:blur(8px); z-index:100000; justify-content:center; align-items:center; padding:16px; box-sizing:border-box;">
+    <div style="background:#0f172a; border:1px solid rgba(56,189,248,0.3); border-radius:12px; max-width:620px; width:100%; padding:20px; box-shadow:0 20px 50px rgba(0,0,0,0.7); max-height:85vh; display:flex; flex-direction:column;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="font-family:'Chakra Petch',sans-serif; color:#fff; font-size:18px; margin:0;">🎴 Draw Tactical Secondary Card</h3>
+        <button onclick="closeCardDrawer()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">&times;</button>
+      </div>
+      <div id="drawer-cards-grid" style="overflow-y:auto; display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:8px; padding-right:4px;">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/tracker/tracker_play.js?v=3.0"></script>
 </body>
 </html>

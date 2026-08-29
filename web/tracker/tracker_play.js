@@ -1,6 +1,33 @@
 /**
- * Synchronized Multiplayer 11th Edition Game Tracker Engine
+ * Warhammer 40k 11th Edition Synchronized Tracker Engine & Setup Wizard
  */
+
+const FACTIONS_LIST = [
+  'Space Marines', 'Dark Angels', 'Blood Angels', 'Space Wolves', 'Black Templars',
+  'Deathwatch', 'Grey Knights', 'Adeptus Custodes', 'Adepta Sororitas',
+  'Astra Militarum', 'Adeptus Mechanicus', 'Imperial Knights', 'Agents of the Imperium',
+  'Chaos Space Marines', 'World Eaters', 'Thousand Sons', 'Death Guard',
+  'Chaos Daemons', 'Chaos Knights', 'Aeldari', 'Drukhari', 'Necrons',
+  'Orks', 'T\'au Empire', 'Tyranids', 'Genestealer Cults', 'Leagues of Votann'
+];
+
+const OFFICIAL_11TH_PRIMARIES = [
+  { id: 'take_and_hold', name: 'Take & Hold', desc: 'Score 4 VP for 1, 8 VP for 2+, 12 VP for more.' },
+  { id: 'purge_the_foe', name: 'Purge the Foe', desc: 'Score 4 VP for kills, 4-8 VP for objective control.' },
+  { id: 'scorched_earth', name: 'Scorched Earth', desc: 'Score for objectives and burn opponent markers.' },
+  { id: 'crucible_of_battle', name: 'Crucible of Battle', desc: 'Progressive control across central battle line.' },
+  { id: 'priority_targets', name: 'Priority Targets', desc: 'Higher VP rewards in rounds 4 and 5.' },
+  { id: 'supply_drop', name: 'Supply Drop', desc: 'Objectives disappear sequentially each battle round.' },
+  { id: 'the_ritual', name: 'The Ritual', desc: 'Perform rituals in No Man\'s Land to create new markers.' }
+];
+
+const OFFICIAL_11TH_DEPLOYMENTS = [
+  'Search & Destroy', 'Dawn of War', 'Hammer and Anvil', 'Sweeping Engagement', 'Tipping Point'
+];
+
+const OFFICIAL_11TH_TWISTS = [
+  'Swift Action (Advance & Action)', 'Supply Lines', 'Fog of War', 'Hidden Supplies', 'Minefields', 'Target of Opportunity'
+];
 
 const OFFICIAL_11TH_SECONDARIES = [
   { id: 'assassination', name: 'Assassination', desc: 'Score 4 VP for each enemy CHARACTER destroyed (5 VP if enemy WARLORD).', maxVp: 5 },
@@ -28,6 +55,7 @@ let liveMatch = {
   eventSource: null,
   debounceTimer: null,
   state: {
+    started: false,
     currentRound: 1,
     activePlayer: 1,
     pack: '11th Edition Core / Armageddon',
@@ -35,42 +63,46 @@ let liveMatch = {
     missionRule: 'Swift Action',
     deployment: 'Search & Destroy',
     p1Name: 'Player 1',
-    p1Faction: 'Necrons (Awakened Dynasty)',
+    p1Faction: 'Necrons',
+    p1Detachment: 'Awakened Dynasty',
+    p1Disposition: 'Vanguard Strike',
+    p1Role: 'attacker',
     p2Name: 'Player 2',
-    p2Faction: 'Space Marines (Gladius Task Force)',
+    p2Faction: 'Space Marines',
+    p2Detachment: 'Gladius Task Force',
+    p2Disposition: 'Hammer & Anvil',
+    p2Role: 'defender',
+    rollOffWinner: 1,
+    firstTurn: 1,
     p1Paint: 10,
     p2Paint: 10,
     p1Cp: 1,
     p2Cp: 1,
-    p1Rounds: {
-      1: { primary: 0, secondaries: [] },
-      2: { primary: 0, secondaries: [] },
-      3: { primary: 0, secondaries: [] },
-      4: { primary: 0, secondaries: [] },
-      5: { primary: 0, secondaries: [] }
-    },
-    p2Rounds: {
-      1: { primary: 0, secondaries: [] },
-      2: { primary: 0, secondaries: [] },
-      3: { primary: 0, secondaries: [] },
-      4: { primary: 0, secondaries: [] },
-      5: { primary: 0, secondaries: [] }
-    }
+    p1Rounds: { 1: { primary: 0, secondaries: [] }, 2: { primary: 0, secondaries: [] }, 3: { primary: 0, secondaries: [] }, 4: { primary: 0, secondaries: [] }, 5: { primary: 0, secondaries: [] } },
+    p2Rounds: { 1: { primary: 0, secondaries: [] }, 2: { primary: 0, secondaries: [] }, 3: { primary: 0, secondaries: [] }, 4: { primary: 0, secondaries: [] }, 5: { primary: 0, secondaries: [] } }
   }
 };
 
 document.addEventListener('DOMContentLoaded', () => {
-  initMultiplayerRoom();
-  renderApp();
+  initTrackerMode();
 });
 
-function initMultiplayerRoom() {
+function initTrackerMode() {
   const params = new URLSearchParams(window.location.search);
+  const path = window.location.pathname;
   let matchId = params.get('match_id') || params.get('room') || params.get('match');
   let role = params.get('role') || 'editor';
 
+  const isPlayRoute = path.includes('/play') || params.get('view') === 'play';
+
+  if (!isPlayRoute && !matchId) {
+    // Show Home Dashboard View
+    showHomeDashboard();
+    return;
+  }
+
   if (!matchId) {
-    matchId = 'MATCH-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+    matchId = 'WH40K-' + Math.random().toString(36).substring(2, 7).toUpperCase();
     const url = new URL(window.location.href);
     url.searchParams.set('match_id', matchId);
     window.history.replaceState({}, '', url.toString());
@@ -79,15 +111,81 @@ function initMultiplayerRoom() {
   liveMatch.matchId = matchId.toUpperCase();
   liveMatch.role = role.toLowerCase();
 
+  document.getElementById('view-home-container').style.display = 'none';
+  document.getElementById('view-play-container').style.display = 'block';
+
   document.getElementById('match-room-code').textContent = `#${liveMatch.matchId}`;
   document.getElementById('match-role-badge').textContent = liveMatch.role.toUpperCase();
-  document.getElementById('match-role-badge').className = `gt-role-tag ${liveMatch.role}`;
 
   startRealtimeStream();
   fetchInitialState();
 }
 
-// Real-Time SSE Stream
+// 1. Home Dashboard View
+function showHomeDashboard() {
+  document.getElementById('view-home-container').style.display = 'block';
+  document.getElementById('view-play-container').style.display = 'none';
+  loadGameHistory();
+}
+
+function loadGameHistory() {
+  const container = document.getElementById('history-list-wrap');
+  if (!container) return;
+
+  let history = [];
+  try {
+    history = JSON.parse(localStorage.getItem('gt_local_history') || '[]');
+  } catch (e) {}
+
+  if (history.length === 0) {
+    container.innerHTML = `
+      <div class="gt-empty-box">
+        <div style="font-size: 24px; margin-bottom: 6px;">🎲</div>
+        <div style="font-weight: 700; color: #fff; margin-bottom: 4px;">NO GAMES YET</div>
+        <div>Tap <b>+ New Game</b> above to configure and launch a live synchronized match.</div>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = history.map(g => `
+    <div class="gt-history-card" onclick="openHistoryGame('${g.matchId}')">
+      <div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+          <b style="font-size: 15px; color: #fff;">${escapeHtml(g.p1Name || 'Player 1')} vs ${escapeHtml(g.p2Name || 'Player 2')}</b>
+          <span class="gt-pack-pill">#${g.matchId}</span>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted);">
+          ${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.started ? `Round ${g.currentRound || 1}` : 'Setup Mode'}
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div style="font-family:'Chakra Petch',sans-serif; font-size: 18px; font-weight: 700; color: var(--accent-cyan);">
+          ${g.p1Score || 0} - ${g.p2Score || 0} VP
+        </div>
+        <div style="font-size: 11px; color: var(--text-muted);">${g.date || 'Recent'}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function startNewGame() {
+  const newMatchId = 'WH40K-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+  window.location.href = `/tracker/play?match_id=${newMatchId}`;
+}
+
+function joinMatchByCode() {
+  const code = document.getElementById('join-code-input').value.trim().toUpperCase();
+  if (code) {
+    window.location.href = `/tracker/play?match_id=${code}`;
+  }
+}
+
+function openHistoryGame(id) {
+  window.location.href = `/tracker/play?match_id=${id}`;
+}
+
+// 2. Real-Time Stream Engine
 function startRealtimeStream() {
   if (liveMatch.eventSource) liveMatch.eventSource.close();
 
@@ -123,14 +221,18 @@ async function fetchInitialState() {
       if (data && data.state && Object.keys(data.state).length > 0) {
         liveMatch.version = data.version || 1;
         applyRemoteState(data.state);
+        return;
       }
     }
   } catch (e) {}
+  renderApp();
 }
 
 function broadcastState() {
   if (liveMatch.isApplyingRemote) return;
   if (liveMatch.role === 'spectator') return;
+
+  saveToLocalHistory();
 
   clearTimeout(liveMatch.debounceTimer);
   liveMatch.debounceTimer = setTimeout(async () => {
@@ -151,6 +253,29 @@ function broadcastState() {
   }, 120);
 }
 
+function saveToLocalHistory() {
+  try {
+    let history = JSON.parse(localStorage.getItem('gt_local_history') || '[]');
+    const s1 = calcScore(1);
+    const s2 = calcScore(2);
+    const item = {
+      matchId: liveMatch.matchId,
+      p1Name: liveMatch.state.p1Name,
+      p2Name: liveMatch.state.p2Name,
+      primaryMission: liveMatch.state.primaryMission,
+      started: liveMatch.state.started,
+      currentRound: liveMatch.state.currentRound,
+      p1Score: s1.total,
+      p2Score: s2.total,
+      date: new Date().toLocaleDateString()
+    };
+    const idx = history.findIndex(x => x.matchId === liveMatch.matchId);
+    if (idx >= 0) history[idx] = item;
+    else history.unshift(item);
+    localStorage.setItem('gt_local_history', JSON.stringify(history.slice(0, 20)));
+  } catch (e) {}
+}
+
 function applyRemoteState(incoming) {
   liveMatch.isApplyingRemote = true;
   try {
@@ -161,11 +286,91 @@ function applyRemoteState(incoming) {
   }
 }
 
-// UI Rendering
+// 3. UI Flow: Setup Wizard vs Live Scorecard
 function renderApp() {
   const s = liveMatch.state;
 
-  // Round Tabs
+  if (!s.started) {
+    document.getElementById('setup-wizard-shell').style.display = 'block';
+    document.getElementById('live-scorecard-shell').style.display = 'none';
+    populateSetupForm();
+  } else {
+    document.getElementById('setup-wizard-shell').style.display = 'none';
+    document.getElementById('live-scorecard-shell').style.display = 'block';
+    renderScorecard();
+  }
+}
+
+function populateSetupForm() {
+  const s = liveMatch.state;
+  document.getElementById('setup-p1-name').value = s.p1Name || '';
+  document.getElementById('setup-p1-faction').value = s.p1Faction || 'Necrons';
+  document.getElementById('setup-p1-detachment').value = s.p1Detachment || '';
+
+  document.getElementById('setup-p2-name').value = s.p2Name || '';
+  document.getElementById('setup-p2-faction').value = s.p2Faction || 'Space Marines';
+  document.getElementById('setup-p2-detachment').value = s.p2Detachment || '';
+
+  document.getElementById('setup-mission-select').value = s.primaryMission || 'Take & Hold';
+  document.getElementById('setup-deploy-select').value = s.deployment || 'Search & Destroy';
+  document.getElementById('setup-twist-select').value = s.missionRule || 'Swift Action';
+
+  setChoiceActive('p1-role', s.p1Role || 'attacker');
+  setChoiceActive('first-turn', s.firstTurn || 1);
+}
+
+function setChoiceActive(group, val) {
+  document.querySelectorAll(`[data-group="${group}"]`).forEach(btn => {
+    if (btn.getAttribute('data-val') == val) btn.classList.add('selected');
+    else btn.classList.remove('selected');
+  });
+}
+
+function onSetupChoice(group, val) {
+  setChoiceActive(group, val);
+  if (group === 'p1-role') {
+    liveMatch.state.p1Role = val;
+    liveMatch.state.p2Role = val === 'attacker' ? 'defender' : 'attacker';
+  } else if (group === 'first-turn') {
+    liveMatch.state.firstTurn = parseInt(val);
+    liveMatch.state.activePlayer = parseInt(val);
+  }
+  broadcastState();
+}
+
+function startBattleFromSetup() {
+  const s = liveMatch.state;
+  s.p1Name = document.getElementById('setup-p1-name').value.trim() || 'Player 1';
+  s.p1Faction = document.getElementById('setup-p1-faction').value;
+  s.p1Detachment = document.getElementById('setup-p1-detachment').value.trim();
+
+  s.p2Name = document.getElementById('setup-p2-name').value.trim() || 'Player 2';
+  s.p2Faction = document.getElementById('setup-p2-faction').value;
+  s.p2Detachment = document.getElementById('setup-p2-detachment').value.trim();
+
+  s.primaryMission = document.getElementById('setup-mission-select').value;
+  s.deployment = document.getElementById('setup-deploy-select').value;
+  s.missionRule = document.getElementById('setup-twist-select').value;
+
+  s.started = true;
+  s.currentRound = 1;
+  s.p1Cp = 1;
+  s.p2Cp = 1;
+
+  renderApp();
+  broadcastState();
+}
+
+function editSetupAgain() {
+  liveMatch.state.started = false;
+  renderApp();
+  broadcastState();
+}
+
+// 4. Live Scorecard Rendering
+function renderScorecard() {
+  const s = liveMatch.state;
+
   for (let r = 1; r <= 5; r++) {
     const btn = document.getElementById(`btn-rd-${r}`);
     if (btn) {
@@ -174,14 +379,19 @@ function renderApp() {
     }
   }
 
-  // Dual Headers
+  // Header Player Info
   document.getElementById('p1-name-txt').textContent = s.p1Name;
-  document.getElementById('p1-army-txt').textContent = s.p1Faction;
+  document.getElementById('p1-army-txt').textContent = `${s.p1Faction}${s.p1Detachment ? ' (' + s.p1Detachment + ')' : ''}`;
   document.getElementById('p1-cp-num').textContent = s.p1Cp;
 
   document.getElementById('p2-name-txt').textContent = s.p2Name;
-  document.getElementById('p2-army-txt').textContent = s.p2Faction;
+  document.getElementById('p2-army-txt').textContent = `${s.p2Faction}${s.p2Detachment ? ' (' + s.p2Detachment + ')' : ''}`;
   document.getElementById('p2-cp-num').textContent = s.p2Cp;
+
+  // Center Mission Info
+  document.getElementById('center-mission-title').textContent = s.primaryMission;
+  document.getElementById('center-rule-sub').textContent = `Rule: ${s.missionRule}`;
+  document.getElementById('center-map-sub').textContent = `Map: ${s.deployment}`;
 
   // Scores
   const s1 = calcScore(1);
@@ -410,7 +620,7 @@ function removeCard(idx) {
 function advanceTurn() {
   if (liveMatch.state.activePlayer === 1) {
     liveMatch.state.activePlayer = 2;
-    liveMatch.state.p2Cp++; // +1 CP at start of command phase
+    liveMatch.state.p2Cp++;
   } else {
     if (liveMatch.state.currentRound < 5) {
       liveMatch.state.currentRound++;
@@ -472,7 +682,7 @@ function drawCard(cardId) {
 }
 
 function copyShareLink() {
-  const url = `${window.location.origin}/tracker?match_id=${liveMatch.matchId}`;
+  const url = `${window.location.origin}/tracker/play?match_id=${liveMatch.matchId}`;
   navigator.clipboard.writeText(url).then(() => {
     alert('🔗 Live Match Room Link copied to clipboard!');
   });
@@ -484,7 +694,7 @@ function copyScoreSummary() {
   const text = `⚔️ 11TH ED MATCH RESULT (#${liveMatch.matchId}) ⚔️\n\n` +
     `🏆 ${liveMatch.state.p1Name} (${liveMatch.state.p1Faction}): ${s1.total} VP (Primary: ${s1.pri}, Secondary: ${s1.sec}, Paint: +10)\n` +
     `🛡️ ${liveMatch.state.p2Name} (${liveMatch.state.p2Faction}): ${s2.total} VP (Primary: ${s2.pri}, Secondary: ${s2.sec}, Paint: +10)\n\n` +
-    `Live Match Stream: ${window.location.origin}/tracker?match_id=${liveMatch.matchId}`;
+    `Live Match Stream: ${window.location.origin}/tracker/play?match_id=${liveMatch.matchId}`;
   
   navigator.clipboard.writeText(text).then(() => {
     alert('Match summary copied!');
