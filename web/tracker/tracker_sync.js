@@ -1,16 +1,17 @@
 /**
  * Synchronized Multiplayer & PostgreSQL Database Bridge for GDM 11th Edition Game Tracker
+ * PostgreSQL is the sole Single Source of Truth for game history and persistent match records.
  */
 
 (function () {
   'use strict';
 
-  console.log('[GDM Sync Bridge] Initializing real-time multiplayer and database synchronization...');
+  console.log('[GDM Sync Bridge] Database-First Source of Truth Engine initialized.');
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',
     historyEndpoint: '/api/tracker/history',
-    debounceMs: 120
+    debounceMs: 100
   };
 
   let clientState = {
@@ -27,16 +28,17 @@
   // 1. Storage interceptors
   const originalSetItem = window.localStorage.setItem.bind(window.localStorage);
   const originalRemoveItem = window.localStorage.removeItem.bind(window.localStorage);
+  const originalGetItem = window.localStorage.getItem.bind(window.localStorage);
 
-  // 2. Initialize Match Room on /play
-  function initRoom() {
-    const params = new URLSearchParams(window.location.search);
-    let matchId = params.get('match_id') || params.get('room') || params.get('match');
-    let role = params.get('role') || 'editor';
-
+  // 2. Initialize Match Room on /play vs /tracker
+  function init() {
     const isPlay = window.location.pathname.includes('/play');
 
     if (isPlay) {
+      const params = new URLSearchParams(window.location.search);
+      let matchId = params.get('match_id') || params.get('room') || params.get('match');
+      let role = params.get('role') || 'editor';
+
       if (!matchId) {
         matchId = sessionStorage.getItem('gt_active_match_id') || ('WH40K-' + Math.random().toString(36).substring(2, 7).toUpperCase());
       }
@@ -52,12 +54,14 @@
       fetchRemoteState();
       startRealtimeStream();
     } else {
-      // Landing page (/11th/tracker or /tracker) -> sync database history
+      // Landing page (/11th/tracker or /tracker) -> Pure DB History
+      // Clear any legacy client localStorage history
+      originalRemoveItem('gdm-11e-tracker-history');
       syncHistoryFromDatabase();
     }
   }
 
-  // 3. Sync Database History to GDM Landing Page
+  // 3. PostgreSQL Database as Sole Source of Truth for History
   async function syncHistoryFromDatabase() {
     try {
       const resp = await fetch(SYNC_CONFIG.historyEndpoint);
@@ -92,6 +96,7 @@
             };
           });
 
+          // Inject fresh database records directly into React view
           originalSetItem('gdm-11e-tracker-history', JSON.stringify(gdmHistory));
           window.dispatchEvent(new StorageEvent('storage', {
             key: 'gdm-11e-tracker-history',
@@ -101,11 +106,11 @@
         }
       }
     } catch (e) {
-      console.debug('History sync notice:', e);
+      console.debug('Database history sync notice:', e);
     }
   }
 
-  // 4. Intercept Local State Changes
+  // 4. Intercept Local State Changes -> Persist to DB on Start & Scoring
   function notifyStateChanged() {
     if (clientState.isApplyingRemote) return;
     if (clientState.role === 'spectator') return;
@@ -131,7 +136,7 @@
     }
   };
 
-  // 5. Broadcast & Stream
+  // 5. Broadcast State to Room & Auto-Save in PostgreSQL DB
   async function broadcastState() {
     if (!clientState.matchId) return;
     const raw = localStorage.getItem('gdm-11e-tracker-state');
@@ -241,7 +246,7 @@
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    initRoom();
+    init();
   });
 
 })();
