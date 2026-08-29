@@ -134,9 +134,9 @@ async function loadGameHistory() {
   if (!container) return;
 
   container.innerHTML = `
-    <div class="gtk-card" style="text-align: center; padding: 24px; color: var(--gtk-muted);">
-      <div class="pulse-dot" style="margin: 0 auto 8px auto;"></div>
-      Loading persistent game history...
+    <div class="gdm-empty-box" style="padding: 24px; color: #64748b;">
+      <div class="pulse-dot" style="margin: 0 auto 8px auto; background:#d97706;"></div>
+      Loading game history...
     </div>
   `;
 
@@ -180,25 +180,25 @@ async function loadGameHistory() {
 
   if (history.length === 0) {
     container.innerHTML = `
-      <div class="gtk-card gtk-empty-state">
-        <p class="gtk-empty-title">NO GAMES YET</p>
-        <p class="gtk-empty-desc">Tap New Game to start. Games are saved here automatically as you play.</p>
+      <div class="gdm-empty-box">
+        <p class="gdm-empty-title">NO GAMES YET</p>
+        <p class="gdm-empty-sub">Tap New Game to start. Games are saved here automatically as you play.</p>
       </div>
     `;
     return;
   }
 
   container.innerHTML = `
-    <div class="gtk-history-list">
+    <div class="gdm-history-list">
       ${history.map(g => `
-        <div class="gtk-history-item" onclick="openHistoryGame('${g.matchId}')">
+        <div class="gdm-history-card" onclick="openHistoryGame('${g.matchId}')">
           <div>
-            <div class="gtk-match-title">${escapeHtml(g.p1Name || 'Player 1')} vs ${escapeHtml(g.p2Name || 'Player 2')}</div>
-            <div class="gtk-match-sub">${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.isFinished ? 'Finalized' : g.started ? `Round ${g.currentRound || 1}` : 'Setup'} • <span class="gtk-mono">#${g.matchId}</span></div>
+            <div class="gdm-card-names">${escapeHtml(g.p1Name || 'Player 1')} vs ${escapeHtml(g.p2Name || 'Player 2')}</div>
+            <div class="gdm-card-info">${escapeHtml(g.primaryMission || 'Take & Hold')} • ${g.isFinished ? 'Finalized' : g.started ? `Round ${g.currentRound || 1}` : 'Setup'} • <span style="font-family:var(--font-mono); color:#d97706;">#${g.matchId}</span></div>
           </div>
           <div style="text-align: right;">
-            <div class="gtk-score-badge">${g.p1Score || 0} - ${g.p2Score || 0} VP</div>
-            <div style="font-size: 11px; color: var(--gtk-muted); font-family: var(--font-mono);">${g.date || 'Recent'}</div>
+            <div class="gdm-card-score">${g.p1Score || 0} - ${g.p2Score || 0} VP</div>
+            <div style="font-size: 11px; color: #64748b; font-family: var(--font-mono);">${g.date || 'Recent'}</div>
           </div>
         </div>
       `).join('')}

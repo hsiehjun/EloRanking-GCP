@@ -366,6 +366,14 @@ if FASTAPI_AVAILABLE:
         app.mount("/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="root_next_static")
         app.mount("/tracker/_next", StaticFiles(directory=str(web_dir / "tracker" / "_next")), name="tracker_next_static")
 
+    @app.get("/tracker/tracker_play.css", include_in_schema=False)
+    async def serve_tracker_play_css():
+        return FileResponse(str(web_dir / "tracker" / "tracker_play.css"), media_type="text/css")
+
+    @app.get("/tracker/tracker_play.js", include_in_schema=False)
+    async def serve_tracker_play_js():
+        return FileResponse(str(web_dir / "tracker" / "tracker_play.js"), media_type="application/javascript")
+
     @app.get("/tracker/tracker_sync.js", include_in_schema=False)
     async def serve_tracker_sync_js():
         return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript")
