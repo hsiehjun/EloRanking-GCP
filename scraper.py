@@ -426,7 +426,7 @@ class BestCoastPairingsScraper:
         logger.info(f"Finished scraping date range [{start_date} to {end_date}]: {events_count} events, {matches_count} matches.")
         return {"events_scraped": events_count, "matches_scraped": matches_count}
 
-    def sync_upcoming_events(self, max_pages: int = 10) -> int:
+    def sync_upcoming_events(self, max_pages: int = 25) -> int:
         """Fetches live future upcoming tournaments from Best Coast Pairings API and caches them."""
         now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00.000Z")
         one_year_iso = datetime.fromtimestamp(time.time() + 365 * 86400, tz=timezone.utc).strftime("%Y-%m-%dT23:59:59.999Z")

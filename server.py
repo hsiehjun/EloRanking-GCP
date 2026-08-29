@@ -267,9 +267,9 @@ if FASTAPI_AVAILABLE:
                 with conn.cursor() as cursor:
                     cursor.execute("SELECT COUNT(*) as cnt FROM events WHERE event_date >= CURRENT_DATE;")
                     upcoming_count = cursor.fetchone()["cnt"] if cursor.rowcount else 0
-            if upcoming_count < 30:
+            if upcoming_count < 150:
                 scraper = BestCoastPairingsScraper(db=db)
-                scraper.sync_upcoming_events(max_pages=8)
+                scraper.sync_upcoming_events(max_pages=25)
         except Exception as e:
             logger.warning(f"On-demand BCP upcoming events sync notice: {e}")
 
