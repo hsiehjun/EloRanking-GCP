@@ -210,15 +210,19 @@ if FASTAPI_AVAILABLE:
         return get_elo_engine().get_player_win_path(player_id.strip())
 
     # API: Tournaments List
-    @app.get("/api/events", summary="List tournaments with date and status filters")
+    @app.get("/api/events", summary="List tournaments with date and status filters (paginated)")
     async def api_events(
-        limit: int = Query(150, ge=1, le=500),
+        page: int = Query(1, ge=1),
+        page_size: int = Query(25, ge=5, le=200),
+        limit: Optional[int] = Query(None),
         query: Optional[str] = Query(None),
         status: str = Query("all"),
         sort_by: str = Query("event_date"),
         order: str = Query("DESC")
     ):
         return get_database().get_events_list(
+            page=page,
+            page_size=page_size,
             limit=limit,
             query=query.strip() if query else None,
             status=status,
