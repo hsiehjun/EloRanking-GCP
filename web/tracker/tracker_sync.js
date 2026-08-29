@@ -258,7 +258,7 @@
       if (resp.ok) {
         const data = await resp.json();
         originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
-        showWaitingLobbyModal(data.match_id);
+        window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id)}`;
         return;
       }
     } catch (err) {}
@@ -752,28 +752,33 @@
     try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
     const game = stateObj.game || {};
 
-    const p1Name = game.p1Name || (currentUser ? currentUser.display_name : 'Player 1') || 'Player 1';
-    let p2Name = game.p2Name;
+    const p1Raw = game.p1Name || (currentUser ? currentUser.display_name : 'Player 1') || 'Player 1';
+    let p2Raw = game.p2Name;
     const isP2Ready = clientState.onlineCount >= 2 || (game.p2Name && game.p2Name !== 'Player 2') || !!stateObj.user_id_p2;
-    if (!p2Name || p2Name === 'Player 2') {
-      p2Name = isP2Ready ? 'Player 2 (Opponent)' : 'Waiting for P2...';
+    if (!p2Raw || p2Raw === 'Player 2') {
+      p2Raw = isP2Ready ? 'Player 2 (Opponent)' : 'Waiting for P2...';
+    }
+
+    // Role-aware (You) display
+    let p1Display = p1Raw;
+    let p2Display = p2Raw;
+    if (clientState.role === 'player1') {
+      p1Display = `${p1Raw} (You)`;
+    } else if (clientState.role === 'player2') {
+      p2Display = `${p2Raw} (You)`;
     }
 
     const statusDotColor = isP2Ready ? '#10b981' : '#f59e0b';
     const statusDotPulse = isP2Ready ? '' : 'animation:pulse 1.5s infinite;';
 
-    const myName = currentUser ? (currentUser.display_name || currentUser.username) : null;
-    const youTag = myName ? `<span style="color:#38bdf8; font-size:9px; background:rgba(56,189,248,0.15); border:1px solid rgba(56,189,248,0.3); padding:1px 5px; border-radius:4px; font-weight:700;">You: ${myName}</span>` : '';
-
     hud.innerHTML = `
       <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.65); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px);">
         <span style="display:flex; align-items:center; gap:5px; font-weight:800; font-family:'JetBrains Mono',monospace;">
           <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}"></span>
-          <span style="color:#38bdf8;">${p1Name}</span>
+          <span style="color:#38bdf8;">${p1Display}</span>
           <span style="color:#64748b; font-size:10px;">vs</span>
-          <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Name}</span>
+          <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
         </span>
-        ${youTag}
         <b style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10px; background:#070b14; padding:2px 6px; border-radius:4px; border:1px solid #334155;">#${clientState.matchId}</b>
         <span id="gt-hud-online" style="color:#94a3b8; font-size:10px;">${clientState.onlineCount || 1} online</span>
         <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">
