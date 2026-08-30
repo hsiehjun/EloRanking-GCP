@@ -788,6 +788,28 @@ class EloEngine:
                 player_fac_counts[fac] += 1
         factions_breakdown = [{"faction": f, "matches": c} for f, c in player_fac_counts.most_common() if f]
 
+        # Collect distinct teams for this player ordered by recency
+        all_teams_list = []
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                    SELECT DISTINCT TRIM(ep.team) as team_name, MAX(e.event_date) as last_seen
+                    FROM event_participants ep
+                    LEFT JOIN events e ON ep.event_id = e.id
+                    WHERE ep.player_id = %s AND ep.team IS NOT NULL AND TRIM(ep.team) != '' 
+                      AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                    GROUP BY TRIM(ep.team)
+                    ORDER BY last_seen DESC NULLS LAST;
+                    """, (player_id,))
+                    all_teams_list = [r[0] for r in cur.fetchall() if r[0]]
+        except Exception as e:
+            logger.debug(f"Error fetching team history for {player_id}: {e}")
+
+        # Current/Latest team is the first one in recency order
+        latest_team = all_teams_list[0] if all_teams_list else (player_meta.get("team") or None)
+        all_teams_str = ", ".join(all_teams_list) if all_teams_list else (latest_team or "")
+
         return {
             "player_id": player_id,
             "player_name": player_meta.get("player_name") or player_meta.get("full_name") or (history[0].get("opponent_name") if history else "Unknown"),
@@ -799,11 +821,18 @@ class EloEngine:
             "draws": player_meta.get("draws", 0),
             "win_rate": player_meta.get("win_rate", 0.0),
             "top_faction": player_meta.get("top_faction"),
-            "team": player_meta.get("team"),
+            "team": latest_team,
+            "all_teams": all_teams_str,
+            "teams_history": all_teams_list,
             "factions_breakdown": factions_breakdown,
             "longest_win_streak": max_streak,
             "history": history,
             "win_path": history,
             "trajectory": trajectory,
-            "player": player_meta
+            "player": {
+                **player_meta,
+                "team": latest_team,
+                "all_teams": all_teams_str,
+                "teams_history": all_teams_list
+            }
         }

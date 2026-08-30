@@ -61,12 +61,37 @@ async function openPlayerModal(playerId) {
     document.getElementById('modal-player-name').innerText = p.player_name || p.full_name || 'Player Profile';
 
     const teamDiv = document.getElementById('modal-player-team');
-    if (p.team) {
-      teamDiv.style.display = 'inline-block';
-      teamDiv.innerText = `🛡️ ${p.team}`;
-      teamDiv.onclick = () => { closeModal('player-modal'); openTeamModal(p.team); };
-    } else {
-      teamDiv.style.display = 'none';
+    if (teamDiv) {
+      const teamsList = Array.isArray(p.teams_history) && p.teams_history.length > 0 
+        ? p.teams_history 
+        : ((p.all_teams || p.team || '').split(',').map(t => t.trim()).filter(Boolean));
+
+      if (teamsList.length > 0) {
+        teamDiv.style.display = 'inline-flex';
+        teamDiv.style.flexWrap = 'wrap';
+        teamDiv.style.gap = '0.4rem';
+        teamDiv.style.alignItems = 'center';
+        teamDiv.innerHTML = '';
+
+        const currentTeam = p.team ? p.team.trim() : teamsList[0];
+
+        teamsList.forEach((tm, idx) => {
+          const isCurrent = (tm.toLowerCase() === currentTeam.toLowerCase()) || (idx === 0);
+          const badge = document.createElement('span');
+          badge.className = 'faction-pill';
+          badge.style.cursor = 'pointer';
+          badge.style.border = isCurrent ? '1px solid #38bdf8' : '1px solid #334155';
+          badge.style.background = isCurrent ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.6)';
+          badge.style.color = isCurrent ? '#38bdf8' : 'var(--text-secondary)';
+          badge.style.fontWeight = isCurrent ? '700' : '500';
+          badge.title = isCurrent ? `${tm} (Current Active Team)` : `${tm} (Past Team)`;
+          badge.innerHTML = `🛡️ ${escapeHtml(tm)}${isCurrent && teamsList.length > 1 ? ' <span style="font-size:0.68rem; opacity:0.85; margin-left:0.2rem;">(Current)</span>' : ''}`;
+          badge.onclick = (e) => { e.stopPropagation(); closeModal('player-modal'); openTeamModal(tm); };
+          teamDiv.appendChild(badge);
+        });
+      } else {
+        teamDiv.style.display = 'none';
+      }
     }
 
     const factionsDiv = document.getElementById('modal-player-factions');
