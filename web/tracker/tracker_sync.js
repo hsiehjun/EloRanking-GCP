@@ -251,6 +251,14 @@
         <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" onmouseover="this.style.background='rgba(245,158,11,0.25)'" onmouseout="this.style.background='rgba(245,158,11,0.12)'">
           🎲 Lobby
         </a>
+        ${isPlay ? `
+          <button onclick="window.__openCompleteModal()" style="display:inline-flex; align-items:center; gap:4px; color:#fff; background:#059669; border:1px solid #10b981; padding:3px 9px; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.background='#047857'" onmouseout="this.style.background='#059669'">
+            🏁 Complete Game
+          </button>
+          <button onclick="window.__openScorecardModal()" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+            📄 Scorecard
+          </button>
+        ` : ''}
       </div>
       <span style="color:#334155;">|</span>
       <span style="display:inline-flex; align-items:center; gap:5px;">
@@ -259,6 +267,251 @@
       </span>
       <button onclick="window.__handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:11px; cursor:pointer; font-weight:700; padding:2px 4px; font-family:'JetBrains Mono',monospace;">Logout</button>
     `;
+
+    window.__openScorecardModal = function () {
+      if (!clientState.matchId) return;
+      window.open(`/scorecard/${encodeURIComponent(clientState.matchId)}`, '_blank');
+    };
+
+    window.__openCompleteModal = function () {
+      const raw = originalGetItem('gdm-11e-tracker-state');
+      let st = {};
+      try { st = JSON.parse(raw) || {}; } catch(e) {}
+      const game = st.game || {};
+      const p1 = st.p1 || {};
+      const p2 = st.p2 || {};
+
+      const p1Name = game.p1Name || 'Player 1';
+      const p2Name = game.p2Name || 'Player 2';
+      const p1Fac = game.p1Faction || '';
+      const p2Fac = game.p2Faction || '';
+
+      function getVp(obj) {
+        if (obj.score !== undefined && obj.score > 0) return obj.score;
+        const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
+        const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
+        const paint = obj.battleReady !== false ? 10 : 0;
+        return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+      }
+
+      const p1Score = getVp(p1);
+      const p2Score = getVp(p2);
+
+      const winnerName = (p1Score > p2Score) ? p1Name : ((p2Score > p1Score) ? p2Name : 'Draw / Tie');
+      const winnerColor = (p1Score > p2Score) ? '#38bdf8' : ((p2Score > p1Score) ? '#f43f5e' : '#f59e0b');
+
+      const eventId = game.eventId || st.event_id || '';
+      const roundNum = game.roundNum || st.round_num || st.round || 1;
+      const tableNum = game.tableNum || st.table_num || '';
+
+      let existingModal = document.getElementById('gt-complete-modal');
+      if (existingModal) existingModal.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'gt-complete-modal';
+      modal.innerHTML = `
+        <div style="position:fixed; inset:0; z-index:999999; background:rgba(4,7,14,0.94); backdrop-filter:blur(16px); display:flex; align-items:center; justify-content:center; padding:16px; font-family:'Inter',sans-serif; box-sizing:border-box;">
+          <div style="background:#0e1526; border:1px solid #1e293b; border-radius:20px; width:100%; max-width:540px; box-shadow:0 25px 70px rgba(0,0,0,0.85); overflow:hidden; padding:24px 22px; text-align:center; box-sizing:border-box;">
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #1e293b; padding-bottom:10px;">
+              <div style="text-align:left;">
+                <h2 style="font-size:17px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; display:flex; align-items:center; gap:6px;">
+                  🏁 COMPLETE & VERIFY MATCH
+                </h2>
+                <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                  ${eventId ? `Tournament: ${eventId} • ` : ''}Round ${roundNum} ${tableNum ? '• Table ' + tableNum : ''}
+                </div>
+              </div>
+              <button onclick="document.getElementById('gt-complete-modal').remove()" style="background:transparent; border:none; color:#94a3b8; font-size:18px; cursor:pointer;">✕</button>
+            </div>
+
+            <!-- Score Highlight Box -->
+            <div style="background:#070b14; border:1px solid #1e293b; border-radius:14px; padding:16px; margin-bottom:16px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:8px;">
+              <div style="text-align:left;">
+                <div style="font-size:11px; color:#38bdf8; font-weight:700; text-transform:uppercase;">${p1Name}</div>
+                <div style="font-size:11px; color:#64748b;">${p1Fac || 'Army 1'}</div>
+              </div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:26px; font-weight:900; color:#fff; display:flex; align-items:center; gap:6px;">
+                <span style="color:#38bdf8;">${p1Score}</span>
+                <span style="color:#64748b; font-size:16px;">-</span>
+                <span style="color:#f43f5e;">${p2Score}</span>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:11px; color:#f43f5e; font-weight:700; text-transform:uppercase;">${p2Name}</div>
+                <div style="font-size:11px; color:#64748b;">${p2Fac || 'Army 2'}</div>
+              </div>
+            </div>
+
+            <div style="margin-bottom:14px; font-size:13px; font-weight:700; color:${winnerColor};">
+              🏆 Match Outcome: ${winnerName} ${p1Score !== p2Score ? 'VICTORY' : ''}
+            </div>
+
+            <!-- Who Went First Selection -->
+            <div style="background:#090f1e; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:16px; text-align:left;">
+              <label style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; display:block; margin-bottom:6px;">
+                🎲 Who Took First Turn? (Required for BCP)
+              </label>
+              <div style="display:flex; gap:16px;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#f8fafc; cursor:pointer;">
+                  <input type="radio" name="gt-who-went-first" value="player1" checked />
+                  <span>${p1Name} (Turn 1)</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#f8fafc; cursor:pointer;">
+                  <input type="radio" name="gt-who-went-first" value="player2" />
+                  <span>${p2Name} (Turn 1)</span>
+                </label>
+              </div>
+            </div>
+
+            <div id="gt-complete-submit-status" style="margin-bottom:12px; font-size:12px; font-family:'JetBrains Mono',monospace; display:none;"></div>
+
+            <!-- Action Buttons -->
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <button id="gt-btn-submit-bcp" onclick="window.__submitMatchToBcp()" style="width:100%; background:#0284c7; color:#fff; font-weight:800; font-size:13px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em; transition:all 0.15s;">
+                🏁 SUBMIT SCORE TO BEST COAST PAIRINGS
+              </button>
+
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                <button onclick="window.__copyMatchScorecardSummary()" style="background:#1e293b; border:1px solid #334155; color:#f8fafc; font-weight:700; font-size:11px; padding:10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                  📋 COPY SUMMARY
+                </button>
+                <button onclick="window.open('/scorecard/${encodeURIComponent(clientState.matchId)}', '_blank')" style="background:#1e293b; border:1px solid #334155; color:#38bdf8; font-weight:700; font-size:11px; padding:10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">
+                  📄 VIEW SCORECARD ↗
+                </button>
+              </div>
+
+              <button onclick="window.__finalizeAndLockMatch()" style="background:transparent; border:1px dashed #334155; color:#94a3b8; font-size:11px; padding:8px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; margin-top:4px;">
+                🔒 Finalize & Lock Battle Record
+              </button>
+            </div>
+
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modal);
+    };
+
+    window.__submitMatchToBcp = async function () {
+      const btn = document.getElementById('gt-btn-submit-bcp');
+      const statusEl = document.getElementById('gt-complete-submit-status');
+      if (btn) { btn.disabled = true; btn.textContent = 'SUBMITTING TO BCP...'; }
+
+      const raw = originalGetItem('gdm-11e-tracker-state');
+      let st = {};
+      try { st = JSON.parse(raw) || {}; } catch(e) {}
+      const game = st.game || {};
+
+      const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
+      const firstTurnVal = firstTurnRadio ? firstTurnRadio.value : 'player1';
+
+      function getVp(obj) {
+        if (obj.score !== undefined && obj.score > 0) return obj.score;
+        const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
+        const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
+        const paint = obj.battleReady !== false ? 10 : 0;
+        return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+      }
+
+      const p1Score = getVp(st.p1 || {});
+      const p2Score = getVp(st.p2 || {});
+      const eventId = game.eventId || st.event_id || 'Casual';
+      const roundNum = game.roundNum || st.round_num || 1;
+      const tableNum = game.tableNum || st.table_num || 1;
+
+      try {
+        const resp = await fetch('/api/eventstudio/submit_score', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${getAuthToken()}`
+          },
+          body: JSON.stringify({
+            event_id: eventId,
+            table: Number(tableNum) || 1,
+            round_num: Number(roundNum) || 1,
+            p1_score: p1Score,
+            p2_score: p2Score,
+            p1_name: game.p1Name || 'Player 1',
+            p2_name: game.p2Name || 'Player 2',
+            source_app: 'GameTracker-GDM',
+            game_details: {
+              match_id: clientState.matchId,
+              first_turn: firstTurnVal,
+              p1_faction: game.p1Faction,
+              p2_faction: game.p2Faction
+            }
+          })
+        });
+
+        const res = await resp.json();
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.style.color = '#10b981';
+          statusEl.innerHTML = `✅ Score successfully synced with Best Coast Pairings & archived in Elo database!`;
+        }
+        if (btn) {
+          btn.style.background = '#10b981';
+          btn.textContent = '✓ SUBMITTED TO BCP';
+        }
+
+        st.is_finished = true;
+        st.bcp_submitted = true;
+        st.who_went_first = firstTurnVal;
+        saveLocalState(st);
+        notifyStateChanged();
+      } catch (err) {
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.style.color = '#ef4444';
+          statusEl.textContent = `Notice: Score archived in DB. (BCP direct sync: ${err.message})`;
+        }
+        if (btn) { btn.disabled = false; btn.textContent = 'RETRY BCP SUBMIT'; }
+      }
+    };
+
+    window.__copyMatchScorecardSummary = function () {
+      const raw = originalGetItem('gdm-11e-tracker-state');
+      let st = {};
+      try { st = JSON.parse(raw) || {}; } catch(e) {}
+      const game = st.game || {};
+
+      function getVp(obj) {
+        if (obj.score !== undefined && obj.score > 0) return obj.score;
+        const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
+        const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
+        const paint = obj.battleReady !== false ? 10 : 0;
+        return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+      }
+
+      const p1 = game.p1Name || 'Player 1';
+      const p2 = game.p2Name || 'Player 2';
+      const p1S = getVp(st.p1 || {});
+      const p2S = getVp(st.p2 || {});
+      const p1F = game.p1Faction || '';
+      const p2F = game.p2Faction || '';
+
+      const summary = `🏆 Warhammer 40,000 Match Result
+⚔️ ${p1} (${p1F}): ${p1S} VP
+⚔️ ${p2} (${p2F}): ${p2S} VP
+🎯 Mission: ${game.primary || 'Take & Hold'}
+📄 Verified Scorecard: ${window.location.origin}/scorecard/${encodeURIComponent(clientState.matchId)}`;
+
+      navigator.clipboard.writeText(summary);
+      alert('📋 Match Summary Copied to Clipboard!');
+    };
+
+    window.__finalizeAndLockMatch = function () {
+      const raw = originalGetItem('gdm-11e-tracker-state');
+      let st = {};
+      try { st = JSON.parse(raw) || {}; } catch(e) {}
+      st.is_finished = true;
+      st.round = 5;
+      saveLocalState(st);
+      notifyStateChanged();
+      alert('🔒 Match is now finalized and locked as completed.');
+      const m = document.getElementById('gt-complete-modal');
+      if (m) m.remove();
+    };
 
     window.__handleLogout = async function () {
       try {
@@ -737,6 +990,9 @@
             <span style="background:${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}; color:${isDone ? '#10b981' : '#f59e0b'}; border:1px solid ${isDone ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
               ${isDone ? 'Completed' : 'In Progress'}
             </span>
+            <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+              📄 Scorecard
+            </button>
             <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
             </button>

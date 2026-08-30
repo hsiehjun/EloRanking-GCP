@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Match Scorecard • 40K Elo & Tournament Companion</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/css/main.css">
+  <style>
+    body {
+      background: #090d16;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .sc-container {
+      max-width: 900px;
+      margin: 2rem auto;
+      padding: 0 1.25rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .sc-card {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      overflow: hidden;
+    }
+    .sc-header {
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+      border-bottom: 1px solid #334155;
+      padding: 1.5rem 1.75rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .sc-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .sc-meta {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      margin-top: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .sc-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: rgba(56, 189, 248, 0.1);
+      color: #38bdf8;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+    }
+    .sc-versus-grid {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      padding: 2rem 1.5rem;
+      background: #090f1e;
+      border-bottom: 1px solid #1e293b;
+      gap: 1rem;
+    }
+    .sc-player-col {
+      display: flex;
+      flex-direction: column;
+    }
+    .sc-p1 { text-align: left; }
+    .sc-p2 { text-align: right; }
+    .sc-player-name {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #fff;
+    }
+    .sc-player-faction {
+      font-size: 0.85rem;
+      color: #38bdf8;
+      font-weight: 600;
+      margin-top: 0.2rem;
+    }
+    .sc-player-det {
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+    .sc-score-box {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: #020617;
+      border: 1px solid #334155;
+      padding: 0.75rem 1.5rem;
+      border-radius: 12px;
+    }
+    .sc-score-num {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 2.25rem;
+      font-weight: 900;
+    }
+    .sc-score-p1 { color: #38bdf8; }
+    .sc-score-p2 { color: #f43f5e; }
+    .sc-matrix-section {
+      padding: 1.5rem;
+    }
+    .sc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    .sc-table th, .sc-table td {
+      padding: 0.75rem 0.6rem;
+      text-align: center;
+      border-bottom: 1px solid #1e293b;
+    }
+    .sc-table th {
+      background: #1e293b;
+      color: #94a3b8;
+      font-weight: 700;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .sc-table th:first-child, .sc-table td:first-child {
+      text-align: left;
+      font-weight: 700;
+    }
+    .sc-table td:last-child {
+      font-weight: 800;
+      color: #fff;
+    }
+    .sc-footer {
+      padding: 1.25rem 1.75rem;
+      background: #0b1120;
+      border-top: 1px solid #1e293b;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .btn-sc {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #fff;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      text-decoration: none;
+      font-size: 0.85rem;
+      transition: all 0.15s ease;
+    }
+    .btn-sc:hover {
+      background: #334155;
+      border-color: #475569;
+    }
+    .btn-sc-primary {
+      background: #0284c7;
+      border-color: #38bdf8;
+    }
+    .btn-sc-primary:hover {
+      background: #0369a1;
+    }
+    @media(max-width: 640px) {
+      .sc-versus-grid {
+        grid-template-columns: 1fr;
+        text-align: center;
+      }
+      .sc-p1, .sc-p2 { text-align: center; }
+      .sc-score-box { justify-content: center; margin: 0.5rem 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="sc-container">
+    <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+      <a href="/" class="btn-sc">🏠 Return to 40K Hub</a>
+      <button class="btn-sc" onclick="copyScorecardUrl()">🔗 Share Scorecard</button>
+    </div>
+
+    <div class="sc-card">
+      <!-- Match Header -->
+      <div class="sc-header">
+        <div>
+          <div class="sc-title" id="sc-event-title">🏆 Match Scorecard</div>
+          <div class="sc-meta" id="sc-meta-line">
+            <span id="sc-round-table">Round - • Table -</span>
+            <span>•</span>
+            <span id="sc-mission-name">🎯 Primary: Take & Hold</span>
+            <span>•</span>
+            <span id="sc-date-time">⏱️ -</span>
+          </div>
+        </div>
+        <div id="sc-status-badges" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+          <span class="sc-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">
+            ✓ Official Scorecard
+          </span>
+        </div>
+      </div>
+
+      <!-- P1 vs P2 Versus Grid -->
+      <div class="sc-versus-grid">
+        <div class="sc-player-col sc-p1">
+          <div style="font-size: 0.75rem; text-transform: uppercase; color: #38bdf8; font-weight: 700; letter-spacing: 0.05em;" id="sc-p1-turn-label">PLAYER 1</div>
+          <div class="sc-player-name" id="sc-p1-name">Player 1</div>
+          <div class="sc-player-faction" id="sc-p1-faction">-</div>
+          <div class="sc-player-det" id="sc-p1-det">-</div>
+        </div>
+
+        <div class="sc-score-box">
+          <div class="sc-score-num sc-score-p1" id="sc-p1-final-score">0</div>
+          <div style="color: #64748b; font-weight: 700; font-size: 1.25rem;">-</div>
+          <div class="sc-score-num sc-score-p2" id="sc-p2-final-score">0</div>
+        </div>
+
+        <div class="sc-player-col sc-p2">
+          <div style="font-size: 0.75rem; text-transform: uppercase; color: #f43f5e; font-weight: 700; letter-spacing: 0.05em;" id="sc-p2-turn-label">PLAYER 2</div>
+          <div class="sc-player-name" id="sc-p2-name">Player 2</div>
+          <div class="sc-player-faction" id="sc-p2-faction">-</div>
+          <div class="sc-player-det" id="sc-p2-det">-</div>
+        </div>
+      </div>
+
+      <!-- Turn-by-Turn Matrix Table -->
+      <div class="sc-matrix-section">
+        <div style="font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 0.75rem;">
+          📊 Turn-by-Turn Scoring Progression
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="sc-table">
+            <thead>
+              <tr>
+                <th>Objective / Round</th>
+                <th>Turn 1</th>
+                <th>Turn 2</th>
+                <th>Turn 3</th>
+                <th>Turn 4</th>
+                <th>Turn 5</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody id="sc-matrix-body">
+              <tr><td colspan="7" style="padding: 2rem; color: #64748b;">Loading match breakdown...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Footer & Actions -->
+      <div class="sc-footer">
+        <div style="font-size: 0.8rem; color: #94a3b8;">
+          Match ID: <span style="font-family: monospace; color: #cbd5e1; font-weight: 700;" id="sc-match-id">-</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <a href="#" id="sc-play-link" class="btn-sc btn-sc-primary">⚔️ Open in Live Tracker</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function getMatchIdFromPath() {
+      const parts = window.location.pathname.split('/');
+      const lastPart = parts[parts.length - 1];
+      if (lastPart && lastPart !== 'scorecard') return lastPart;
+      const params = new URLSearchParams(window.location.search);
+      return params.get('match_id') || params.get('scorecard') || '';
+    }
+
+    function copyScorecardUrl() {
+      navigator.clipboard.writeText(window.location.href);
+      alert('📋 Scorecard URL copied to clipboard!');
+    }
+
+    async function loadScorecard() {
+      const matchId = getMatchIdFromPath();
+      if (!matchId) {
+        document.getElementById('sc-matrix-body').innerHTML = '<tr><td colspan="7" style="padding:2rem; color:#ef4444;">No Match ID specified.</td></tr>';
+        return;
+      }
+      document.getElementById('sc-match-id').innerText = matchId;
+      document.getElementById('sc-play-link').href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+
+      try {
+        const resp = await fetch(`/api/scorecard/${encodeURIComponent(matchId)}`);
+        if (!resp.ok) throw new Error('Scorecard not found');
+        const json = await resp.json();
+        renderScorecardData(json);
+      } catch (err) {
+        document.getElementById('sc-matrix-body').innerHTML = `<tr><td colspan="7" style="padding:2rem; color:#ef4444;">Error loading scorecard: ${err.message}</td></tr>`;
+      }
+    }
+
+    function renderScorecardData(data) {
+      const rec = data.game_record || {};
+      const st = data.state || {};
+      const game = st.game || rec.state_json?.game || {};
+
+      const p1Name = game.p1Name || rec.p1_name || 'Player 1';
+      const p2Name = game.p2Name || rec.p2_name || 'Player 2';
+      const p1Fac = game.p1Faction || rec.p1_faction || 'Warhammer 40k';
+      const p2Fac = game.p2Faction || rec.p2_faction || 'Warhammer 40k';
+      const p1Det = (Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment || '';
+      const p2Det = (Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment || '';
+
+      document.getElementById('sc-p1-name').innerText = p1Name;
+      document.getElementById('sc-p2-name').innerText = p2Name;
+      document.getElementById('sc-p1-faction').innerText = p1Fac;
+      document.getElementById('sc-p2-faction').innerText = p2Fac;
+      document.getElementById('sc-p1-det').innerText = p1Det;
+      document.getElementById('sc-p2-det').innerText = p2Det;
+
+      const p1Obj = st.p1 || {};
+      const p2Obj = st.p2 || {};
+
+      const p1Rounds = p1Obj.rounds || [];
+      const p2Rounds = p2Obj.rounds || [];
+
+      function getVp(obj, rounds) {
+        if (obj.score !== undefined && obj.score > 0) return obj.score;
+        const pri = rounds.reduce((s, r) => s + (r.primaryScore || 0), 0);
+        const sec = rounds.reduce((s, r) => s + (r.secondaryScore || 0), 0);
+        const paint = obj.battleReady ? 10 : 0;
+        return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+      }
+
+      const p1Score = getVp(p1Obj, p1Rounds) || rec.p1_score || 0;
+      const p2Score = getVp(p2Obj, p2Rounds) || rec.p2_score || 0;
+
+      document.getElementById('sc-p1-final-score').innerText = p1Score;
+      document.getElementById('sc-p2-final-score').innerText = p2Score;
+
+      const roundNum = rec.round_num || game.roundNum || st.round_num || 1;
+      const tableNum = rec.table_num || game.tableNum || st.table_num || null;
+      const eventId = rec.event_id || game.eventId || null;
+
+      if (eventId) {
+        document.getElementById('sc-event-title').innerText = `🏆 Tournament Match (${eventId})`;
+      }
+      document.getElementById('sc-round-table').innerText = `Round ${roundNum} ${tableNum ? '• Table ' + tableNum : ''}`;
+      document.getElementById('sc-mission-name').innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
+      document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rec.updated_at || Date.now()).toLocaleDateString()}`;
+
+      // Build Matrix Rows
+      const tbody = document.getElementById('sc-matrix-body');
+      tbody.innerHTML = '';
+
+      function buildRow(title, color, roundsArr, field, maxVal) {
+        let cells = '';
+        let total = 0;
+        for (let i = 1; i <= 5; i++) {
+          const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
+          const val = r[field] !== undefined ? r[field] : '-';
+          if (typeof val === 'number') total += val;
+          cells += `<td style="font-family:monospace; font-weight:600;">${val}</td>`;
+        }
+        return `
+          <tr>
+            <td style="color:${color}; font-weight:700;">${title}</td>
+            ${cells}
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${total} ${maxVal ? '/ ' + maxVal : ''}</td>
+          </tr>
+        `;
+      }
+
+      tbody.innerHTML += buildRow(`🟦 ${p1Name} Primary`, '#38bdf8', p1Rounds, 'primaryScore', 50);
+      tbody.innerHTML += buildRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, 'primaryScore', 50);
+      tbody.innerHTML += buildRow(`🟦 ${p1Name} Secondaries`, '#7dd3fc', p1Rounds, 'secondaryScore', 40);
+      tbody.innerHTML += buildRow(`🟥 ${p2Name} Secondaries`, '#fda4af', p2Rounds, 'secondaryScore', 40);
+      
+      tbody.innerHTML += `
+        <tr style="background: rgba(255,255,255,0.02);">
+          <td style="color:#10b981; font-weight:700;">🎨 Battle Ready (+10)</td>
+          <td colspan="5" style="text-align:center; font-weight:600;">
+            ${p1Name}: ${p1Obj.battleReady !== false ? '+10' : '0'} &nbsp;|&nbsp; ${p2Name}: ${p2Obj.battleReady !== false ? '+10' : '0'}
+          </td>
+          <td style="font-family:monospace; font-weight:800; color:#10b981;">
+            ${(p1Obj.battleReady !== false ? 10 : 0) + (p2Obj.battleReady !== false ? 10 : 0)}
+          </td>
+        </tr>
+      `;
+    }
+
+    document.addEventListener('DOMContentLoaded', loadScorecard);
+  </script>
+</body>
+</html>

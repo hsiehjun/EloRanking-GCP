@@ -343,6 +343,12 @@ function renderEventPairingsRows() {
     const isP1Win = m.winner_id && m.winner_id === m.player1_id;
     const isP2Win = m.winner_id && m.winner_id === m.player2_id;
     const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
+    const matchId = `BCP-${currentEventId}-R${m.round || 1}-T${m.table_number || 1}`;
+
+    const hasScore = (m.player1_score !== null && m.player2_score !== null);
+    const actionBtn = hasScore
+      ? `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`
+      : `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${currentEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">🎲 Track</button>`;
 
     tr.innerHTML = `
       <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
@@ -364,9 +370,53 @@ function renderEventPairingsRows() {
         </span>
       </td>
       <td>
-        <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
+        <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end;">
+          <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
+          ${actionBtn}
+        </div>
       </td>
     `;
     tbody.appendChild(tr);
   });
+}
+
+async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id) {
+  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
+  
+  let p1Fac = null;
+  let p2Fac = null;
+  let p1Det = null;
+  let p2Det = null;
+  
+  if (currentEventData && Array.isArray(currentEventData.players)) {
+    const p1Record = currentEventData.players.find(p => p.player_id === p1Id || p.player_name === p1Name);
+    if (p1Record) {
+      p1Fac = p1Record.faction || p1Record.army_name;
+      p1Det = p1Record.detachment;
+    }
+    const p2Record = currentEventData.players.find(p => p.player_id === p2Id || p.player_name === p2Name);
+    if (p2Record) {
+      p2Fac = p2Record.faction || p2Record.army_name;
+      p2Det = p2Record.detachment;
+    }
+  }
+
+  try {
+    await window.api.createTournamentTrackerRoom({
+      match_id: matchId,
+      event_id: eventId,
+      round_num: roundNum,
+      table_num: tableNum,
+      p1_name: p1Name,
+      p2_name: p2Name,
+      p1_faction: p1Fac,
+      p2_faction: p2Fac,
+      p1_detachment: p1Det,
+      p2_detachment: p2Det
+    });
+  } catch (e) {
+    console.warn('Auto room connect notice:', e);
+  }
+
+  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
 }

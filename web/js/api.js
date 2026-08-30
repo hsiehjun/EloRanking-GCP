@@ -231,5 +231,28 @@ window.api = {
   async searchPlayers(query, limit = 10) {
     const params = new URLSearchParams({ q: query, limit });
     return this._fetchJson(`/api/players/search?${params}`);
+  },
+
+  // Digital Match Scorecard
+  async getScorecard(matchId) {
+    return this._fetchJson(`/api/scorecard/${encodeURIComponent(matchId)}`);
+  },
+
+  // Create Tournament Tracker Room
+  async createTournamentTrackerRoom(payload) {
+    return this._fetchJson('/api/tracker/room/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // Submit Match Score to EventStudio / BCP
+  async submitScoreToBcp(payload) {
+    return this._fetchJson('/api/eventstudio/submit_score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
   }
 };

@@ -341,11 +341,17 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS hidden_user_ids TEXT[] DEFAULT '{}';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS state_json JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS event_id TEXT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS round_num INT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS table_num INT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS who_went_first TEXT;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS bcp_submitted BOOLEAN DEFAULT FALSE;",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
-            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);"
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_evt ON tracker_games(event_id, round_num, table_num);"
         ]
         for s in stmts:
             try:
@@ -1894,6 +1900,13 @@ class PostgresDatabase:
             else:
                 winner_name = "Tied"
 
+        event_id = state.get("event_id") or game_data.get("eventId") or state.get("eventId")
+        round_num = int(state.get("round_num") or game_data.get("roundNum") or current_round or 1)
+        table_num = int(state.get("table_num") or game_data.get("tableNum") or 0) if (state.get("table_num") or game_data.get("tableNum")) else None
+        first_turn = game_data.get("firstTurn") or state.get("firstTurn") or state.get("who_went_first")
+        who_went_first = p1_name if (first_turn in (1, "1", "player1", "p1", p1_name)) else (p2_name if (first_turn in (2, "2", "player2", "p2", p2_name)) else None)
+        bcp_submitted = bool(state.get("bcp_submitted") or state.get("bcpSubmitted"))
+
         refs_list = list(refs) if isinstance(refs, (list, tuple)) else []
         refs_sql = "{" + ",".join([f'"{r}"' for r in refs_list]) + "}"
 
@@ -1907,14 +1920,16 @@ class PostgresDatabase:
                         user_id_p1, user_id_p2, referee_ids,
                         primary_mission, deployment, mission_rule,
                         current_round, started, is_finished, winner_name,
-                        version, state_json, updated_at
+                        version, state_json, event_id, round_num, table_num,
+                        who_went_first, bcp_submitted, updated_at
                     ) VALUES (
                         %s, %s, %s, %s, %s,
                         %s, %s, %s, %s,
                         %s, %s, %s::text[],
                         %s, %s, %s,
                         %s, %s, %s, %s,
-                        %s, %s::jsonb, NOW()
+                        %s, %s::jsonb, %s, %s, %s,
+                        %s, %s, NOW()
                     )
                     ON CONFLICT (match_id) DO UPDATE SET
                         p1_name = EXCLUDED.p1_name,
@@ -1937,6 +1952,11 @@ class PostgresDatabase:
                         winner_name = EXCLUDED.winner_name,
                         version = EXCLUDED.version,
                         state_json = EXCLUDED.state_json,
+                        event_id = COALESCE(EXCLUDED.event_id, tracker_games.event_id),
+                        round_num = COALESCE(EXCLUDED.round_num, tracker_games.round_num),
+                        table_num = COALESCE(EXCLUDED.table_num, tracker_games.table_num),
+                        who_went_first = COALESCE(EXCLUDED.who_went_first, tracker_games.who_went_first),
+                        bcp_submitted = COALESCE(EXCLUDED.bcp_submitted, tracker_games.bcp_submitted),
                         updated_at = NOW();
                     """, (
                         match_id, p1_name, p1_faction, p1_detachment, p1_score,
@@ -1946,7 +1966,9 @@ class PostgresDatabase:
                         refs_sql,
                         primary_mission, deployment, mission_rule,
                         current_round, started, is_finished, winner_name,
-                        version, json.dumps(state)
+                        version, json.dumps(state),
+                        str(event_id) if event_id else None,
+                        round_num, table_num, who_went_first, bcp_submitted
                     ))
                 conn.commit()
             return True

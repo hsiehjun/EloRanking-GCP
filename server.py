@@ -233,6 +233,15 @@ if FASTAPI_AVAILABLE:
     class TrackerCreatePayload(BaseModel):
         token: Optional[str] = None
         p1_name: Optional[str] = None
+        p2_name: Optional[str] = None
+        p1_faction: Optional[str] = None
+        p2_faction: Optional[str] = None
+        p1_detachment: Optional[str] = None
+        p2_detachment: Optional[str] = None
+        event_id: Optional[str] = None
+        round_num: Optional[int] = None
+        table_num: Optional[int] = None
+        match_id: Optional[str] = None
 
     class TrackerJoinPayload(BaseModel):
         token: Optional[str] = None
@@ -251,14 +260,14 @@ if FASTAPI_AVAILABLE:
 
     def normalize_tracker_match_id(raw: str) -> str:
         s = raw.strip().upper().replace(" ", "")
-        if s.startswith("WH40K-"):
+        if s.startswith("WH40K-") or s.startswith("BCP-"):
             return s
         s_clean = s.replace("-", "")
         if len(s_clean) == 8:
             return f"WH40K-{s_clean[:4]}-{s_clean[4:]}"
         return s
 
-    @app.post("/api/tracker/room/create", summary="Create a new collision-free multiplayer match room with host player")
+    @app.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
     async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
         db = get_database()
         auth_mgr = get_auth_manager()
@@ -267,22 +276,73 @@ if FASTAPI_AVAILABLE:
         session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         
-        match_id = generate_unique_match_id(db)
+        # Check if deterministic tournament room was requested
+        match_id = None
+        if payload:
+            if payload.match_id:
+                match_id = normalize_tracker_match_id(payload.match_id)
+            elif payload.event_id and payload.round_num is not None and payload.table_num is not None:
+                match_id = f"BCP-{payload.event_id}-R{payload.round_num}-T{payload.table_num}".upper()
+        
+        # If room already exists in memory or DB, return existing state so opponent joins same room!
+        if match_id:
+            if match_id in TRACKER_ROOMS:
+                existing = TRACKER_ROOMS[match_id]
+                return {
+                    "success": True,
+                    "match_id": match_id,
+                    "role": "player1" if (user and existing.get("user_id_p1") == user["id"]) else ("player2" if (user and existing.get("user_id_p2") == user["id"]) else "player1"),
+                    "user_id_p1": existing.get("user_id_p1"),
+                    "p1_name": existing.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
+                    "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
+                    "state": existing.get("state", {})
+                }
+            saved_game = db.get_tracker_game(match_id)
+            if saved_game and saved_game.get("state"):
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "user_id_p1": saved_game.get("user_id_p1"),
+                    "user_id_p2": saved_game.get("user_id_p2"),
+                    "referee_ids": saved_game.get("referee_ids", []),
+                    "version": saved_game.get("version", 1),
+                    "state": saved_game["state"],
+                    "updated_at": saved_game.get("updated_at")
+                }
+                return {
+                    "success": True,
+                    "match_id": match_id,
+                    "role": "player1" if (user and saved_game.get("user_id_p1") == user["id"]) else ("player2" if (user and saved_game.get("user_id_p2") == user["id"]) else "player1"),
+                    "user_id_p1": saved_game.get("user_id_p1"),
+                    "p1_name": saved_game.get("p1_name") or "Player 1",
+                    "p2_name": saved_game.get("p2_name") or "Player 2",
+                    "state": saved_game["state"]
+                }
+        else:
+            match_id = generate_unique_match_id(db)
+
         user_id_p1 = user["id"] if user else None
         p1_name = (user.get("display_name") if user else None) or (payload.p1_name if payload else None) or "Player 1"
+        p2_name = (payload.p2_name if payload and payload.p2_name else "Player 2")
+        p1_fac = (payload.p1_faction if payload else None)
+        p2_fac = (payload.p2_faction if payload else None)
+        p1_det = [payload.p1_detachment] if (payload and payload.p1_detachment) else []
+        p2_det = [payload.p2_detachment] if (payload and payload.p2_detachment) else []
         
         initial_state = {
             "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
             "match_id": match_id,
+            "event_id": payload.event_id if payload else None,
+            "round_num": payload.round_num if payload else 1,
+            "table_num": payload.table_num if payload else None,
             "user_id_p1": user_id_p1,
             "user_id_p2": None,
             "game": {
                 "p1Name": p1_name,
-                "p2Name": "Player 2",
-                "p1Faction": None,
-                "p2Faction": None,
-                "p1Detachments": [],
-                "p2Detachments": [],
+                "p2Name": p2_name,
+                "p1Faction": p1_fac,
+                "p2Faction": p2_fac,
+                "p1Detachments": p1_det,
+                "p2Detachments": p2_det,
                 "p1Disposition": None,
                 "p2Disposition": None,
                 "p1Primary": None,
@@ -299,7 +359,10 @@ if FASTAPI_AVAILABLE:
                 "showCP": True,
                 "enableCP": True,
                 "cpCounter": True,
-                "cp": True
+                "cp": True,
+                "eventId": payload.event_id if payload else None,
+                "roundNum": payload.round_num if payload else 1,
+                "tableNum": payload.table_num if payload else None
             },
             "p1": {"score": 0, "rounds": [], "battleReady": True, "cp": 0},
             "p2": {"score": 0, "rounds": [], "battleReady": True, "cp": 0},
@@ -340,6 +403,7 @@ if FASTAPI_AVAILABLE:
             "role": "player1",
             "user_id_p1": user_id_p1,
             "p1_name": p1_name,
+            "p2_name": p2_name,
             "state": initial_state
         }
 
@@ -642,6 +706,35 @@ if FASTAPI_AVAILABLE:
         success = db.unhide_tracker_game_for_user(match_id, user["id"])
         return {"success": success, "match_id": match_id, "unhidden_for_user": user["id"]}
 
+    @app.get("/api/scorecard/{match_id}", summary="Get verified tournament digital scorecard data")
+    async def api_get_scorecard(match_id: str):
+        match_id = normalize_tracker_match_id(match_id)
+        db = get_database()
+        
+        room = TRACKER_ROOMS.get(match_id)
+        state = room.get("state") if room else None
+        game_rec = db.get_tracker_game(match_id)
+        
+        if not state and game_rec:
+            state = game_rec.get("state_json") or game_rec
+            
+        if not state and not game_rec:
+            raise HTTPException(status_code=404, detail="Scorecard not found for this match ID")
+            
+        return {
+            "success": True,
+            "match_id": match_id,
+            "game_record": game_rec,
+            "state": state
+        }
+
+    @app.get("/scorecard/{match_id}", summary="View digital scorecard page")
+    async def view_scorecard_page(match_id: str):
+        scorecard_file = web_dir / "scorecard.html"
+        if scorecard_file.exists():
+            return FileResponse(scorecard_file)
+        return RedirectResponse(f"/?scorecard={match_id}")
+
     @app.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
     async def api_tracker_debug_test_save():
         import traceback
@@ -757,8 +850,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.6">
-  <script src="/tracker/tracker_sync.js?v=11.6"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.7">
+  <script src="/tracker/tracker_sync.js?v=11.7"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

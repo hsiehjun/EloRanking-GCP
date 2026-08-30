@@ -509,3 +509,138 @@ function renderFactionMatchupsRows(matchups) {
     tbody.appendChild(tr);
   });
 }
+
+let activeScorecardMatchId = null;
+
+function copyCurrentScorecardLink() {
+  if (!activeScorecardMatchId) return;
+  const url = `${window.location.origin}/scorecard/${encodeURIComponent(activeScorecardMatchId)}`;
+  navigator.clipboard.writeText(url);
+  alert(`📋 Scorecard Link copied to clipboard:\n${url}`);
+}
+
+async function openScorecardModal(matchId) {
+  if (!matchId) return;
+  activeScorecardMatchId = matchId;
+
+  const modal = document.getElementById('scorecard-modal');
+  if (!modal) {
+    window.location.href = `/scorecard/${encodeURIComponent(matchId)}`;
+    return;
+  }
+  modal.classList.add('active');
+
+  const titleEl = document.getElementById('modal-scorecard-title');
+  const subEl = document.getElementById('modal-scorecard-subtitle');
+  const tbody = document.getElementById('modal-scorecard-matrix-body');
+  const matchIdEl = document.getElementById('msc-match-id');
+  const liveLink = document.getElementById('msc-live-link');
+
+  if (titleEl) titleEl.innerHTML = `🏆 Match Scorecard`;
+  if (subEl) subEl.innerText = `Loading tournament match details for ${matchId}...`;
+  if (matchIdEl) matchIdEl.innerText = matchId;
+  if (liveLink) liveLink.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Fetching verified battle records...</div></td></tr>';
+
+  try {
+    const data = await window.api.getScorecard(matchId);
+    const rec = data.game_record || {};
+    const st = data.state || {};
+    const game = st.game || rec.state_json?.game || {};
+
+    const p1Name = game.p1Name || rec.p1_name || 'Player 1';
+    const p2Name = game.p2Name || rec.p2_name || 'Player 2';
+    const p1Fac = game.p1Faction || rec.p1_faction || 'Warhammer 40k';
+    const p2Fac = game.p2Faction || rec.p2_faction || 'Warhammer 40k';
+    const p1Det = (Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment || '';
+    const p2Det = (Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment || '';
+
+    const p1NameEl = document.getElementById('msc-p1-name');
+    const p2NameEl = document.getElementById('msc-p2-name');
+    const p1FacEl = document.getElementById('msc-p1-faction');
+    const p2FacEl = document.getElementById('msc-p2-faction');
+    const p1DetEl = document.getElementById('msc-p1-det');
+    const p2DetEl = document.getElementById('msc-p2-det');
+
+    if (p1NameEl) p1NameEl.innerText = p1Name;
+    if (p2NameEl) p2NameEl.innerText = p2Name;
+    if (p1FacEl) p1FacEl.innerText = p1Fac;
+    if (p2FacEl) p2FacEl.innerText = p2Fac;
+    if (p1DetEl) p1DetEl.innerText = p1Det;
+    if (p2DetEl) p2DetEl.innerText = p2Det;
+
+    const p1Obj = st.p1 || {};
+    const p2Obj = st.p2 || {};
+    const p1Rounds = p1Obj.rounds || [];
+    const p2Rounds = p2Obj.rounds || [];
+
+    function getVp(obj, rounds) {
+      if (obj.score !== undefined && obj.score > 0) return obj.score;
+      const pri = rounds.reduce((s, r) => s + (r.primaryScore || 0), 0);
+      const sec = rounds.reduce((s, r) => s + (r.secondaryScore || 0), 0);
+      const paint = obj.battleReady !== false ? 10 : 0;
+      return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+    }
+
+    const p1Score = getVp(p1Obj, p1Rounds) || rec.p1_score || 0;
+    const p2Score = getVp(p2Obj, p2Rounds) || rec.p2_score || 0;
+
+    const p1ScoreEl = document.getElementById('msc-p1-score');
+    const p2ScoreEl = document.getElementById('msc-p2-score');
+    if (p1ScoreEl) p1ScoreEl.innerText = p1Score;
+    if (p2ScoreEl) p2ScoreEl.innerText = p2Score;
+
+    const roundNum = rec.round_num || game.roundNum || st.round_num || 1;
+    const tableNum = rec.table_num || game.tableNum || st.table_num || null;
+    const eventId = rec.event_id || game.eventId || null;
+
+    if (titleEl) {
+      titleEl.innerHTML = `🏆 ${eventId ? escapeHtml(eventId) + ' • ' : ''}Round ${roundNum} ${tableNum ? 'Table ' + tableNum : ''}`;
+    }
+    if (subEl) {
+      subEl.innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'} • 🗺️ ${game.deployment || rec.deployment || 'Search & Destroy'} • ⏱️ ${new Date(rec.updated_at || Date.now()).toLocaleDateString()}`;
+    }
+
+    // Render Matrix Rows
+    if (tbody) {
+      tbody.innerHTML = '';
+
+      function buildRow(title, color, roundsArr, field, maxVal) {
+        let cells = '';
+        let total = 0;
+        for (let i = 1; i <= 5; i++) {
+          const r = roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {};
+          const val = r[field] !== undefined ? r[field] : '-';
+          if (typeof val === 'number') total += val;
+          cells += `<td style="font-family:var(--font-mono); font-weight:600; text-align:center;">${val}</td>`;
+        }
+        return `
+          <tr>
+            <td style="color:${color}; font-weight:700; text-align:left;">${title}</td>
+            ${cells}
+            <td style="font-family:var(--font-mono); font-weight:800; color:#fff; text-align:center;">${total} ${maxVal ? '/ ' + maxVal : ''}</td>
+          </tr>
+        `;
+      }
+
+      tbody.innerHTML += buildRow(`🟦 ${escapeHtml(p1Name)} Primary`, '#38bdf8', p1Rounds, 'primaryScore', 50);
+      tbody.innerHTML += buildRow(`🟥 ${escapeHtml(p2Name)} Primary`, '#f43f5e', p2Rounds, 'primaryScore', 50);
+      tbody.innerHTML += buildRow(`🟦 ${escapeHtml(p1Name)} Secondaries`, '#7dd3fc', p1Rounds, 'secondaryScore', 40);
+      tbody.innerHTML += buildRow(`🟥 ${escapeHtml(p2Name)} Secondaries`, '#fda4af', p2Rounds, 'secondaryScore', 40);
+      
+      tbody.innerHTML += `
+        <tr style="background: rgba(255,255,255,0.02);">
+          <td style="color:#10b981; font-weight:700; text-align:left;">🎨 Battle Ready (+10)</td>
+          <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:var(--text-secondary);">
+            ${escapeHtml(p1Name)}: ${p1Obj.battleReady !== false ? '+10' : '0'} &nbsp;|&nbsp; ${escapeHtml(p2Name)}: ${p2Obj.battleReady !== false ? '+10' : '0'}
+          </td>
+          <td style="font-family:var(--font-mono); font-weight:800; color:#10b981; text-align:center;">
+            ${(p1Obj.battleReady !== false ? 10 : 0) + (p2Obj.battleReady !== false ? 10 : 0)}
+          </td>
+        </tr>
+      `;
+    }
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading scorecard: ${escapeHtml(err.message)}</td></tr>`;
+  }
+}
