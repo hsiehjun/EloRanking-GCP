@@ -31,6 +31,7 @@ function switchLeaderboardSubtab(subtab) {
 }
 
 let leaderboardData = [];
+let leaderboardTeamsData = [];
 let leaderboardPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
 let leaderboardSortState = { field: 'current_elo', asc: false };
 
@@ -134,7 +135,7 @@ function renderLeaderboardRows() {
 
 async function loadLeaderboardTeams() {
   const minRosterSelect = document.getElementById('lead-teams-min-roster-filter');
-  const minRoster = minRosterSelect ? minRosterSelect.value : 2;
+  const minRoster = minRosterSelect ? parseInt(minRosterSelect.value, 10) : 2;
   const tbody = document.getElementById('lead-teams-body');
   if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team rankings...</div></td></tr>';
@@ -142,14 +143,17 @@ async function loadLeaderboardTeams() {
 
   try {
     const data = await window.api.getLeaderboardTeams(minRoster, 100);
-    if (data && data.items) {
+    if (data && Array.isArray(data.items)) {
       leaderboardTeamsData = data.items;
+    } else if (Array.isArray(data)) {
+      leaderboardTeamsData = data;
     } else {
-      leaderboardTeamsData = Array.isArray(data) ? data : [];
+      leaderboardTeamsData = [];
     }
     renderLeaderboardTeamsRows();
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);">Error loading team rankings: ${err.message}</td></tr>`;
+    console.error('Error loading team rankings:', err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading team rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardTeams()">🔄 Retry</button></td></tr>`;
   }
 }
 
