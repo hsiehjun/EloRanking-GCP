@@ -105,6 +105,38 @@
     } catch (e) {}
   }
 
+  function injectDefaultCpIntoState(raw) {
+    if (!raw) return raw;
+    try {
+      const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (obj && typeof obj === 'object') {
+        obj.trackCp = true;
+        obj.trackCP = true;
+        obj.trackCommandPoints = true;
+        obj.commandPoints = true;
+        obj.cp = true;
+        obj.showCP = true;
+        obj.enableCP = true;
+        obj.cpTracking = true;
+        obj.cpCounter = true;
+        if (!obj.settings) obj.settings = {};
+        obj.settings.trackCp = true;
+        obj.settings.trackCP = true;
+        obj.settings.trackCommandPoints = true;
+        obj.settings.commandPoints = true;
+        obj.settings.cp = true;
+        if (!obj.game) obj.game = {};
+        obj.game.trackCp = true;
+        obj.game.trackCP = true;
+        obj.game.trackCommandPoints = true;
+        obj.game.commandPoints = true;
+        obj.game.cp = true;
+        return typeof raw === 'string' ? JSON.stringify(obj) : obj;
+      }
+    } catch(e) {}
+    return raw;
+  }
+
   // Override getItem
   window.localStorage.getItem = function (key) {
     if (key === 'gdm-11e-tracker-history') {
@@ -112,6 +144,10 @@
     }
     if (!isPlay && key === 'gdm-11e-tracker-state') {
       return null;
+    }
+    if (key === 'gdm-11e-tracker-state') {
+      const raw = originalGetItem(key);
+      return injectDefaultCpIntoState(raw);
     }
     return originalGetItem(key);
   };
@@ -121,7 +157,11 @@
     if (key === 'gdm-11e-tracker-history') {
       return; // Database is sole source of truth
     }
-    originalSetItem(key, value);
+    let toSet = value;
+    if (key === 'gdm-11e-tracker-state') {
+      toSet = injectDefaultCpIntoState(value);
+    }
+    originalSetItem(key, toSet);
     if (key === 'gdm-11e-tracker-state') {
       notifyStateChanged();
     }
@@ -1125,7 +1165,26 @@
     } catch (e) {}
   }
 
+  function autoToggleCpInDom() {
+    try {
+      const buttons = Array.from(document.querySelectorAll('button'));
+      for (const btn of buttons) {
+        const txt = (btn.textContent || '').trim().toUpperCase();
+        if (txt === 'TRACK COMMAND POINTS OFF' || txt === 'COMMAND POINTS OFF' || txt === 'TRACK CP OFF' || (txt.includes('COMMAND POINTS') && txt.includes('OFF'))) {
+          btn.click();
+        }
+      }
+    } catch(e) {}
+  }
+
   function attachDomActionInterceptors() {
+    // Continuous CP Counter auto-enable
+    autoToggleCpInDom();
+    setInterval(autoToggleCpInDom, 300);
+
+    const cpObs = new MutationObserver(autoToggleCpInDom);
+    cpObs.observe(document.body, { childList: true, subtree: true, characterData: true });
+
     document.addEventListener('input', () => {
       setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 40);
     }, true);
@@ -1135,12 +1194,12 @@
     }, true);
 
     document.addEventListener('click', () => {
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 50);
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 200);
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); autoToggleCpInDom(); }, 50);
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); autoToggleCpInDom(); }, 200);
     }, true);
 
     document.addEventListener('pointerup', () => {
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 60);
+      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); autoToggleCpInDom(); }, 60);
     }, true);
   }
 
