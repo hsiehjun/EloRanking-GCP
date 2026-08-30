@@ -351,6 +351,7 @@
       // Landing page (/11th/tracker or /tracker)
       injectLobbyHub();
       syncHistoryFromDatabase();
+      startHistoryPolling();
     }
   }
 
@@ -801,6 +802,53 @@
 
   window.__syncTrackerHistory = syncHistoryFromDatabase;
 
+  // Background Auto-Refresh Timer for Match History
+  let historyPollTimer = null;
+  function startHistoryPolling() {
+    if (historyPollTimer) clearInterval(historyPollTimer);
+    historyPollTimer = setInterval(() => {
+      if (!isPlay && document.visibilityState !== 'hidden') {
+        syncHistoryFromDatabase();
+      }
+    }, 3500);
+  }
+
+  // Auto-refresh history immediately on tab focus or visibility return
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !isPlay) {
+      injectLobbyHub();
+      syncHistoryFromDatabase();
+    }
+  });
+
+  window.addEventListener('focus', () => {
+    if (!isPlay) {
+      syncHistoryFromDatabase();
+    }
+  });
+
+  window.addEventListener('pageshow', () => {
+    if (!isPlay) {
+      injectLobbyHub();
+      syncHistoryFromDatabase();
+    }
+  });
+
+  // Cross-tab real-time history synchronization
+  try {
+    const histChannel = new BroadcastChannel('gt-history-sync');
+    histChannel.onmessage = (msg) => {
+      if (msg && msg.data === 'refresh' && !isPlay) {
+        syncHistoryFromDatabase();
+      }
+    };
+    window.__broadcastHistoryUpdate = function() {
+      try { histChannel.postMessage('refresh'); } catch(e) {}
+    };
+  } catch(e) {
+    window.__broadcastHistoryUpdate = function() {};
+  }
+
   // Soft Delete: Hide tracker game for current user (Instant Optimistic UI)
   window.__gdmHideTrackerGame = async function(matchId, cardEl) {
     if (!matchId) return;
@@ -830,6 +878,8 @@
     } else {
       renderHistoryList(dbHistoryCache);
     }
+
+    window.__broadcastHistoryUpdate();
 
     // 3. Persist to PostgreSQL backend
     try {
@@ -1022,6 +1072,7 @@
           state: parsedState
         })
       });
+      window.__broadcastHistoryUpdate();
     } catch (e) {}
   }
 
