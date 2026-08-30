@@ -144,30 +144,21 @@ function renderHeadToHeadHistory(h2h) {
     return;
   }
 
-  const p1Name = (predP1.player_name || predP1.full_name || '').toLowerCase();
-  const p2Name = (predP2.player_name || predP2.full_name || '').toLowerCase();
   const p1Id = String(predP1.player_id || '');
   const p2Id = String(predP2.player_id || '');
 
   h2h.forEach(m => {
     const tr = document.createElement('tr');
     
-    // Determine which side in the match record is predP1 vs predP2
-    const mP1Id = String(m.player1_id || '');
-    const mP1Name = String(m.player1_name || '').toLowerCase();
-    const isP1Side1 = (mP1Id && mP1Id === p1Id) || (p1Name && mP1Name === p1Name);
+    // Determine which side in the match record is predP1 vs predP2 strictly by player_id
+    const isP1Side1 = String(m.player1_id || '') === p1Id;
 
     const scoreP1 = isP1Side1 ? (m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : '-') : (m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : '-');
     const scoreP2 = isP1Side1 ? (m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : '-') : (m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : '-');
 
     const winnerId = String(m.winner_id || '');
-    const winnerName = String(m.winner_name || '').toLowerCase();
-
-    const isP1Winner = (winnerId && (winnerId === p1Id || (isP1Side1 ? winnerId === mP1Id : winnerId === String(m.player2_id || '')))) ||
-                       (winnerName && (winnerName === p1Name || (isP1Side1 ? winnerName === mP1Name : winnerName === String(m.player2_name || '').toLowerCase())));
-
-    const isP2Winner = (winnerId && (winnerId === p2Id || (isP1Side1 ? winnerId === String(m.player2_id || '') : winnerId === mP1Id))) ||
-                       (winnerName && (winnerName === p2Name || (isP1Side1 ? winnerName === String(m.player2_name || '').toLowerCase() : winnerName === mP1Name)));
+    const isP1Winner = winnerId === p1Id;
+    const isP2Winner = winnerId === p2Id;
 
     let outcomeText = 'Draw';
     let badgeClass = 'badge-draw';
@@ -181,7 +172,7 @@ function renderHeadToHeadHistory(h2h) {
       outcomeText = `${predP2.player_name || 'Player 2'} Win`;
       badgeClass = 'badge-win';
     } else {
-      outcomeText = m.winner_name ? `${m.winner_name} Win` : 'Completed';
+      outcomeText = 'Completed';
       badgeClass = 'badge-win';
     }
 

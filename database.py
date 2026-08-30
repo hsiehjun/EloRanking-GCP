@@ -1657,20 +1657,19 @@ class PostgresDatabase:
                 return [dict(r) for r in cursor.fetchall()]
 
     def get_head_to_head(self, p1_id: str, p2_id: str) -> List[Dict[str, Any]]:
-        """Returns past head-to-head encounters between two players by ID or Name."""
+        """Returns past head-to-head encounters strictly between the two unique player IDs."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                # Resolve player IDs and Names from player_ratings
-                cursor.execute("SELECT player_id, player_name FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p1_id, p1_id))
+                # 1. Resolve player IDs if names were passed
+                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p1_id, p1_id))
                 p1_row = cursor.fetchone()
                 p1_real_id = p1_row["player_id"] if p1_row else p1_id
-                p1_name = p1_row["player_name"] if p1_row else p1_id
 
-                cursor.execute("SELECT player_id, player_name FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p2_id, p2_id))
+                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p2_id, p2_id))
                 p2_row = cursor.fetchone()
                 p2_real_id = p2_row["player_id"] if p2_row else p2_id
-                p2_name = p2_row["player_name"] if p2_row else p2_id
 
+                # 2. Strict ID-based match query
                 cursor.execute("""
                 SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
                 FROM matches m
@@ -1678,12 +1677,10 @@ class PostgresDatabase:
                 WHERE (
                     (m.player1_id = %s AND m.player2_id = %s)
                     OR (m.player1_id = %s AND m.player2_id = %s)
-                    OR (m.player1_name ILIKE %s AND m.player2_name ILIKE %s)
-                    OR (m.player1_name ILIKE %s AND m.player2_name ILIKE %s)
                 )
                 AND m.is_done = TRUE
                 ORDER BY COALESCE(m.match_date, e.event_date) DESC;
-                """, (p1_real_id, p2_real_id, p2_real_id, p1_real_id, p1_name, p2_name, p2_name, p1_name))
+                """, (p1_real_id, p2_real_id, p2_real_id, p1_real_id))
                 return [dict(r) for r in cursor.fetchall()]
 
 
