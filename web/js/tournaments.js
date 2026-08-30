@@ -49,6 +49,8 @@ async function loadEvents() {
       eventsPagination.page = res.page || 1;
       eventsPagination.pageSize = res.page_size || 25;
       eventsPagination.totalPages = res.total_pages || 1;
+    } else if (res && res.error) {
+      throw new Error(res.error);
     } else {
       eventsData = Array.isArray(res) ? res : [];
       eventsPagination.total = eventsData.length;
@@ -139,6 +141,9 @@ async function openEventModal(eventId, forceSync = false) {
 
   try {
     const ev = await window.api.getTournamentDetails(eventId, forceSync);
+    if (!ev || ev.error) {
+      throw new Error((ev && ev.error) || 'Failed to load tournament data');
+    }
     currentEventData = ev;
     document.getElementById('modal-event-name').innerText = ev.name || 'Tournament Details';
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';

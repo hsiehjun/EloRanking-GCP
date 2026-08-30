@@ -1951,8 +1951,8 @@ if FASTAPI_AVAILABLE:
         players = event_details.get("players", []) if event_details else []
         matches = event_details.get("matches", []) if event_details else []
 
-        # Only scrape if force_sync is requested OR event is completely missing from DB / has 0 matches AND 0 players
-        if force_sync or not event_details or (not matches and not players):
+        # Only scrape if force_sync is explicitly requested OR event is completely missing from DB
+        if force_sync or not event_details:
             try:
                 scraper = BestCoastPairingsScraper(db=db)
                 scraper.scrape_event(event_id_str)

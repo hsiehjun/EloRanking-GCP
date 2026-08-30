@@ -32,7 +32,7 @@ class BestCoastPairingsScraper:
         self.headers = DEFAULT_HEADERS.copy()
         self.request_delay = request_delay
 
-    def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 5) -> Optional[Dict[str, Any]]:
+    def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 2) -> Optional[Dict[str, Any]]:
         """Makes an HTTP GET request to BCP API with headers, error handling, and retries."""
         query_str = f"?{urllib.parse.urlencode(params)}" if params else ""
         url = f"{BCP_API_BASE}{endpoint}{query_str}"
@@ -41,22 +41,22 @@ class BestCoastPairingsScraper:
             try:
                 time.sleep(self.request_delay)
                 req = urllib.request.Request(url, headers=self.headers)
-                with urllib.request.urlopen(req, timeout=35) as response:
+                with urllib.request.urlopen(req, timeout=10) as response:
                     content = response.read().decode("utf-8")
                     return json.loads(content)
             except urllib.error.HTTPError as e:
                 body = e.read().decode("utf-8", errors="ignore")
                 logger.warning(f"HTTP {e.code} on {endpoint} (Attempt {attempt}/{max_retries}): {body[:150]}")
                 if e.code == 429:
-                    sleep_time = attempt * 4.0
+                    sleep_time = attempt * 2.0
                     logger.info(f"Rate limited. Backing off for {sleep_time:.1f}s...")
                     time.sleep(sleep_time)
                 elif e.code in (404, 409):
                     return None
                 else:
-                    time.sleep(attempt * 1.5)
+                    time.sleep(attempt * 0.5)
             except Exception as e:
-                sleep_time = attempt * 2.0
+                sleep_time = attempt * 1.0
                 logger.warning(f"Connection retry {attempt}/{max_retries} on {endpoint}: {e} (retrying in {sleep_time:.1f}s...)")
                 time.sleep(sleep_time)
 

@@ -824,18 +824,7 @@ class PostgresDatabase:
                 """, (event_id,))
                 event_row = cursor.fetchone()
                 if not event_row:
-                    event_row = {
-                        "id": event_id,
-                        "name": "Tournament",
-                        "event_date": None,
-                        "city": "",
-                        "state": "",
-                        "country": "",
-                        "total_players": 0,
-                        "num_rounds": 0,
-                        "current_round": 0,
-                        "is_ended": False
-                    }
+                    return None
                 res = dict(event_row)
 
                 # 2. Match pairings
