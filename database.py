@@ -1329,18 +1329,16 @@ class PostgresDatabase:
                 sql = """
                 WITH team_members AS (
                     SELECT 
-                        TRIM(ep.team) as team_name,
-                        ep.player_id,
-                        COALESCE(MAX(pr.player_name), MAX(ep.full_name), 'Player') as player_name,
-                        COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
-                        COALESCE(MAX(pr.wins), 0) as wins,
-                        COALESCE(MAX(pr.losses), 0) as losses,
-                        COALESCE(MAX(pr.draws), 0) as draws,
-                        COALESCE(MAX(pr.matches_played), 0) as matches_played
-                    FROM event_participants ep
-                    LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
-                    WHERE ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
-                    GROUP BY TRIM(ep.team), ep.player_id
+                        TRIM(team) as team_name,
+                        player_id,
+                        COALESCE(player_name, 'Player') as player_name,
+                        COALESCE(current_elo, 1500.0) as current_elo,
+                        COALESCE(wins, 0) as wins,
+                        COALESCE(losses, 0) as losses,
+                        COALESCE(draws, 0) as draws,
+                        COALESCE(matches_played, 0) as matches_played
+                    FROM player_ratings
+                    WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
                 )
                 SELECT 
                     tm.team_name as team,
@@ -1426,22 +1424,19 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                 SELECT 
-                    ep.player_id, 
-                    COALESCE(MAX(pr.player_name), MAX(ep.full_name), 'Player') as player_name,
-                    COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
-                    COALESCE(MAX(pr.peak_elo), 1500.0) as peak_elo,
-                    COALESCE(MAX(pr.top_faction), MAX(ep.faction), 'Unknown') as top_faction,
-                    COALESCE(MAX(pr.matches_played), 0) as matches_played,
-                    COALESCE(MAX(pr.wins), 0) as wins,
-                    COALESCE(MAX(pr.losses), 0) as losses,
-                    COALESCE(MAX(pr.draws), 0) as draws,
-                    COALESCE(MAX(pr.win_rate), 0.0) as win_rate,
-                    COALESCE(MAX(pr.last_active_date), MAX(e.event_date)) as last_active_date
-                FROM event_participants ep
-                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
-                LEFT JOIN events e ON ep.event_id = e.id
-                WHERE TRIM(ep.team) ILIKE %s
-                GROUP BY ep.player_id
+                    player_id, 
+                    COALESCE(player_name, 'Player') as player_name,
+                    COALESCE(current_elo, 1500.0) as current_elo,
+                    COALESCE(peak_elo, 1500.0) as peak_elo,
+                    COALESCE(top_faction, 'Unknown') as top_faction,
+                    COALESCE(matches_played, 0) as matches_played,
+                    COALESCE(wins, 0) as wins,
+                    COALESCE(losses, 0) as losses,
+                    COALESCE(draws, 0) as draws,
+                    COALESCE(win_rate, 0.0) as win_rate,
+                    COALESCE(last_active_date, CURRENT_DATE) as last_active_date
+                FROM player_ratings
+                WHERE TRIM(team) ILIKE %s
                 ORDER BY current_elo DESC NULLS LAST;
                 """, (team_name,))
                 roster = [dict(r) for r in cursor.fetchall()]
