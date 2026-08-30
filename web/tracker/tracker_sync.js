@@ -61,11 +61,10 @@
     currentUser = null;
   }
 
-  // On Landing Page: Clean out any lingering disk storage
+  // On Landing Page: Clean out active match state if not playing
   if (!isPlay) {
     try {
       originalRemoveItem('gdm-11e-tracker-state');
-      originalRemoveItem('gdm-11e-tracker-history');
     } catch (e) {}
   }
 
@@ -335,54 +334,82 @@
       if (newGameBtn) {
         newGameBtn.style.display = 'none'; // Replace with comprehensive 2-player lobby card
 
-        const lobbyCard = document.createElement('div');
-        lobbyCard.id = 'gt-lobby-hub-card';
-        lobbyCard.style.cssText = "margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box;";
-        lobbyCard.innerHTML = `
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
-            <div>
-              <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
-              <p style="font-size:11px; color:#94a3b8; margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
-            </div>
-            <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
-          </div>
-
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
-            <!-- Host Card -->
-            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+        let lobbyCard = document.getElementById('gt-lobby-hub-card');
+        if (!lobbyCard) {
+          lobbyCard = document.createElement('div');
+          lobbyCard.id = 'gt-lobby-hub-card';
+          lobbyCard.style.cssText = "margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box;";
+          lobbyCard.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
               <div>
-                <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
-                <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
+                <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
+                <p style="font-size:11px; color:#94a3b8; margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
               </div>
-              <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
-                CREATE & ENTER MATCH ➔
-              </button>
+              <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
             </div>
 
-            <!-- Join Card -->
-            <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
-              <div>
-                <div style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
-                <p style="font-size:11px; color:#94a3b8; margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
+              <!-- Host Card -->
+              <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+                <div>
+                  <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
+                  <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
+                </div>
+                <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
+                  CREATE & ENTER MATCH ➔
+                </button>
               </div>
-              <div>
-                <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
-                <div style="display:flex; gap:8px;">
-                  <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                  <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+
+              <!-- Join Card -->
+              <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+                <div>
+                  <div style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
+                  <p style="font-size:11px; color:#94a3b8; margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+                </div>
+                <div>
+                  <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
+                  <div style="display:flex; gap:8px;">
+                    <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
+                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        `;
-        newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
+          `;
+          newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
+        }
+
+        let historySection = document.getElementById('gt-history-section');
+        if (!historySection) {
+          historySection = document.createElement('div');
+          historySection.id = 'gt-history-section';
+          historySection.style.cssText = "margin:20px 0 40px; width:100%; box-sizing:border-box;";
+          historySection.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+              <div style="font-size:14px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
+                GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:4px;"></span>
+              </div>
+              <button onclick="window.__syncTrackerHistory()" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-weight:700;">🔄 Refresh</button>
+            </div>
+            <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
+              <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
+                Loading match history...
+              </div>
+            </div>
+          `;
+          lobbyCard.parentNode.insertBefore(historySection, lobbyCard.nextSibling);
+        }
+
+        hideNativeGdmEmptyState();
+        renderHistoryList(dbHistoryCache);
         syncHistoryFromDatabase();
       }
     }
 
     tryInject();
     const observer = new MutationObserver(() => {
-      if (!document.getElementById('gt-lobby-hub-card')) {
+      hideNativeGdmEmptyState();
+      if (!document.getElementById('gt-lobby-hub-card') || !document.getElementById('gt-history-section')) {
         tryInject();
       }
     });
@@ -527,18 +554,78 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  function hideNativeGdmHistory() {
+  function hideNativeGdmEmptyState() {
     const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, div, p, span'));
     for (const el of headings) {
-      if (el.closest('#gt-lobby-hub-card') || el.closest('#gt-user-badge') || el.closest('#gt-waiting-modal')) continue;
+      if (el.closest('#gt-lobby-hub-card') || el.closest('#gt-history-section') || el.closest('#gt-user-badge') || el.closest('#gt-waiting-modal')) continue;
       const txt = (el.textContent || '').trim().toUpperCase();
-      if (txt === 'GAME HISTORY' || txt === 'NO GAMES YET' || txt.startsWith('TAP NEW GAME TO START')) {
+      if (txt === 'GAME HISTORY' || txt === 'NO GAMES YET' || txt.includes('TAP NEW GAME TO START')) {
         const card = el.closest('div[class*="border"], div[class*="rounded"], section') || el;
-        if (card && !card.contains(document.getElementById('gt-lobby-hub-card'))) {
+        if (card && !card.contains(document.getElementById('gt-lobby-hub-card')) && !card.contains(document.getElementById('gt-history-section'))) {
           card.style.display = 'none';
         }
       }
     }
+  }
+
+  function renderHistoryList(historyList) {
+    const list = (historyList && Array.isArray(historyList)) ? historyList : (dbHistoryCache || []);
+    const container = document.getElementById('gt-history-list');
+    const countEl = document.getElementById('gt-history-count');
+    if (!container) return;
+
+    if (countEl) {
+      countEl.textContent = list.length > 0 ? `(${list.length})` : '';
+    }
+
+    if (list.length === 0) {
+      container.innerHTML = `
+        <div style="color:#94a3b8; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
+          No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = list.map(item => {
+      const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
+      const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
+      const p1F = item.game?.p1Faction || item.p1_faction || '';
+      const p2F = item.game?.p2Faction || item.p2_faction || '';
+      const p1S = item.p1Score ?? item.p1_score ?? 0;
+      const p2S = item.p2Score ?? item.p2_score ?? 0;
+      const mid = item.match_id || item.id || '';
+      const isDone = item.isFinished || item.is_finished;
+      const dateStr = new Date(item.date || item.updated_at || Date.now()).toLocaleDateString();
+
+      const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
+
+      return `
+        <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
+          <div style="min-width:0; flex:1;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
+              <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(mid.replace('WH40K-', ''))} ↗</span>
+              <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
+            </div>
+            ${factionSubtitle}
+            <div style="font-size:11px; color:#64748b; margin-top:4px;">
+              <span>${dateStr}</span>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
+            <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
+              ${p1S} - ${p2S}
+            </span>
+            <span style="background:${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}; color:${isDone ? '#10b981' : '#f59e0b'}; border:1px solid ${isDone ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
+              ${isDone ? 'Completed' : 'In Progress'}
+            </span>
+            <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
 
   // 6. PostgreSQL Database as Sole Source of Truth for History
@@ -591,6 +678,8 @@
           newValue: JSON.stringify(dbHistoryCache),
           storageArea: localStorage
         }));
+
+        renderHistoryList(dbHistoryCache);
       }
     } catch (e) {}
   }
