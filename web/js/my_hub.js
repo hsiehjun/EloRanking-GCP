@@ -348,8 +348,8 @@ function renderMyHub(data) {
                 <tr>
                   <th>Match</th>
                   <th>Players / Armies</th>
-                  <th>Mission</th>
-                  <th>Score / Status</th>
+                  <th>Score</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -358,22 +358,14 @@ function renderMyHub(data) {
                   const p2 = th.p2_name || 'Player 2';
                   const p1Score = th.p1_score || 0;
                   const p2Score = th.p2_score || 0;
-                  const mission = th.primary_mission || 'Take & Hold';
                   const isDone = th.is_finished;
                   const matchId = th.match_id || '';
                   const shortId = matchId.replace('WH40K-', '');
                   const dateStr = th.updated_at ? th.updated_at.substring(5, 10) : (th.created_at ? th.created_at.substring(5, 10) : '-');
 
-                  let scoreBadge = `<span style="font-weight:700; color:#f8fafc; font-family:var(--font-mono); font-size:0.8rem;">${p1Score} - ${p2Score}</span>`;
-                  if (isDone) {
-                    if (th.winner_name) {
-                      scoreBadge += ` <span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; font-size:0.65rem; padding:0.05rem 0.35rem; margin-left:4px;">${escapeHtml(th.winner_name)} Won</span>`;
-                    } else {
-                      scoreBadge += ` <span class="badge" style="background:rgba(148,163,184,0.15); color:#94a3b8; font-size:0.65rem; padding:0.05rem 0.35rem; margin-left:4px;">Final</span>`;
-                    }
-                  } else {
-                    scoreBadge += ` <span class="badge" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:0.65rem; padding:0.05rem 0.35rem; margin-left:4px;">Rd ${th.current_round || 1} Live</span>`;
-                  }
+                  const statusBadge = isDone 
+                    ? `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:6px;">Completed</span>`
+                    : `<span class="badge" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:6px;">In Progress</span>`;
 
                   return `
                     <tr>
@@ -387,8 +379,10 @@ function renderMyHub(data) {
                         <b style="color:#fff; font-size:0.8rem;">${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
                         <div style="font-size:0.7rem; color:var(--text-secondary);">${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}</div>
                       </td>
-                      <td style="font-size:0.75rem; color:#94a3b8;">${escapeHtml(mission)}</td>
-                      <td>${scoreBadge}</td>
+                      <td>
+                        <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
+                      </td>
+                      <td>${statusBadge}</td>
                     </tr>
                   `;
                 }).join('')}

@@ -637,8 +637,6 @@
             <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#64748b;">
               <span style="color:#f59e0b; font-family:'JetBrains Mono',monospace; font-weight:700;">#${escapeHtml(mid)}</span>
               <span>•</span>
-              <span>${escapeHtml(item.game?.primary || item.primary_mission || 'Take & Hold')}</span>
-              <span>•</span>
               <span>${dateStr}</span>
             </div>
           </div>
@@ -646,8 +644,8 @@
             <span style="font-size:14px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
               ${p1S} - ${p2S}
             </span>
-            <span style="background:${isDone ? '#10b981' : '#f59e0b'}; color:#0f172a; font-weight:800; font-size:11px; padding:5px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
-              ${isDone ? (winner ? `${escapeHtml(winner)} WON` : 'FINAL') : 'RESUME ➔'}
+            <span style="background:${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}; color:${isDone ? '#10b981' : '#f59e0b'}; border:1px solid ${isDone ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}; font-weight:800; font-size:11px; padding:5px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
+              ${isDone ? 'Completed' : 'In Progress'}
             </span>
             <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:4px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
