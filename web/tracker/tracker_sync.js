@@ -16,19 +16,28 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Rebrand any in-app install text to 40k Elo Game Tracker
-  function rebrandInstallPrompts() {
+  // 1. Suppress and block GDM's native install prompt from triggering in tracker
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.stopImmediatePropagation();
+    e.preventDefault();
+  }, true);
+
+  // 2. Aggressively remove any native GDM Install / Add to Home Screen popups
+  function suppressGdmInstallPrompts() {
     try {
-      const candidates = document.querySelectorAll('div, section, aside, button, h1, h2, h3, p, span, [role="dialog"], [role="alert"]');
+      const candidates = document.querySelectorAll('div, section, aside, [role="dialog"], [role="alert"]');
       candidates.forEach(el => {
-        if (el.children.length === 0 || el.tagName === 'BUTTON' || el.tagName === 'P' || el.tagName === 'H2' || el.tagName === 'H3') {
-          if (el.innerText && (el.innerText.includes('GDM') || el.innerText.includes('GDmissions') || el.innerText.includes('Game Day'))) {
-            el.innerText = el.innerText
-              .replace(/GDM App/g, '40k Elo App')
-              .replace(/Install GDM/g, 'Install 40k Elo')
-              .replace(/GDM/g, '40k Elo')
-              .replace(/GDmissions/g, '40k Elo Tracker')
-              .replace(/Game Day/g, '40k Elo Tracker');
+        if (el.closest('#gt-lobby-wrapper') || el.closest('#gt-sync-hud') || el.closest('#gt-user-status-bar') || el.closest('#gt-waiting-modal') || el.closest('#pwa-install-banner')) return;
+        const txt = (el.textContent || '').trim().toUpperCase();
+        if (
+          (txt.includes('INSTALL') && (txt.includes('HOME SCREEN') || txt.includes('HOMESCREEN') || txt.includes('APP') || txt.includes('BROWSER'))) ||
+          (txt.includes('ADD TO HOME SCREEN') || txt.includes('ADD TO HOMESCREEN')) ||
+          (txt.includes('INSTALL GDM') || (txt.includes('INSTALL 40K ELO') && !el.closest('#pwa-install-banner')))
+        ) {
+          const popup = el.closest('div[class*="fixed"], div[class*="absolute"], [role="dialog"], [role="alert"]') || el;
+          if (popup && popup !== document.body && popup !== document.documentElement && !popup.contains(document.getElementById('gt-lobby-wrapper'))) {
+            popup.style.display = 'none';
+            try { popup.remove(); } catch(e) {}
           }
         }
       });
@@ -37,12 +46,18 @@
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      rebrandInstallPrompts();
-      setInterval(rebrandInstallPrompts, 1000);
+      suppressGdmInstallPrompts();
+      setInterval(suppressGdmInstallPrompts, 400);
+      if (document.body) {
+        new MutationObserver(suppressGdmInstallPrompts).observe(document.body, { childList: true, subtree: true });
+      }
     });
   } else {
-    rebrandInstallPrompts();
-    setInterval(rebrandInstallPrompts, 1000);
+    suppressGdmInstallPrompts();
+    setInterval(suppressGdmInstallPrompts, 400);
+    if (document.body) {
+      new MutationObserver(suppressGdmInstallPrompts).observe(document.body, { childList: true, subtree: true });
+    }
   }
 
   const SYNC_CONFIG = {
