@@ -76,11 +76,6 @@ function filterByTeam(team) {
     loadTeamsDirectory();
   }
 }
-  if (input) {
-    input.value = team;
-    loadTeamsDirectory();
-  }
-}
 
 async function loadGlobalStats() {
   try {
