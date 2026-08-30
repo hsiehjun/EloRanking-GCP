@@ -99,13 +99,78 @@ class EloEngine:
         d_p2_draw = round(k_val * (0.5 - exp2), 2)
 
         return {
+            "p1_win_prob": round(exp1 * 100.0, 1),
+            "p2_win_prob": round(exp2 * 100.0, 1),
             "player1_rating": r1,
             "player2_rating": r2,
             "player1_win_prob": round(exp1 * 100.0, 1),
             "player2_win_prob": round(exp2 * 100.0, 1),
+            "deltas": {
+                "p1_win": d_p1_win,
+                "p2_win": d_p2_win,
+                "p1_draw": d_p1_draw,
+                "p2_draw": d_p2_draw
+            },
             "p1_win_deltas": {"p1": f"+{d_p1_win}", "p2": f"-{d_p1_win}"},
             "p2_win_deltas": {"p1": f"-{d_p2_win}", "p2": f"+{d_p2_win}"},
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"}
+        }
+
+    def predict_match_outcome(self, p1_id_or_name: str, p2_id_or_name: str) -> Dict[str, Any]:
+        """Calculates win probabilities, simulated Elo rating changes, and past head-to-head encounters."""
+        from psycopg2 import extras
+
+        p1_data = None
+        p2_data = None
+
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p1_id_or_name, p1_id_or_name))
+                p1_data = cur.fetchone()
+
+                cur.execute("SELECT * FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p2_id_or_name, p2_id_or_name))
+                p2_data = cur.fetchone()
+
+        r1 = float(p1_data["current_elo"]) if p1_data else self.initial_elo
+        r2 = float(p2_data["current_elo"]) if p2_data else self.initial_elo
+
+        m1 = int(p1_data["matches_played"]) if p1_data else 0
+        m2 = int(p2_data["matches_played"]) if p2_data else 0
+
+        k1 = self.get_k_factor(m1)
+        k2 = self.get_k_factor(m2)
+        k = max(k1, k2)
+
+        exp1 = self.expected_score(r1, r2)
+        exp2 = 1.0 - exp1
+        p1_prob = round(exp1 * 100.0, 1)
+        p2_prob = round(exp2 * 100.0, 1)
+
+        d_p1_win = round(k * (1.0 - exp1), 1)
+        d_p2_win = round(k * (1.0 - exp2), 1)
+        d_p1_draw = round(k * (0.5 - exp1), 1)
+        d_p2_draw = round(k * (0.5 - exp2), 1)
+
+        # Head-to-head encounters
+        h2h_matches = self.db.get_head_to_head(p1_id_or_name, p2_id_or_name)
+
+        return {
+            "p1_win_prob": p1_prob,
+            "p2_win_prob": p2_prob,
+            "player1_win_prob": p1_prob,
+            "player2_win_prob": p2_prob,
+            "player1_rating": r1,
+            "player2_rating": r2,
+            "deltas": {
+                "p1_win": d_p1_win,
+                "p2_win": d_p2_win,
+                "p1_draw": d_p1_draw,
+                "p2_draw": d_p2_draw
+            },
+            "p1_win_deltas": {"p1": f"+{d_p1_win}", "p2": f"-{d_p1_win}"},
+            "p2_win_deltas": {"p1": f"-{d_p2_win}", "p2": f"+{d_p2_win}"},
+            "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"},
+            "head_to_head": h2h_matches
         }
 
     def reconstruct_incremental(self, batch_limit: int = 50000) -> Dict[str, Any]:

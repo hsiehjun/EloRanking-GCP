@@ -75,32 +75,59 @@ function updatePredictCard(colNum, p) {
 async function runPrediction() {
   if (!predP1 || !predP2) return;
   try {
-    const res = await window.api.predictMatch(predP1.player_id, predP2.player_id);
-    document.getElementById('pred-p1-prob').innerText = `${res.p1_win_prob}%`;
-    document.getElementById('pred-p2-prob').innerText = `${res.p2_win_prob}%`;
-    document.getElementById('pred-bar-p1').style.width = `${res.p1_win_prob}%`;
-    document.getElementById('pred-bar-p2').style.width = `${res.p2_win_prob}%`;
+    const p1Identifier = predP1.player_id || predP1.player_name;
+    const p2Identifier = predP2.player_id || predP2.player_name;
+    const res = await window.api.predictMatch(p1Identifier, p2Identifier);
+    if (!res || res.error) {
+      console.error('Prediction API error:', res ? res.error : 'Unknown');
+      return;
+    }
 
-    const dP1Win = Number(res.deltas.p1_win);
-    const dP2Win = Number(res.deltas.p2_win);
-    const dP1Draw = Number(res.deltas.p1_draw);
-    const dP2Draw = Number(res.deltas.p2_draw);
+    const p1Prob = res.p1_win_prob !== undefined ? Number(res.p1_win_prob) : (res.player1_win_prob !== undefined ? Number(res.player1_win_prob) : 50.0);
+    const p2Prob = res.p2_win_prob !== undefined ? Number(res.p2_win_prob) : (res.player2_win_prob !== undefined ? Number(res.player2_win_prob) : 50.0);
 
-    const elo1 = Number(predP1.current_elo);
-    const elo2 = Number(predP2.current_elo);
+    const probEl1 = document.getElementById('pred-p1-prob');
+    const probEl2 = document.getElementById('pred-p2-prob');
+    const barEl1 = document.getElementById('pred-bar-p1');
+    const barEl2 = document.getElementById('pred-bar-p2');
 
-    document.getElementById('delta-p1-win').innerText = `+${dP1Win.toFixed(1)}`;
-    document.getElementById('new-p1-win-elo').innerText = (elo1 + dP1Win).toFixed(1);
-    document.getElementById('delta-p2-loss').innerText = `-${dP1Win.toFixed(1)}`;
-    document.getElementById('new-p2-loss-elo').innerText = (elo2 - dP1Win).toFixed(1);
+    if (probEl1) probEl1.innerText = `${p1Prob.toFixed(1)}%`;
+    if (probEl2) probEl2.innerText = `${p2Prob.toFixed(1)}%`;
+    if (barEl1) barEl1.style.width = `${p1Prob}%`;
+    if (barEl2) barEl2.style.width = `${p2Prob}%`;
 
-    document.getElementById('delta-p1-upset-loss').innerText = `-${dP2Win.toFixed(1)}`;
-    document.getElementById('new-p1-loss-elo').innerText = (elo1 - dP2Win).toFixed(1);
-    document.getElementById('delta-p2-upset-win').innerText = `+${dP2Win.toFixed(1)}`;
-    document.getElementById('new-p2-win-elo').innerText = (elo2 + dP2Win).toFixed(1);
+    const dP1Win = Number((res.deltas && res.deltas.p1_win) !== undefined ? res.deltas.p1_win : 16.0);
+    const dP2Win = Number((res.deltas && res.deltas.p2_win) !== undefined ? res.deltas.p2_win : 16.0);
+    const dP1Draw = Number((res.deltas && res.deltas.p1_draw) !== undefined ? res.deltas.p1_draw : 0.0);
+    const dP2Draw = Number((res.deltas && res.deltas.p2_draw) !== undefined ? res.deltas.p2_draw : 0.0);
 
-    document.getElementById('delta-p1-draw').innerText = `${dP1Draw >= 0 ? '+' : ''}${dP1Draw.toFixed(1)}`;
-    document.getElementById('delta-p2-draw').innerText = `${dP2Draw >= 0 ? '+' : ''}${dP2Draw.toFixed(1)}`;
+    const elo1 = Number(predP1.current_elo || 1500.0);
+    const elo2 = Number(predP2.current_elo || 1500.0);
+
+    const elDeltaP1Win = document.getElementById('delta-p1-win');
+    const elNewP1Win = document.getElementById('new-p1-win-elo');
+    const elDeltaP2Loss = document.getElementById('delta-p2-loss');
+    const elNewP2Loss = document.getElementById('new-p2-loss-elo');
+
+    if (elDeltaP1Win) elDeltaP1Win.innerText = `+${dP1Win.toFixed(1)}`;
+    if (elNewP1Win) elNewP1Win.innerText = (elo1 + dP1Win).toFixed(1);
+    if (elDeltaP2Loss) elDeltaP2Loss.innerText = `-${dP1Win.toFixed(1)}`;
+    if (elNewP2Loss) elNewP2Loss.innerText = (elo2 - dP1Win).toFixed(1);
+
+    const elDeltaP1Loss = document.getElementById('delta-p1-upset-loss');
+    const elNewP1Loss = document.getElementById('new-p1-loss-elo');
+    const elDeltaP2Win = document.getElementById('delta-p2-upset-win');
+    const elNewP2Win = document.getElementById('new-p2-win-elo');
+
+    if (elDeltaP1Loss) elDeltaP1Loss.innerText = `-${dP2Win.toFixed(1)}`;
+    if (elNewP1Loss) elNewP1Loss.innerText = (elo1 - dP2Win).toFixed(1);
+    if (elDeltaP2Win) elDeltaP2Win.innerText = `+${dP2Win.toFixed(1)}`;
+    if (elNewP2Win) elNewP2Win.innerText = (elo2 + dP2Win).toFixed(1);
+
+    const elDeltaP1Draw = document.getElementById('delta-p1-draw');
+    const elDeltaP2Draw = document.getElementById('delta-p2-draw');
+    if (elDeltaP1Draw) elDeltaP1Draw.innerText = `${dP1Draw >= 0 ? '+' : ''}${dP1Draw.toFixed(1)}`;
+    if (elDeltaP2Draw) elDeltaP2Draw.innerText = `${dP2Draw >= 0 ? '+' : ''}${dP2Draw.toFixed(1)}`;
 
     renderHeadToHeadHistory(res.head_to_head || []);
   } catch (err) {
@@ -117,19 +144,54 @@ function renderHeadToHeadHistory(h2h) {
     return;
   }
 
+  const p1Name = (predP1.player_name || predP1.full_name || '').toLowerCase();
+  const p2Name = (predP2.player_name || predP2.full_name || '').toLowerCase();
+  const p1Id = String(predP1.player_id || '');
+  const p2Id = String(predP2.player_id || '');
+
   h2h.forEach(m => {
     const tr = document.createElement('tr');
-    const isP1Win = m.winner_id === predP1.player_id;
-    const isP2Win = m.winner_id === predP2.player_id;
-    const outcome = isP1Win ? `${predP1.player_name || 'P1'} Win` : (isP2Win ? `${predP2.player_name || 'P2'} Win` : 'Draw');
+    
+    // Determine which side in the match record is predP1 vs predP2
+    const mP1Id = String(m.player1_id || '');
+    const mP1Name = String(m.player1_name || '').toLowerCase();
+    const isP1Side1 = (mP1Id && mP1Id === p1Id) || (p1Name && mP1Name === p1Name);
+
+    const scoreP1 = isP1Side1 ? (m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : '-') : (m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : '-');
+    const scoreP2 = isP1Side1 ? (m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : '-') : (m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : '-');
+
+    const winnerId = String(m.winner_id || '');
+    const winnerName = String(m.winner_name || '').toLowerCase();
+
+    const isP1Winner = (winnerId && (winnerId === p1Id || (isP1Side1 ? winnerId === mP1Id : winnerId === String(m.player2_id || '')))) ||
+                       (winnerName && (winnerName === p1Name || (isP1Side1 ? winnerName === mP1Name : winnerName === String(m.player2_name || '').toLowerCase())));
+
+    const isP2Winner = (winnerId && (winnerId === p2Id || (isP1Side1 ? winnerId === String(m.player2_id || '') : winnerId === mP1Id))) ||
+                       (winnerName && (winnerName === p2Name || (isP1Side1 ? winnerName === String(m.player2_name || '').toLowerCase() : winnerName === mP1Name)));
+
+    let outcomeText = 'Draw';
+    let badgeClass = 'badge-draw';
+    if (m.is_draw) {
+      outcomeText = 'Draw';
+      badgeClass = 'badge-draw';
+    } else if (isP1Winner) {
+      outcomeText = `${predP1.player_name || 'Player 1'} Win`;
+      badgeClass = 'badge-win';
+    } else if (isP2Winner) {
+      outcomeText = `${predP2.player_name || 'Player 2'} Win`;
+      badgeClass = 'badge-win';
+    } else {
+      outcomeText = m.winner_name ? `${m.winner_name} Win` : 'Completed';
+      badgeClass = 'badge-win';
+    }
 
     tr.innerHTML = `
       <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:0.85rem;">${(m.match_date || '').slice(0, 10)}</td>
       <td style="font-weight:600; color:#fff;">${escapeHtml(m.event_name || 'Tournament')}</td>
       <td style="font-family:var(--font-mono);">R${m.round || 1}</td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">${m.player1_score !== null ? m.player1_score : '-'}</td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Win ? 'var(--win)' : 'var(--text-secondary)'};">${m.player2_score !== null ? m.player2_score : '-'}</td>
-      <td><span class="badge ${isP1Win || isP2Win ? 'badge-win' : 'badge-draw'}">${outcome}</span></td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Winner ? 'var(--win)' : 'var(--text-secondary)'};">${scoreP1}</td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Winner ? 'var(--win)' : 'var(--text-secondary)'};">${scoreP2}</td>
+      <td><span class="badge ${badgeClass}">${escapeHtml(outcomeText)}</span></td>
     `;
     tbody.appendChild(tr);
   });
