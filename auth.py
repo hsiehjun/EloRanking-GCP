@@ -84,6 +84,7 @@ class AuthManager:
                         email TEXT UNIQUE NOT NULL,
                         password_hash TEXT NOT NULL,
                         display_name TEXT NOT NULL,
+                        role TEXT DEFAULT 'player',
                         player_id VARCHAR(64),
                         bcp_user_id VARCHAR(64),
                         bcp_email TEXT,
@@ -94,6 +95,7 @@ class AuthManager:
                         created_at TIMESTAMPTZ DEFAULT NOW(),
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     );
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
                     CREATE TABLE IF NOT EXISTS user_sessions (
@@ -188,7 +190,7 @@ class AuthManager:
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                SELECT u.id, u.email, u.display_name, u.player_id,
+                SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                        u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                        p.current_elo, p.peak_elo, p.top_faction, p.team
                 FROM user_sessions s
@@ -200,6 +202,7 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     data["session_token"] = session_token
+                    data["role"] = data.get("role") or "player"
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
@@ -210,7 +213,7 @@ class AuthManager:
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                SELECT u.id, u.email, u.display_name, u.player_id,
+                SELECT u.id, u.email, u.display_name, u.role, u.player_id,
                        u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
                        p.current_elo, p.peak_elo, p.top_faction, p.team
                 FROM users u
@@ -220,6 +223,7 @@ class AuthManager:
                 row = cur.fetchone()
                 if row:
                     data = dict(row)
+                    data["role"] = data.get("role") or "player"
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
