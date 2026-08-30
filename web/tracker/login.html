@@ -199,6 +199,15 @@
     const params = new URLSearchParams(window.location.search);
     const redirectUrl = params.get('redirect') || '/11th/tracker';
 
+    (function checkExistingSession() {
+      const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
+      if (token) {
+        document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
+        // If arrived via redirect, quickly jump back to destination
+        window.location.replace(redirectUrl);
+      }
+    })();
+
     function switchTab(tab) {
       activeTab = tab;
       const tabLog = document.getElementById('tab-login');

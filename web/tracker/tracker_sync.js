@@ -114,24 +114,42 @@
   // 2. Strict Authentication Verification
   async function verifySession() {
     const token = getAuthToken();
-    if (token) {
-      try {
-        const resp = await fetch(SYNC_CONFIG.authMeEndpoint, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data && data.authenticated && data.user) {
-            currentUser = data.user;
-            renderUserBar();
-            return true;
-          }
-        }
-      } catch (e) {}
+    if (!token) {
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href);
+      return false;
     }
-    clearAuthToken();
-    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href);
-    return false;
+    try {
+      const resp = await fetch(SYNC_CONFIG.authMeEndpoint, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.authenticated && data.user) {
+          currentUser = data.user;
+          try {
+            originalSetItem('native_user_profile', JSON.stringify(data.user));
+          } catch(e) {}
+          renderUserBar();
+          return true;
+        }
+      } else if (resp.status === 401 || resp.status === 403) {
+        clearAuthToken();
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.href);
+        return false;
+      }
+    } catch (e) {
+      console.warn('[verifySession] Network latency notice (proceeding with cached session):', e);
+      const cached = originalGetItem('native_user_profile');
+      if (cached) {
+        try {
+          currentUser = JSON.parse(cached);
+          renderUserBar();
+          return true;
+        } catch(err) {}
+      }
+      return true;
+    }
+    return true;
   }
 
   function renderUserBar() {

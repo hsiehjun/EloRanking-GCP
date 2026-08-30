@@ -746,8 +746,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.0">
-  <script src="/tracker/tracker_sync.js?v=10.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.1">
+  <script src="/tracker/tracker_sync.js?v=10.1"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;
@@ -767,12 +767,23 @@ if FASTAPI_AVAILABLE:
   </style>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for (let registration of registrations) { registration.unregister(); }
-      });
-      navigator.serviceWorker.register = function() {
-        return Promise.reject(new Error('ServiceWorker bypassed'));
-      };
+      try {
+        navigator.serviceWorker.getRegistrations().then(function(registrations) {
+          for (let registration of registrations) {
+            try { registration.unregister(); } catch(e) {}
+          }
+        }).catch(function() {});
+        navigator.serviceWorker.register = function() {
+          return Promise.resolve({
+            installing: null,
+            waiting: null,
+            active: null,
+            addEventListener: function() {},
+            removeEventListener: function() {},
+            dispatchEvent: function() { return false; }
+          });
+        };
+      } catch(e) {}
     }
   </script>
 """
