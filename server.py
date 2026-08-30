@@ -119,6 +119,8 @@ if FASTAPI_AVAILABLE:
         web_dir = Path(__file__).resolve().parent / "web"
 
     # Static Assets Mount
+    if (web_dir / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(web_dir / "assets")), name="assets")
     if (web_dir / "css").exists():
         app.mount("/css", StaticFiles(directory=str(web_dir / "css")), name="css")
     if (web_dir / "js").exists():

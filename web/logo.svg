@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#070b14"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047"/>
+      <stop offset="35%" stop-color="#eab308"/>
+      <stop offset="70%" stop-color="#ca8a04"/>
+      <stop offset="100%" stop-color="#854d0e"/>
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#bae6fd"/>
+      <stop offset="40%" stop-color="#38bdf8"/>
+      <stop offset="80%" stop-color="#0284c7"/>
+      <stop offset="100%" stop-color="#0369a1"/>
+    </linearGradient>
+    <filter id="cyanGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="none" stroke="#1e293b" stroke-width="4"/>
+  <rect x="24" y="24" width="464" height="464" rx="88" fill="none" stroke="url(#cyanGrad)" stroke-width="2" stroke-opacity="0.3" stroke-dasharray="16 8"/>
+
+  <polygon points="256,48 440,140 440,350 256,464 72,350 72,140" fill="#0b1120" stroke="url(#goldGrad)" stroke-width="8" stroke-linejoin="round"/>
+  <polygon points="256,66 422,150 422,340 256,444 90,340 90,150" fill="none" stroke="url(#cyanGrad)" stroke-width="3" stroke-opacity="0.6" stroke-linejoin="round"/>
+
+  <g opacity="0.85" filter="url(#cyanGlow)">
+    <line x1="120" y1="120" x2="392" y2="392" stroke="url(#cyanGrad)" stroke-width="8" stroke-linecap="round"/>
+    <line x1="120" y1="120" x2="392" y2="392" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+    <line x1="130" y1="160" x2="160" y2="130" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="square"/>
+    <circle cx="108" cy="108" r="10" fill="url(#goldGrad)"/>
+
+    <line x1="392" y1="120" x2="120" y2="392" stroke="url(#cyanGrad)" stroke-width="8" stroke-linecap="round"/>
+    <line x1="392" y1="120" x2="120" y2="392" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+    <line x1="382" y1="160" x2="352" y2="130" stroke="url(#goldGrad)" stroke-width="12" stroke-linecap="square"/>
+    <circle cx="404" cy="108" r="10" fill="url(#goldGrad)"/>
+  </g>
+
+  <g transform="translate(256, 230)">
+    <path d="M -54,-65 C -54,-105 54,-105 54,-65 C 54,-45 50,-20 42,5 C 38,18 28,24 24,38 L -24,38 C -28,24 -38,18 -42,5 C -50,-20 -54,-45 -54,-65 Z" fill="#e2e8f0" stroke="#0f172a" stroke-width="4"/>
+    <path d="M -50,-60 Q 0,-78 50,-60 L 52,-48 Q 0,-66 -52,-48 Z" fill="url(#goldGrad)"/>
+    <circle cx="-32" cy="-56" r="3" fill="#0f172a"/>
+    <circle cx="0" cy="-62" r="3.5" fill="#0f172a"/>
+    <circle cx="32" cy="-56" r="3" fill="#0f172a"/>
+    <path d="M -34,-25 C -34,-38 -12,-38 -12,-25 C -12,-12 -34,-12 -34,-25 Z" fill="#070b14" stroke="#0284c7" stroke-width="2"/>
+    <ellipse cx="-23" cy="-25" rx="5" ry="6" fill="#38bdf8" filter="url(#cyanGlow)"/>
+    <circle cx="-22" cy="-26" r="2" fill="#ffffff"/>
+    <path d="M 34,-25 C 34,-38 12,-38 12,-25 C 12,-12 34,-12 -34,-25 Z" fill="#070b14" stroke="#0284c7" stroke-width="2"/>
+    <ellipse cx="23" cy="-25" rx="5" ry="6" fill="#38bdf8" filter="url(#cyanGlow)"/>
+    <circle cx="24" cy="-26" r="2" fill="#ffffff"/>
+    <polygon points="0,-8 -6,4 6,4" fill="#0f172a"/>
+    <rect x="-20" y="38" width="40" height="22" rx="4" fill="#cbd5e1" stroke="#0f172a" stroke-width="3"/>
+    <line x1="-12" y1="38" x2="-12" y2="60" stroke="#0f172a" stroke-width="3"/>
+    <line x1="-4" y1="38" x2="-4" y2="60" stroke="#0f172a" stroke-width="3"/>
+    <line x1="4" y1="38" x2="4" y2="60" stroke="#0f172a" stroke-width="3"/>
+    <line x1="12" y1="38" x2="12" y2="60" stroke="#0f172a" stroke-width="3"/>
+  </g>
+
+  <g transform="translate(256, 118)">
+    <polygon points="-80,-20 80,-20 95,12 80,24 -80,24 -95,12" fill="#090d18" stroke="url(#goldGrad)" stroke-width="3"/>
+    <text x="0" y="10" font-family="'JetBrains Mono', 'Segoe UI', Impact, sans-serif" font-size="30" font-weight="900" letter-spacing="5" fill="url(#goldGrad)" text-anchor="middle" filter="url(#goldGlow)">40K</text>
+  </g>
+
+  <g transform="translate(256, 385)">
+    <polygon points="-110,-24 110,-24 130,16 0,40 -130,16" fill="#090d18" stroke="url(#cyanGrad)" stroke-width="4"/>
+    <polygon points="-100,-18 100,-18 118,14 0,34 -118,14" fill="rgba(56,189,248,0.12)"/>
+    <text x="0" y="12" font-family="'JetBrains Mono', 'Segoe UI', Impact, sans-serif" font-size="34" font-weight="900" letter-spacing="8" fill="#38bdf8" text-anchor="middle" filter="url(#cyanGlow)">ELO</text>
+    <text x="0" y="28" font-family="'JetBrains Mono', 'Segoe UI', sans-serif" font-size="10" font-weight="800" letter-spacing="3" fill="#e2e8f0" text-anchor="middle">GAME TRACKER</text>
+  </g>
+
+  <circle cx="256" cy="48" r="4" fill="#38bdf8"/>
+  <circle cx="440" cy="140" r="4" fill="#38bdf8"/>
+  <circle cx="440" cy="350" r="4" fill="#38bdf8"/>
+  <circle cx="256" cy="464" r="4" fill="#38bdf8"/>
+  <circle cx="72" cy="350" r="4" fill="#38bdf8"/>
+  <circle cx="72" cy="140" r="4" fill="#38bdf8"/>
+</svg>
