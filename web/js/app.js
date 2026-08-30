@@ -120,6 +120,77 @@ async function loadGlobalStats() {
   }
 }
 
+// PWA Install Prompt Handler on Home Page
+let deferredPwaPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPwaPrompt = e;
+  window.__deferredPwaPrompt = e;
+
+  const lastDismissed = localStorage.getItem('pwa_install_dismissed');
+  if (lastDismissed && (Date.now() - Number(lastDismissed)) < 7 * 24 * 60 * 60 * 1000) {
+    return;
+  }
+
+  showPwaInstallBanner();
+});
+
+function showPwaInstallBanner() {
+  if (document.getElementById('pwa-install-banner')) return;
+
+  const banner = document.createElement('div');
+  banner.id = 'pwa-install-banner';
+  banner.style.cssText = `
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 99999;
+    background: rgba(11, 17, 32, 0.96);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 16px;
+    padding: 14px 18px;
+    box-shadow: 0 16px 45px rgba(0,0,0,0.8), 0 0 25px rgba(56,189,248,0.15);
+    backdrop-filter: blur(14px);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    max-width: 440px;
+    width: calc(100vw - 48px);
+    box-sizing: border-box;
+    font-family: 'Inter', sans-serif;
+  `;
+
+  banner.innerHTML = `
+    <img src="/assets/logo.svg" alt="40k Elo" style="width:44px; height:44px; border-radius:10px; border:1px solid #1e293b; flex-shrink:0;">
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:0.9rem; font-weight:800; color:#fff; font-family:'JetBrains Mono',monospace;">Install 40k Elo App</div>
+      <div style="font-size:0.75rem; color:var(--text-muted); line-height:1.35; margin-top:2px;">Get instant access to Elo Rankings, Meta Stats & Game Tracker on your phone or desktop.</div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button id="btn-pwa-install" style="background:#0284c7; color:#fff; font-weight:800; font-size:0.75rem; border:none; padding:9px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">INSTALL</button>
+      <button id="btn-pwa-dismiss" style="background:transparent; border:none; color:var(--text-muted); font-size:1.2rem; cursor:pointer; padding:4px 6px;">✕</button>
+    </div>
+  `;
+
+  document.body.appendChild(banner);
+
+  document.getElementById('btn-pwa-install').onclick = async () => {
+    if (deferredPwaPrompt) {
+      deferredPwaPrompt.prompt();
+      await deferredPwaPrompt.userChoice;
+      deferredPwaPrompt = null;
+      window.__deferredPwaPrompt = null;
+    }
+    banner.remove();
+  };
+
+  document.getElementById('btn-pwa-dismiss').onclick = () => {
+    localStorage.setItem('pwa_install_dismissed', String(Date.now()));
+    banner.remove();
+  };
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   if (typeof initAuth === 'function') {
     await initAuth();

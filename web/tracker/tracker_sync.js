@@ -723,6 +723,13 @@
           };
         });
 
+        // Filter out locally hidden match IDs to prevent any race condition
+        let locallyHidden = [];
+        try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
+        if (locallyHidden.length > 0) {
+          dbHistoryCache = dbHistoryCache.filter(item => !locallyHidden.includes(item.match_id || item.id));
+        }
+
         originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
 
         window.dispatchEvent(new StorageEvent('storage', {
@@ -738,20 +745,37 @@
 
   window.__syncTrackerHistory = syncHistoryFromDatabase;
 
-  // Soft Delete: Hide tracker game for current user
+  // Soft Delete: Hide tracker game for current user (Instant Optimistic UI)
   window.__gdmHideTrackerGame = async function(matchId, cardEl) {
     if (!matchId) return;
     if (!confirm(`Hide match #${matchId} from your personal history?\n\n(Note: This will only hide it from your view. The match remains safely preserved in the database for the other player.)`)) {
       return;
     }
 
-    if (cardEl) {
-      cardEl.style.transition = 'opacity 0.25s, transform 0.25s';
-      cardEl.style.opacity = '0';
-      cardEl.style.transform = 'translateX(20px)';
-      setTimeout(() => { cardEl.remove(); }, 260);
+    // 1. Immediately cache hidden ID locally so refresh will NEVER show it
+    let locallyHidden = [];
+    try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
+    if (!locallyHidden.includes(matchId)) {
+      locallyHidden.push(matchId);
+      originalSetItem('gt-hidden-matches', JSON.stringify(locallyHidden));
     }
 
+    // 2. Instant Optimistic UI Update (0ms)
+    dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
+    originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
+
+    if (cardEl) {
+      cardEl.style.transition = 'opacity 0.2s, transform 0.2s';
+      cardEl.style.opacity = '0';
+      cardEl.style.transform = 'translateX(20px)';
+      setTimeout(() => {
+        renderHistoryList(dbHistoryCache);
+      }, 210);
+    } else {
+      renderHistoryList(dbHistoryCache);
+    }
+
+    // 3. Persist to PostgreSQL backend
     try {
       const token = getAuthToken();
       await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/hide`, {
@@ -762,10 +786,6 @@
         },
         body: JSON.stringify({ token: token, match_id: matchId })
       });
-
-      // Update local cache
-      dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
-      originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
     } catch (err) {
       console.error('[GDM Sync] Error hiding game:', err);
     }
@@ -959,10 +979,39 @@
       
       originalSetItem('gdm-11e-tracker-state', serialized);
 
+      // Ensure CP Counter is enabled by default
+      if (stateObj.game) {
+        stateObj.game.trackCP = true;
+        stateObj.game.showCP = true;
+        stateObj.game.cpCounter = true;
+        stateObj.game.enableCP = true;
+      }
+      stateObj.trackCP = true;
+      stateObj.showCP = true;
+      stateObj.cpCounter = true;
+      stateObj.enableCP = true;
+
       // 1. Direct Setup Wizard DOM Injection
       if (stateObj.game) {
         injectSetupWizardState(stateObj.game, stateObj.p1, stateObj.p2);
       }
+
+      // Auto-toggle CP switches in DOM if present
+      try {
+        const cpToggles = Array.from(document.querySelectorAll('button, input[type="checkbox"], [role="switch"]'));
+        for (const el of cpToggles) {
+          const text = (el.textContent || el.getAttribute('aria-label') || '').toUpperCase();
+          const parentText = (el.parentElement ? el.parentElement.textContent || '' : '').toUpperCase();
+          if (text.includes('CP') || text.includes('COMMAND POINT') || parentText.includes('CP COUNTER') || parentText.includes('COMMAND POINTS')) {
+            if (el.tagName === 'INPUT' && !el.checked) {
+              el.checked = true;
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            } else if (el.getAttribute('role') === 'switch' && el.getAttribute('aria-checked') === 'false') {
+              el.click();
+            }
+          }
+        }
+      } catch(e) {}
 
       // 2. Direct React Context state injection
       if (typeof window.__gdmSetTrackerState === 'function') {

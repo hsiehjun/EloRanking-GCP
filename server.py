@@ -292,12 +292,21 @@ if FASTAPI_AVAILABLE:
                 "rollOffWinner": None,
                 "firstTurn": None,
                 "deployment": None,
-                "terrainLayout": None
+                "terrainLayout": None,
+                "trackCP": True,
+                "showCP": True,
+                "enableCP": True,
+                "cpCounter": True,
+                "cp": True
             },
-            "p1": {"score": 0, "rounds": [], "battleReady": True},
-            "p2": {"score": 0, "rounds": [], "battleReady": True},
+            "p1": {"score": 0, "rounds": [], "battleReady": True, "cp": 0},
+            "p2": {"score": 0, "rounds": [], "battleReady": True, "cp": 0},
             "round": 1,
-            "started": False
+            "started": False,
+            "trackCP": True,
+            "showCP": True,
+            "enableCP": True,
+            "cpCounter": True
         }
         
         TRACKER_ROOMS[match_id] = {
@@ -972,9 +981,21 @@ if FASTAPI_AVAILABLE:
                 "start_url": "/",
                 "scope": "/",
                 "display": "standalone",
-                "background_color": "#090d16",
+                "background_color": "#070b14",
                 "theme_color": "#0284c7",
                 "icons": [
+                    {
+                        "src": "/assets/logo-192.png",
+                        "sizes": "192x192",
+                        "type": "image/png",
+                        "purpose": "any maskable"
+                    },
+                    {
+                        "src": "/assets/logo-512.png",
+                        "sizes": "512x512",
+                        "type": "image/png",
+                        "purpose": "any maskable"
+                    },
                     {
                         "src": "/logo192w.png",
                         "sizes": "192x192",
@@ -990,12 +1011,43 @@ if FASTAPI_AVAILABLE:
             headers={"Content-Type": "application/manifest+json"}
         )
 
+    @app.get("/assets/{file:path}", include_in_schema=False)
+    async def serve_custom_assets(file: str):
+        target = web_dir / "assets" / file
+        if target.exists() and target.is_file():
+            return FileResponse(str(target))
+        raise HTTPException(status_code=404, detail="Asset not found")
+
     @app.get("/logo-mark.svg", include_in_schema=False)
+    async def serve_logo_svg():
+        svg = web_dir / "assets" / "logo.svg"
+        if svg.exists():
+            return FileResponse(str(svg), media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="logo.svg not found")
+
     @app.get("/logo192w.png", include_in_schema=False)
+    async def serve_logo_192():
+        png = web_dir / "assets" / "logo-192.png"
+        if png.exists():
+            return FileResponse(str(png), media_type="image/png")
+        raise HTTPException(status_code=404, detail="logo-192.png not found")
+
     @app.get("/logo512w.png", include_in_schema=False)
+    async def serve_logo_512():
+        png = web_dir / "assets" / "logo-512.png"
+        if png.exists():
+            return FileResponse(str(png), media_type="image/png")
+        raise HTTPException(status_code=404, detail="logo-512.png not found")
+
     @app.get("/favicon.ico", include_in_schema=False)
-    async def serve_gdm_brand_asset(request: Request):
-        return await proxy_gdm_asset(request.url.path.lstrip("/"), request.url.query)
+    async def serve_favicon():
+        ico = web_dir / "favicon.ico"
+        if ico.exists():
+            return FileResponse(str(ico))
+        svg = web_dir / "assets" / "logo.svg"
+        if svg.exists():
+            return FileResponse(str(svg), media_type="image/svg+xml")
+        raise HTTPException(status_code=404, detail="favicon not found")
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)
