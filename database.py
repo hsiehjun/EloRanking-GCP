@@ -1303,13 +1303,23 @@ class PostgresDatabase:
                 col = allowed_cols.get(sort_by, "e.event_date")
 
                 sql = f"""
-                SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                       e.total_players, e.num_rounds, e.current_round, e.is_ended,
-                       (SELECT COUNT(*) FROM matches m WHERE m.event_id = e.id) as match_count
-                FROM events e
-                WHERE {where_sql}
-                ORDER BY {col} {dir_str} NULLS LAST
-                LIMIT %s OFFSET %s;
+                WITH page_events AS (
+                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                           e.total_players, e.num_rounds, e.current_round, e.is_ended
+                    FROM events e
+                    WHERE {where_sql}
+                    ORDER BY {col} {dir_str} NULLS LAST
+                    LIMIT %s OFFSET %s
+                )
+                SELECT pe.*, COALESCE(mc.cnt, 0) as match_count
+                FROM page_events pe
+                LEFT JOIN (
+                    SELECT event_id, COUNT(*) as cnt
+                    FROM matches
+                    WHERE event_id IN (SELECT id FROM page_events)
+                    GROUP BY event_id
+                ) mc ON pe.id = mc.event_id
+                ORDER BY {col} {dir_str} NULLS LAST;
                 """
                 params.extend([page_size, offset])
 

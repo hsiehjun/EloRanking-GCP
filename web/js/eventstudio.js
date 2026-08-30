@@ -999,10 +999,3 @@ function exportRosterCsv() {
   a.download = `roster_${t.id}.csv`;
   a.click();
 }
-
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str).replace(/[&<>"']/g, m => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-  })[m]);
-}
