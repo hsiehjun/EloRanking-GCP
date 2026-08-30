@@ -108,7 +108,7 @@ async function refreshCurrentEventModal(e) {
   await openEventModal(currentOpenEventId, true);
   if (refreshBtn) {
     refreshBtn.disabled = false;
-    refreshBtn.innerHTML = '🔄 Refresh Live';
+    refreshBtn.innerHTML = '<span>🔄 Refresh Live</span>';
   }
 }
 
