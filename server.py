@@ -1950,23 +1950,18 @@ if FASTAPI_AVAILABLE:
         event_details = db.get_event_details(event_id_str)
         players = event_details.get("players", []) if event_details else []
         matches = event_details.get("matches", []) if event_details else []
-        is_ended = event_details.get("is_ended", False) if event_details else False
 
-        # Live On-Demand BCP Sync:
-        # If tournament has 0 matches, or is currently in progress / not ended, or has no players, or force_sync requested:
-        if force_sync or not event_details or not matches or not is_ended or not players:
+        # Only scrape if force_sync is requested OR event is completely missing from DB / has 0 matches AND 0 players
+        if force_sync or not event_details or (not matches and not players):
             try:
                 scraper = BestCoastPairingsScraper(db=db)
-                new_matches = scraper.scrape_event(event_id_str)
-                if new_matches > 0:
-                    try:
-                        engine = get_elo_engine()
-                        engine.recalculate_all_ratings()
-                    except Exception as re_err:
-                        logger.debug(f"Rating recalc notice after live scrape: {re_err}")
+                scraper.scrape_event(event_id_str)
                 event_details = db.get_event_details(event_id_str)
             except Exception as e:
                 logger.warning(f"Failed to auto-sync live BCP details for event {event_id_str}: {e}")
+
+        if not event_details:
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
 
         return event_details
 
