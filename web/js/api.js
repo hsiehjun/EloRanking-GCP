@@ -155,13 +155,13 @@ window.api = {
   },
 
   // Leaderboard (Teams)
-  async getLeaderboardTeams(minRoster = 2, limit = 100) {
+  async getLeaderboardTeams(minRoster = 5, limit = 100) {
     const params = new URLSearchParams({ min_roster: minRoster, limit });
     return this._fetchJson(`/api/teams?${params}`);
   },
 
   // Teams Directory
-  async getTeamsDirectory(query = '', minRoster = 2, sortBy = 'power_rating', order = 'DESC', page = 1, pageSize = 25) {
+  async getTeamsDirectory(query = '', minRoster = 1, sortBy = 'power_rating', order = 'DESC', page = 1, pageSize = 25) {
     const params = new URLSearchParams({ query, min_roster: minRoster, sort_by: sortBy, order, page, page_size: pageSize });
     return this._fetchJson(`/api/teams?${params}`);
   },

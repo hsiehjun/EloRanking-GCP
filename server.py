@@ -1115,7 +1115,7 @@ if FASTAPI_AVAILABLE:
     async def api_teams(
         page: int = Query(1, ge=1),
         page_size: int = Query(25, ge=5, le=200),
-        min_roster: int = Query(2, ge=1),
+        min_roster: int = Query(5, ge=1),
         min_members: Optional[int] = Query(None),
         limit: Optional[int] = Query(None),
         query: Optional[str] = Query(None),

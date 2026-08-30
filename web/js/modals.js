@@ -267,7 +267,7 @@ async function openTeamModal(teamName) {
     const rosEl = document.getElementById('team-modal-roster');
     if (rosEl) rosEl.innerText = `${stats.roster_count || roster.length} Players`;
     const matEl = document.getElementById('team-modal-matches');
-    if (matEl) matEl.innerText = `${stats.total_matches || 0} (${stats.total_wins || 0}W - ${stats.total_losses || 0}L)`;
+    if (matEl) matEl.innerText = `${stats.total_matches || 0} (${stats.total_wins || 0}W - ${stats.total_losses || 0}L${stats.total_draws ? ' - ' + stats.total_draws + 'D' : ''})`;
     const wrEl = document.getElementById('team-modal-winrate');
     if (wrEl) wrEl.innerText = `${stats.win_rate || 0}%`;
 

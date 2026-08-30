@@ -1353,13 +1353,22 @@ class PostgresDatabase:
                     SUM(tm.matches_played) as total_matches,
                     ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
                     ROUND((
-                        (0.40 * MAX(tm.current_elo) + 0.60 * AVG(tm.current_elo)) +
-                        (((SUM(tm.wins) + 20.0) / (SUM(tm.matches_played) + 40.0) - 0.50) * 80.0) +
-                        (50.0 * LOG(GREATEST(1.0, SUM(tm.wins)::numeric) + 1.0)) +
-                        (2.0 * COUNT(DISTINCT tm.player_id)::numeric) +
-                        (35.0 * LOG(GREATEST(1.0, COUNT(DISTINCT tm.player_id)::numeric)))
+                        -- 1. Skill Baseline: 65% Roster Mean + 35% Top Ace
+                        (0.65 * AVG(tm.current_elo) + 0.35 * MAX(tm.current_elo))
+                        *
+                        -- 2. Bayesian Win Dominance Performance Multiplier (0.65 + 0.70 * P_adj)
+                        (
+                            0.65 + 0.70 * (
+                                (SUM(tm.wins)::numeric + (0.5 * SUM(tm.draws)::numeric) + 15.0)
+                                /
+                                (GREATEST(1.0, SUM(tm.matches_played)::numeric) + 30.0)
+                            )
+                        )
+                        +
+                        -- 3. Match Volume Consistency Bonus (40 * log10(N/25 + 1))
+                        (40.0 * LOG( (GREATEST(0.0, SUM(tm.matches_played)::numeric) / 25.0) + 1.0 ))
                     )::numeric, 1) as power_rating,
-                    CASE WHEN COUNT(DISTINCT tm.player_id) >= 3 AND SUM(tm.matches_played) >= 20 THEN TRUE ELSE FALSE END as is_qualified
+                    CASE WHEN COUNT(DISTINCT tm.player_id) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
                 FROM team_members tm
                 GROUP BY tm.team_name
                 HAVING COUNT(DISTINCT tm.player_id) >= 1
@@ -1371,7 +1380,7 @@ class PostgresDatabase:
                 PostgresDatabase._all_teams_cache_time = now
                 return rows
 
-    def get_teams_leaderboard(self, page=1, page_size=25, min_members=2, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
+    def get_teams_leaderboard(self, page=1, page_size=25, min_members=5, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
         """Returns paginated power rankings of teams & gaming clubs (instant sub-millisecond in-memory)."""
         if limit is not None and limit > 0:
             page_size = limit
@@ -1448,18 +1457,18 @@ class PostgresDatabase:
                 total_matches = sum(p["matches_played"] or 0 for p in roster)
                 total_wins = sum(p["wins"] or 0 for p in roster)
                 total_losses = sum(p["losses"] or 0 for p in roster)
+                total_draws = sum(p.get("draws", 0) or 0 for p in roster)
                 avg_elo = round(sum(p["current_elo"] for p in roster) / len(roster), 1)
                 top_elo = roster[0]["current_elo"] if roster else 1500.0
                 win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0
-                bayes_wr = (total_wins + 20.0) / (total_matches + 40.0) if (total_matches + 40.0) > 0 else 0.50
-                power_rating = round(
-                    (0.40 * top_elo + 0.60 * avg_elo) +
-                    ((bayes_wr - 0.50) * 80.0) +
-                    (50.0 * math.log10(max(1.0, total_wins) + 1.0)) +
-                    (2.0 * len(roster)) +
-                    (35.0 * math.log10(max(1.0, len(roster)))),
-                    1
-                )
+                
+                # Power Rating Algorithm (Option 1)
+                skill_baseline = (0.65 * avg_elo) + (0.35 * top_elo)
+                p_adj = (total_wins + 0.5 * total_draws + 15.0) / (max(1, total_matches) + 30.0)
+                perf_multiplier = 0.65 + (0.70 * p_adj)
+                volume_bonus = 40.0 * math.log10((total_matches / 25.0) + 1.0)
+                
+                power_rating = round((skill_baseline * perf_multiplier) + volume_bonus, 1)
 
                 res = {
                     "team": team_name,
@@ -1472,7 +1481,9 @@ class PostgresDatabase:
                         "total_matches": total_matches,
                         "total_wins": total_wins,
                         "total_losses": total_losses,
-                        "win_rate": win_rate
+                        "total_draws": total_draws,
+                        "win_rate": win_rate,
+                        "is_qualified": (len(roster) >= 5 and total_matches >= 25)
                     }
                 }
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)

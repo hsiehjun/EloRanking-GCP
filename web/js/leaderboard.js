@@ -135,7 +135,7 @@ function renderLeaderboardRows() {
 
 async function loadLeaderboardTeams() {
   const minRosterSelect = document.getElementById('lead-teams-min-roster-filter');
-  const minRoster = minRosterSelect ? parseInt(minRosterSelect.value, 10) : 2;
+  const minRoster = minRosterSelect ? parseInt(minRosterSelect.value, 10) : 5;
   const tbody = document.getElementById('lead-teams-body');
   if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team rankings...</div></td></tr>';
