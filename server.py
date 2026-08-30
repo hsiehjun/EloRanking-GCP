@@ -757,8 +757,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.4">
-  <script src="/tracker/tracker_sync.js?v=11.4"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.5">
+  <script src="/tracker/tracker_sync.js?v=11.5"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
@@ -777,11 +777,7 @@ if FASTAPI_AVAILABLE:
     a[href*="/news"],
     div[class*="fixed"]:has(button:has(svg.lucide-download)),
     div[class*="fixed"]:has(button:has(svg.lucide-plus-square)),
-    div[class*="fixed"]:has(a[href*="install"]),
-    main > div > div > a[href="/11th/tracker/play"],
-    main > div > div > button:has(svg.lucide-plus),
-    main button[aria-label*="New game"],
-    main button:has(svg.lucide-play) {
+    div[class*="fixed"]:has(a[href*="install"]) {
       display: none !important;
     }
   </style>

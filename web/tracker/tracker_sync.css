@@ -30,26 +30,20 @@ button:has(svg.lucide-trash-2),
   display: none !important;
 }
 
-/* 4. Landing Page: Hide all upstream native GDM elements outside our custom lobby wrapper */
+/* 4. Landing Page Only: Hide all upstream native GDM elements outside our custom lobby wrapper */
 body:has(#gt-lobby-wrapper) main > :not(#gt-lobby-wrapper) {
   display: none !important;
 }
 
-main > div:has(h1),
-main > div:has(h2:not(#gt-lobby-wrapper h2)) {
-  display: none;
-}
-
 /* 5. Suppress all GDM native install popups, toasts, and banners */
-div:has(> button:has-text("Install")),
 [class*="install-prompt"],
 [class*="pwa-prompt"],
 [id*="install-prompt"],
-div:has(> div:has-text("Add to Home Screen")),
 div[class*="fixed"]:has(button:has(svg.lucide-download)),
 div[class*="fixed"]:has(button:has(svg.lucide-plus-square)),
 div[class*="fixed"]:has(a[href*="install"]) {
   display: none !important;
 }
+
 
 
