@@ -604,19 +604,20 @@
   }
 
   function hideNativeGdmEmptyState() {
-    // Safely hide ONLY upstream GDM New Game buttons and empty placeholders without touching parent containers
-    document.querySelectorAll('main a[href*="/play"], main button[aria-label*="New game"], main button:has(svg.lucide-plus), main button:has(svg.lucide-play)').forEach(el => {
-      if (!el.closest('#gt-lobby-wrapper')) {
-        el.style.display = 'none';
+    // On Landing page: Hide all native direct siblings inside main except #gt-lobby-wrapper
+    if (!isPlay) {
+      const main = document.querySelector('main');
+      if (main) {
+        Array.from(main.children).forEach(child => {
+          if (child.id !== 'gt-lobby-wrapper') {
+            child.style.display = 'none';
+          }
+        });
       }
-    });
+    }
 
-    document.querySelectorAll('main p, main h3, main h2, main span').forEach(el => {
-      if (el.closest('#gt-lobby-wrapper') || el.closest('#gt-user-status-bar') || el.closest('#gt-waiting-modal')) return;
-      const txt = (el.textContent || '').trim().toUpperCase();
-      if (txt === 'NO GAMES YET' || txt.includes('TAP NEW GAME TO START')) {
-        el.style.display = 'none';
-      }
+    document.querySelectorAll('footer, button:has(span.text-xs), a[href*="/news"]').forEach(el => {
+      el.style.display = 'none';
     });
   }
 

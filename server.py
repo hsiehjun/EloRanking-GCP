@@ -755,10 +755,13 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.0">
-  <script src="/tracker/tracker_sync.js?v=11.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.1">
+  <script src="/tracker/tracker_sync.js?v=11.1"></script>
   <style>
-    header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
+    header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
+      display: none !important;
+    }
+    body:has(#gt-lobby-wrapper) main > :not(#gt-lobby-wrapper) {
       display: none !important;
     }
     button[aria-label*="Delete"],
@@ -767,6 +770,9 @@ if FASTAPI_AVAILABLE:
     button:has(svg.lucide-trash-2),
     [class*="delete-game"],
     [data-action="delete"],
+    button:has(span.text-xs),
+    button[aria-label*="News"],
+    a[href*="/news"],
     main > div > div > a[href="/11th/tracker/play"],
     main > div > div > button:has(svg.lucide-plus),
     main button[aria-label*="New game"],
