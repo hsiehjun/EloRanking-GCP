@@ -5,6 +5,8 @@ let eventSearchTimeout = null;
 let eventMatchesCache = [];
 let eventPlayersCache = [];
 let currentRoundFilter = 'all';
+let currentOpenEventId = null;
+let currentEventData = null;
 
 function debounceEventSearch() {
   clearTimeout(eventSearchTimeout);
@@ -137,6 +139,7 @@ async function openEventModal(eventId, forceSync = false) {
 
   try {
     const ev = await window.api.getTournamentDetails(eventId, forceSync);
+    currentEventData = ev;
     document.getElementById('modal-event-name').innerText = ev.name || 'Tournament Details';
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || '').slice(0, 10);
@@ -347,12 +350,13 @@ function renderEventPairingsRows() {
     const isP1Win = m.winner_id && m.winner_id === m.player1_id;
     const isP2Win = m.winner_id && m.winner_id === m.player2_id;
     const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
-    const matchId = `BCP-${currentEventId}-R${m.round || 1}-T${m.table_number || 1}`;
+    const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
+    const matchId = `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
 
     const hasScore = (m.player1_score !== null && m.player2_score !== null);
     const actionBtn = hasScore
       ? `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`
-      : `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${currentEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">🎲 Track</button>`;
+      : `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${eventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">🎲 Track</button>`;
 
     tr.innerHTML = `
       <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>

@@ -254,5 +254,58 @@ window.api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+  },
+
+  // EventStudio: List Managed Events
+  async getStudioEvents() {
+    return this._fetchJson('/api/eventstudio/events');
+  },
+
+  // EventStudio: Get Event Details
+  async getStudioEvent(eventId) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`);
+  },
+
+  // EventStudio: Create Tournament
+  async createStudioEvent(payload) {
+    return this._fetchJson('/api/eventstudio/event/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Update Tournament
+  async updateStudioEvent(eventId, payload) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Delete Tournament
+  async deleteStudioEvent(eventId) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
+      method: 'DELETE'
+    });
+  },
+
+  // EventStudio: Save Round Pairings
+  async saveStudioPairings(eventId, payload) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Save Roster
+  async saveStudioRoster(eventId, payload) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/roster`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
   }
 };

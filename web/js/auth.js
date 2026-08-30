@@ -34,11 +34,13 @@ async function initAuth() {
       localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
       localStorage.setItem('native_session_token', token);
       localStorage.setItem('elo_auth_token', token);
+      if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
     } else {
       currentUser = null;
       localStorage.removeItem('native_session_token');
       localStorage.removeItem('elo_auth_token');
       localStorage.removeItem('native_user_profile');
+      if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
     }
   } catch (e) {
     console.warn('Session verification error:', e);
@@ -202,6 +204,7 @@ async function handleConnectBcp(e) {
       }
       closeBcpLinkModal();
       await initAuth();
+      if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
       if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
     } else {
       if (errorDiv) {

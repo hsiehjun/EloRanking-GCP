@@ -28,7 +28,7 @@ function switchTab(tabName) {
   } else if (tabName === 'events') {
     loadEvents();
   } else if (tabName === 'event-studio') {
-    // Event Studio WIP panel active
+    if (typeof initStudio === 'function') initStudio();
   } else if (tabName === 'my-hub') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');

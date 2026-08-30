@@ -293,6 +293,17 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_role TEXT DEFAULT 'player2';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS referee_ids TEXT[] DEFAULT '{}';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS state_json JSONB;",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'Local / RTT';",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS venue TEXT;",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS organizer_id VARCHAR(64);",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS organizer_bcp_id VARCHAR(64);",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS points INT DEFAULT 2000;",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS capacity INT DEFAULT 32;",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS mission_pack TEXT DEFAULT '11th Edition Core';",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS roster JSONB DEFAULT '[]'::jsonb;",
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS pairings JSONB DEFAULT '{}'::jsonb;",
+            "CREATE INDEX IF NOT EXISTS idx_events_organizer_id ON events(organizer_id);",
+            "CREATE INDEX IF NOT EXISTS idx_events_organizer_bcp_id ON events(organizer_bcp_id);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);"
         ]:
@@ -2108,6 +2119,136 @@ class PostgresDatabase:
                 SET hidden_user_ids = array_remove(COALESCE(hidden_user_ids, '{}'), %s::TEXT)
                 WHERE match_id = %s;
                 """, (user_id, match_id))
+            conn.commit()
+        return True
+
+    # =========================================================================
+    # EVENT STUDIO: TOURNAMENT MANAGEMENT & BCP TWO-WAY SYNC
+    # =========================================================================
+
+    def get_studio_events(self, organizer_id: Optional[str] = None, organizer_bcp_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetches all events organized by or linked to a specific user/TO."""
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                query = """
+                SELECT id, name, event_date, end_date, city, state, country, venue,
+                       tier, total_players, num_rounds, current_round, is_ended,
+                       points, capacity, mission_pack, organizer_id, organizer_bcp_id,
+                       jsonb_array_length(COALESCE(roster, '[]'::jsonb)) as roster_count,
+                       roster, pairings, raw_json, scraped_at
+                FROM events
+                WHERE 1=1
+                """
+                params = []
+                if organizer_id and organizer_bcp_id:
+                    query += " AND (organizer_id = %s OR organizer_bcp_id = %s)"
+                    params.extend([organizer_id, organizer_bcp_id])
+                elif organizer_id:
+                    query += " AND organizer_id = %s"
+                    params.append(organizer_id)
+                elif organizer_bcp_id:
+                    query += " AND organizer_bcp_id = %s"
+                    params.append(organizer_bcp_id)
+
+                query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
+                cursor.execute(query, tuple(params))
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+
+    def get_studio_event(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves full tournament details, roster, and round pairings for Event Studio."""
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT id, name, event_date, end_date, city, state, country, venue,
+                       tier, total_players, num_rounds, current_round, is_ended,
+                       points, capacity, mission_pack, organizer_id, organizer_bcp_id,
+                       roster, pairings, raw_json, scraped_at
+                FROM events
+                WHERE id = %s;
+                """, (event_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
+    def save_studio_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Creates or updates a tournament in the database."""
+        event_id = str(event_data.get("id") or event_data.get("event_id") or f"ES-{uuid.uuid4().hex[:8].upper()}")
+        name = event_data.get("name") or "Warhammer 40k Tournament"
+        tier = event_data.get("tier") or "Grand Tournament"
+        event_date = event_data.get("event_date") or event_data.get("startDate") or datetime.now(timezone.utc)
+        end_date = event_data.get("end_date") or event_data.get("endDate") or event_date
+        city = event_data.get("city") or ""
+        state = event_data.get("state") or ""
+        country = event_data.get("country") or "United States"
+        venue = event_data.get("venue") or ""
+        total_players = int(event_data.get("total_players") or len(event_data.get("roster") or []) or 0)
+        num_rounds = int(event_data.get("num_rounds") or event_data.get("rounds") or 5)
+        current_round = int(event_data.get("current_round") or 1)
+        points = int(event_data.get("points") or 2000)
+        capacity = int(event_data.get("capacity") or 32)
+        mission_pack = event_data.get("mission_pack") or event_data.get("missionPack") or "11th Edition Core"
+        organizer_id = event_data.get("organizer_id")
+        organizer_bcp_id = event_data.get("organizer_bcp_id")
+        
+        roster_json = json.dumps(event_data.get("roster") or [])
+        pairings_json = json.dumps(event_data.get("pairings") or {})
+        raw_json = json.dumps(event_data.get("raw_json") or event_data)
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO events (
+                    id, name, event_date, end_date, city, state, country, venue,
+                    tier, total_players, num_rounds, current_round, points, capacity,
+                    mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
+                    raw_json, scraped_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s::jsonb, %s::jsonb,
+                    %s::jsonb, NOW()
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    tier = EXCLUDED.tier,
+                    event_date = EXCLUDED.event_date,
+                    end_date = EXCLUDED.end_date,
+                    city = EXCLUDED.city,
+                    state = EXCLUDED.state,
+                    country = EXCLUDED.country,
+                    venue = EXCLUDED.venue,
+                    total_players = EXCLUDED.total_players,
+                    num_rounds = EXCLUDED.num_rounds,
+                    current_round = EXCLUDED.current_round,
+                    points = EXCLUDED.points,
+                    capacity = EXCLUDED.capacity,
+                    mission_pack = EXCLUDED.mission_pack,
+                    organizer_id = COALESCE(EXCLUDED.organizer_id, events.organizer_id),
+                    organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, events.organizer_bcp_id),
+                    roster = COALESCE(EXCLUDED.roster, events.roster),
+                    pairings = COALESCE(EXCLUDED.pairings, events.pairings),
+                    raw_json = COALESCE(EXCLUDED.raw_json, events.raw_json),
+                    scraped_at = NOW();
+                """, (
+                    event_id, name, event_date, end_date, city, state, country, venue,
+                    tier, total_players, num_rounds, current_round, points, capacity,
+                    mission_pack, organizer_id, organizer_bcp_id, roster_json, pairings_json,
+                    raw_json
+                ))
+            conn.commit()
+
+        return self.get_studio_event(event_id) or {"id": event_id, "name": name}
+
+    def delete_studio_event(self, event_id: str, organizer_id: Optional[str] = None) -> bool:
+        """Deletes tournament from database with organizer verification."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if organizer_id:
+                    cursor.execute("DELETE FROM events WHERE id = %s AND organizer_id = %s;", (event_id, organizer_id))
+                else:
+                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
             conn.commit()
         return True
 
