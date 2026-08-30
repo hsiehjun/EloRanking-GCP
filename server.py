@@ -593,6 +593,7 @@ if FASTAPI_AVAILABLE:
             
             auth_header = request.headers.get("Authorization", "")
             session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
             user_id = user["id"] if user else None
             user_name = user["display_name"] if user else None
             
@@ -745,8 +746,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=9.3">
-  <script src="/tracker/tracker_sync.js?v=9.3"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=9.5">
+  <script src="/tracker/tracker_sync.js?v=9.5"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;

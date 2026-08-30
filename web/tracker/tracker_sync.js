@@ -389,7 +389,7 @@
           </div>
         `;
         newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
-        renderLandingPageHistory(dbHistoryCache);
+        syncHistoryFromDatabase();
       }
     }
 
