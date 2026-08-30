@@ -379,7 +379,10 @@
           <div id="gt-lobby-history-wrapper" style="border-top:1px solid rgba(255,255,255,0.08); padding-top:16px;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
               <div style="font-size:13px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">📜 YOUR MATCH HISTORY</div>
-              <span style="font-size:10px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">Cloud SQL Sync</span>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <button onclick="window.__syncTrackerHistory()" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-weight:700;">🔄 Refresh</button>
+                <span style="font-size:10px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">Cloud SQL</span>
+              </div>
             </div>
             <div id="gt-lobby-history-list" style="display:flex; flex-direction:column; gap:10px;">
               <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #1e293b;">
@@ -389,12 +392,14 @@
           </div>
         `;
         newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
+        hideNativeGdmHistory();
         syncHistoryFromDatabase();
       }
     }
 
     tryInject();
     const observer = new MutationObserver(() => {
+      hideNativeGdmHistory();
       if (!document.getElementById('gt-lobby-hub-card')) {
         tryInject();
       }
@@ -540,8 +545,23 @@
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
+  function hideNativeGdmHistory() {
+    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, div, p, span'));
+    for (const el of headings) {
+      if (el.closest('#gt-lobby-hub-card') || el.closest('#gt-user-badge') || el.closest('#gt-waiting-modal')) continue;
+      const txt = (el.textContent || '').trim().toUpperCase();
+      if (txt === 'GAME HISTORY' || txt === 'NO GAMES YET' || txt.startsWith('TAP NEW GAME TO START')) {
+        const card = el.closest('div[class*="border"], div[class*="rounded"], section') || el;
+        if (card && !card.contains(document.getElementById('gt-lobby-hub-card'))) {
+          card.style.display = 'none';
+        }
+      }
+    }
+  }
+
   // 6. PostgreSQL Database as Sole Source of Truth for History
   async function syncHistoryFromDatabase() {
+    const lobbyList = document.getElementById('gt-lobby-history-list');
     try {
       const token = getAuthToken();
       const resp = await fetch(SYNC_CONFIG.historyEndpoint + (token ? `?token=${encodeURIComponent(token)}` : ''), {
@@ -549,42 +569,39 @@
       });
       if (resp.ok) {
         const data = await resp.json();
-        if (data && data.history && Array.isArray(data.history) && data.history.length > 0) {
-          dbHistoryCache = data.history.map(item => {
-            let s = {};
-            if (typeof item.state_json === 'string') {
-              try { s = JSON.parse(item.state_json); } catch (e) {}
-            } else if (typeof item.state_json === 'object') {
-              s = item.state_json || {};
-            }
-            return {
-              id: item.match_id,
-              match_id: item.match_id,
-              date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
-              game: s.game || {
-                p1Name: item.p1_name || 'Player 1',
-                p2Name: item.p2_name || 'Player 2',
-                p1Faction: item.p1_faction,
-                p2Faction: item.p2_faction,
-                p1Detachments: item.p1_detachment ? [item.p1_detachment] : [],
-                p2Detachments: item.p2_detachment ? [item.p2_detachment] : [],
-                primary: item.primary_mission || 'Take & Hold',
-                deployment: item.deployment || 'Search & Destroy'
-              },
-              p1: s.p1 || { score: item.p1_score || 0 },
-              p2: s.p2 || { score: item.p2_score || 0 },
-              round: item.current_round || s.round || 1,
-              p1Score: item.p1_score || 0,
-              p2Score: item.p2_score || 0,
-              started: item.started,
-              isFinished: item.is_finished,
-              winner: item.winner_name,
-              ...s
-            };
-          });
-        } else {
-          dbHistoryCache = [];
-        }
+        const rawList = (data && data.history && Array.isArray(data.history)) ? data.history : [];
+        dbHistoryCache = rawList.map(item => {
+          let s = {};
+          if (typeof item.state_json === 'string') {
+            try { s = JSON.parse(item.state_json); } catch (e) {}
+          } else if (typeof item.state_json === 'object') {
+            s = item.state_json || {};
+          }
+          return {
+            id: item.match_id,
+            match_id: item.match_id,
+            date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
+            game: s.game || {
+              p1Name: item.p1_name || 'Player 1',
+              p2Name: item.p2_name || 'Player 2',
+              p1Faction: item.p1_faction,
+              p2Faction: item.p2_faction,
+              p1Detachments: item.p1_detachment ? [item.p1_detachment] : [],
+              p2Detachments: item.p2_detachment ? [item.p2_detachment] : [],
+              primary: item.primary_mission || 'Take & Hold',
+              deployment: item.deployment || 'Search & Destroy'
+            },
+            p1: s.p1 || { score: item.p1_score || 0 },
+            p2: s.p2 || { score: item.p2_score || 0 },
+            round: item.current_round || s.round || 1,
+            p1Score: item.p1_score || 0,
+            p2Score: item.p2_score || 0,
+            started: item.started,
+            isFinished: item.is_finished,
+            winner: item.winner_name,
+            ...s
+          };
+        });
 
         originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
 
@@ -595,9 +612,27 @@
         }));
 
         renderLandingPageHistory(dbHistoryCache);
+      } else {
+        if (lobbyList) {
+          lobbyList.innerHTML = `
+            <div style="color:#ef4444; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #ef4444;">
+              Failed to load match history (HTTP ${resp.status}). <a href="javascript:void(0)" onclick="window.__syncTrackerHistory()" style="color:#38bdf8; text-decoration:underline; font-weight:700;">Retry</a>
+            </div>
+          `;
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      if (lobbyList) {
+        lobbyList.innerHTML = `
+          <div style="color:#ef4444; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #ef4444;">
+            Connection error loading match history. <a href="javascript:void(0)" onclick="window.__syncTrackerHistory()" style="color:#38bdf8; text-decoration:underline; font-weight:700;">Retry</a>
+          </div>
+        `;
+      }
+    }
   }
+
+  window.__syncTrackerHistory = syncHistoryFromDatabase;
 
   function renderLandingPageHistory(historyList) {
     const listToRender = (historyList && Array.isArray(historyList)) ? historyList : (dbHistoryCache || []);

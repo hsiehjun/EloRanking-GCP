@@ -33,3 +33,12 @@ main button[aria-label*="New game"],
 main button:has(svg.lucide-play) {
   display: none !important;
 }
+
+/* 5. Hide native GDM game history container on landing page */
+.tac-empty-history,
+div:has(> p:contains('Tap New Game')),
+h2:has(+ div:contains('No games yet')),
+body:not(.tracker-play) main > div:nth-child(2),
+body:not(.tracker-play) main > div:nth-child(3) {
+  /* Guarded via JS hideNativeGdmHistory */
+}
