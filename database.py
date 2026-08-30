@@ -25,11 +25,33 @@ class PostgresDatabase:
     _stats_cache = None
     _db_initialized = False
     _stats_cache_time = 0
-    _faction_meta_cache = None
-    _faction_meta_cache_time = 0
-    _factions_cache = None
-    _factions_cache_time = 0
+    _faction_meta_cache_dict = {}
+    _players_cache_dict = {}
+    _teams_cache_dict = {}
+    _team_roster_cache_dict = {}
     CACHE_TTL_SECONDS = 600
+
+    @classmethod
+    def get_cached(cls, cache_dict: dict, key: Any, ttl: int = 180) -> Optional[Any]:
+        if key in cache_dict:
+            val, ts = cache_dict[key]
+            if (time.time() - ts) < ttl:
+                return val
+        return None
+
+    @classmethod
+    def set_cached(cls, cache_dict: dict, key: Any, val: Any) -> None:
+        if len(cache_dict) > 1000:
+            cache_dict.clear()
+        cache_dict[key] = (val, time.time())
+
+    @classmethod
+    def invalidate_all_caches(cls) -> None:
+        cls._stats_cache = None
+        cls._faction_meta_cache_dict.clear()
+        cls._players_cache_dict.clear()
+        cls._teams_cache_dict.clear()
+        cls._team_roster_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -616,12 +638,17 @@ class PostgresDatabase:
         return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order)
 
     def get_players_directory(self, page=1, page_size=25, limit=None, query=None, faction=None, min_matches=0, sort_by="current_elo", order="DESC") -> Dict[str, Any]:
-        """Returns paginated directory of players with total count."""
+        """Returns paginated directory of players with total count (instant cached)."""
         if limit is not None and limit > 0:
             page_size = limit
         page = max(1, int(page or 1))
         page_size = max(1, min(int(page_size or 25), 200))
         offset = (page - 1) * page_size
+
+        cache_key = (page, page_size, limit, query, faction, min_matches, sort_by, order)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=90)
+        if cached:
+            return cached
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -718,13 +745,15 @@ class PostgresDatabase:
                     cursor.execute(sql, params)
                     rows = [dict(r) for r in cursor.fetchall()]
 
-                    return {
+                    res = {
                         "items": rows,
                         "total": total_count,
                         "page": page,
                         "page_size": page_size,
                         "total_pages": max(1, (total_count + page_size - 1) // page_size)
                     }
+                    PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, cache_key, res)
+                    return res
 
                 # Global player ratings directory
                 where_clauses = ["matches_played >= %s"]
@@ -751,13 +780,15 @@ class PostgresDatabase:
                 cursor.execute(sql, params)
                 rows = [dict(r) for r in cursor.fetchall()]
 
-                return {
+                res = {
                     "items": rows,
                     "total": total_count,
                     "page": page,
                     "page_size": page_size,
                     "total_pages": max(1, (total_count + page_size - 1) // page_size)
                 }
+                PostgresDatabase.set_cached(PostgresDatabase._players_cache_dict, cache_key, res)
+                return res
 
     def get_event_details(self, event_id: str) -> Dict[str, Any]:
         """Returns tournament details, participant roster with official BCP tiebreaker standings, and all round pairings."""
@@ -1284,12 +1315,17 @@ class PostgresDatabase:
                 }
 
     def get_teams_leaderboard(self, page=1, page_size=25, min_members=2, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
-        """Returns paginated power rankings of teams & gaming clubs computed per-match/tournament from event_participants."""
+        """Returns paginated power rankings of teams & gaming clubs (instant cached)."""
         if limit is not None and limit > 0:
             page_size = limit
         page = max(1, int(page or 1))
         page_size = max(1, min(int(page_size or 25), 200))
         offset = (page - 1) * page_size
+
+        cache_key = (page, page_size, min_members, limit, query, sort_by, order)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._teams_cache_dict, cache_key, ttl=180)
+        if cached:
+            return cached
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -1327,84 +1363,72 @@ class PostgresDatabase:
                 cursor.execute(f"SELECT COUNT(*) as total_count FROM ({count_sql}) sub;", count_params)
                 total_count = cursor.fetchone()["total_count"] or 0
 
-                # 2. Main aggregation query
+                # 2. Main ultra-fast aggregation query using precomputed player records
                 sql = f"""
-                WITH team_rosters AS (
+                WITH team_members AS (
                     SELECT 
                         TRIM(ep.team) as team_name,
                         ep.player_id,
                         COALESCE(MAX(pr.player_name), MAX(ep.full_name), 'Player') as player_name,
-                        COALESCE(MAX(pr.current_elo), 1500.0) as current_elo
+                        COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
+                        COALESCE(MAX(pr.wins), 0) as wins,
+                        COALESCE(MAX(pr.losses), 0) as losses,
+                        COALESCE(MAX(pr.draws), 0) as draws,
+                        COALESCE(MAX(pr.matches_played), 0) as matches_played
                     FROM event_participants ep
                     LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                     WHERE ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
                     {where_query}
                     GROUP BY TRIM(ep.team), ep.player_id
-                ),
-                team_matches AS (
-                    SELECT 
-                        TRIM(ep.team) as team_name,
-                        m.id as match_id,
-                        (m.winner_id = ep.player_id) as is_win,
-                        (m.loser_id = ep.player_id) as is_loss,
-                        m.is_draw
-                    FROM event_participants ep
-                    JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id)
-                    WHERE ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
-                    {where_query}
-                      AND m.is_done = TRUE
                 )
                 SELECT 
-                    tr.team_name as team,
-                    COUNT(DISTINCT tr.player_id) as roster_count,
-                    ROUND(AVG(tr.current_elo)::numeric, 1) as avg_elo,
-                    ROUND(MAX(tr.current_elo)::numeric, 1) as top_player_elo,
-                    (ARRAY_AGG(tr.player_name ORDER BY tr.current_elo DESC))[1] as top_player_name,
-                    (ARRAY_AGG(tr.player_id ORDER BY tr.current_elo DESC))[1] as top_player_id,
-                    COALESCE(m_stat.wins, 0) as total_wins,
-                    COALESCE(m_stat.losses, 0) as total_losses,
-                    COALESCE(m_stat.draws, 0) as total_draws,
-                    COALESCE(m_stat.total_matches, 0) as total_matches,
-                    ROUND((COALESCE(m_stat.wins, 0) * 100.0 / NULLIF(COALESCE(m_stat.total_matches, 0), 0))::numeric, 1) as team_win_rate,
+                    tm.team_name as team,
+                    COUNT(DISTINCT tm.player_id) as roster_count,
+                    ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
+                    ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
+                    (ARRAY_AGG(tm.player_name ORDER BY tm.current_elo DESC))[1] as top_player_name,
+                    (ARRAY_AGG(tm.player_id ORDER BY tm.current_elo DESC))[1] as top_player_id,
+                    SUM(tm.wins) as total_wins,
+                    SUM(tm.losses) as total_losses,
+                    SUM(tm.draws) as total_draws,
+                    SUM(tm.matches_played) as total_matches,
+                    ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
                     ROUND((
-                        (0.40 * MAX(tr.current_elo) + 0.60 * AVG(tr.current_elo)) +
-                        (((COALESCE(m_stat.wins, 0) + 20.0) / (COALESCE(m_stat.total_matches, 0) + 40.0) - 0.50) * 80.0) +
-                        (50.0 * LOG(GREATEST(1.0, COALESCE(m_stat.wins, 0)::numeric) + 1.0)) +
-                        (2.0 * COUNT(DISTINCT tr.player_id)::numeric) +
-                        (35.0 * LOG(GREATEST(1.0, COUNT(DISTINCT tr.player_id)::numeric)))
+                        (0.40 * MAX(tm.current_elo) + 0.60 * AVG(tm.current_elo)) +
+                        (((SUM(tm.wins) + 20.0) / (SUM(tm.matches_played) + 40.0) - 0.50) * 80.0) +
+                        (50.0 * LOG(GREATEST(1.0, SUM(tm.wins)::numeric) + 1.0)) +
+                        (2.0 * COUNT(DISTINCT tm.player_id)::numeric) +
+                        (35.0 * LOG(GREATEST(1.0, COUNT(DISTINCT tm.player_id)::numeric)))
                     )::numeric, 1) as power_rating,
-                    CASE WHEN COUNT(DISTINCT tr.player_id) >= 3 AND COALESCE(m_stat.total_matches, 0) >= 20 THEN TRUE ELSE FALSE END as is_qualified
-                FROM team_rosters tr
-                LEFT JOIN (
-                    SELECT 
-                        team_name,
-                        COUNT(*) as total_matches,
-                        SUM(CASE WHEN is_win THEN 1 ELSE 0 END) as wins,
-                        SUM(CASE WHEN is_loss THEN 1 ELSE 0 END) as losses,
-                        SUM(CASE WHEN is_draw THEN 1 ELSE 0 END) as draws
-                    FROM team_matches
-                    GROUP BY team_name
-                ) m_stat ON tr.team_name = m_stat.team_name
-                GROUP BY tr.team_name, m_stat.wins, m_stat.losses, m_stat.draws, m_stat.total_matches
-                HAVING COUNT(DISTINCT tr.player_id) >= %s
+                    CASE WHEN COUNT(DISTINCT tm.player_id) >= 3 AND SUM(tm.matches_played) >= 20 THEN TRUE ELSE FALSE END as is_qualified
+                FROM team_members tm
+                GROUP BY tm.team_name
+                HAVING COUNT(DISTINCT tm.player_id) >= %s
                 ORDER BY {col} {dir_str} NULLS LAST, roster_count DESC
                 LIMIT %s OFFSET %s;
                 """
-                main_params = list(params) + list(params) + [min_members, page_size, offset]
+                main_params = list(params) + [min_members, page_size, offset]
                 cursor.execute(sql, main_params)
                 rows = [dict(r) for r in cursor.fetchall()]
 
-                return {
+                res = {
                     "items": rows,
                     "total": total_count,
                     "page": page,
                     "page_size": page_size,
                     "total_pages": max(1, (total_count + page_size - 1) // page_size)
                 }
+                PostgresDatabase.set_cached(PostgresDatabase._teams_cache_dict, cache_key, res)
+                return res
 
     def get_team_roster(self, team_name: str) -> Dict[str, Any]:
-        """Returns full member roster and historical tournament record for a specific team."""
+        """Returns full member roster and historical tournament record for a specific team (instant cached)."""
         team_name = team_name.strip()
+        cache_key = team_name.lower()
+        cached = PostgresDatabase.get_cached(PostgresDatabase._team_roster_cache_dict, cache_key, ttl=180)
+        if cached:
+            return cached
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
@@ -1414,23 +1438,24 @@ class PostgresDatabase:
                     COALESCE(MAX(pr.current_elo), 1500.0) as current_elo,
                     COALESCE(MAX(pr.peak_elo), 1500.0) as peak_elo,
                     COALESCE(MAX(pr.top_faction), MAX(ep.faction), 'Unknown') as top_faction,
-                    COUNT(m.id) as matches_played,
-                    SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) as wins,
-                    SUM(CASE WHEN m.loser_id = ep.player_id THEN 1 ELSE 0 END) as losses,
-                    SUM(CASE WHEN m.is_draw THEN 1 ELSE 0 END) as draws,
-                    ROUND((SUM(CASE WHEN m.winner_id = ep.player_id THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(m.id), 0))::numeric, 1) as win_rate,
-                    MAX(e.event_date) as last_active_date
+                    COALESCE(MAX(pr.matches_played), 0) as matches_played,
+                    COALESCE(MAX(pr.wins), 0) as wins,
+                    COALESCE(MAX(pr.losses), 0) as losses,
+                    COALESCE(MAX(pr.draws), 0) as draws,
+                    COALESCE(MAX(pr.win_rate), 0.0) as win_rate,
+                    COALESCE(MAX(pr.last_active_date), MAX(e.event_date)) as last_active_date
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                 LEFT JOIN events e ON ep.event_id = e.id
-                LEFT JOIN matches m ON ep.event_id = m.event_id AND (m.player1_id = ep.player_id OR m.player2_id = ep.player_id) AND m.is_done = TRUE
                 WHERE TRIM(ep.team) ILIKE %s
                 GROUP BY ep.player_id
                 ORDER BY current_elo DESC NULLS LAST;
                 """, (team_name,))
                 roster = [dict(r) for r in cursor.fetchall()]
                 if not roster:
-                    return {"team": team_name, "roster": [], "stats": {}}
+                    res = {"team": team_name, "roster": [], "stats": {}}
+                    PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
+                    return res
 
                 total_matches = sum(p["matches_played"] or 0 for p in roster)
                 total_wins = sum(p["wins"] or 0 for p in roster)
@@ -1448,7 +1473,7 @@ class PostgresDatabase:
                     1
                 )
 
-                return {
+                res = {
                     "team": team_name,
                     "roster": roster,
                     "stats": {
@@ -1462,13 +1487,15 @@ class PostgresDatabase:
                         "win_rate": win_rate
                     }
                 }
+                PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
+                return res
 
     def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
-        """Returns overall faction balance metrics, timeline trends, and tier ratings reflecting the chosen timeframe."""
+        """Returns overall faction balance metrics, timeline trends, and tier ratings (instant cached)."""
         cache_key = f"{start_date}_{end_date}"
-        now = time.time()
-        if not start_date and not end_date and PostgresDatabase._faction_meta_cache and (now - PostgresDatabase._faction_meta_cache_time) < PostgresDatabase.CACHE_TTL_SECONDS:
-            return PostgresDatabase._faction_meta_cache
+        cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, cache_key, ttl=300)
+        if cached:
+            return cached
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -1598,9 +1625,7 @@ class PostgresDatabase:
                         "granularity": "Weekly" if is_short_window else "Monthly"
                     }
                 }
-                if not start_date and not end_date:
-                    PostgresDatabase._faction_meta_cache = res
-                    PostgresDatabase._faction_meta_cache_time = now
+                PostgresDatabase.set_cached(PostgresDatabase._faction_meta_cache_dict, cache_key, res)
                 return res
 
 

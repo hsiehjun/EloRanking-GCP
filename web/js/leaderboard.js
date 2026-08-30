@@ -50,7 +50,7 @@ async function loadLeaderboard() {
   const faction = factionSelect ? factionSelect.value : 'All';
   const tbody = document.getElementById('leaderboard-body');
 
-  if (tbody) {
+  if (tbody && (!leaderboardData || leaderboardData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading leaderboard...</div></td></tr>';
   }
 
@@ -136,7 +136,7 @@ async function loadLeaderboardTeams() {
   const minRosterSelect = document.getElementById('lead-teams-min-roster-filter');
   const minRoster = minRosterSelect ? minRosterSelect.value : 2;
   const tbody = document.getElementById('lead-teams-body');
-  if (tbody) {
+  if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team rankings...</div></td></tr>';
   }
 

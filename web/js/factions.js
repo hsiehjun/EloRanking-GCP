@@ -91,7 +91,7 @@ function setFactionViewMode(mode) {
 
 async function loadFactionMeta() {
   const tbody = document.getElementById('faction-meta-body');
-  if (tbody) {
+  if (tbody && (!factionMetaData || !factionMetaData.factions || factionMetaData.factions.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Analyzing competitive faction meta...</div></td></tr>';
   }
 
