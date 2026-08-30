@@ -26,19 +26,10 @@ button:has(svg.lucide-trash-2),
   display: none !important;
 }
 
-/* 4. Eliminate Flash of Upstream GDM Landing Page (New Game / local history) */
+/* 4. Eliminate Flash of Upstream GDM Landing Page (New Game button) */
 main > div > div > a[href="/11th/tracker/play"],
 main > div > div > button:has(svg.lucide-plus),
 main button[aria-label*="New game"],
 main button:has(svg.lucide-play) {
   display: none !important;
-}
-
-/* 5. Hide native GDM game history container on landing page */
-.tac-empty-history,
-div:has(> p:contains('Tap New Game')),
-h2:has(+ div:contains('No games yet')),
-body:not(.tracker-play) main > div:nth-child(2),
-body:not(.tracker-play) main > div:nth-child(3) {
-  /* Guarded via JS hideNativeGdmHistory */
 }

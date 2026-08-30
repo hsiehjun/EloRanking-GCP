@@ -347,7 +347,7 @@
             <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
           </div>
 
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px; margin-bottom:18px;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
             <!-- Host Card -->
             <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
               <div>
@@ -374,32 +374,14 @@
               </div>
             </div>
           </div>
-
-          <!-- Integrated Match History -->
-          <div id="gt-lobby-history-wrapper" style="border-top:1px solid rgba(255,255,255,0.08); padding-top:16px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-              <div style="font-size:13px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">📜 YOUR MATCH HISTORY</div>
-              <div style="display:flex; align-items:center; gap:8px;">
-                <button onclick="window.__syncTrackerHistory()" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-weight:700;">🔄 Refresh</button>
-                <span style="font-size:10px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">Cloud SQL</span>
-              </div>
-            </div>
-            <div id="gt-lobby-history-list" style="display:flex; flex-direction:column; gap:10px;">
-              <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #1e293b;">
-                Loading match history...
-              </div>
-            </div>
-          </div>
         `;
         newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
-        hideNativeGdmHistory();
         syncHistoryFromDatabase();
       }
     }
 
     tryInject();
     const observer = new MutationObserver(() => {
-      hideNativeGdmHistory();
       if (!document.getElementById('gt-lobby-hub-card')) {
         tryInject();
       }
@@ -561,7 +543,6 @@
 
   // 6. PostgreSQL Database as Sole Source of Truth for History
   async function syncHistoryFromDatabase() {
-    const lobbyList = document.getElementById('gt-lobby-history-list');
     try {
       const token = getAuthToken();
       const resp = await fetch(SYNC_CONFIG.historyEndpoint + (token ? `?token=${encodeURIComponent(token)}` : ''), {
@@ -610,86 +591,11 @@
           newValue: JSON.stringify(dbHistoryCache),
           storageArea: localStorage
         }));
-
-        renderLandingPageHistory(dbHistoryCache);
-      } else {
-        if (lobbyList) {
-          lobbyList.innerHTML = `
-            <div style="color:#ef4444; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #ef4444;">
-              Failed to load match history (HTTP ${resp.status}). <a href="javascript:void(0)" onclick="window.__syncTrackerHistory()" style="color:#38bdf8; text-decoration:underline; font-weight:700;">Retry</a>
-            </div>
-          `;
-        }
       }
-    } catch (e) {
-      if (lobbyList) {
-        lobbyList.innerHTML = `
-          <div style="color:#ef4444; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #ef4444;">
-            Connection error loading match history. <a href="javascript:void(0)" onclick="window.__syncTrackerHistory()" style="color:#38bdf8; text-decoration:underline; font-weight:700;">Retry</a>
-          </div>
-        `;
-      }
-    }
+    } catch (e) {}
   }
 
   window.__syncTrackerHistory = syncHistoryFromDatabase;
-
-  function renderLandingPageHistory(historyList) {
-    const listToRender = (historyList && Array.isArray(historyList)) ? historyList : (dbHistoryCache || []);
-    const lobbyList = document.getElementById('gt-lobby-history-list');
-    if (!lobbyList) return;
-
-    if (!listToRender || listToRender.length === 0) {
-      lobbyList.innerHTML = `
-        <div style="color:#94a3b8; font-size:12px; font-family:'JetBrains Mono',monospace; padding:14px; text-align:center; background:#090d18; border-radius:10px; border:1px dashed #1e293b;">
-          No matches found yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!
-        </div>
-      `;
-      return;
-    }
-
-    lobbyList.innerHTML = listToRender.map(item => {
-      const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
-      const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
-      const p1F = item.game?.p1Faction || item.p1_faction || '';
-      const p2F = item.game?.p2Faction || item.p2_faction || '';
-      const p1S = item.p1Score ?? item.p1_score ?? 0;
-      const p2S = item.p2Score ?? item.p2_score ?? 0;
-      const mid = item.match_id || item.id || '';
-      const isDone = item.isFinished || item.is_finished;
-      const winner = item.winner || item.winner_name;
-      const dateStr = new Date(item.date || item.updated_at || Date.now()).toLocaleDateString();
-
-      const factionSubtitle = (p1F || p2F) ? `<span style="font-size:11px; color:#94a3b8; margin-left:4px;">(${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')})</span>` : '';
-
-      return `
-        <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#090d18; border:1px solid #1e293b; border-radius:12px; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'" onmouseout="this.style.borderColor='#1e293b'">
-          <div style="min-width:0; flex:1;">
-            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px; flex-wrap:wrap;">
-              <b style="color:#f8fafc; font-size:13px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
-              ${factionSubtitle}
-            </div>
-            <div style="display:flex; align-items:center; gap:8px; font-size:11px; color:#64748b;">
-              <span style="color:#f59e0b; font-family:'JetBrains Mono',monospace; font-weight:700;">#${escapeHtml(mid)}</span>
-              <span>•</span>
-              <span>${dateStr}</span>
-            </div>
-          </div>
-          <div style="display:flex; align-items:center; gap:10px; margin-left:12px;">
-            <span style="font-size:14px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
-              ${p1S} - ${p2S}
-            </span>
-            <span style="background:${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}; color:${isDone ? '#10b981' : '#f59e0b'}; border:1px solid ${isDone ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}; font-weight:800; font-size:11px; padding:5px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
-              ${isDone ? 'Completed' : 'In Progress'}
-            </span>
-            <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:4px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
-          </div>
-        </div>
-      `;
-    }).join('');
-  }
 
   // Soft Delete: Hide tracker game for current user
   window.__gdmHideTrackerGame = async function(matchId, cardEl) {
