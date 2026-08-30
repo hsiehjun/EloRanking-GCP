@@ -16,7 +16,35 @@
       .replace(/'/g, '&#39;');
   }
 
-  console.log('[GDM Sync Bridge] Initializing 2-Player Room Key & Multiplayer Engine...');
+  // Suppress PWA install prompts & GDM install modals
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+    return false;
+  });
+
+  function removeGdmInstallPopups() {
+    try {
+      const candidates = document.querySelectorAll('div, section, aside, [role="dialog"], [role="alert"]');
+      candidates.forEach(el => {
+        const txt = (el.innerText || '').toLowerCase();
+        if ((txt.includes('install gdm') || txt.includes('install app') || txt.includes('install gdmissions') || txt.includes('add to home screen')) && el.offsetHeight < 400) {
+          el.style.display = 'none';
+          el.remove();
+        }
+      });
+    } catch(e) {}
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      removeGdmInstallPopups();
+      setInterval(removeGdmInstallPopups, 500);
+    });
+  } else {
+    removeGdmInstallPopups();
+    setInterval(removeGdmInstallPopups, 500);
+  }
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',

@@ -746,8 +746,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.1">
-  <script src="/tracker/tracker_sync.js?v=10.1"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.5">
+  <script src="/tracker/tracker_sync.js?v=10.5"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;
@@ -761,11 +761,23 @@ if FASTAPI_AVAILABLE:
     main > div > div > a[href="/11th/tracker/play"],
     main > div > div > button:has(svg.lucide-plus),
     main button[aria-label*="New game"],
-    main button:has(svg.lucide-play) {
+    main button:has(svg.lucide-play),
+    [class*="install-prompt"],
+    [class*="install-banner"],
+    [class*="pwa-prompt"],
+    [class*="pwa-modal"],
+    [class*="pwa-banner"],
+    div[role="dialog"]:has(button:has-text("Install")),
+    div[role="alert"]:has(button:has-text("Install")) {
       display: none !important;
     }
   </style>
   <script>
+    window.addEventListener('beforeinstallprompt', function(e) {
+      e.preventDefault();
+      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+      return false;
+    });
     if ('serviceWorker' in navigator) {
       try {
         navigator.serviceWorker.getRegistrations().then(function(registrations) {
@@ -873,6 +885,11 @@ if FASTAPI_AVAILABLE:
             else:
                 modified_html = f"{BRIDGE_INJECTION_HTML}\n{raw_html}"
 
+            # Brand customization: replace GDM app branding in HTML
+            modified_html = re.sub(r'<title>.*?</title>', '<title>Game Tracker | Warhammer 40,000 Elo Rankings</title>', modified_html, flags=re.IGNORECASE)
+            modified_html = re.sub(r'content="GDM[^"]*"', 'content="40k Elo"', modified_html)
+            modified_html = modified_html.replace('content="Game Day - Tabletop App"', 'content="Warhammer 40,000 Elo Game Tracker"')
+
             return HTMLResponse(content=modified_html, status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
         except Exception as e:
             logger.error(f"Error fetching GDM HTML {url}: {e}")
@@ -956,10 +973,38 @@ if FASTAPI_AVAILABLE:
     async def serve_10th_pages(path: str, request: Request):
         return await proxy_gdm_html(f"10th/{path}", request)
 
+    @app.get("/manifest.json", include_in_schema=False)
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def serve_pwa_manifest():
+        return JSONResponse(
+            content={
+                "name": "Warhammer 40,000 Elo Rankings & Game Tracker",
+                "short_name": "40k Elo",
+                "description": "Competitive Warhammer 40k Elo Rankings, Faction Meta, & Live Multiplayer Match Tracker",
+                "start_url": "/",
+                "scope": "/",
+                "display": "standalone",
+                "background_color": "#090d16",
+                "theme_color": "#0284c7",
+                "icons": [
+                    {
+                        "src": "/logo192w.png",
+                        "sizes": "192x192",
+                        "type": "image/png"
+                    },
+                    {
+                        "src": "/logo512w.png",
+                        "sizes": "512x512",
+                        "type": "image/png"
+                    }
+                ]
+            },
+            headers={"Content-Type": "application/manifest+json"}
+        )
+
     @app.get("/logo-mark.svg", include_in_schema=False)
     @app.get("/logo192w.png", include_in_schema=False)
     @app.get("/logo512w.png", include_in_schema=False)
-    @app.get("/manifest.json", include_in_schema=False)
     @app.get("/favicon.ico", include_in_schema=False)
     async def serve_gdm_brand_asset(request: Request):
         return await proxy_gdm_asset(request.url.path.lstrip("/"), request.url.query)
