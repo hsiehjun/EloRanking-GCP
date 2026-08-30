@@ -99,8 +99,6 @@ function renderEventsRows() {
   });
 }
 
-let currentOpenEventId = null;
-
 async function refreshCurrentEventModal(e) {
   if (e) e.stopPropagation();
   if (!currentOpenEventId) return;
