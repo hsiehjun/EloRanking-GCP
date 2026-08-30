@@ -1638,7 +1638,7 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/events", summary="List tournaments with date and status filters (paginated)")
     async def api_events(
         page: int = Query(1, ge=1),
-        page_size: int = Query(25, ge=5, le=200),
+        page_size: int = Query(25, ge=1, le=200),
         limit: Optional[int] = Query(None),
         query: Optional[str] = Query(None),
         status: str = Query("all"),
