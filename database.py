@@ -1301,6 +1301,7 @@ class PostgresDatabase:
                     "is_ended": "e.is_ended"
                 }
                 col = allowed_cols.get(sort_by, "e.event_date")
+                pe_col = col.replace("e.", "pe.")
 
                 sql = f"""
                 WITH page_events AS (
@@ -1319,7 +1320,7 @@ class PostgresDatabase:
                     WHERE event_id IN (SELECT id FROM page_events)
                     GROUP BY event_id
                 ) mc ON pe.id = mc.event_id
-                ORDER BY {col} {dir_str} NULLS LAST;
+                ORDER BY {pe_col} {dir_str} NULLS LAST;
                 """
                 params.extend([page_size, offset])
 

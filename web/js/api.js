@@ -12,16 +12,16 @@ window.api = {
         const json = JSON.parse(text);
         if (!res.ok) {
           console.error(`API Error on ${url}:`, json);
-          return { error: json.detail || json.error || 'Server error', items: [], total: 0 };
+          return { error: json.detail || json.error || 'Server error' };
         }
         return json;
       } catch (parseErr) {
         console.error(`Non-JSON response from ${url}:`, text);
-        return { error: `Server returned non-JSON response (${res.status})`, items: [], total: 0 };
+        return { error: `Server returned non-JSON response (${res.status})` };
       }
     } catch (netErr) {
       console.error(`Network error on ${url}:`, netErr);
-      return { error: netErr.message, items: [], total: 0 };
+      return { error: netErr.message };
     }
   },
 
