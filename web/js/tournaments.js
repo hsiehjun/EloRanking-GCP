@@ -180,6 +180,7 @@ async function openEventModal(eventId, forceSync = false) {
     renderEventPairingsRows();
   } catch (err) {
     if (rbody) rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;
+    if (ebody) ebody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading participant ratings: ${err.message}</td></tr>`;
     if (pbody) pbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error syncing pairings: ${err.message}</td></tr>`;
   }
 }

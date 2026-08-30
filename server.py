@@ -1722,43 +1722,17 @@ if FASTAPI_AVAILABLE:
         if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
             user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-        # 2. Query BCP API live across 14-day intervals (next 3.5 months) to ensure 100% complete tournament coverage
-        headers = {'client-id': 'web-app', 'User-Agent': 'Mozilla/5.0'}
-        now_dt = datetime.now(timezone.utc)
-        
-        intervals = []
-        curr = now_dt
-        for _ in range(8):  # 8 intervals x 14 days = 112 days (~3.5 months)
-            nxt = curr + timedelta(days=14)
-            intervals.append((curr.strftime("%Y-%m-%dT00:00:00.000Z"), nxt.strftime("%Y-%m-%dT23:59:59.999Z")))
-            curr = nxt + timedelta(days=1)
-
-        bcp_events = []
-        for s_iso, e_iso in intervals:
-            next_key = None
-            for _ in range(8):  # Up to 8 pages per 14-day interval = 400 events per interval
-                params = {
-                    "limit": 50,
-                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
-                    "startDate": s_iso,
-                    "endDate": e_iso
-                }
-                if next_key:
-                    params["nextKey"] = next_key
-
-                url = f"https://newprod-api.bestcoastpairings.com/v1/events?{urllib.parse.urlencode(params)}"
-                try:
-                    req = urllib.request.Request(url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=3.5) as resp:
-                        data = json.loads(resp.read().decode())
-                        evs = data.get("data", [])
-                        bcp_events.extend(evs)
-                        next_key = data.get("nextKey")
-                        if not next_key:
-                            break
-                except Exception as e:
-                    logger.warning(f"Live BCP interval query notice: {e}")
-                    break
+        # 2. Query upcoming & recent events directly from PostgreSQL database (100% fast, 0 network lag)
+        with db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended
+                FROM events
+                WHERE event_date >= CURRENT_DATE - INTERVAL '30 days'
+                ORDER BY event_date ASC
+                LIMIT 300;
+                """)
+                bcp_events = [dict(r) for r in cursor.fetchall()]
 
         def haversine_miles(lat1, lon1, lat2, lon2):
             R = 3958.8
@@ -1947,21 +1921,17 @@ if FASTAPI_AVAILABLE:
     async def api_event_details(event_id: str, force_sync: bool = False):
         db = get_database()
         event_id_str = event_id.strip()
-        event_details = db.get_event_details(event_id_str)
-        players = event_details.get("players", []) if event_details else []
-        matches = event_details.get("matches", []) if event_details else []
-
-        # Only scrape if force_sync is explicitly requested OR event is completely missing from DB
-        if force_sync or not event_details:
+        # Only query BCP if user explicitly clicked the 'Refresh Live' button
+        if force_sync:
             try:
                 scraper = BestCoastPairingsScraper(db=db)
                 scraper.scrape_event(event_id_str)
-                event_details = db.get_event_details(event_id_str)
             except Exception as e:
-                logger.warning(f"Failed to auto-sync live BCP details for event {event_id_str}: {e}")
+                logger.warning(f"Failed to live refresh BCP details for event {event_id_str}: {e}")
 
+        event_details = db.get_event_details(event_id_str)
         if not event_details:
-            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found in database")
 
         return event_details
 
