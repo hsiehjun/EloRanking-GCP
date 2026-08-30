@@ -6,16 +6,43 @@ let currentPlayerTrajectory = [];
 let currentPlayerMatches = [];
 let isChartExpanded = false;
 
+let modalZIndexCounter = 1000;
+let modalStack = [];
+
+function bringModalToFront(modal) {
+  if (!modal) return;
+  if (typeof modal === 'string') modal = document.getElementById(modal);
+  if (!modal) return;
+  modalZIndexCounter += 10;
+  modal.style.zIndex = modalZIndexCounter;
+  modal.classList.add('active');
+  if (!modalStack.includes(modal.id)) {
+    modalStack.push(modal.id);
+  }
+}
+window.bringModalToFront = bringModalToFront;
+
 function closeModal(modalId) {
   const modal = document.getElementById(modalId);
-  if (modal) modal.classList.remove('active');
+  if (modal) {
+    modal.classList.remove('active');
+    modalStack = modalStack.filter(id => id !== modalId);
+  }
 }
 
 function closeModalOnBackdrop(e) {
   if (e.target && e.target.classList.contains('modal-backdrop')) {
     e.target.classList.remove('active');
+    modalStack = modalStack.filter(id => id !== e.target.id);
   }
 }
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modalStack.length > 0) {
+    const topModalId = modalStack.pop();
+    closeModal(topModalId);
+  }
+});
 
 function togglePlayerEloChart() {
   const container = document.getElementById('chart-collapsible-content');
@@ -41,7 +68,7 @@ function togglePlayerEloChart() {
 async function openPlayerModal(playerId) {
   const modal = document.getElementById('player-modal');
   if (!modal) return;
-  modal.classList.add('active');
+  bringModalToFront(modal);
 
   // Reset chart to collapsed state by default
   isChartExpanded = false;
@@ -245,7 +272,7 @@ let currentTeamRoster = [];
 async function openTeamModal(teamName) {
   const modal = document.getElementById('team-modal');
   if (!modal) return;
-  modal.classList.add('active');
+  bringModalToFront(modal);
 
   const titleEl = document.getElementById('modal-team-title');
   if (titleEl) titleEl.innerText = teamName || 'Team Roster';
@@ -334,7 +361,7 @@ let currentFactionMatchups = [];
 async function openFactionModal(factionName) {
   const modal = document.getElementById('faction-modal');
   if (!modal) return;
-  modal.classList.add('active');
+  bringModalToFront(modal);
 
   const titleEl = document.getElementById('modal-faction-title');
   if (titleEl) titleEl.innerText = factionName || 'Faction Meta';
@@ -528,7 +555,7 @@ async function openScorecardModal(matchId) {
     window.location.href = `/scorecard/${encodeURIComponent(matchId)}`;
     return;
   }
-  modal.classList.add('active');
+  bringModalToFront(modal);
 
   const titleEl = document.getElementById('modal-scorecard-title');
   const subEl = document.getElementById('modal-scorecard-subtitle');

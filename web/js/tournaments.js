@@ -116,7 +116,11 @@ async function openEventModal(eventId, forceSync = false) {
   currentOpenEventId = eventId;
   const modal = document.getElementById('event-modal');
   if (!modal) return;
-  modal.classList.add('active');
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+  }
 
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink) {

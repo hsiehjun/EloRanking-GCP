@@ -481,15 +481,33 @@ if FASTAPI_AVAILABLE:
         st = room.get("state", {})
         game = st.get("game", {})
         
-        # Determine Role:
-        # 1. If user is Player 1 owner
+        # Determine Role with Tournament Participant Validation:
+        p1_assigned_name = (game.get("p1Name") or "").strip().lower()
+        p2_assigned_name = (game.get("p2Name") or "").strip().lower()
+        u_name = (user_name or "").strip().lower()
+        is_tournament_match = match_id.startswith("BCP-") or bool(st.get("event_id"))
+        
+        # 1. Check if user is already registered Player 1 owner or matches P1 name
         if user_id and room.get("user_id_p1") == user_id:
             role = "player1"
-        # 2. If user is Player 2 owner
+        elif not room.get("user_id_p1") and u_name and p1_assigned_name and u_name == p1_assigned_name:
+            room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
+            st["user_id_p1"] = room["user_id_p1"]
+            role = "player1"
+            room["version"] += 1
+        # 2. Check if user is already registered Player 2 owner or matches P2 name
         elif user_id and room.get("user_id_p2") == user_id:
             role = "player2"
-        # 3. If Player 2 slot is open, claim Player 2 slot!
-        elif not room.get("user_id_p2"):
+        elif not room.get("user_id_p2") and u_name and p2_assigned_name and u_name == p2_assigned_name:
+            room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
+            st["user_id_p2"] = room["user_id_p2"]
+            role = "player2"
+            room["version"] += 1
+        # 3. Check if user is Admin / TO / Referee
+        elif (user_id and user_id in room.get("referee_ids", [])) or (user and user.get("role") in ("admin", "referee", "to")):
+            role = "referee"
+        # 4. If Casual Match (non-tournament), open P2 slot can be claimed by opponent
+        elif not is_tournament_match and not room.get("user_id_p2"):
             room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
             st["user_id_p2"] = room["user_id_p2"]
             if user_name and user_name != game.get("p1Name"):
@@ -521,16 +539,8 @@ if FASTAPI_AVAILABLE:
                     await q.put(msg)
                 except Exception:
                     pass
-        elif not room.get("user_id_p1"):
-            room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
-            st["user_id_p1"] = room["user_id_p1"]
-            if user_name:
-                game["p1Name"] = user_name
-            role = "player1"
-            room["version"] += 1
-        elif user_id in room.get("referee_ids", []) or (user and user.get("role") in ("admin", "referee", "to")):
-            role = "referee"
         else:
+            # Player 3, Player 4, or unauthorized user -> Spectator (View Only)
             role = "spectator"
             
         return {
@@ -580,15 +590,19 @@ if FASTAPI_AVAILABLE:
         
         room = TRACKER_ROOMS[match_id]
         
-        # Permission Verification:
-        # If room has owners, only P1, P2, and referees/admins can submit updates
-        if room.get("user_id_p1") or room.get("user_id_p2"):
-            is_p1 = (user_id and room.get("user_id_p1") == user_id)
-            is_p2 = (user_id and room.get("user_id_p2") == user_id)
-            is_ref = (user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to")))
-            
-            if not (is_p1 or is_p2 or is_ref or payload.role in ("player1", "player2", "referee", "editor")):
-                raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify match state")
+        # Strict Permission Verification:
+        is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
+        is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+        is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to")))
+        is_tournament = match_id.startswith("BCP-") or bool(room.get("state", {}).get("event_id"))
+        
+        if is_tournament:
+            if not (is_p1 or is_p2 or is_ref):
+                raise HTTPException(status_code=403, detail="Permission denied: Only matched competitors or tournament organizers can edit this tournament match.")
+        else:
+            if room.get("user_id_p1") or room.get("user_id_p2"):
+                if not (is_p1 or is_p2 or is_ref or payload.role in ("player1", "player2", "referee", "editor")):
+                    raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify match state")
         
         room["state"] = payload.state
         room["version"] = payload.version
