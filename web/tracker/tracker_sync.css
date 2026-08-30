@@ -33,19 +33,3 @@ main button[aria-label*="New game"],
 main button:has(svg.lucide-play) {
   display: none !important;
 }
-
-/* 5. Suppress all upstream PWA Install Prompts, Banners, and Modals */
-[class*="install-prompt"],
-[class*="install-banner"],
-[class*="pwa-prompt"],
-[class*="pwa-modal"],
-[class*="pwa-banner"],
-[id*="install-prompt"],
-[id*="pwa-prompt"],
-div[role="dialog"]:has(button:has-text("Install")),
-div[role="alert"]:has(button:has-text("Install")) {
-  display: none !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  opacity: 0 !important;
-}

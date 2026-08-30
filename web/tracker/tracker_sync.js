@@ -16,21 +16,20 @@
       .replace(/'/g, '&#39;');
   }
 
-  // Suppress PWA install prompts & GDM install modals
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-    return false;
-  });
-
-  function removeGdmInstallPopups() {
+  // Rebrand any in-app install text to 40k Elo Game Tracker
+  function rebrandInstallPrompts() {
     try {
-      const candidates = document.querySelectorAll('div, section, aside, [role="dialog"], [role="alert"]');
+      const candidates = document.querySelectorAll('div, section, aside, button, h1, h2, h3, p, span, [role="dialog"], [role="alert"]');
       candidates.forEach(el => {
-        const txt = (el.innerText || '').toLowerCase();
-        if ((txt.includes('install gdm') || txt.includes('install app') || txt.includes('install gdmissions') || txt.includes('add to home screen')) && el.offsetHeight < 400) {
-          el.style.display = 'none';
-          el.remove();
+        if (el.children.length === 0 || el.tagName === 'BUTTON' || el.tagName === 'P' || el.tagName === 'H2' || el.tagName === 'H3') {
+          if (el.innerText && (el.innerText.includes('GDM') || el.innerText.includes('GDmissions') || el.innerText.includes('Game Day'))) {
+            el.innerText = el.innerText
+              .replace(/GDM App/g, '40k Elo App')
+              .replace(/Install GDM/g, 'Install 40k Elo')
+              .replace(/GDM/g, '40k Elo')
+              .replace(/GDmissions/g, '40k Elo Tracker')
+              .replace(/Game Day/g, '40k Elo Tracker');
+          }
         }
       });
     } catch(e) {}
@@ -38,12 +37,12 @@
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
-      removeGdmInstallPopups();
-      setInterval(removeGdmInstallPopups, 500);
+      rebrandInstallPrompts();
+      setInterval(rebrandInstallPrompts, 1000);
     });
   } else {
-    removeGdmInstallPopups();
-    setInterval(removeGdmInstallPopups, 500);
+    rebrandInstallPrompts();
+    setInterval(rebrandInstallPrompts, 1000);
   }
 
   const SYNC_CONFIG = {

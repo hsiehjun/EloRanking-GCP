@@ -746,8 +746,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.5">
-  <script src="/tracker/tracker_sync.js?v=10.5"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.6">
+  <script src="/tracker/tracker_sync.js?v=10.6"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;
@@ -761,23 +761,11 @@ if FASTAPI_AVAILABLE:
     main > div > div > a[href="/11th/tracker/play"],
     main > div > div > button:has(svg.lucide-plus),
     main button[aria-label*="New game"],
-    main button:has(svg.lucide-play),
-    [class*="install-prompt"],
-    [class*="install-banner"],
-    [class*="pwa-prompt"],
-    [class*="pwa-modal"],
-    [class*="pwa-banner"],
-    div[role="dialog"]:has(button:has-text("Install")),
-    div[role="alert"]:has(button:has-text("Install")) {
+    main button:has(svg.lucide-play) {
       display: none !important;
     }
   </style>
   <script>
-    window.addEventListener('beforeinstallprompt', function(e) {
-      e.preventDefault();
-      if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-      return false;
-    });
     if ('serviceWorker' in navigator) {
       try {
         navigator.serviceWorker.getRegistrations().then(function(registrations) {
