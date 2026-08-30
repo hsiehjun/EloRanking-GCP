@@ -450,6 +450,18 @@ tbody tr:hover {
   justify-content: center;
   padding: 1rem;
 }
+#event-modal, #team-modal, #faction-modal {
+  z-index: 1000;
+}
+#player-modal {
+  z-index: 1100 !important;
+}
+#scorecard-modal {
+  z-index: 1150 !important;
+}
+#bcp-link-modal, #user-settings-modal {
+  z-index: 1200 !important;
+}
 .modal-backdrop.active { display: flex; }
 .modal-window {
   background: var(--bg-secondary);
