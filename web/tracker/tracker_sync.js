@@ -240,14 +240,24 @@
     if (!bar) {
       bar = document.createElement('div');
       bar.id = 'gt-user-status-bar';
-      bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.92); border:1px solid rgba(255,255,255,0.1); backdrop-filter:blur(10px); padding:6px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:12px; color:#f8fafc;";
+      bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
       document.body.appendChild(bar);
     }
     bar.innerHTML = `
-      <span style="width:8px; height:8px; border-radius:50%; background:#10b981;"></span>
-      <span style="color:#94a3b8;">Logged in:</span>
-      <b style="color:#f8fafc;">${currentUser.display_name || currentUser.email}</b>
-      <button onclick="window.__handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:11px; cursor:pointer; margin-left:6px; font-weight:700;">Logout</button>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+          🏠 My Hub
+        </a>
+        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" onmouseover="this.style.background='rgba(245,158,11,0.25)'" onmouseout="this.style.background='rgba(245,158,11,0.12)'">
+          🎲 Lobby
+        </a>
+      </div>
+      <span style="color:#334155;">|</span>
+      <span style="display:inline-flex; align-items:center; gap:5px;">
+        <span style="width:7px; height:7px; border-radius:50%; background:#10b981;"></span>
+        <b style="color:#f8fafc; font-size:11px; font-family:'JetBrains Mono',monospace;">${currentUser.display_name || currentUser.email}</b>
+      </span>
+      <button onclick="window.__handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:11px; cursor:pointer; font-weight:700; padding:2px 4px; font-family:'JetBrains Mono',monospace;">Logout</button>
     `;
 
     window.__handleLogout = async function () {
@@ -489,7 +499,6 @@
               <div style="font-size:14px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
                 GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:4px;"></span>
               </div>
-              <button onclick="window.__syncTrackerHistory()" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-weight:700;">🔄 Refresh</button>
             </div>
             <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
               <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">

@@ -201,7 +201,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadGlobalStats();
 
   const params = new URLSearchParams(window.location.search);
-  const targetTab = params.get('tab') || (window.location.hash ? window.location.hash.replace('#', '') : null);
+  let targetTab = params.get('tab') || (window.location.hash ? window.location.hash.replace('#', '') : null);
+  if (targetTab === 'my_hub') targetTab = 'my-hub';
   if (targetTab) {
     switchTab(targetTab);
   } else {
