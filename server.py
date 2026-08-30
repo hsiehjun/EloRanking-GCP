@@ -746,8 +746,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=10.6">
-  <script src="/tracker/tracker_sync.js?v=10.6"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=11.0">
+  <script src="/tracker/tracker_sync.js?v=11.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer {
       display: none !important;

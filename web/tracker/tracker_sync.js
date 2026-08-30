@@ -380,21 +380,17 @@
   // 4. Landing Page: Inject Mobile-Friendly 2-Player Room Key Generator & Join Card
   function injectLobbyHub() {
     function tryInject() {
-      const existing = document.getElementById('gt-lobby-hub-card');
-      if (existing && document.body.contains(existing)) return;
+      const main = document.querySelector('main') || document.body;
+      if (!main) return;
 
-      const buttons = Array.from(document.querySelectorAll('button'));
-      const newGameBtn = buttons.find(b => b.textContent && b.textContent.includes('New Game')) || document.querySelector('button:has(svg)');
+      let wrapper = document.getElementById('gt-lobby-wrapper');
+      if (!wrapper || !document.body.contains(wrapper)) {
+        wrapper = document.createElement('div');
+        wrapper.id = 'gt-lobby-wrapper';
+        wrapper.style.cssText = "width:100%; max-width:820px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
 
-      if (newGameBtn) {
-        newGameBtn.style.display = 'none'; // Replace with comprehensive 2-player lobby card
-
-        let lobbyCard = document.getElementById('gt-lobby-hub-card');
-        if (!lobbyCard) {
-          lobbyCard = document.createElement('div');
-          lobbyCard.id = 'gt-lobby-hub-card';
-          lobbyCard.style.cssText = "margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box;";
-          lobbyCard.innerHTML = `
+        wrapper.innerHTML = `
+          <div id="gt-lobby-hub-card" style="margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
               <div>
                 <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
@@ -430,16 +426,9 @@
                 </div>
               </div>
             </div>
-          `;
-          newGameBtn.parentNode.insertBefore(lobbyCard, newGameBtn);
-        }
+          </div>
 
-        let historySection = document.getElementById('gt-history-section');
-        if (!historySection) {
-          historySection = document.createElement('div');
-          historySection.id = 'gt-history-section';
-          historySection.style.cssText = "margin:20px 0 40px; width:100%; box-sizing:border-box;";
-          historySection.innerHTML = `
+          <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
               <div style="font-size:14px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
                 GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:4px;"></span>
@@ -451,20 +440,25 @@
                 Loading match history...
               </div>
             </div>
-          `;
-          lobbyCard.parentNode.insertBefore(historySection, lobbyCard.nextSibling);
-        }
+          </div>
+        `;
 
-        hideNativeGdmEmptyState();
-        renderHistoryList(dbHistoryCache);
-        syncHistoryFromDatabase();
+        if (main.firstChild) {
+          main.insertBefore(wrapper, main.firstChild);
+        } else {
+          main.appendChild(wrapper);
+        }
       }
+
+      hideNativeGdmEmptyState();
+      renderHistoryList(dbHistoryCache);
+      syncHistoryFromDatabase();
     }
 
     tryInject();
     const observer = new MutationObserver(() => {
       hideNativeGdmEmptyState();
-      if (!document.getElementById('gt-lobby-hub-card') || !document.getElementById('gt-history-section')) {
+      if (!document.getElementById('gt-lobby-wrapper') || !document.body.contains(document.getElementById('gt-lobby-wrapper'))) {
         tryInject();
       }
     });
@@ -610,17 +604,20 @@
   }
 
   function hideNativeGdmEmptyState() {
-    const headings = Array.from(document.querySelectorAll('h1, h2, h3, h4, div, p, span'));
-    for (const el of headings) {
-      if (el.closest('#gt-lobby-hub-card') || el.closest('#gt-history-section') || el.closest('#gt-user-badge') || el.closest('#gt-waiting-modal')) continue;
-      const txt = (el.textContent || '').trim().toUpperCase();
-      if (txt === 'GAME HISTORY' || txt === 'NO GAMES YET' || txt.includes('TAP NEW GAME TO START')) {
-        const card = el.closest('div[class*="border"], div[class*="rounded"], section') || el;
-        if (card && !card.contains(document.getElementById('gt-lobby-hub-card')) && !card.contains(document.getElementById('gt-history-section'))) {
-          card.style.display = 'none';
-        }
+    // Safely hide ONLY upstream GDM New Game buttons and empty placeholders without touching parent containers
+    document.querySelectorAll('main a[href*="/play"], main button[aria-label*="New game"], main button:has(svg.lucide-plus), main button:has(svg.lucide-play)').forEach(el => {
+      if (!el.closest('#gt-lobby-wrapper')) {
+        el.style.display = 'none';
       }
-    }
+    });
+
+    document.querySelectorAll('main p, main h3, main h2, main span').forEach(el => {
+      if (el.closest('#gt-lobby-wrapper') || el.closest('#gt-user-status-bar') || el.closest('#gt-waiting-modal')) return;
+      const txt = (el.textContent || '').trim().toUpperCase();
+      if (txt === 'NO GAMES YET' || txt.includes('TAP NEW GAME TO START')) {
+        el.style.display = 'none';
+      }
+    });
   }
 
   function renderHistoryList(historyList) {
