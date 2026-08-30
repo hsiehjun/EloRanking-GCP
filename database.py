@@ -25,6 +25,8 @@ class PostgresDatabase:
     _stats_cache = None
     _db_initialized = False
     _stats_cache_time = 0
+    _all_teams_cache = None
+    _all_teams_cache_time = 0
     _faction_meta_cache_dict = {}
     _players_cache_dict = {}
     _teams_cache_dict = {}
@@ -48,6 +50,8 @@ class PostgresDatabase:
     @classmethod
     def invalidate_all_caches(cls) -> None:
         cls._stats_cache = None
+        cls._all_teams_cache = None
+        cls._all_teams_cache_time = 0
         cls._faction_meta_cache_dict.clear()
         cls._players_cache_dict.clear()
         cls._teams_cache_dict.clear()
@@ -1314,57 +1318,15 @@ class PostgresDatabase:
                     "total_pages": max(1, (total_count + page_size - 1) // page_size)
                 }
 
-    def get_teams_leaderboard(self, page=1, page_size=25, min_members=2, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
-        """Returns paginated power rankings of teams & gaming clubs (instant cached)."""
-        if limit is not None and limit > 0:
-            page_size = limit
-        page = max(1, int(page or 1))
-        page_size = max(1, min(int(page_size or 25), 200))
-        offset = (page - 1) * page_size
-
-        cache_key = (page, page_size, min_members, limit, query, sort_by, order)
-        cached = PostgresDatabase.get_cached(PostgresDatabase._teams_cache_dict, cache_key, ttl=180)
-        if cached:
-            return cached
+    def _get_all_teams_list(self) -> List[Dict[str, Any]]:
+        """Precomputes and caches all competitive teams in memory for instant filtering and search."""
+        now = time.time()
+        if PostgresDatabase._all_teams_cache is not None and (now - PostgresDatabase._all_teams_cache_time) < 600:
+            return PostgresDatabase._all_teams_cache
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                where_query = ""
-                params: List[Any] = []
-                if query:
-                    where_query = "AND ep.team ILIKE %s"
-                    params.append(f"%{query}%")
-
-                allowed_cols = {
-                    "team": "team",
-                    "roster_count": "roster_count",
-                    "avg_elo": "avg_elo",
-                    "top_player_elo": "top_player_elo",
-                    "total_wins": "total_wins",
-                    "total_losses": "total_losses",
-                    "total_draws": "total_draws",
-                    "total_matches": "total_matches",
-                    "team_win_rate": "team_win_rate",
-                    "power_rating": "power_rating"
-                }
-                col = allowed_cols.get(sort_by, "power_rating")
-                dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
-
-                # 1. Count distinct teams
-                count_sql = f"""
-                SELECT TRIM(team) as team_name
-                FROM event_participants ep
-                WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
-                {where_query}
-                GROUP BY TRIM(team)
-                HAVING COUNT(DISTINCT player_id) >= %s
-                """
-                count_params = list(params) + [min_members]
-                cursor.execute(f"SELECT COUNT(*) as total_count FROM ({count_sql}) sub;", count_params)
-                total_count = cursor.fetchone()["total_count"] or 0
-
-                # 2. Main ultra-fast aggregation query using precomputed player records
-                sql = f"""
+                sql = """
                 WITH team_members AS (
                     SELECT 
                         TRIM(ep.team) as team_name,
@@ -1378,7 +1340,6 @@ class PostgresDatabase:
                     FROM event_participants ep
                     LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
                     WHERE ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated')
-                    {where_query}
                     GROUP BY TRIM(ep.team), ep.player_id
                 )
                 SELECT 
@@ -1403,23 +1364,55 @@ class PostgresDatabase:
                     CASE WHEN COUNT(DISTINCT tm.player_id) >= 3 AND SUM(tm.matches_played) >= 20 THEN TRUE ELSE FALSE END as is_qualified
                 FROM team_members tm
                 GROUP BY tm.team_name
-                HAVING COUNT(DISTINCT tm.player_id) >= %s
-                ORDER BY {col} {dir_str} NULLS LAST, roster_count DESC
-                LIMIT %s OFFSET %s;
+                HAVING COUNT(DISTINCT tm.player_id) >= 1
+                ORDER BY power_rating DESC;
                 """
-                main_params = list(params) + [min_members, page_size, offset]
-                cursor.execute(sql, main_params)
+                cursor.execute(sql)
                 rows = [dict(r) for r in cursor.fetchall()]
+                PostgresDatabase._all_teams_cache = rows
+                PostgresDatabase._all_teams_cache_time = now
+                return rows
 
-                res = {
-                    "items": rows,
-                    "total": total_count,
-                    "page": page,
-                    "page_size": page_size,
-                    "total_pages": max(1, (total_count + page_size - 1) // page_size)
-                }
-                PostgresDatabase.set_cached(PostgresDatabase._teams_cache_dict, cache_key, res)
-                return res
+    def get_teams_leaderboard(self, page=1, page_size=25, min_members=2, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
+        """Returns paginated power rankings of teams & gaming clubs (instant sub-millisecond in-memory)."""
+        if limit is not None and limit > 0:
+            page_size = limit
+        page = max(1, int(page or 1))
+        page_size = max(1, min(int(page_size or 25), 200))
+        offset = (page - 1) * page_size
+
+        all_teams = self._get_all_teams_list()
+
+        filtered = list(all_teams)
+        min_roster = int(min_members or 1)
+        if min_roster > 1:
+            filtered = [t for t in filtered if int(t.get("roster_count") or 0) >= min_roster]
+
+        if query:
+            q = query.strip().lower()
+            filtered = [t for t in filtered if q in str(t.get("team") or "").lower()]
+
+        # Sort
+        reverse = (str(order).upper() == "DESC")
+        sort_by_col = sort_by or "power_rating"
+        
+        if sort_by_col == "team":
+            filtered = sorted(filtered, key=lambda x: str(x.get("team") or "").lower(), reverse=not reverse)
+        elif sort_by_col in ("roster_count", "total_matches", "total_wins", "total_losses", "total_draws"):
+            filtered = sorted(filtered, key=lambda x: (int(x.get(sort_by_col) or 0), float(x.get("power_rating") or 0)), reverse=reverse)
+        else:
+            filtered = sorted(filtered, key=lambda x: (float(x.get(sort_by_col) or 0), int(x.get("roster_count") or 0)), reverse=reverse)
+
+        total_count = len(filtered)
+        items = filtered[offset : offset + page_size]
+
+        return {
+            "items": items,
+            "total": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": max(1, (total_count + page_size - 1) // page_size)
+        }
 
     def get_team_roster(self, team_name: str) -> Dict[str, Any]:
         """Returns full member roster and historical tournament record for a specific team (instant cached)."""

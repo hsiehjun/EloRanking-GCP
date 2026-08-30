@@ -33,7 +33,7 @@ async function loadTeamsDirectory() {
   const minRoster = minRosterSelect ? minRosterSelect.value : 2;
   const tbody = document.getElementById('teams-body');
 
-  if (tbody) {
+  if (tbody && (!teamsDirectoryData || teamsDirectoryData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading teams directory...</div></td></tr>';
   }
 
