@@ -224,6 +224,49 @@ class AuthManager:
                     return data
         return None
 
+    def update_settings(self, user_id: str, display_name: Optional[str] = None, old_password: Optional[str] = None, new_password: Optional[str] = None) -> Dict[str, Any]:
+        """Updates user display name or password."""
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT id, password_hash FROM users WHERE id = %s;", (user_id,))
+                row = cur.fetchone()
+                if not row:
+                    return {"success": False, "error": "User not found."}
+
+                updates = []
+                params = []
+
+                if display_name is not None and display_name.strip():
+                    name_clean = display_name.strip()
+                    updates.append("display_name = %s")
+                    params.append(name_clean)
+                    # Attempt to link player rating
+                    cur.execute("SELECT player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;", (name_clean, f"%{name_clean}%"))
+                    match_p = cur.fetchone()
+                    if match_p:
+                        updates.append("player_id = %s")
+                        params.append(match_p["player_id"])
+
+                if new_password:
+                    if not old_password or not _verify_password(old_password, row["password_hash"]):
+                        return {"success": False, "error": "Current password is incorrect."}
+                    if len(new_password) < 6:
+                        return {"success": False, "error": "New password must be at least 6 characters."}
+                    updates.append("password_hash = %s")
+                    params.append(_hash_password(new_password))
+
+                if not updates:
+                    return {"success": True, "message": "No changes requested.", "user": self.get_user_by_id(user_id)}
+
+                updates.append("updated_at = NOW()")
+                params.append(user_id)
+                cur.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s;", tuple(params))
+            conn.commit()
+
+        user_info = self.get_user_by_id(user_id)
+        return {"success": True, "user": user_info}
+
     def logout(self, session_token: str) -> bool:
         """Terminates active session."""
         if not session_token:

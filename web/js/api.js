@@ -93,6 +93,24 @@ window.api = {
     return { success: true };
   },
 
+  // Update User Settings
+  async updateUserSettings(displayName = null, oldPassword = null, newPassword = null) {
+    const token = this.getAuthToken();
+    if (!token) return { success: false, error: 'Authentication required' };
+    const payload = {};
+    if (displayName !== null) payload.display_name = displayName;
+    if (oldPassword) payload.old_password = oldPassword;
+    if (newPassword) payload.new_password = newPassword;
+    return this._fetchJson(`/api/user/settings?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+
   // Connect BCP Account
   async connectBcpAccount(bcpEmail, bcpPassword) {
     const token = this.getAuthToken();

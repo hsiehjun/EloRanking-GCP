@@ -24,47 +24,54 @@
       </a>
 
       <div class="nav-tabs">
-        <button class="nav-btn active" onclick="switchTab('leaderboard')">
+        <button class="nav-btn" id="nav-btn-my-hub" onclick="switchTab('my-hub')">
+          🏠 My Hub
+        </button>
+        <button class="nav-btn active" id="nav-btn-leaderboard" onclick="switchTab('leaderboard')">
           🏆 Leaderboard
         </button>
-        <button class="nav-btn" onclick="switchTab('events')">
+        <button class="nav-btn" id="nav-btn-search" onclick="switchTab('search')">
+          🔍 Search
+        </button>
+        <button class="nav-btn" id="nav-btn-events" onclick="switchTab('events')">
           ⚔️ Tournaments
         </button>
-        <button class="nav-btn" onclick="switchTab('teams')">
-          🛡️ Teams
-        </button>
-        <button class="nav-btn" onclick="switchTab('players')">
-          👥 Players
-        </button>
-        <button class="nav-btn" onclick="switchTab('factions')">
-          📊 Faction Meta
-        </button>
-        <button class="nav-btn" onclick="switchTab('predictor')">
-          🎯 Predictor
-        </button>
-        <button class="nav-btn" id="nav-btn-my-hub" onclick="switchTab('my-hub')">
-          🏆 My Hub
+        <a class="nav-btn" id="nav-btn-tracker" href="/11th/tracker" style="text-decoration: none;">
+          🎲 Game Tracker
+        </a>
+        <button class="nav-btn" id="nav-btn-event-studio" onclick="switchTab('event-studio')">
+          🛠️ Event Studio <span style="font-size:9px; background:rgba(245,158,11,0.2); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:1px 5px; border-radius:4px; margin-left:2px; font-weight:800; letter-spacing:0.04em;">WIP</span>
         </button>
       </div>
 
-
+      <!-- User Account Action / Status Area -->
+      <div id="header-user-area" style="display: flex; align-items: center; gap: 0.6rem;"></div>
     </div>
   </header>
 
   <!-- Main Content Area -->
   <main>
 
+    <!-- TAB 1: MY COMPETITOR HUB -->
+    <section id="tab-my-hub" class="tab-panel">
+      <div id="my-hub-content"></div>
+    </section>
 
-
-    <!-- TAB 1: LEADERBOARD -->
+    <!-- TAB 2: LEADERBOARD & META INTELLIGENCE -->
     <section id="tab-leaderboard" class="tab-panel active">
-      <!-- Subtabs Bar: Individual vs Team Rankings -->
+      <!-- Subtabs Bar: Individual, Teams, Faction Meta, Match Predictor -->
       <div class="subtabs-bar" style="margin-bottom: 1.25rem;">
         <button id="lead-subtab-players" class="subtab-btn active" onclick="switchLeaderboardSubtab('players')">
           <span>👑 Individual Standings</span>
         </button>
         <button id="lead-subtab-teams" class="subtab-btn" onclick="switchLeaderboardSubtab('teams')">
           <span>🛡️ Team Rankings</span>
+        </button>
+        <button id="lead-subtab-factions" class="subtab-btn" onclick="switchLeaderboardSubtab('factions')">
+          <span>📊 Faction Meta</span>
+        </button>
+        <button id="lead-subtab-predictor" class="subtab-btn" onclick="switchLeaderboardSubtab('predictor')">
+          <span>🎯 Match Predictor</span>
         </button>
       </div>
 
@@ -113,7 +120,7 @@
         <div class="controls-bar">
           <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem;">
             <span>🛡️ Global Team Power Standings</span>
-            <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">(Search gaming clubs in 🛡️ Teams)</span>
+            <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">(Search gaming clubs in 🔍 Search)</span>
           </div>
           <div class="filter-group">
             <select id="lead-teams-min-roster-filter" onchange="loadLeaderboardTeams()">
@@ -125,7 +132,7 @@
           </div>
         </div>
 
-                <div class="table-container">
+        <div class="table-container">
           <table id="lead-teams-table">
             <thead>
               <tr>
@@ -145,9 +152,310 @@
           </table>
         </div>
       </div>
+
+      <!-- View 3: Faction Meta & Balance Zone -->
+      <div id="lead-view-factions" style="display: none;">
+        <div class="controls-bar" style="flex-wrap: wrap; gap: 0.75rem; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <span style="font-weight: 700; font-size: 0.9rem; color: #fff; margin-right: 0.2rem;">⏱️ Timeframe:</span>
+            <button id="faction-preset-all" class="subtab-btn active" onclick="setFactionTimeframe('all')">All Time</button>
+            <button id="faction-preset-30d" class="subtab-btn" onclick="setFactionTimeframe('30d')">Last 30 Days</button>
+            <button id="faction-preset-60d" class="subtab-btn" onclick="setFactionTimeframe('60d')">Last 60 Days</button>
+            <button id="faction-preset-90d" class="subtab-btn" onclick="setFactionTimeframe('90d')">Last 90 Days</button>
+            <button id="faction-preset-ytd" class="subtab-btn" onclick="setFactionTimeframe('ytd')">2026 YTD</button>
+            <button id="faction-preset-custom" class="subtab-btn" onclick="setFactionTimeframe('custom')">Custom ⚙️</button>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')">📋 Table View</button>
+            <button id="faction-mode-btn-chart" class="subtab-btn" onclick="setFactionViewMode('chart')">📈 Meta Timeline</button>
+          </div>
+        </div>
+
+        <!-- Custom Date Inputs -->
+        <div id="faction-custom-date-container" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.75rem; background: var(--bg-card); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">From:</span>
+          <input type="date" id="faction-start-date" class="search-input" style="padding: 0.35rem 0.6rem; width: auto; font-size: 0.85rem;" onchange="applyCustomFactionDateFilter()">
+          <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">To:</span>
+          <input type="date" id="faction-end-date" class="search-input" style="padding: 0.35rem 0.6rem; width: auto; font-size: 0.85rem;" onchange="applyCustomFactionDateFilter()">
+          <button class="subtab-btn active" style="padding: 0.4rem 0.8rem;" onclick="applyCustomFactionDateFilter()">Apply Filter</button>
+        </div>
+
+        <div class="info-callout" style="margin-top: 1rem; margin-bottom: 1.25rem;">
+          <span style="font-size: 1.2rem; margin-right: 0.4rem;">⚖️</span>
+          <div>
+            <b style="color: #fff;">Goldilocks Balance Zone (45% - 55%):</b> 
+            <span style="color: var(--text-secondary);">
+              Factions above <b>55% Win Rate</b> are considered <span style="color:#a855f7; font-weight:600;">S-Tier</span>, while factions below <b>45%</b> are underperforming.
+            </span>
+          </div>
+        </div>
+
+        <!-- Faction View 1: Table -->
+        <div id="faction-view-table-container">
+          <div class="table-container">
+            <table id="faction-meta-table">
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th class="sortable" onclick="sortTable('factions', 'faction')">Faction / Army</th>
+                  <th class="sortable" onclick="sortTable('factions', 'tier')">Balance Tier</th>
+                  <th class="sortable sorted-desc" onclick="sortTable('factions', 'win_rate')">Win Rate</th>
+                  <th class="sortable" onclick="sortTable('factions', 'total_matches')">Sample Size</th>
+                  <th class="sortable" onclick="sortTable('factions', 'wins')">Record (W-L-D)</th>
+                  <th class="sortable" onclick="sortTable('factions', 'avg_score')">Avg Score</th>
+                </tr>
+              </thead>
+              <tbody id="faction-meta-body">
+                <tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading faction meta analytics...</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Faction View 2: Chart Timeline -->
+        <div id="faction-view-chart-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div>
+              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">📈 Faction Win Rate Trends Over Time</h3>
+              <div id="faction-chart-subtitle" style="font-size: 0.8rem; color: var(--text-secondary);">Monthly win rate trajectory of competitive armies relative to the 45%-55% balance window</div>
+            </div>
+            <div class="faction-quick-btns">
+              <button class="faction-quick-btn" onclick="selectFactionPreset('top8')">Top 8</button>
+              <button class="faction-quick-btn" onclick="selectFactionPreset('top15')">Top 15</button>
+              <button class="faction-quick-btn" onclick="selectFactionPreset('all')">Select All</button>
+              <button class="faction-quick-btn" onclick="selectFactionPreset('none')">Clear All</button>
+            </div>
+          </div>
+
+          <!-- Interactive Faction Toggle Chips -->
+          <div id="faction-toggle-chips" class="faction-chip-container"></div>
+
+          <div style="overflow-x: auto; position: relative;">
+            <svg id="faction-trend-svg" style="width: 100%; height: 280px;"></svg>
+            <div id="faction-chart-tooltip" style="position: absolute; display: none; background: #0f172a; border: 1px solid var(--accent); padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; pointer-events: none; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
+          </div>
+          <div id="faction-trend-legend" style="display: flex; flex-wrap: wrap; gap: 0.85rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);"></div>
+        </div>
+      </div>
+
+      <!-- View 4: Match Predictor -->
+      <div id="lead-view-predictor" style="display: none;">
+        <div class="predictor-grid">
+          <!-- Player 1 Column -->
+          <div class="predict-col">
+            <label style="font-weight: 600; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
+            <div class="search-input-group" style="max-width: 100%;">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name (e.g. Jack Murphy)..." oninput="searchPlayerAc(1)" autocomplete="off">
+              <div id="p1-ac-dropdown" class="autocomplete-dropdown"></div>
+            </div>
+
+            <div id="p1-card" class="player-match-card p1-active">
+              <div class="pm-header">
+                <div>
+                  <div class="pm-name" id="p1-card-name">Jack Murphy</div>
+                  <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Emperor's Children</div>
+                </div>
+                <div style="text-align: right;">
+                  <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1667.8</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
+                </div>
+              </div>
+              <div class="pm-stats-row">
+                <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);">7W - 0L</span></div>
+                <div><b>Win %:</b> <span id="p1-card-winrate">100%</span></div>
+                <div><b>Peak:</b> <span id="p1-card-peak" style="font-family: var(--font-mono);">1667.8</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="predict-vs">VS</div>
+
+          <!-- Player 2 Column -->
+          <div class="predict-col">
+            <label style="font-weight: 600; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
+            <div class="search-input-group" style="max-width: 100%;">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name (e.g. Jeremy Atkinson)..." oninput="searchPlayerAc(2)" autocomplete="off">
+              <div id="p2-ac-dropdown" class="autocomplete-dropdown"></div>
+            </div>
+
+            <div id="p2-card" class="player-match-card p2-active">
+              <div class="pm-header">
+                <div>
+                  <div class="pm-name" id="p2-card-name">Jeremy Atkinson</div>
+                  <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Dark Angels</div>
+                </div>
+                <div style="text-align: right;">
+                  <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1618.3</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
+                </div>
+              </div>
+              <div class="pm-stats-row">
+                <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);">6W - 1L</span></div>
+                <div><b>Win %:</b> <span id="p2-card-winrate">85.7%</span></div>
+                <div><b>Peak:</b> <span id="p2-card-peak" style="font-family: var(--font-mono);">1642.2</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Prediction Output Box -->
+        <div class="predict-result-box">
+          <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
+          <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
+            <span style="color: #38bdf8;" id="pred-p1-prob">57.1%</span>
+            <span style="color: #f43f5e;" id="pred-p2-prob">42.9%</span>
+          </div>
+
+          <div class="win-prob-bar">
+            <div id="pred-bar-p1" class="p1-bar" style="width: 57.1%;"></div>
+            <div id="pred-bar-p2" class="p2-bar" style="width: 42.9%;"></div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; text-align: left;">
+            <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+              <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
+              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);">+13.7</b> (<span id="new-p1-win-elo">1681.5</span>)</div>
+              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-loss" style="color: var(--loss);">-13.7</b> (<span id="new-p2-loss-elo">1604.6</span>)</div>
+            </div>
+
+            <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+              <div style="font-size: 0.78rem; font-weight: 700; color: var(--loss); text-transform: uppercase;">IF PLAYER 2 WINS (UPSET)</div>
+              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-upset-loss" style="color: var(--loss);">-18.3</b> (<span id="new-p1-loss-elo">1649.5</span>)</div>
+              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-upset-win" style="color: var(--win);">+18.3</b> (<span id="new-p2-win-elo">1636.6</span>)</div>
+            </div>
+
+            <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+              <div style="font-size: 0.78rem; font-weight: 700; color: var(--draw); text-transform: uppercase;">IF MATCH DRAWS</div>
+              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-draw">-2.3</b></div>
+              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-draw">+2.3</b></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Head-to-Head Table -->
+        <div id="h2h-section">
+          <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">📜 Past Head-to-Head Encounters</h3>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Tournament</th>
+                  <th>Round</th>
+                  <th>Player 1 Score</th>
+                  <th>Player 2 Score</th>
+                  <th>Outcome</th>
+                </tr>
+              </thead>
+              <tbody id="h2h-table-body">
+                <tr><td colspan="6" class="empty-state">Select two players to view past match records.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <!-- TAB 2: TOURNAMENTS -->
+    <!-- TAB 3: DEDICATED SEARCH DIRECTORY -->
+    <section id="tab-search" class="tab-panel">
+      <!-- Subtabs Bar: Players Search vs Teams Search -->
+      <div class="subtabs-bar" style="margin-bottom: 1.25rem;">
+        <button id="search-subtab-players" class="subtab-btn active" onclick="switchSearchSubtab('players')">
+          <span>👥 Player Directory Search</span>
+        </button>
+        <button id="search-subtab-teams" class="subtab-btn" onclick="switchSearchSubtab('teams')">
+          <span>🛡️ Teams & Clubs Search</span>
+        </button>
+      </div>
+
+      <!-- Search View 1: Players Directory -->
+      <div id="search-view-players">
+        <div class="controls-bar">
+          <div class="search-input-group">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="directory-search-input" class="search-input" placeholder="Search player directory by name..." oninput="debouncePlayersSearch()">
+          </div>
+
+          <div class="filter-group">
+            <select id="dir-faction-filter" onchange="loadPlayersDirectory()">
+              <option value="All">All Factions</option>
+            </select>
+
+            <select id="dir-min-matches-filter" onchange="loadPlayersDirectory()">
+              <option value="0">All Players (0+)</option>
+              <option value="1" selected>Active Players (1+ Matches)</option>
+              <option value="3">Min 3 Matches</option>
+              <option value="5">Min 5 Matches</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table id="players-table">
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortTable('players-dir', 'player_name')">Player Name</th>
+                <th class="sortable col-faction" onclick="sortTable('players-dir', 'top_faction')">Factions</th>
+                <th class="sortable sorted-desc" onclick="sortTable('players-dir', 'current_elo')">Current Elo</th>
+                <th class="sortable col-peak" onclick="sortTable('players-dir', 'peak_elo')">Peak Elo</th>
+                <th class="sortable" onclick="sortTable('players-dir', 'matches_played')">Record (W-L-D)</th>
+                <th class="sortable" onclick="sortTable('players-dir', 'win_rate')">Win Rate</th>
+                <th class="sortable col-games" onclick="sortTable('players-dir', 'matches_played')">Total Games</th>
+                <th class="sortable col-last-active" onclick="sortTable('players-dir', 'last_active_date')">Last Active</th>
+              </tr>
+            </thead>
+            <tbody id="players-dir-body">
+              <tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading player directory...</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="players-pagination" class="pagination-bar"></div>
+      </div>
+
+      <!-- Search View 2: Teams Directory -->
+      <div id="search-view-teams" style="display: none;">
+        <div class="controls-bar">
+          <div class="search-input-group">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="teams-search-input" class="search-input" placeholder="Search gaming club or team directory by name..." oninput="debounceTeamsSearch()">
+          </div>
+          <div class="filter-group">
+            <select id="teams-min-roster-filter" onchange="loadTeamsDirectory()">
+              <option value="1">All Teams (1+ Players)</option>
+              <option value="2" selected>Min 2 Players</option>
+              <option value="3">Min 3 Players</option>
+              <option value="5">Min 5 Players</option>
+              <option value="8">Min 8 Players</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table id="teams-table">
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortTable('teams', 'team')">Team / Gaming Club</th>
+                <th class="sortable sorted-desc" onclick="sortTable('teams', 'power_rating')">Team Power Rating</th>
+                <th class="sortable" onclick="sortTable('teams', 'avg_elo')">Avg Elo</th>
+                <th class="sortable" onclick="sortTable('teams', 'top_player_elo')">Top Rated Player</th>
+                <th class="sortable" onclick="sortTable('teams', 'roster_count')">Roster</th>
+                <th class="sortable" onclick="sortTable('teams', 'total_matches')">Total Record (W-L-D)</th>
+                <th class="sortable" onclick="sortTable('teams', 'team_win_rate')">Win Rate</th>
+              </tr>
+            </thead>
+            <tbody id="teams-body">
+              <tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading teams directory...</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="teams-pagination" class="pagination-bar"></div>
+      </div>
+    </section>
+
+    <!-- TAB 4: TOURNAMENTS SEARCH -->
     <section id="tab-events" class="tab-panel">
       <div class="controls-bar">
         <div class="search-input-group">
@@ -185,303 +493,112 @@
       <div id="events-pagination" class="pagination-bar"></div>
     </section>
 
-    <!-- TAB 3: TEAMS DIRECTORY -->
-    <section id="tab-teams" class="tab-panel">
-      <div class="controls-bar">
-        <div class="search-input-group">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="teams-search-input" class="search-input" placeholder="Search gaming club or team directory by name..." oninput="debounceTeamsSearch()">
+    <!-- TAB 5: EVENT STUDIO (UNDER CONSTRUCTION) -->
+    <section id="tab-event-studio" class="tab-panel">
+      <div style="max-width: 860px; margin: 2rem auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 3rem 2rem; text-align: center; box-shadow: var(--shadow-lg);">
+        <div style="font-size: 3.5rem; margin-bottom: 0.75rem;">🛠️</div>
+        <div style="display: inline-block; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.75rem; font-weight: 800; padding: 0.3rem 0.85rem; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 1rem; font-family:'JetBrains Mono',monospace;">
+          🚧 WORK IN PROGRESS • COMING SOON
         </div>
-        <div class="filter-group">
-          <select id="teams-min-roster-filter" onchange="loadTeamsDirectory()">
-            <option value="1">All Teams (1+ Players)</option>
-            <option value="2" selected>Min 2 Players</option>
-            <option value="3">Min 3 Players</option>
-            <option value="5">Min 5 Players</option>
-            <option value="8">Min 8 Players</option>
-          </select>
-        </div>
-      </div>
+        <h2 style="font-size: 1.85rem; font-weight: 800; color: #fff; margin: 0 0 0.6rem; letter-spacing: 0.02em;">
+          Warhammer 40k Event Studio
+        </h2>
+        <p style="font-size: 0.95rem; color: var(--text-secondary); max-width: 620px; margin: 0 auto 2.5rem; line-height: 1.6;">
+          An all-in-one tournament management, Swiss pairings generator, and live table scorekeeping engine designed specifically for Tournament Organizers (TOs).
+        </p>
 
-      <div class="table-container">
-        <table id="teams-table">
-          <thead>
-            <tr>
-              <th class="sortable" onclick="sortTable('teams', 'team')">Team / Gaming Club</th>
-              <th class="sortable sorted-desc" onclick="sortTable('teams', 'power_rating')">Team Power Rating</th>
-              <th class="sortable" onclick="sortTable('teams', 'avg_elo')">Avg Elo</th>
-              <th class="sortable" onclick="sortTable('teams', 'top_player_elo')">Top Rated Player</th>
-              <th class="sortable" onclick="sortTable('teams', 'roster_count')">Roster</th>
-              <th class="sortable" onclick="sortTable('teams', 'total_matches')">Total Record (W-L-D)</th>
-              <th class="sortable" onclick="sortTable('teams', 'team_win_rate')">Win Rate</th>
-            </tr>
-          </thead>
-          <tbody id="teams-body">
-            <tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading teams directory...</div></td></tr>
-          </tbody>
-        </table>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1.25rem; text-align: left; margin-bottom: 2.5rem;">
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem;">
+            <div style="font-size: 1.3rem; margin-bottom: 0.4rem;">⚔️</div>
+            <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Swiss & Bracket Pairings</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.5;">Automated Swiss pairings engine with team avoidance, club matching, and smart table assignments.</div>
+          </div>
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem;">
+            <div style="font-size: 1.3rem; margin-bottom: 0.4rem;">⭐</div>
+            <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Live Elo Seeding</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.5;">Direct integration with global Elo ratings for seeded brackets, upset tracking, and rating updates.</div>
+          </div>
+          <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem;">
+            <div style="font-size: 1.3rem; margin-bottom: 0.4rem;">📱</div>
+            <div style="font-size: 0.95rem; font-weight: 700; color: #fff; margin-bottom: 0.3rem;">Digital Clocks & Scoring</div>
+            <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.5;">Synchronized digital chess clocks, live table scoring, and instant round score slip verification.</div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="switchTab('events')" style="padding: 0.65rem 1.5rem;">
+            Explore Live Tournaments ➔
+          </button>
+          <button class="btn" onclick="switchTab('my-hub')" style="background: rgba(255, 255, 255, 0.06); color: #fff; border: 1px solid var(--border); padding: 0.65rem 1.5rem;">
+            Return to My Hub
+          </button>
+        </div>
       </div>
-      <div id="teams-pagination" class="pagination-bar"></div>
     </section>
 
-    <!-- TAB 4: PLAYERS DIRECTORY -->
-    <section id="tab-players" class="tab-panel">
-      <div class="controls-bar">
-        <div class="search-input-group">
-          <span class="search-icon">🔍</span>
-          <input type="text" id="directory-search-input" class="search-input" placeholder="Search player directory by name..." oninput="debouncePlayersSearch()">
-        </div>
-
-        <div class="filter-group">
-          <select id="dir-faction-filter" onchange="loadPlayersDirectory()">
-            <option value="All">All Factions</option>
-          </select>
-
-          <select id="dir-min-matches-filter" onchange="loadPlayersDirectory()">
-            <option value="0">All Players (0+)</option>
-            <option value="1" selected>Active Players (1+ Matches)</option>
-            <option value="3">Min 3 Matches</option>
-            <option value="5">Min 5 Matches</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="table-container">
-        <table id="players-table">
-          <thead>
-            <tr>
-              <th class="sortable" onclick="sortTable('players-dir', 'player_name')">Player Name</th>
-              <th class="sortable col-faction" onclick="sortTable('players-dir', 'top_faction')">Factions</th>
-              <th class="sortable sorted-desc" onclick="sortTable('players-dir', 'current_elo')">Current Elo</th>
-              <th class="sortable col-peak" onclick="sortTable('players-dir', 'peak_elo')">Peak Elo</th>
-              <th class="sortable" onclick="sortTable('players-dir', 'matches_played')">Record (W-L-D)</th>
-              <th class="sortable" onclick="sortTable('players-dir', 'win_rate')">Win Rate</th>
-              <th class="sortable col-games" onclick="sortTable('players-dir', 'matches_played')">Total Games</th>
-              <th class="sortable col-last-active" onclick="sortTable('players-dir', 'last_active_date')">Last Active</th>
-            </tr>
-          </thead>
-          <tbody id="players-dir-body">
-            <tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading player directory...</div></td></tr>
-          </tbody>
-        </table>
-      </div>
-      <div id="players-pagination" class="pagination-bar"></div>
-    </section>
-
-    <!-- TAB 5: FACTION META & WIN RATES -->
-    <section id="tab-factions" class="tab-panel">
-      <div class="controls-bar" style="flex-wrap: wrap; gap: 0.75rem; justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-          <span style="font-weight: 700; font-size: 0.9rem; color: #fff; margin-right: 0.2rem;">⏱️ Timeframe:</span>
-          <button id="faction-preset-all" class="subtab-btn active" onclick="setFactionTimeframe('all')">All Time</button>
-          <button id="faction-preset-30d" class="subtab-btn" onclick="setFactionTimeframe('30d')">Last 30 Days</button>
-          <button id="faction-preset-60d" class="subtab-btn" onclick="setFactionTimeframe('60d')">Last 60 Days</button>
-          <button id="faction-preset-90d" class="subtab-btn" onclick="setFactionTimeframe('90d')">Last 90 Days</button>
-          <button id="faction-preset-ytd" class="subtab-btn" onclick="setFactionTimeframe('ytd')">2026 YTD</button>
-          <button id="faction-preset-custom" class="subtab-btn" onclick="setFactionTimeframe('custom')">Custom ⚙️</button>
-        </div>
-
-        <div style="display: flex; align-items: center; gap: 0.4rem;">
-          <button id="faction-mode-btn-table" class="subtab-btn active" onclick="setFactionViewMode('table')">📋 Table View</button>
-          <button id="faction-mode-btn-chart" class="subtab-btn" onclick="setFactionViewMode('chart')">📈 Meta Timeline</button>
-        </div>
-      </div>
-
-      <!-- Custom Date Inputs -->
-      <div id="faction-custom-date-container" style="display: none; align-items: center; gap: 0.75rem; margin-top: 0.75rem; background: var(--bg-card); padding: 0.75rem 1rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">From:</span>
-        <input type="date" id="faction-start-date" class="search-input" style="padding: 0.35rem 0.6rem; width: auto; font-size: 0.85rem;" onchange="applyCustomFactionDateFilter()">
-        <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-secondary);">To:</span>
-        <input type="date" id="faction-end-date" class="search-input" style="padding: 0.35rem 0.6rem; width: auto; font-size: 0.85rem;" onchange="applyCustomFactionDateFilter()">
-        <button class="subtab-btn active" style="padding: 0.4rem 0.8rem;" onclick="applyCustomFactionDateFilter()">Apply Filter</button>
-      </div>
-
-      <div class="info-callout" style="margin-top: 1rem; margin-bottom: 1.25rem;">
-        <span style="font-size: 1.2rem; margin-right: 0.4rem;">⚖️</span>
-        <div>
-          <b style="color: #fff;">Goldilocks Balance Zone (45% - 55%):</b> 
-          <span style="color: var(--text-secondary);">
-            Factions above <b>55% Win Rate</b> are considered <span style="color:#a855f7; font-weight:600;">S-Tier</span>, while factions below <b>45%</b> are underperforming.
-          </span>
-        </div>
-      </div>
-
-      <!-- View 1: Table -->
-      <div id="faction-view-table-container">
-        <div class="table-container">
-          <table id="faction-meta-table">
-            <thead>
-              <tr>
-                <th>Rank</th>
-                <th class="sortable" onclick="sortTable('factions', 'faction')">Faction / Army</th>
-                <th class="sortable" onclick="sortTable('factions', 'tier')">Balance Tier</th>
-                <th class="sortable sorted-desc" onclick="sortTable('factions', 'win_rate')">Win Rate</th>
-                <th class="sortable" onclick="sortTable('factions', 'total_matches')">Sample Size</th>
-                <th class="sortable" onclick="sortTable('factions', 'wins')">Record (W-L-D)</th>
-                <th class="sortable" onclick="sortTable('factions', 'avg_score')">Avg Score</th>
-              </tr>
-            </thead>
-            <tbody id="faction-meta-body">
-              <tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading faction meta analytics...</div></td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- View 2: Chart Timeline -->
-      <div id="faction-view-chart-container" style="display: none; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-lg); padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+  <!-- USER ACCOUNT SETTINGS MODAL -->
+  <div id="user-settings-modal" class="modal-backdrop" onclick="if(event.target === this) closeUserSettingsModal()">
+    <div class="modal-card" style="max-width: 480px; padding: 1.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.4rem;">⚙️</span>
           <div>
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.2rem;">📈 Faction Win Rate Trends Over Time</h3>
-            <div id="faction-chart-subtitle" style="font-size: 0.8rem; color: var(--text-secondary);">Monthly win rate trajectory of competitive armies relative to the 45%-55% balance window</div>
-          </div>
-          <div class="faction-quick-btns">
-            <button class="faction-quick-btn" onclick="selectFactionPreset('top8')">Top 8</button>
-            <button class="faction-quick-btn" onclick="selectFactionPreset('top15')">Top 15</button>
-            <button class="faction-quick-btn" onclick="selectFactionPreset('all')">Select All</button>
-            <button class="faction-quick-btn" onclick="selectFactionPreset('none')">Clear All</button>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Account Settings</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Manage gamer tag, password, and connected accounts</div>
           </div>
         </div>
-
-        <!-- Interactive Faction Toggle Chips -->
-        <div id="faction-toggle-chips" class="faction-chip-container"></div>
-
-        <div style="overflow-x: auto; position: relative;">
-          <svg id="faction-trend-svg" style="width: 100%; height: 280px;"></svg>
-          <div id="faction-chart-tooltip" style="position: absolute; display: none; background: #0f172a; border: 1px solid var(--accent); padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; pointer-events: none; z-index: 10; box-shadow: 0 4px 12px rgba(0,0,0,0.5);"></div>
-        </div>
-        <div id="faction-trend-legend" style="display: flex; flex-wrap: wrap; gap: 0.85rem; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);"></div>
+        <button class="modal-close-btn" onclick="closeUserSettingsModal()">✕</button>
       </div>
-    </section>
 
-    <!-- TAB 5: PREDICTOR -->
-    <section id="tab-predictor" class="tab-panel">
-      <div class="predictor-grid">
-        <!-- Player 1 Column -->
-        <div class="predict-col">
-          <label style="font-weight: 600; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
-          <div class="search-input-group" style="max-width: 100%;">
-            <span class="search-icon">🔍</span>
-            <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name (e.g. Jack Murphy)..." oninput="searchPlayerAc(1)" autocomplete="off">
-            <div id="p1-ac-dropdown" class="autocomplete-dropdown"></div>
-          </div>
-
-          <div id="p1-card" class="player-match-card p1-active">
-            <div class="pm-header">
-              <div>
-                <div class="pm-name" id="p1-card-name">Jack Murphy</div>
-                <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Emperor's Children</div>
-              </div>
-              <div style="text-align: right;">
-                <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1667.8</div>
-                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
-              </div>
-            </div>
-            <div class="pm-stats-row">
-              <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);">7W - 0L</span></div>
-              <div><b>Win %:</b> <span id="p1-card-winrate">100%</span></div>
-              <div><b>Peak:</b> <span id="p1-card-peak" style="font-family: var(--font-mono);">1667.8</span></div>
-            </div>
-          </div>
+      <!-- Account Info -->
+      <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.82rem;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
+          <span style="color: var(--text-muted);">Email Address:</span>
+          <b id="settings-email-display" style="color: #fff;">-</b>
         </div>
-
-        <div class="predict-vs">VS</div>
-
-        <!-- Player 2 Column -->
-        <div class="predict-col">
-          <label style="font-weight: 600; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
-          <div class="search-input-group" style="max-width: 100%;">
-            <span class="search-icon">🔍</span>
-            <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name (e.g. Jeremy Atkinson)..." oninput="searchPlayerAc(2)" autocomplete="off">
-            <div id="p2-ac-dropdown" class="autocomplete-dropdown"></div>
-          </div>
-
-          <div id="p2-card" class="player-match-card p2-active">
-            <div class="pm-header">
-              <div>
-                <div class="pm-name" id="p2-card-name">Jeremy Atkinson</div>
-                <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Dark Angels</div>
-              </div>
-              <div style="text-align: right;">
-                <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1618.3</div>
-                <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
-              </div>
-            </div>
-            <div class="pm-stats-row">
-              <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);">6W - 1L</span></div>
-              <div><b>Win %:</b> <span id="p2-card-winrate">85.7%</span></div>
-              <div><b>Peak:</b> <span id="p2-card-peak" style="font-family: var(--font-mono);">1642.2</span></div>
-            </div>
-          </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span style="color: var(--text-muted);">BCP Status:</span>
+          <span id="settings-bcp-status" style="color: #fff;">-</span>
         </div>
       </div>
 
-      <!-- Prediction Output Box -->
-      <div class="predict-result-box">
-        <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
-        <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
-          <span style="color: #38bdf8;" id="pred-p1-prob">57.1%</span>
-          <span style="color: #f43f5e;" id="pred-p2-prob">42.9%</span>
+      <!-- Status / Error Messages -->
+      <div id="settings-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.6rem; background: rgba(239,68,68,0.1); border-radius: 6px; border: 1px solid rgba(239,68,68,0.25);"></div>
+      <div id="settings-success" style="display: none; color: var(--win); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.6rem; background: rgba(16,185,129,0.1); border-radius: 6px; border: 1px solid rgba(16,185,129,0.25);"></div>
+
+      <!-- Form 1: Gamer Tag / Display Name -->
+      <form onsubmit="handleSaveDisplayName(event)" style="margin-bottom: 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+        <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;">
+          Display Name / Gamer Tag
+        </label>
+        <div style="display: flex; gap: 0.5rem;">
+          <input type="text" id="settings-display-name" class="search-input" style="flex: 1; font-size: 0.9rem;" placeholder="e.g. John Hsieh" required>
+          <button type="submit" id="btn-save-name" class="btn btn-primary" style="padding: 0.55rem 1rem; white-space: nowrap;">
+            Save Name
+          </button>
         </div>
+      </form>
 
-        <div class="win-prob-bar">
-          <div id="pred-bar-p1" class="p1-bar" style="width: 57.1%;"></div>
-          <div id="pred-bar-p2" class="p2-bar" style="width: 42.9%;"></div>
+      <!-- Form 2: Change Password -->
+      <form onsubmit="handleSavePassword(event)">
+        <label style="font-size: 0.82rem; font-weight: 700; color: #f59e0b; display: block; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em;">
+          Change Password
+        </label>
+        <div style="margin-bottom: 0.75rem;">
+          <input type="password" id="settings-old-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Current Password" required>
         </div>
-
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; text-align: left;">
-          <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-            <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
-            <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);">+13.7</b> (<span id="new-p1-win-elo">1681.5</span>)</div>
-            <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-loss" style="color: var(--loss);">-13.7</b> (<span id="new-p2-loss-elo">1604.6</span>)</div>
-          </div>
-
-          <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-            <div style="font-size: 0.78rem; font-weight: 700; color: var(--loss); text-transform: uppercase;">IF PLAYER 2 WINS (UPSET)</div>
-            <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-upset-loss" style="color: var(--loss);">-18.3</b> (<span id="new-p1-loss-elo">1649.5</span>)</div>
-            <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-upset-win" style="color: var(--win);">+18.3</b> (<span id="new-p2-win-elo">1636.6</span>)</div>
-          </div>
-
-          <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-            <div style="font-size: 0.78rem; font-weight: 700; color: var(--draw); text-transform: uppercase;">IF MATCH DRAWS</div>
-            <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-draw">-2.3</b></div>
-            <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-draw">+2.3</b></div>
-          </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
+          <input type="password" id="settings-new-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="New Password (min 6)" required>
+          <input type="password" id="settings-confirm-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Confirm New Password" required>
         </div>
-      </div>
+        <button type="submit" id="btn-save-pass" class="btn" style="width: 100%; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 700; padding: 0.65rem; cursor: pointer;">
+          Update Password
+        </button>
+      </form>
+    </div>
+  </div>
 
-      <!-- Head-to-Head Table -->
-      <div id="h2h-section">
-        <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">📜 Past Head-to-Head Encounters</h3>
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Tournament</th>
-                <th>Round</th>
-                <th>Player 1 Score</th>
-                <th>Player 2 Score</th>
-                <th>Outcome</th>
-              </tr>
-            </thead>
-            <tbody id="h2h-table-body">
-              <tr><td colspan="6" class="empty-state">Select two players to view past match records.</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-
-  
-    <!-- TAB 6: MY COMPETITOR HUB (BCP PORTAL) -->
-    <section id="tab-my-hub" class="tab-panel">
-      <div id="my-hub-content"></div>
-    </section>
-
-  </main>
-
-    <!-- Location Picker Modal -->
+  <!-- Location Picker Modal -->
   <div id="hub-location-picker-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window" style="max-width: 620px;">
       <div class="modal-header">
@@ -858,18 +975,18 @@
   </div>
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=9.6"></script>
-  <script src="/js/api.js?v=9.6"></script>
-  <script src="/js/leaderboard.js?v=9.6"></script>
-  <script src="/js/teams.js?v=9.6"></script>
-  <script src="/js/players.js?v=9.6"></script>
-  <script src="/js/tournaments.js?v=9.6"></script>
-  <script src="/js/factions.js?v=9.6"></script>
-  <script src="/js/predictor.js?v=9.6"></script>
-  <script src="/js/modals.js?v=9.6"></script>
-  <script src="/js/auth.js?v=9.6"></script>
-  <script src="/js/my_hub.js?v=9.6"></script>
-  <script src="/js/app.js?v=9.6"></script>
+  <script src="/js/utils.js?v=10.0"></script>
+  <script src="/js/api.js?v=10.0"></script>
+  <script src="/js/leaderboard.js?v=10.0"></script>
+  <script src="/js/teams.js?v=10.0"></script>
+  <script src="/js/players.js?v=10.0"></script>
+  <script src="/js/tournaments.js?v=10.0"></script>
+  <script src="/js/factions.js?v=10.0"></script>
+  <script src="/js/predictor.js?v=10.0"></script>
+  <script src="/js/modals.js?v=10.0"></script>
+  <script src="/js/auth.js?v=10.0"></script>
+  <script src="/js/my_hub.js?v=10.0"></script>
+  <script src="/js/app.js?v=10.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

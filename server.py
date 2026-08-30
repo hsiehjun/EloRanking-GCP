@@ -1467,6 +1467,11 @@ if FASTAPI_AVAILABLE:
         bcp_email: str
         bcp_password: str
 
+    class UserSettingsPayload(BaseModel):
+        display_name: Optional[str] = None
+        old_password: Optional[str] = None
+        new_password: Optional[str] = None
+
     @app.post("/api/auth/register", summary="Register a new native user account")
     async def api_auth_register(payload: RegisterPayload, response: Response):
         auth_mgr = get_auth_manager()
@@ -1508,6 +1513,26 @@ if FASTAPI_AVAILABLE:
             get_auth_manager().logout(session_token)
         response.delete_cookie(key="session_token", path="/")
         return {"success": True}
+
+    @app.post("/api/user/settings", summary="Update user profile settings or change password")
+    async def api_user_settings(request: Request, payload: UserSettingsPayload, token: Optional[str] = Query(None)):
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        session = get_auth_manager().get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid session")
+
+        res = get_auth_manager().update_settings(
+            session["id"],
+            display_name=payload.display_name,
+            old_password=payload.old_password,
+            new_password=payload.new_password
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to update settings"))
+        return res
 
     @app.post("/api/user/bcp/connect", summary="Connect and link Best Coast Pairings account")
     async def api_user_bcp_connect(request: Request, payload: BCPConnectPayload, token: Optional[str] = Query(None)):

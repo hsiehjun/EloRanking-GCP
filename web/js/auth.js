@@ -249,6 +249,161 @@ async function handleLogout() {
     }
   } catch (e) {}
 
+  renderHeaderAuth();
   switchTab('leaderboard');
   if (typeof loadLeaderboard === 'function') loadLeaderboard();
+}
+
+function renderHeaderAuth() {
+  const container = document.getElementById('header-user-area');
+  if (!container) return;
+
+  if (currentUser) {
+    const name = currentUser.display_name || currentUser.email || 'Player';
+    container.innerHTML = `
+      <div style="display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.85); border:1px solid var(--border); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif;">
+        <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 8px rgba(16,185,129,0.5);"></span>
+        <button onclick="openUserSettingsModal()" style="background:transparent; border:none; color:#f8fafc; font-weight:700; font-size:0.82rem; cursor:pointer; display:flex; align-items:center; gap:5px; padding:0;" title="Account Settings (Click to change password or gamer tag)">
+          <span>${escapeHtml(name)}</span>
+          <span style="color:#94a3b8; font-size:11px;">⚙️</span>
+        </button>
+        <span style="color:var(--border-color, #334155); font-size:12px;">|</span>
+        <button onclick="handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:0.78rem; font-weight:700; cursor:pointer; padding:0;">Logout</button>
+      </div>
+    `;
+  } else {
+    container.innerHTML = `
+      <a href="/login?redirect=/" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-weight:700; font-size:0.82rem; padding:6px 14px; border-radius:8px; text-decoration:none; display:inline-flex; align-items:center; gap:6px; transition:all 0.2s;" onmouseover="this.style.background='rgba(56,189,248,0.2)'" onmouseout="this.style.background='rgba(56,189,248,0.1)'">
+        <span>🔑 Sign In</span>
+      </a>
+    `;
+  }
+}
+
+function openUserSettingsModal() {
+  const modal = document.getElementById('user-settings-modal');
+  if (!modal) return;
+
+  // Populate fields
+  const nameInput = document.getElementById('settings-display-name');
+  const emailVal = document.getElementById('settings-email-display');
+  const bcpVal = document.getElementById('settings-bcp-status');
+  const errDiv = document.getElementById('settings-error');
+  const successDiv = document.getElementById('settings-success');
+
+  if (errDiv) errDiv.style.display = 'none';
+  if (successDiv) successDiv.style.display = 'none';
+
+  if (currentUser) {
+    if (nameInput) nameInput.value = currentUser.display_name || '';
+    if (emailVal) emailVal.innerText = currentUser.email || '-';
+    if (bcpVal) {
+      if (currentUser.bcp_connected || currentUser.bcp_user_id) {
+        bcpVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🟢 Connected</span> (${escapeHtml(currentUser.bcp_email || 'Linked')})`;
+      } else {
+        bcpVal.innerHTML = `<span style="color:#94a3b8;">⚪ Not Linked</span> <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:4px;">Link now</button>`;
+      }
+    }
+  }
+
+  modal.classList.add('active');
+}
+
+function closeUserSettingsModal() {
+  const modal = document.getElementById('user-settings-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+async function handleSaveDisplayName(e) {
+  if (e) e.preventDefault();
+  const nameInput = document.getElementById('settings-display-name');
+  const errDiv = document.getElementById('settings-error');
+  const successDiv = document.getElementById('settings-success');
+  const btn = document.getElementById('btn-save-name');
+
+  const newName = nameInput ? nameInput.value.trim() : '';
+  if (!newName) return;
+
+  if (btn) { btn.disabled = true; btn.innerText = 'Saving...'; }
+  if (errDiv) errDiv.style.display = 'none';
+  if (successDiv) successDiv.style.display = 'none';
+
+  try {
+    const res = await window.api.updateUserSettings(newName, null, null);
+    if (res && res.success) {
+      currentUser = res.user || { ...currentUser, display_name: newName };
+      localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+      renderHeaderAuth();
+      if (successDiv) {
+        successDiv.innerText = 'Gamer tag updated successfully!';
+        successDiv.style.display = 'block';
+      }
+    } else {
+      if (errDiv) {
+        errDiv.innerText = res.error || 'Failed to update name.';
+        errDiv.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errDiv) {
+      errDiv.innerText = 'Error: ' + err.message;
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = 'Save Name'; }
+  }
+}
+
+async function handleSavePassword(e) {
+  if (e) e.preventDefault();
+  const oldPass = document.getElementById('settings-old-pass').value;
+  const newPass = document.getElementById('settings-new-pass').value;
+  const confirmPass = document.getElementById('settings-confirm-pass').value;
+  const errDiv = document.getElementById('settings-error');
+  const successDiv = document.getElementById('settings-success');
+  const btn = document.getElementById('btn-save-pass');
+
+  if (newPass !== confirmPass) {
+    if (errDiv) {
+      errDiv.innerText = 'New passwords do not match.';
+      errDiv.style.display = 'block';
+    }
+    return;
+  }
+  if (newPass.length < 6) {
+    if (errDiv) {
+      errDiv.innerText = 'New password must be at least 6 characters.';
+      errDiv.style.display = 'block';
+    }
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.innerText = 'Updating...'; }
+  if (errDiv) errDiv.style.display = 'none';
+  if (successDiv) successDiv.style.display = 'none';
+
+  try {
+    const res = await window.api.updateUserSettings(null, oldPass, newPass);
+    if (res && res.success) {
+      document.getElementById('settings-old-pass').value = '';
+      document.getElementById('settings-new-pass').value = '';
+      document.getElementById('settings-confirm-pass').value = '';
+      if (successDiv) {
+        successDiv.innerText = 'Password changed successfully!';
+        successDiv.style.display = 'block';
+      }
+    } else {
+      if (errDiv) {
+        errDiv.innerText = res.error || 'Failed to change password.';
+        errDiv.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errDiv) {
+      errDiv.innerText = 'Error: ' + err.message;
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = 'Update Password'; }
+  }
 }

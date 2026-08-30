@@ -1,17 +1,30 @@
 function switchLeaderboardSubtab(subtab) {
   const btnPlayers = document.getElementById('lead-subtab-players');
   const btnTeams = document.getElementById('lead-subtab-teams');
+  const btnFactions = document.getElementById('lead-subtab-factions');
+  const btnPredictor = document.getElementById('lead-subtab-predictor');
+
   const viewPlayers = document.getElementById('lead-view-players');
   const viewTeams = document.getElementById('lead-view-teams');
+  const viewFactions = document.getElementById('lead-view-factions');
+  const viewPredictor = document.getElementById('lead-view-predictor');
 
   if (btnPlayers) btnPlayers.classList.toggle('active', subtab === 'players');
   if (btnTeams) btnTeams.classList.toggle('active', subtab === 'teams');
+  if (btnFactions) btnFactions.classList.toggle('active', subtab === 'factions');
+  if (btnPredictor) btnPredictor.classList.toggle('active', subtab === 'predictor');
 
   if (viewPlayers) viewPlayers.style.display = (subtab === 'players') ? 'block' : 'none';
   if (viewTeams) viewTeams.style.display = (subtab === 'teams') ? 'block' : 'none';
+  if (viewFactions) viewFactions.style.display = (subtab === 'factions') ? 'block' : 'none';
+  if (viewPredictor) viewPredictor.style.display = (subtab === 'predictor') ? 'block' : 'none';
 
   if (subtab === 'teams') {
     loadLeaderboardTeams();
+  } else if (subtab === 'factions') {
+    if (typeof loadFactionMeta === 'function') loadFactionMeta();
+  } else if (subtab === 'predictor') {
+    // Predictor ready
   } else {
     loadLeaderboard();
   }

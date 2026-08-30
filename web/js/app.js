@@ -1,5 +1,5 @@
 /* ==========================================================================
-   APP.JS - Main App Router, Navigation & Initialization
+   APP.JS - Main App Router, Navigation & Initialization (v6.0)
    ========================================================================== */
 
 let activeTab = 'leaderboard';
@@ -8,7 +8,7 @@ function switchTab(tabName) {
   activeTab = tabName;
   document.querySelectorAll('.nav-btn').forEach(b => {
     b.classList.remove('active');
-    if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(tabName)) {
+    if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${tabName}'`)) {
       b.classList.add('active');
     }
   });
@@ -21,17 +21,39 @@ function switchTab(tabName) {
   if (activePanel) activePanel.classList.add('active');
 
   // Trigger lazy loading of view data
-  if (tabName === 'leaderboard') loadLeaderboard();
-  else if (tabName === 'events') loadEvents();
-  else if (tabName === 'teams') loadTeamsDirectory();
-  else if (tabName === 'players') loadPlayersDirectory();
-  else if (tabName === 'factions') loadFactionMeta();
-  else if (tabName === 'my-hub') {
+  if (tabName === 'leaderboard') {
+    loadLeaderboard();
+  } else if (tabName === 'search') {
+    switchSearchSubtab('players');
+  } else if (tabName === 'events') {
+    loadEvents();
+  } else if (tabName === 'event-studio') {
+    // Event Studio WIP panel active
+  } else if (tabName === 'my-hub') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');
       return;
     }
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+  }
+}
+
+function switchSearchSubtab(subtab) {
+  const btnPlayers = document.getElementById('search-subtab-players');
+  const btnTeams = document.getElementById('search-subtab-teams');
+  const viewPlayers = document.getElementById('search-view-players');
+  const viewTeams = document.getElementById('search-view-teams');
+
+  if (btnPlayers) btnPlayers.classList.toggle('active', subtab === 'players');
+  if (btnTeams) btnTeams.classList.toggle('active', subtab === 'teams');
+
+  if (viewPlayers) viewPlayers.style.display = (subtab === 'players') ? 'block' : 'none';
+  if (viewTeams) viewTeams.style.display = (subtab === 'teams') ? 'block' : 'none';
+
+  if (subtab === 'teams') {
+    if (typeof loadTeamsDirectory === 'function') loadTeamsDirectory();
+  } else {
+    if (typeof loadPlayersDirectory === 'function') loadPlayersDirectory();
   }
 }
 
@@ -46,8 +68,14 @@ function filterByFaction(faction) {
 }
 
 function filterByTeam(team) {
-  switchTab('teams');
+  switchTab('search');
+  switchSearchSubtab('teams');
   const input = document.getElementById('teams-search-input');
+  if (input) {
+    input.value = team;
+    loadTeamsDirectory();
+  }
+}
   if (input) {
     input.value = team;
     loadTeamsDirectory();
@@ -101,6 +129,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (typeof initAuth === 'function') {
     await initAuth();
   }
+  if (typeof renderHeaderAuth === 'function') {
+    renderHeaderAuth();
+  }
   loadGlobalStats();
 
   const params = new URLSearchParams(window.location.search);
@@ -108,6 +139,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (targetTab) {
     switchTab(targetTab);
   } else {
-    loadLeaderboard();
+    switchTab('leaderboard');
   }
 });
