@@ -3405,3 +3405,5 @@ Database = PostgresDatabase
 def get_db(dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs) -> PostgresDatabase:
     """Returns the active PostgresDatabase instance."""
     return PostgresDatabase(dsn=dsn)
+
+get_database = get_db

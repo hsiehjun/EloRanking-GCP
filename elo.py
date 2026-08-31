@@ -836,3 +836,15 @@ class EloEngine:
                 "teams_history": all_teams_list
             }
         }
+
+
+_elo_engine_instance = None
+
+def get_elo_engine(db: Optional[Database] = None) -> EloEngine:
+    """Returns the singleton EloEngine instance."""
+    global _elo_engine_instance
+    if _elo_engine_instance is None:
+        _elo_engine_instance = EloEngine(db=db)
+    elif db is not None:
+        _elo_engine_instance.db = db
+    return _elo_engine_instance
