@@ -827,15 +827,22 @@ class PostgresDatabase:
                     return None
                 res = dict(event_row)
 
-                # 2. Match pairings
+                # 2. Match pairings with digital tracker game linkage
                 cursor.execute("""
-                SELECT id, event_id, round, table_number, match_date,
-                       player1_id, player1_name, player1_faction, player1_score,
-                       player2_id, player2_name, player2_faction, player2_score,
-                       winner_id, loser_id, is_draw, is_bye, is_done
-                FROM matches
-                WHERE event_id = %s
-                ORDER BY round ASC, table_number ASC;
+                SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                       m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                       m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                       m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
+                       (tg.match_id IS NOT NULL) as has_tracker_game,
+                       tg.status as tracker_status,
+                       tg.is_done as tracker_is_done
+                FROM matches m
+                LEFT JOIN tracker_games tg 
+                    ON tg.event_id = m.event_id 
+                   AND tg.round_num = m.round 
+                   AND tg.table_num = m.table_number
+                WHERE m.event_id = %s
+                ORDER BY m.round ASC, m.table_number ASC;
                 """, (event_id,))
                 matches = [dict(r) for r in cursor.fetchall()]
 

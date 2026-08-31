@@ -357,10 +357,47 @@ function renderEventPairingsRows() {
     const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
     const matchId = `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
 
+    const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
     const hasScore = (m.player1_score !== null && m.player2_score !== null);
-    const actionBtn = hasScore
-      ? `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`
-      : `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${eventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">🎲 Track</button>`;
+    const hasTrackerGame = Boolean(m.has_tracker_game);
+    const isTrackerDone = Boolean(m.tracker_is_done || m.tracker_status === 'completed');
+
+    // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
+    const u = currentUser;
+    const uPlayerId = u && (u.player_id || u.bcp_user_id || u.bcp_id || u.id);
+    const uName = u && (u.name || u.full_name || u.username || '').trim().toLowerCase();
+    const p1NameClean = (m.player1_name || '').trim().toLowerCase();
+    const p2NameClean = (m.player2_name || '').trim().toLowerCase();
+
+    const isP1 = Boolean(u && (
+      (uPlayerId && (uPlayerId === m.player1_id || uPlayerId === m.player1_name)) ||
+      (uName && p1NameClean && uName === p1NameClean)
+    ));
+    const isP2 = Boolean(u && (
+      (uPlayerId && (uPlayerId === m.player2_id || uPlayerId === m.player2_name)) ||
+      (uName && p2NameClean && uName === p2NameClean)
+    ));
+    const isStaff = Boolean(u && (
+      u.role === 'admin' || u.role === 'to' || u.role === 'referee' || u.role === 'organizer'
+    ));
+    const canEdit = Boolean(isP1 || isP2 || isStaff);
+
+    let actionBtn = '';
+    if (!isBye) {
+      // 1. If game was actually completed with digital scorecard in tracker_games
+      if (hasTrackerGame && (isTrackerDone || hasScore)) {
+        actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`;
+      } 
+      // 2. If match is uncompleted and user has competitor/staff permissions to edit/track
+      else if (!hasScore && canEdit) {
+        const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
+        actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${eventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
+      }
+      // 3. If match has an active tracker room and user is a spectator
+      else if (!hasScore && hasTrackerGame && !canEdit) {
+        actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#818cf8;" onclick="event.stopPropagation(); window.open('/11th/tracker?match_id=${encodeURIComponent(matchId)}&role=spectator', '_blank')" title="Live Spectator Mode">👀 Spectate</button>`;
+      }
+    }
 
     tr.innerHTML = `
       <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
