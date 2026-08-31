@@ -2283,12 +2283,34 @@ class PostgresDatabase:
         def calc_vp(p_obj):
             if not isinstance(p_obj, dict):
                 return 0
-            if "score" in p_obj and isinstance(p_obj["score"], (int, float)):
-                return int(p_obj["score"])
-            pri = sum([r.get("primaryScore", 0) for r in p_obj.get("rounds", []) if isinstance(r, dict)])
-            sec = sum([r.get("secondaryScore", 0) for r in p_obj.get("rounds", []) if isinstance(r, dict)])
-            paint = 10 if p_obj.get("battleReady", True) else 0
-            return min(100, min(50, pri) + min(40, sec) + paint)
+            
+            rounds = [r for r in p_obj.get("rounds", []) if isinstance(r, dict)]
+            pri_total = min(50, sum([r.get("primaryScore", 0) for r in rounds]))
+            
+            sec_total = 0
+            hand = p_obj.get("hand", [])
+            if isinstance(hand, list):
+                for card in hand:
+                    if not isinstance(card, dict) or card.get("status") == "discarded":
+                        continue
+                    if card.get("recurring"):
+                        round_scores = card.get("roundScores", {})
+                        if isinstance(round_scores, dict):
+                            for r_data in round_scores.values():
+                                if isinstance(r_data, dict):
+                                    sec_total += int(r_data.get("points") or 0)
+                                elif isinstance(r_data, (int, float)):
+                                    sec_total += int(r_data)
+                    else:
+                        if card.get("scoredRound") is not None:
+                            sec_total += int(card.get("points") or 0)
+            
+            if sec_total == 0:
+                sec_total = sum([r.get("secondaryScore", 0) for r in rounds])
+            
+            sec_total = min(40, sec_total)
+            paint = 10 if p_obj.get("battleReady", True) is not False else 0
+            return min(100, pri_total + sec_total + paint)
 
         p1_score = calc_vp(state.get("p1"))
         p2_score = calc_vp(state.get("p2"))
