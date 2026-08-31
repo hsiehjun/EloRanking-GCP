@@ -111,23 +111,11 @@ class FirestoreRoomEngine:
         return True
 
     def discard_room(self, match_id: str) -> bool:
-        """Permanently deletes / discards an unsubmitted match room from Firestore."""
-        match_id = match_id.strip().upper()
-        if self._client:
-            try:
-                ref = self.get_room_doc_ref(match_id)
-                if ref:
-                    ref.delete()
-                    logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{match_id}")
-            except Exception as e:
-                logger.error(f"Error discarding Firestore room {match_id}: {e}")
-
-        if match_id in self._fallback_rooms:
-            try:
-                del self._fallback_rooms[match_id]
-            except KeyError:
-                pass
-        return True
+        """Marks a match room as abandoned in Firestore."""
+        return self.update_room(match_id, {
+            "status": "abandoned",
+            "is_abandoned": True
+        })
 
     def finalize_room(self, match_id: str) -> bool:
         """Marks a match room as completed in Firestore."""
@@ -137,11 +125,9 @@ class FirestoreRoomEngine:
         })
 
     def list_active_rooms_for_user(self, user_id: Optional[str] = None, user_name: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
-        """Queries Firestore for active in_progress rooms with 14-day auto-purge TTL enforcement."""
+        """Queries Firestore for active in_progress rooms involving this user."""
         rooms = []
         seen_keys = set()
-        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
-        max_lifespan_ms = 14 * 24 * 60 * 60 * 1000 # 14 days
         
         if self._client:
             try:
@@ -153,17 +139,6 @@ class FirestoreRoomEngine:
                     if not rkey or rkey in seen_keys:
                         continue
                     
-                    # 1. 14-Day Auto-Purge TTL Enforcement
-                    created_ts = d.get("createdAt") or d.get("created_at") or now_ts
-                    expires_ts = d.get("expiresAt") or d.get("expires_at") or (created_ts + max_lifespan_ms)
-                    if expires_ts <= now_ts or (now_ts - created_ts) > max_lifespan_ms:
-                        try:
-                            doc.reference.delete()
-                            logger.info(f"⏰ [FIRESTORE TTL] Auto-purged expired 14-day room {rkey}")
-                        except Exception:
-                            pass
-                        continue
-
                     if d.get("status") == "abandoned" or d.get("is_abandoned") or d.get("is_finished"):
                         continue
 
@@ -188,14 +163,8 @@ class FirestoreRoomEngine:
             except Exception as e:
                 logger.warning(f"Notice listing Firestore user rooms: {e}")
 
-        for mid, d in list(self._fallback_rooms.items()):
+        for mid, d in self._fallback_rooms.items():
             rkey = d.get("roomKey") or d.get("matchId") or mid
-            created_ts = d.get("createdAt") or d.get("created_at") or now_ts
-            expires_ts = d.get("expiresAt") or d.get("expires_at") or (created_ts + max_lifespan_ms)
-            if expires_ts <= now_ts or (now_ts - created_ts) > max_lifespan_ms:
-                self._fallback_rooms.pop(mid, None)
-                continue
-
             if rkey not in seen_keys and d.get("status") == "in_progress" and not d.get("is_abandoned") and not d.get("is_finished"):
                 p1_id = d.get("user_id_p1") or d.get("participants", {}).get("player1", {}).get("uid")
                 p2_id = d.get("user_id_p2") or d.get("participants", {}).get("player2", {}).get("uid")
