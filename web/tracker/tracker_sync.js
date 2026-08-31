@@ -1746,8 +1746,10 @@
 
   window.gtAttachList = async function(listData) {
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const matchId = clientState.matchId || urlParams.get('match_id') || 'MATCH';
       const role = clientState.role === 'player2' ? 'player2' : 'player1';
-      const resp = await fetch(`/api/tracker/room/${clientState.matchId}/armylist`, {
+      const resp = await fetch(`/api/tracker/room/${matchId}/armylist`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
         body: JSON.stringify({ role: role, army_list: listData })
@@ -1758,17 +1760,29 @@
         clientState.activeListTab = 'my';
         injectMultiplayerHUD();
         renderArmyListModal();
-        alert('⚔️ Army List Attached to Match Room!');
+        alert(`🎉 Attached "${listData.name || 'Army List'}" to match!`);
+      } else {
+        const errData = await resp.json().catch(() => ({}));
+        alert('Error attaching army list: ' + (errData.detail || resp.statusText));
       }
     } catch(e) {
-      alert('Error attaching army list: ' + e);
+      alert('Error attaching army list: ' + e.message);
     }
+  };
+
+  window.gtAttachSavedList = async function(listId) {
+    const list = (window.gtSavedListsCache || []).find(l => l.id === listId);
+    if (!list) {
+      alert('Could not locate the selected list.');
+      return;
+    }
+    await window.gtAttachList(list);
   };
 
   window.gtImportAndAttach = async function() {
     const textarea = document.getElementById('gt-import-raw-input');
     if (!textarea || !textarea.value.trim()) {
-      alert('Please paste your army list text or JSON.');
+      alert('Please paste your NewRecruit share link.');
       return;
     }
     const rawText = textarea.value.trim();
@@ -1794,7 +1808,7 @@
       // Attach to current match
       await window.gtAttachList(armyList);
     } catch(e) {
-      alert('Parse error: ' + e);
+      alert('Parse error: ' + e.message);
     }
   };
 
@@ -1847,17 +1861,18 @@
           if (resp.ok) {
             const data = await resp.json();
             const lists = data.army_lists || [];
+            window.gtSavedListsCache = lists;
             if (lists.length === 0) {
               grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved lists found. Use the importer above or create one in My Hub.</div>`;
             } else {
               grid.innerHTML = lists.map(l => `
                 <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
                   <div>
-                    <div style="font-weight:800; font-size:14px; color:#f8fafc;">${l.name || 'Unnamed List'}</div>
-                    <div style="font-size:12px; color:#38bdf8; font-weight:700;">${l.faction || '40k'} • ${l.detachment || 'Core'}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • ${(l.units || []).length} units</div>
+                    <div style="font-weight:800; font-size:14px; color:#f8fafc;">${escapeHtml(l.name || 'Unnamed List')}</div>
+                    <div style="font-size:12px; color:#38bdf8; font-weight:700;">${escapeHtml(l.faction || '40k')} • ${escapeHtml(l.detachment || 'Core')}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts</div>
                   </div>
-                  <button onclick='window.gtAttachList(${JSON.stringify(l).replace(/'/g, "&apos;")})' style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
+                  <button onclick="window.gtAttachSavedList('${l.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
                     ⚔️ Attach This List
                   </button>
                 </div>

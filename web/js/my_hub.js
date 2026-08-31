@@ -964,8 +964,8 @@ function renderHubArmyLists(lists) {
                 ⚔️ Play in Tracker
               </button>
               ${l.source_url ? `
-                <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;" title="Open on NewRecruit">
-                  🌐 NewRecruit ↗
+                <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;" title="Edit roster on NewRecruit">
+                  ✏️ Edit on NewRecruit ↗
                 </a>
               ` : ''}
               <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.4rem;" title="Delete List">
@@ -1091,7 +1091,7 @@ async function openViewArmyListModal(listId) {
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           ${sourceUrl ? `
             <a href="${escapeHtml(sourceUrl)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:12px; padding:6px 14px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
-              🌐 Open in NewRecruit ↗
+              ✏️ Edit on NewRecruit ↗
             </a>
           ` : ''}
           <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
