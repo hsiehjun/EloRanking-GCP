@@ -134,6 +134,25 @@ if FASTAPI_AVAILABLE:
     if (web_dir / "js").exists():
         app.mount("/js", StaticFiles(directory=str(web_dir / "js")), name="js")
 
+    # Periodic Wahapedia Database Updater
+    async def run_periodic_wahapedia_sync():
+        """Periodic background job: syncs official Wahapedia rules into PostgreSQL every 24 hours."""
+        await asyncio.sleep(5)  # Initial grace boot delay
+        while True:
+            try:
+                waha = get_wahapedia()
+                db = get_database()
+                res = await asyncio.to_thread(waha.sync_to_database, db)
+                logger.info(f"Periodic Wahapedia DB sync: {res}")
+            except Exception as e:
+                logger.debug(f"Periodic Wahapedia sync notice: {e}")
+            await asyncio.sleep(86400)  # Re-sync every 24 hours
+
+    @app.on_event("startup")
+    async def on_server_startup():
+        logger.info("Warhammer 40,000 Elo Backend online. Starting background services...")
+        asyncio.create_task(run_periodic_wahapedia_sync())
+
 
     # =========================================================================
     # EVENT STUDIO & BCP LIVE MATCH SYNC APIS
@@ -1639,6 +1658,13 @@ if FASTAPI_AVAILABLE:
         waha = get_wahapedia()
         strats = waha.get_stratagems_for_detachment(faction, detachment)
         return {"success": True, "stratagems": strats}
+
+    @app.post("/api/wahapedia/sync", summary="Trigger manual Wahapedia database table sync")
+    async def api_wahapedia_sync_trigger(background_tasks: BackgroundTasks):
+        waha = get_wahapedia()
+        db = get_database()
+        background_tasks.add_task(waha.sync_to_database, db)
+        return {"success": True, "message": "Wahapedia database sync triggered in background"}
 
     @app.post("/api/tracker/room/{match_id}/armylist", summary="Attach player army list to live match room")
     async def api_tracker_attach_armylist(match_id: str, request: Request):

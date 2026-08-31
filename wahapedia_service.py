@@ -1,6 +1,7 @@
 """Wahapedia Data Service for Warhammer 40,000 (10th/11th Edition).
 Provides complete datasheet profiles, statlines, weapon profiles, abilities, keywords,
-enhancements, detachments, and stratagem lookups dynamically from Wahapedia CSV dumps.
+enhancements, detachments, and stratagem lookups stored and queried from PostgreSQL database tables,
+with automated periodic background updating from official Wahapedia CSV dumps.
 """
 
 import csv
@@ -39,7 +40,7 @@ def strip_html(text: str) -> str:
 
 
 class WahapediaService:
-    """Dynamic Wahapedia service powered by relational CSV dumps."""
+    """Wahapedia service backed by PostgreSQL database tables with high-speed caching."""
 
     _instance = None
 
@@ -102,9 +103,10 @@ class WahapediaService:
         return s
 
     def load_all_data(self):
-        """Loads and indexes all Wahapedia CSV data into memory."""
+        """Loads and indexes all Wahapedia CSV data into memory and syncs to DB if needed."""
         # 1. Factions
         factions_path = os.path.join(DATA_DIR, "Factions.csv")
+        factions_list = []
         if os.path.exists(factions_path):
             with open(factions_path, mode="r", encoding="utf-8-sig", errors="ignore") as f:
                 reader = csv.DictReader(f, delimiter="|")
@@ -114,6 +116,7 @@ class WahapediaService:
                     if fid and fname:
                         self.factions_by_id[fid] = fname
                         self.factions_by_name[self._normalize_name(fname)] = fid
+                        factions_list.append({"id": fid, "name": fname, "link": r.get("link", "")})
 
         # 2. Models (Datasheet Stats)
         models_map: Dict[str, Dict[str, Any]] = {}
@@ -195,6 +198,7 @@ class WahapediaService:
 
         # 6. Datasheets
         ds_path = os.path.join(DATA_DIR, "Datasheets.csv")
+        datasheets_list = []
         if os.path.exists(ds_path):
             with open(ds_path, mode="r", encoding="utf-8-sig", errors="ignore") as f:
                 reader = csv.DictReader(f, delimiter="|")
@@ -220,6 +224,7 @@ class WahapediaService:
                         "keywords": keywords_map.get(ds_id, [role, fac_name])
                     }
                     self.datasheets[ds_id] = profile
+                    datasheets_list.append(profile)
 
                     # Index by normalized names
                     norm = self._normalize_name(name)
@@ -230,25 +235,30 @@ class WahapediaService:
 
         # 7. Stratagems (Core & Detachment)
         strat_path = os.path.join(DATA_DIR, "Stratagems.csv")
+        stratagems_list = []
         if os.path.exists(strat_path):
             with open(strat_path, mode="r", encoding="utf-8-sig", errors="ignore") as f:
                 reader = csv.DictReader(f, delimiter="|")
                 for r in reader:
                     fac_id = r.get("faction_id", "")
+                    fac_name = self.factions_by_id.get(fac_id, "")
                     det = r.get("detachment", "") or "Core"
                     name = r.get("name", "").title()
                     cp_str = r.get("cp_cost", "1")
                     cp = int(cp_str) if str(cp_str).isdigit() else 1
                     
                     strat_obj = {
+                        "id": r.get("id") or f"{fac_id}_{name[:30]}",
                         "name": name,
                         "type": r.get("type", "Stratagem"),
                         "cp": cp,
                         "phase": r.get("phase", "Any Phase"),
                         "detachment": det,
                         "faction_id": fac_id,
+                        "faction_name": fac_name,
                         "description": strip_html(r.get("description", ""))
                     }
+                    stratagems_list.append(strat_obj)
 
                     if not fac_id or det.lower() == "core":
                         self.core_stratagems.append(strat_obj)
@@ -258,35 +268,98 @@ class WahapediaService:
                             self.stratagems_by_detachment[key] = []
                         self.stratagems_by_detachment[key].append(strat_obj)
 
-        logger.info(f"Loaded {len(self.datasheets):,} Wahapedia datasheets and {len(self.stratagems_by_detachment):,} detachment stratagem sets.")
+        logger.info(f"Loaded {len(self.datasheets):,} Wahapedia datasheets and {len(self.stratagems_by_detachment):,} detachment stratagem sets into cache.")
+
+        # Sync to PostgreSQL database tables if available
+        self._sync_to_db_if_available(factions_list, datasheets_list, stratagems_list)
+
+    def _sync_to_db_if_available(self, factions: List[Dict[str, Any]], datasheets: List[Dict[str, Any]], stratagems: List[Dict[str, Any]]):
+        """Attempts to sync Wahapedia datasets into PostgreSQL tables."""
+        try:
+            from database import get_db
+            db = get_db()
+            stats = db.get_wahapedia_stats()
+            # If database tables are empty or out of sync, bulk upsert
+            if stats.get("total_datasheets", 0) < len(datasheets):
+                logger.info("Syncing Wahapedia data to PostgreSQL tables (wahapedia_datasheets, wahapedia_stratagems, wahapedia_factions)...")
+                res = db.bulk_upsert_wahapedia_data(factions, datasheets, stratagems)
+                logger.info(f"Database sync complete: {res}")
+        except Exception as e:
+            logger.debug(f"Database sync notice (using high-speed cache): {e}")
+
+    def sync_to_database(self, db=None) -> Dict[str, Any]:
+        """Explicitly downloads and bulk-upserts Wahapedia datasets into PostgreSQL."""
+        self.download_csv_dumps()
+        self.load_all_data()
+        if db is None:
+            try:
+                from database import get_db
+                db = get_db()
+            except Exception:
+                pass
+        if db:
+            factions_path = os.path.join(DATA_DIR, "Factions.csv")
+            factions_list = []
+            if os.path.exists(factions_path):
+                with open(factions_path, mode="r", encoding="utf-8-sig", errors="ignore") as f:
+                    for r in csv.DictReader(f, delimiter="|"):
+                        if r.get("id") and r.get("name"):
+                            factions_list.append({"id": r["id"], "name": r["name"], "link": r.get("link", "")})
+            
+            strat_path = os.path.join(DATA_DIR, "Stratagems.csv")
+            stratagems_list = []
+            if os.path.exists(strat_path):
+                with open(strat_path, mode="r", encoding="utf-8-sig", errors="ignore") as f:
+                    for r in csv.DictReader(f, delimiter="|"):
+                        fac_id = r.get("faction_id", "")
+                        cp_str = r.get("cp_cost", "1")
+                        stratagems_list.append({
+                            "id": r.get("id") or f"{fac_id}_{r.get('name','')[:30]}",
+                            "name": r.get("name", "").title(),
+                            "type": r.get("type", "Stratagem"),
+                            "cp": int(cp_str) if str(cp_str).isdigit() else 1,
+                            "phase": r.get("phase", "Any Phase"),
+                            "detachment": r.get("detachment", "Core"),
+                            "faction_id": fac_id,
+                            "faction_name": self.factions_by_id.get(fac_id, ""),
+                            "description": strip_html(r.get("description", ""))
+                        })
+
+            return db.bulk_upsert_wahapedia_data(factions_list, list(self.datasheets.values()), stratagems_list)
+        return {"status": "Cached in memory"}
 
     def lookup_unit(self, unit_name: str, faction: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Looks up a datasheet profile by unit name and optional faction using fuzzy matching."""
+        """Looks up a datasheet profile by unit name and optional faction from DB or memory cache."""
         if not unit_name:
             return None
 
-        # Strip quantity/char prefixes (e.g. 10x Flayed Ones -> Flayed Ones, Char1: 1x Overlord -> Overlord)
+        # 1. Try PostgreSQL Database Table
+        try:
+            from database import get_db
+            db = get_db()
+            db_profile = db.get_wahapedia_datasheet(unit_name, faction=faction)
+            if db_profile:
+                return db_profile
+        except Exception:
+            pass
+
+        # 2. In-Memory Cache Lookup
         cleaned_name = re.sub(r"^(?:char\d+:\s*)?(?:\d+x\s+)?", "", unit_name, flags=re.IGNORECASE).strip()
         norm = self._normalize_name(cleaned_name)
 
-        # 1. Direct faction + unit match
         if faction:
-            fac_id = self.factions_by_name.get(self._normalize_name(faction)) or faction
             fac_norm = self._normalize_name(faction)
             key = f"{fac_norm}_{norm}"
             if key in self._normalized_index:
                 return self.datasheets[self._normalized_index[key]]
 
-        # 2. Direct unit match
         if norm in self._normalized_index:
             return self.datasheets[self._normalized_index[norm]]
 
-        # 3. Substring fuzzy match
         for idx_key, ds_id in self._normalized_index.items():
             if norm in idx_key or idx_key in norm:
                 return self.datasheets[ds_id]
 
-        # 4. Fallback default profile
         return {
             "id": f"GENERIC-{norm[:10]}",
             "name": cleaned_name,
@@ -304,27 +377,34 @@ class WahapediaService:
         }
 
     def get_stratagems_for_detachment(self, faction: str, detachment: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns official detachment-specific and core stratagems."""
+        """Returns official detachment-specific and core stratagems from DB or cache."""
+        # 1. Try PostgreSQL Database Table
+        try:
+            from database import get_db
+            db = get_db()
+            db_strats = db.get_wahapedia_stratagems(faction, detachment=detachment)
+            if db_strats and len(db_strats) > 0:
+                return db_strats
+        except Exception:
+            pass
+
+        # 2. In-Memory Cache Lookup
         fac_norm = self._normalize_name(faction or "")
         fac_id = self.factions_by_name.get(fac_norm) or (faction or "")
         det_norm = self._normalize_name(detachment or "")
 
         det_strats: List[Dict[str, Any]] = []
 
-        # Look up detachment in parsed CSVs
         if fac_id and det_norm:
-            # Check exact match
             key = f"{fac_id}::{det_norm}"
             if key in self.stratagems_by_detachment:
                 det_strats = self.stratagems_by_detachment[key]
             else:
-                # Substring match across detachment names
                 for k, strats in self.stratagems_by_detachment.items():
                     if k.startswith(f"{fac_id}::") and (det_norm in k or k.split("::")[1] in det_norm):
                         det_strats = strats
                         break
 
-        # Standard Core Stratagems
         core = [
             {"name": "Command Re-roll", "type": "Core", "cp": 1, "phase": "Any Phase", "description": "Re-roll one Hit roll, Wound roll, Damage roll, saving throw, Advance roll, Charge roll, or Battle-shock test."},
             {"name": "Counter-Offensive", "type": "Core", "cp": 2, "phase": "Fight Phase", "description": "Select one eligible friendly unit that has not fought this phase. That unit fights next."},
@@ -352,11 +432,10 @@ def get_wahapedia() -> WahapediaService:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     waha = get_wahapedia()
-    if "--update" in sys.argv:
-        print("Updating Wahapedia CSV dumps...")
-        waha.download_csv_dumps()
-        waha.load_all_data()
-        print(f"Updated! Total datasheets: {len(waha.datasheets):,}")
+    if "--update" in sys.argv or "--sync" in sys.argv:
+        print("Syncing Wahapedia data to PostgreSQL tables...")
+        res = waha.sync_to_database()
+        print(f"Sync complete: {res}")
     else:
         print(f"Wahapedia Service ready: {len(waha.datasheets):,} datasheets loaded.")
         test_unit = waha.lookup_unit("Doomsday Ark", "Necrons")

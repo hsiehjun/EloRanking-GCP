@@ -353,7 +353,41 @@ class PostgresDatabase:
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(event_id, round_num)
             );""",
-            "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);"
+            "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);",
+            """CREATE TABLE IF NOT EXISTS wahapedia_factions (
+                id VARCHAR(32) PRIMARY KEY,
+                name TEXT NOT NULL,
+                link TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            """CREATE TABLE IF NOT EXISTS wahapedia_datasheets (
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                faction_id VARCHAR(32),
+                faction_name TEXT,
+                role TEXT,
+                stats JSONB,
+                weapons JSONB,
+                abilities JSONB,
+                keywords JSONB,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_ds_name ON wahapedia_datasheets(name);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_ds_fac ON wahapedia_datasheets(faction_name);",
+            """CREATE TABLE IF NOT EXISTS wahapedia_stratagems (
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                faction_id VARCHAR(32),
+                faction_name TEXT,
+                detachment TEXT,
+                type TEXT,
+                cp INT DEFAULT 1,
+                phase TEXT,
+                description TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_strat_det ON wahapedia_stratagems(detachment);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_strat_fac ON wahapedia_stratagems(faction_id);"
         ]:
             try:
                 with self.get_connection() as conn:
@@ -2870,6 +2904,182 @@ class PostgresDatabase:
             "pods": pod_assignments,
             "pairings": assigned_pairings
         }
+
+    # =========================================================================
+    # WAHAPEDIA PERSISTENT DATABASE ENGINE
+    # =========================================================================
+
+    def bulk_upsert_wahapedia_data(self, factions: List[Dict[str, Any]], datasheets: List[Dict[str, Any]], stratagems: List[Dict[str, Any]]) -> Dict[str, int]:
+        """Bulk upserts official Wahapedia relational datasets into PostgreSQL tables."""
+        from psycopg2 import extras
+        f_count = 0
+        d_count = 0
+        s_count = 0
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                # 1. Factions
+                if factions:
+                    fac_tuples = [(f["id"], f["name"], f.get("link", "")) for f in factions]
+                    extras.execute_batch(cursor, """
+                        INSERT INTO wahapedia_factions (id, name, link, updated_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (id) DO UPDATE 
+                        SET name = EXCLUDED.name, link = EXCLUDED.link, updated_at = NOW();
+                    """, fac_tuples, page_size=200)
+                    f_count = len(fac_tuples)
+
+                # 2. Datasheets
+                if datasheets:
+                    ds_tuples = [
+                        (
+                            d["id"],
+                            d["name"],
+                            d.get("faction_id", ""),
+                            d.get("faction", ""),
+                            d.get("role", "Infantry"),
+                            json.dumps(d.get("stats", {})),
+                            json.dumps(d.get("weapons", [])),
+                            json.dumps(d.get("abilities", [])),
+                            json.dumps(d.get("keywords", []))
+                        )
+                        for d in datasheets
+                    ]
+                    extras.execute_batch(cursor, """
+                        INSERT INTO wahapedia_datasheets (id, name, faction_id, faction_name, role, stats, weapons, abilities, keywords, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, NOW())
+                        ON CONFLICT (id) DO UPDATE 
+                        SET name = EXCLUDED.name, faction_id = EXCLUDED.faction_id, faction_name = EXCLUDED.faction_name,
+                            role = EXCLUDED.role, stats = EXCLUDED.stats, weapons = EXCLUDED.weapons,
+                            abilities = EXCLUDED.abilities, keywords = EXCLUDED.keywords, updated_at = NOW();
+                    """, ds_tuples, page_size=200)
+                    d_count = len(ds_tuples)
+
+                # 3. Stratagems
+                if stratagems:
+                    st_tuples = [
+                        (
+                            s.get("id") or f"{s.get('faction_id','')}_{s.get('name','')[:30]}",
+                            s.get("name", "Stratagem"),
+                            s.get("faction_id", ""),
+                            s.get("faction_name", ""),
+                            s.get("detachment", "Core"),
+                            s.get("type", "Stratagem"),
+                            int(s.get("cp", 1)),
+                            s.get("phase", "Any Phase"),
+                            s.get("description", "")
+                        )
+                        for s in stratagems
+                    ]
+                    extras.execute_batch(cursor, """
+                        INSERT INTO wahapedia_stratagems (id, name, faction_id, faction_name, detachment, type, cp, phase, description, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                        ON CONFLICT (id) DO UPDATE 
+                        SET name = EXCLUDED.name, faction_id = EXCLUDED.faction_id, faction_name = EXCLUDED.faction_name,
+                            detachment = EXCLUDED.detachment, type = EXCLUDED.type, cp = EXCLUDED.cp,
+                            phase = EXCLUDED.phase, description = EXCLUDED.description, updated_at = NOW();
+                    """, st_tuples, page_size=200)
+                    s_count = len(st_tuples)
+
+            conn.commit()
+
+        return {
+            "factions_synced": f_count,
+            "datasheets_synced": d_count,
+            "stratagems_synced": s_count
+        }
+
+    def get_wahapedia_datasheet(self, name: str, faction: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Queries the wahapedia_datasheets table using fast fuzzy matching."""
+        from psycopg2 import extras
+        if not name:
+            return None
+        cleaned = re.sub(r'^(?:char\d+:\s*)?(?:\d+x\s+)?', '', name, flags=re.IGNORECASE).strip()
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                # 1. Exact Name match
+                if faction:
+                    cursor.execute("""
+                        SELECT id, name, faction_id, faction_name as faction, role, stats, weapons, abilities, keywords
+                        FROM wahapedia_datasheets
+                        WHERE LOWER(name) = LOWER(%s) AND (LOWER(faction_name) = LOWER(%s) OR faction_id ILIKE %s)
+                        LIMIT 1;
+                    """, (cleaned, faction, f"%{faction}%"))
+                    row = cursor.fetchone()
+                    if row:
+                        return dict(row)
+
+                cursor.execute("""
+                    SELECT id, name, faction_id, faction_name as faction, role, stats, weapons, abilities, keywords
+                    FROM wahapedia_datasheets
+                    WHERE LOWER(name) = LOWER(%s)
+                    LIMIT 1;
+                """, (cleaned,))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+
+                # 2. ILIKE Partial Match
+                cursor.execute("""
+                    SELECT id, name, faction_id, faction_name as faction, role, stats, weapons, abilities, keywords
+                    FROM wahapedia_datasheets
+                    WHERE name ILIKE %s
+                    ORDER BY LENGTH(name) ASC
+                    LIMIT 1;
+                """, (f"%{cleaned}%",))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+
+        return None
+
+    def get_wahapedia_stratagems(self, faction: str, detachment: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Queries the wahapedia_stratagems table for detachment and core rules."""
+        from psycopg2 import extras
+        results = []
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                # Query Detachment Stratagems
+                if detachment:
+                    cursor.execute("""
+                        SELECT name, type, cp, phase, detachment, faction_id, description
+                        FROM wahapedia_stratagems
+                        WHERE detachment ILIKE %s AND (faction_name ILIKE %s OR faction_id ILIKE %s)
+                        ORDER BY name ASC;
+                    """, (f"%{detachment.split('(')[0].strip()}%", f"%{faction}%", f"%{faction}%"))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        results.append(dict(r))
+
+                # Query Core Stratagems
+                cursor.execute("""
+                    SELECT name, type, cp, phase, detachment, faction_id, description
+                    FROM wahapedia_stratagems
+                    WHERE (detachment = 'Core' OR faction_id = '' OR faction_id IS NULL)
+                    ORDER BY name ASC;
+                """)
+                rows = cursor.fetchall()
+                for r in rows:
+                    results.append(dict(r))
+
+        return results
+
+    def get_wahapedia_stats(self) -> Dict[str, int]:
+        """Returns row counts of Wahapedia tables."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM wahapedia_datasheets;")
+                ds_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM wahapedia_stratagems;")
+                st_count = cursor.fetchone()[0]
+                cursor.execute("SELECT COUNT(*) FROM wahapedia_factions;")
+                fac_count = cursor.fetchone()[0]
+                return {
+                    "total_datasheets": ds_count,
+                    "total_stratagems": st_count,
+                    "total_factions": fac_count
+                }
+
 
 
 class PostgresConnectionContext:
