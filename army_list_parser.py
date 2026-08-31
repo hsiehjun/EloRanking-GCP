@@ -92,10 +92,58 @@ class ArmyListParser:
                 if w_unit:
                     if not u.get("stats") or not u.get("weapons"):
                         u["stats"] = w_unit.get("stats") or u.get("stats")
-                    if not u.get("weapons") or len(u.get("weapons", [])) == 0:
-                        u["weapons"] = w_unit.get("weapons") or []
-                    if not u.get("abilities") or len(u.get("abilities", [])) == 0:
-                        u["abilities"] = w_unit.get("abilities") or []
+                    
+                    ds_weapons = w_unit.get("weapons") or []
+                    u_wargear = u.get("wargear") or []
+                    
+                    cleaned_wargear = []
+                    for wg in u_wargear:
+                        c = re.sub(r'^\s*\d+x?\s+(?:with\s+)?', '', str(wg), flags=re.IGNORECASE).strip()
+                        c = re.sub(r'\s*\(\+?\d+\s*pts?\)', '', c, flags=re.IGNORECASE).strip()
+                        if c and c.lower() not in ('warlord', 'resurrection orb', 'leading', 'attached to') and not c.lower().startswith('char'):
+                            cleaned_wargear.append(c)
+
+                    # 1. Filter weapons if unit explicitly specified wargear
+                    if cleaned_wargear and ds_weapons:
+                        def matches_weapon(w_item, w_names):
+                            w_clean = (w_item.get("name") or "").strip().lower()
+                            w_base = re.split(r'[\–\-\/]', w_clean)[0].strip()
+                            for item in w_names:
+                                i_clean = item.strip().lower()
+                                i_base = re.split(r'[\–\-\/]', i_clean)[0].strip()
+                                if w_clean == i_clean or w_base == i_clean or w_base == i_base:
+                                    return True
+                                if (i_clean and i_clean in w_clean) or (i_base and i_base in w_base) or (w_clean and w_clean in i_clean):
+                                    return True
+                            return False
+
+                        matched_weapons = [w for w in ds_weapons if matches_weapon(w, cleaned_wargear)]
+                        if matched_weapons:
+                            u["weapons"] = matched_weapons
+                        elif not u.get("weapons") or len(u.get("weapons", [])) == 0:
+                            u["weapons"] = ds_weapons
+                    elif not u.get("weapons") or len(u.get("weapons", [])) == 0:
+                        u["weapons"] = ds_weapons
+
+                    # 2. Filter abilities (optional wargear abilities vs intrinsic datasheet abilities)
+                    ds_abilities = w_unit.get("abilities") or []
+                    if cleaned_wargear and ds_abilities:
+                        wg_lower_set = {wg.lower() for wg in cleaned_wargear}
+                        filtered_abilities = []
+                        for ab in ds_abilities:
+                            ab_name = (ab.get("name") or "").strip()
+                            ab_name_lower = ab_name.lower()
+                            ab_type = (ab.get("type") or "").strip().lower()
+                            
+                            if ab_type == 'wargear':
+                                if any(wg in ab_name_lower or ab_name_lower in wg for wg in wg_lower_set):
+                                    filtered_abilities.append(ab)
+                            else:
+                                filtered_abilities.append(ab)
+                        u["abilities"] = filtered_abilities or ds_abilities
+                    elif not u.get("abilities") or len(u.get("abilities", [])) == 0:
+                        u["abilities"] = ds_abilities
+
                     if not u.get("keywords") or len(u.get("keywords", [])) <= 2:
                         u["keywords"] = w_unit.get("keywords") or u.get("keywords", [])
                     if (not u.get("role") or u.get("role") == "Infantry") and w_unit.get("role"):
@@ -937,6 +985,17 @@ class ArmyListParser:
                     "keywords": ["Character" if char_tag else "Infantry", faction],
                 }
                 parsed_units.append(current_unit)
+            elif current_unit and (line.startswith(('•', '-', '*', '·')) or ':' in line):
+                # Sub-model or bullet wargear line (e.g. • 1x Sergeant: Power Weapon, Bolt Pistol)
+                sub_content = line.lstrip('•-*· ').strip()
+                if ':' in sub_content:
+                    items_str = sub_content.split(':', 1)[1].strip()
+                else:
+                    items_str = sub_content
+                for item in items_str.split(','):
+                    item_clean = item.strip()
+                    if item_clean and item_clean not in current_unit["wargear"]:
+                        current_unit["wargear"].append(item_clean)
 
         # Match enhancements from header if not parsed in unit body
         for u in parsed_units:
