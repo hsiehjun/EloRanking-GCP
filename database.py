@@ -3253,7 +3253,7 @@ class PostgresDatabase:
                     })
 
                 # Abilities
-                cursor.execute("SELECT * FROM waha_datasheet_abilities WHERE datasheet_id = %s ORDER BY line ASC;", (ds_id,))
+                cursor.execute("SELECT * FROM waha_datasheet_abilities WHERE datasheet_id = %s AND name IS NOT NULL AND name != '' ORDER BY line ASC;", (ds_id,))
                 abilities = []
                 for a in cursor.fetchall():
                     abilities.append({
@@ -3263,11 +3263,11 @@ class PostgresDatabase:
                     })
 
                 # Keywords
-                cursor.execute("SELECT keyword FROM waha_datasheet_keywords WHERE datasheet_id = %s;", (ds_id,))
+                cursor.execute("SELECT keyword FROM waha_datasheet_keywords WHERE datasheet_id = %s AND keyword IS NOT NULL AND keyword != '';", (ds_id,))
                 keywords = [k["keyword"] for k in cursor.fetchall() if k["keyword"]]
 
                 # Points costs
-                cursor.execute("SELECT description, cost FROM waha_datasheet_costs WHERE datasheet_id = %s ORDER BY line ASC;", (ds_id,))
+                cursor.execute("SELECT description, cost FROM waha_datasheet_costs WHERE datasheet_id = %s AND description IS NOT NULL AND description != '' ORDER BY line ASC;", (ds_id,))
                 costs = [dict(c) for c in cursor.fetchall()]
 
                 return {
@@ -3291,10 +3291,8 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_stratagems 
-                    WHERE LOWER(detachment) = LOWER(%s) 
-                       OR LOWER(detachment) = 'core'
-                       OR detachment IS NULL
-                       OR detachment = ''
+                    WHERE (LOWER(detachment) = LOWER(%s) OR LOWER(detachment) = 'core')
+                      AND name IS NOT NULL AND name != ''
                     ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
                 """, (det_clean,))
                 return [dict(r) for r in cursor.fetchall()]
@@ -3307,7 +3305,8 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_enhancements 
-                    WHERE LOWER(detachment) = LOWER(%s) 
+                    WHERE LOWER(detachment) = LOWER(%s)
+                      AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
                 """, (det_clean,))
                 return [dict(r) for r in cursor.fetchall()]
@@ -3320,7 +3319,8 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_detachment_abilities 
-                    WHERE LOWER(detachment) = LOWER(%s) 
+                    WHERE LOWER(detachment) = LOWER(%s)
+                      AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
                 """, (det_clean,))
                 return [dict(r) for r in cursor.fetchall()]
