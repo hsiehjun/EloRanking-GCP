@@ -235,7 +235,21 @@
   }
 
   function renderUserBar() {
+    if (!currentUser) {
+      try {
+        const cached = originalGetItem('native_user_profile') || originalGetItem('bcp_user_profile');
+        if (cached) currentUser = JSON.parse(cached);
+      } catch (e) {}
+    }
     if (!currentUser) return;
+    if (!document.body) {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderUserBar, { once: true });
+      } else {
+        setTimeout(renderUserBar, 50);
+      }
+      return;
+    }
     let bar = document.getElementById('gt-user-status-bar');
     if (!bar) {
       bar = document.createElement('div');
