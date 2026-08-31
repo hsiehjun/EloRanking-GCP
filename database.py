@@ -2598,6 +2598,12 @@ class PostgresDatabase:
                     for k, v in item["list_data"].items():
                         if k not in item:
                             item[k] = v
+                try:
+                    from wahapedia_service import get_wahapedia
+                    waha = get_wahapedia()
+                    item["stratagems"] = waha.get_stratagems_for_detachment(item.get("faction", "Necrons"), item.get("detachment"))
+                except Exception:
+                    pass
                 return item
 
     def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
