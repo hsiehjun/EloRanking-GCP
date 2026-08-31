@@ -2332,7 +2332,6 @@ class PostgresDatabase:
                 SELECT id, name, event_date, end_date, city, state, country, venue,
                        tier, total_players, num_rounds, current_round, is_ended,
                        points, capacity, mission_pack, organizer_id, organizer_bcp_id,
-                       jsonb_array_length(COALESCE(roster, '[]'::jsonb)) as roster_count,
                        roster, pairings, raw_json, scraped_at
                 FROM events
                 WHERE 1=1
@@ -2352,7 +2351,13 @@ class PostgresDatabase:
                 query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
                 cursor.execute(query, tuple(params))
                 rows = cursor.fetchall()
-                return [dict(r) for r in rows]
+                results = []
+                for r in rows:
+                    item = dict(r)
+                    roster = item.get("roster") or []
+                    item["roster_count"] = len(roster) if isinstance(roster, list) else 0
+                    results.append(item)
+                return results
 
     def get_studio_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves full tournament details, roster, and round pairings for Event Studio."""

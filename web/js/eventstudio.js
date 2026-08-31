@@ -119,16 +119,20 @@ function switchStudioTab(tabName) {
     }
   });
 
-  if (tabName === 'events') renderEventsDirectory();
-  if (tabName === 'dashboard') renderDashboard();
-  if (tabName === 'roster') renderRoster();
-  if (tabName === 'pairings') {
-    renderRoundButtons();
-    renderPairings();
+  try {
+    if (tabName === 'events') renderEventsDirectory();
+    else if (tabName === 'dashboard') renderDashboard();
+    else if (tabName === 'roster') renderRoster();
+    else if (tabName === 'pairings') {
+      renderRoundButtons();
+      renderPairings();
+    }
+    else if (tabName === 'wtc') renderWtcDraftMatrix();
+    else if (tabName === 'pods') previewPodBreakdown();
+    else if (tabName === 'standings') renderStandings();
+  } catch (err) {
+    console.error('Error rendering subtab ' + tabName + ':', err);
   }
-  if (tabName === 'wtc') renderWtcDraftMatrix();
-  if (tabName === 'pods') previewPodBreakdown();
-  if (tabName === 'standings') renderStandings();
 }
 
 function renderTournamentBanner() {
