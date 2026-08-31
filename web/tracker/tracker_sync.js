@@ -1862,6 +1862,9 @@
 
     let contentHtml = '';
 
+    const armyRules = list.army_rules || [];
+    const detachmentRules = list.detachment_rules || [];
+
     if (units.length > 0) {
       contentHtml += `
         <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
@@ -1874,6 +1877,31 @@
         <div style="display:flex; flex-direction:column; gap:16px; padding:16px; overflow-y:auto; max-height:75vh; background:#070b14;">
       `;
 
+      // Army & Detachment Rules
+      if (armyRules.length > 0 || detachmentRules.length > 0) {
+        contentHtml += `
+          <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:12px 16px;">
+            <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+              <span>📜</span> Army & Detachment Rules
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:10px;">
+              ${armyRules.map(ar => `
+                <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">
+                  <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:4px;">🛡️ ${escapeHtml(ar.name)}</div>
+                  <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(ar.description || '')}</div>
+                </div>
+              `).join('')}
+              ${detachmentRules.map(dr => `
+                <div style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px;">
+                  <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:4px;">⚡ ${escapeHtml(dr.name)}</div>
+                  <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(dr.description || '')}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
+
       for (const [catName, catUnits] of Object.entries(categories)) {
         if (catUnits.length === 0) continue;
         const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
@@ -1883,7 +1911,7 @@
             <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
               <span>${catIcon}</span> ${catName} <span style="font-size:11px; color:#64748b; font-weight:normal;">(${catUnits.length})</span>
             </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:10px;">
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:10px;">
               ${catUnits.map(u => {
                 const uName = u.name || 'Unit';
                 const uPts = u.points || 0;
@@ -1892,9 +1920,12 @@
                 const maxW = stats.W || 2;
                 const curW = u._current_wounds !== undefined ? u._current_wounds : maxW;
                 const isSlain = u._is_slain || false;
+                const weapons = u.weapons || [];
+                const abilities = u.abilities || [];
+                const rules = u.rules || [];
 
                 return `
-                  <div class="gt-unit-card" id="gt-unit-card-${u._idx}" style="background:#0f172a; border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.08)'}; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:8px; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
+                  <div class="gt-unit-card" id="gt-unit-card-${u._idx}" style="background:#0f172a; border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'}; border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
                       <div style="min-width:0; flex:1;">
                         <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
@@ -1918,10 +1949,49 @@
                       <div><div style="font-size:9px; color:#64748b; font-weight:700;">OC</div><div style="font-size:11px; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
                     </div>
 
-                    <!-- Wargear -->
-                    ${(u.wargear && u.wargear.length > 0) ? `
+                    <!-- Weapons Table -->
+                    ${weapons.length > 0 ? `
+                      <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:6px; overflow:hidden;">
+                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:3px 6px; background:rgba(255,255,255,0.04); font-size:9px; font-weight:800; color:#94a3b8; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
+                          <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
+                        </div>
+                        ${weapons.map(w => `
+                          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 6px; border-top:1px solid rgba(255,255,255,0.04); font-size:10px; font-family:'JetBrains Mono',monospace; align-items:center;">
+                            <div style="min-width:0;">
+                              <div style="font-weight:700; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
+                              ${(w.keywords && w.keywords.length > 0) ? `
+                                <div style="font-size:8.5px; color:#38bdf8; margin-top:1px;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
+                              ` : ''}
+                            </div>
+                            <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
+                            <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
+                            <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
+                            <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
+                            <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
+                            <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    ` : ((u.wargear && u.wargear.length > 0) ? `
                       <div style="display:flex; flex-wrap:wrap; gap:4px;">
                         ${u.wargear.map(w => `<span style="font-size:10px; background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.06); padding:1px 5px; border-radius:4px;">${escapeHtml(w)}</span>`).join('')}
+                      </div>
+                    ` : '')}
+
+                    <!-- Abilities & Rules -->
+                    ${(abilities.length > 0 || rules.length > 0) ? `
+                      <div style="display:flex; flex-direction:column; gap:4px;">
+                        ${rules.length > 0 ? `
+                          <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                            ${rules.map(r => `<span style="font-size:9px; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 5px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
+                          </div>
+                        ` : ''}
+                        ${abilities.map(ab => `
+                          <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:5px; padding:4px 6px; font-size:10px;">
+                            <b style="color:#facc15;">${escapeHtml(ab.name)}:</b>
+                            <span style="color:#94a3b8; line-height:1.4;"> ${escapeHtml(ab.description)}</span>
+                          </div>
+                        `).join('')}
                       </div>
                     ` : ''}
 

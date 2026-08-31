@@ -1172,6 +1172,35 @@ function renderNativeRosterViewer(list, options = {}) {
   const detachment = list.detachment || 'Core Detachment';
   const points = list.points || 2000;
   const warlord = list.warlord || '';
+  const armyRules = list.army_rules || [];
+  const detachmentRules = list.detachment_rules || [];
+
+  let contentHtml = `<div style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14;">`;
+
+  // 1. Army & Detachment Rules Banner
+  if (armyRules.length > 0 || detachmentRules.length > 0) {
+    contentHtml += `
+      <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(56, 189, 248, 0.25); border-radius:12px; padding:12px 16px;">
+        <div style="font-size:13px; font-weight:800; color:#38bdf8; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+          <span>📜</span> Army & Detachment Rules
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:10px;">
+          ${armyRules.map(ar => `
+            <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">
+              <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:4px;">🛡️ ${escapeHtml(ar.name)}</div>
+              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(ar.description || '')}</div>
+            </div>
+          `).join('')}
+          ${detachmentRules.map(dr => `
+            <div style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px;">
+              <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:4px;">⚡ ${escapeHtml(dr.name)}</div>
+              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(dr.description || '')}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
 
   // Group units by category/role
   const categories = {
@@ -1203,11 +1232,7 @@ function renderNativeRosterViewer(list, options = {}) {
     }
   });
 
-  let contentHtml = '';
-
   if (units.length > 0) {
-    contentHtml += `<div style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14;">`;
-
     for (const [catName, catUnits] of Object.entries(categories)) {
       if (catUnits.length === 0) continue;
       const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
@@ -1217,7 +1242,7 @@ function renderNativeRosterViewer(list, options = {}) {
           <div style="font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
             <span>${catIcon}</span> ${catName} <span style="font-size:0.75rem; color:#64748b; font-weight:normal;">(${catUnits.length})</span>
           </div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:0.75rem;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:0.85rem;">
             ${catUnits.map(u => {
               const uName = u.name || 'Unit';
               const uPts = u.points || 0;
@@ -1226,54 +1251,96 @@ function renderNativeRosterViewer(list, options = {}) {
               const maxW = stats.W || 2;
               const curW = u._current_wounds !== undefined ? u._current_wounds : maxW;
               const isSlain = u._is_slain || false;
+              const weapons = u.weapons || [];
+              const abilities = u.abilities || [];
+              const rules = u.rules || [];
 
               return `
-                <div class="gt-unit-card" id="unit-card-${u._idx}" style="background:rgba(15, 23, 42, 0.85); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.08)'}; border-radius:10px; padding:0.85rem; display:flex; flex-direction:column; gap:0.6rem; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
+                <div class="gt-unit-card" id="unit-card-${u._idx}" style="background:rgba(15, 23, 42, 0.9); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'}; border-radius:12px; padding:1rem; display:flex; flex-direction:column; gap:0.75rem; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
                   <!-- Top Row: Unit Name & Points -->
                   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem;">
                     <div style="min-width:0; flex:1;">
                       <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
-                        <span style="font-size:0.78rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${uCount}x</span>
-                        <b style="font-size:0.92rem; color:#fff; font-family:var(--font-mono); text-decoration:${isSlain ? 'line-through' : 'none'};">${escapeHtml(uName)}</b>
+                        <span style="font-size:0.8rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${uCount}x</span>
+                        <b style="font-size:0.96rem; color:#fff; font-family:var(--font-mono); text-decoration:${isSlain ? 'line-through' : 'none'};">${escapeHtml(uName)}</b>
                         ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:0.65rem; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:0.1rem 0.35rem;">👑 WARLORD</span>' : ''}
                       </div>
-                      ${u.enhancement ? `<div style="font-size:0.74rem; color:#c084fc; font-weight:700; margin-top:0.15rem;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
+                      ${u.enhancement ? `<div style="font-size:0.75rem; color:#c084fc; font-weight:700; margin-top:0.2rem;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
                     </div>
-                    ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.72rem; font-weight:800; font-family:var(--font-mono); flex-shrink:0;">${uPts} PTS</span>` : ''}
+                    ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.75rem; font-weight:800; font-family:var(--font-mono); flex-shrink:0;">${uPts} PTS</span>` : ''}
                   </div>
 
                   <!-- Tactical Statline Bar -->
-                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:0.35rem 0.2rem; text-align:center; font-family:var(--font-mono);">
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">M</div><div style="font-size:0.75rem; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">T</div><div style="font-size:0.75rem; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">SV</div><div style="font-size:0.75rem; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">INV</div><div style="font-size:0.75rem; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">W</div><div style="font-size:0.75rem; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">LD</div><div style="font-size:0.75rem; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
-                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">OC</div><div style="font-size:0.75rem; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
+                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.45rem 0.2rem; text-align:center; font-family:var(--font-mono);">
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">M</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">T</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">SV</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">INV</div><div style="font-size:0.82rem; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">W</div><div style="font-size:0.82rem; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">LD</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
+                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">OC</div><div style="font-size:0.82rem; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
                   </div>
 
-                  <!-- Wargear Chips -->
-                  ${(u.wargear && u.wargear.length > 0) ? `
+                  <!-- Weapons Table -->
+                  ${weapons.length > 0 ? `
+                    <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; overflow:hidden;">
+                      <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 8px; background:rgba(255,255,255,0.04); font-size:0.65rem; font-weight:800; color:#94a3b8; font-family:var(--font-mono); text-transform:uppercase;">
+                        <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
+                      </div>
+                      ${weapons.map(w => `
+                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:5px 8px; border-top:1px solid rgba(255,255,255,0.04); font-size:0.72rem; font-family:var(--font-mono); align-items:center;">
+                          <div style="min-width:0;">
+                            <div style="font-weight:700; color:#f8fafc; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
+                            ${(w.keywords && w.keywords.length > 0) ? `
+                              <div style="font-size:0.62rem; color:#38bdf8; margin-top:1px;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
+                            ` : ''}
+                          </div>
+                          <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
+                          <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
+                          <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
+                          <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
+                          <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
+                          <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
+                        </div>
+                      `).join('')}
+                    </div>
+                  ` : ((u.wargear && u.wargear.length > 0) ? `
                     <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
                       ${u.wargear.map(w => `<span style="font-size:0.68rem; background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.06); padding:0.1rem 0.35rem; border-radius:4px;">${escapeHtml(w)}</span>`).join('')}
+                    </div>
+                  ` : '')}
+
+                  <!-- Abilities & Rules -->
+                  ${(abilities.length > 0 || rules.length > 0) ? `
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                      ${rules.length > 0 ? `
+                        <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                          ${rules.map(r => `<span style="font-size:0.65rem; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 6px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
+                        </div>
+                      ` : ''}
+                      ${abilities.map(ab => `
+                        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:6px 8px; font-size:0.72rem;">
+                          <b style="color:#facc15; font-size:0.75rem;">${escapeHtml(ab.name)}:</b>
+                          <span style="color:#94a3b8; line-height:1.4;"> ${escapeHtml(ab.description)}</span>
+                        </div>
+                      `).join('')}
                     </div>
                   ` : ''}
 
                   <!-- Interactive Play Mode Wound Tracker -->
-                  <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:0.45rem; display:flex; justify-content:space-between; align-items:center; gap:0.4rem;">
+                  <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:0.5rem; display:flex; justify-content:space-between; align-items:center; gap:0.4rem;">
                     ${maxW > 1 ? `
                       <div style="display:flex; align-items:center; gap:0.4rem;">
-                        <span style="font-size:0.7rem; color:#94a3b8; font-weight:700;">WOUNDS:</span>
-                        <div style="display:flex; align-items:center; gap:0.25rem; background:rgba(0,0,0,0.4); border-radius:6px; padding:0.15rem 0.4rem; border:1px solid rgba(239,68,68,0.3);">
-                          <button onclick="window.gtAdjustWounds(${u._idx}, -1)" style="background:transparent; border:none; color:#ef4444; font-weight:900; font-size:0.9rem; cursor:pointer; padding:0 0.25rem;">-</button>
-                          <b id="wound-val-${u._idx}" style="font-size:0.8rem; font-family:var(--font-mono); color:#fff;">${curW} / ${maxW}</b>
-                          <button onclick="window.gtAdjustWounds(${u._idx}, 1)" style="background:transparent; border:none; color:#10b981; font-weight:900; font-size:0.9rem; cursor:pointer; padding:0 0.25rem;">+</button>
+                        <span style="font-size:0.72rem; color:#94a3b8; font-weight:700;">WOUNDS:</span>
+                        <div style="display:flex; align-items:center; gap:0.25rem; background:rgba(0,0,0,0.4); border-radius:6px; padding:0.15rem 0.45rem; border:1px solid rgba(239,68,68,0.3);">
+                          <button onclick="window.gtAdjustWounds(${u._idx}, -1)" style="background:transparent; border:none; color:#ef4444; font-weight:900; font-size:0.95rem; cursor:pointer; padding:0 0.25rem;">-</button>
+                          <b id="wound-val-${u._idx}" style="font-size:0.82rem; font-family:var(--font-mono); color:#fff;">${curW} / ${maxW}</b>
+                          <button onclick="window.gtAdjustWounds(${u._idx}, 1)" style="background:transparent; border:none; color:#10b981; font-weight:900; font-size:0.95rem; cursor:pointer; padding:0 0.25rem;">+</button>
                         </div>
                       </div>
-                    ` : '<span style="font-size:0.7rem; color:#64748b;">1 Wound Model</span>'}
+                    ` : '<span style="font-size:0.72rem; color:#64748b;">1 Wound Model</span>'}
 
-                    <button onclick="window.gtToggleSlain(${u._idx})" id="slain-btn-${u._idx}" style="font-size:0.7rem; font-weight:800; padding:0.2rem 0.55rem; border-radius:5px; border:1px solid ${isSlain ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}; background:${isSlain ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.04)'}; color:${isSlain ? '#ef4444' : '#94a3b8'}; cursor:pointer;">
+                    <button onclick="window.gtToggleSlain(${u._idx})" id="slain-btn-${u._idx}" style="font-size:0.72rem; font-weight:800; padding:0.25rem 0.6rem; border-radius:6px; border:1px solid ${isSlain ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}; background:${isSlain ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.04)'}; color:${isSlain ? '#ef4444' : '#94a3b8'}; cursor:pointer;">
                       ${isSlain ? '💀 SLAIN' : '⚔️ ACTIVE'}
                     </button>
                   </div>
@@ -1284,22 +1351,17 @@ function renderNativeRosterViewer(list, options = {}) {
         </div>
       `;
     }
-
-    contentHtml += `</div>`;
   } else if (list.raw_text) {
-    contentHtml = `
-      <div style="padding:1.5rem; overflow-y:auto; flex:1; font-family:var(--font-mono); font-size:0.82rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.6; background:#070b14;">
+    contentHtml += `
+      <div style="padding:1.5rem; overflow-y:auto; flex:1; font-family:var(--font-mono); font-size:0.82rem; color:#cbd5e1; white-space:pre-wrap; line-height:1.6;">
         ${escapeHtml(list.raw_text)}
       </div>
     `;
   } else {
-    contentHtml = `
-      <div style="padding:3rem 1rem; text-align:center; color:#94a3b8; font-size:0.9rem;">
-        No roster content found.
-      </div>
-    `;
+    contentHtml += `<div style="padding:3rem 1rem; text-align:center; color:#94a3b8;">No roster content found.</div>`;
   }
 
+  contentHtml += `</div>`;
   return contentHtml;
 }
 

@@ -118,25 +118,88 @@ class ArmyListParser:
         force = root.find('.//force')
         faction = force.attrib.get('catalogueName', 'Warhammer 40,000') if force is not None else 'Warhammer 40,000'
         detachment = 'Core Detachment'
+        army_rules = []
+        detachment_rules = []
         warlord = ''
         units = []
 
+        if force is not None:
+            for r_node in force.findall('./rules/rule'):
+                r_name = r_node.attrib.get('name')
+                desc_node = r_node.find('./description')
+                r_desc = desc_node.text if desc_node is not None else ''
+                if r_name and not any(ar['name'] == r_name for ar in army_rules):
+                    army_rules.append({'name': r_name, 'description': r_desc})
+
         for sel in root.findall('.//force/selections/selection'):
             uname = sel.attrib.get('name', 'Unit')
-            if uname.lower() in ('configuration', 'battle size', 'detachment'):
+            cat_elem = sel.find('.//categories/category[@primary="true"]')
+            role = cat_elem.attrib.get('name', 'Infantry') if cat_elem is not None else 'Infantry'
+
+            if role == 'Configuration' or uname.lower() in ('configuration', 'battle size', 'detachment'):
                 for sub in sel.findall('.//selection'):
                     if 'detachment' in sub.attrib.get('name', '').lower() or sub.attrib.get('type') == 'upgrade':
                         detachment = sub.attrib.get('name')
+                        for dr_node in sub.findall('.//rules/rule'):
+                            dr_name = dr_node.attrib.get('name')
+                            d_desc_node = dr_node.find('./description')
+                            dr_desc = d_desc_node.text if d_desc_node is not None else ''
+                            if dr_name and not any(d['name'] == dr_name for d in detachment_rules):
+                                detachment_rules.append({'name': dr_name, 'description': dr_desc})
                 continue
 
             pts_elem = sel.find('.//costs/cost[@name="pts"]')
             unit_pts = int(float(pts_elem.attrib.get('value', 0))) if pts_elem is not None else 0
-            cat_elem = sel.find('.//categories/category[@primary="true"]')
-            role = cat_elem.attrib.get('name', 'Infantry') if cat_elem is not None else 'Infantry'
             
             is_wl = False
             enhancement = None
             wargear = []
+            weapons = []
+            abilities = []
+            unit_rules = []
+            stats = {}
+
+            # Helper to parse profiles from XML
+            for prof in sel.findall('.//profile'):
+                p_name = prof.attrib.get('name', '')
+                p_type = prof.attrib.get('typeName', '')
+                chars = {c.attrib.get('name'): (c.text or '') for c in prof.findall('.//characteristic')}
+
+                if p_type == 'Unit' and not stats:
+                    stats = {
+                        'M': chars.get('M', '6"'),
+                        'T': chars.get('T', '4'),
+                        'SV': chars.get('Sv', chars.get('SV', '3+')),
+                        'INV': chars.get('InSv', chars.get('INV', '-')),
+                        'W': int(chars.get('W', 2)) if chars.get('W', '').isdigit() else chars.get('W', '2'),
+                        'LD': chars.get('LD', chars.get('Ld', '6+')),
+                        'OC': chars.get('OC', '1')
+                    }
+                elif p_type in ('Abilities', 'Ability', 'Primarch of the First Legion'):
+                    desc = chars.get('Description', chars.get('Effect', ''))
+                    if not any(a['name'] == p_name for a in abilities):
+                        abilities.append({'name': p_name, 'description': desc, 'type': p_type})
+                elif p_type in ('Ranged Weapons', 'Melee Weapons', 'Weapon'):
+                    clean_wname = p_name.replace('➤', '').strip()
+                    if not any(w['name'] == clean_wname for w in weapons):
+                        weapons.append({
+                            'name': clean_wname,
+                            'type': 'Ranged' if p_type == 'Ranged Weapons' or chars.get('Range') != 'Melee' else 'Melee',
+                            'range': chars.get('Range', 'Melee'),
+                            'A': chars.get('A', '1'),
+                            'skill': chars.get('BS', chars.get('WS', '3+')),
+                            'S': chars.get('S', '4'),
+                            'AP': chars.get('AP', '0'),
+                            'D': chars.get('D', '1'),
+                            'keywords': [k.strip() for k in chars.get('Keywords', '').split(',') if k.strip()]
+                        })
+
+            for r_node in sel.findall('.//rules/rule'):
+                ru_name = r_node.attrib.get('name')
+                desc_node = r_node.find('./description')
+                ru_desc = desc_node.text if desc_node is not None else ''
+                if ru_name and not any(ru['name'] == ru_name for ru in unit_rules):
+                    unit_rules.append({'name': ru_name, 'description': ru_desc})
 
             for sub in sel.findall('.//selection'):
                 sname = sub.attrib.get('name', '')
@@ -151,10 +214,24 @@ class ArmyListParser:
             if is_wl and not warlord:
                 warlord = uname
 
-            w_val = 12 if ('Vehicle' in role or 'Monster' in role) else (6 if ('Character' in role or is_wl) else 2)
-            sv_val = '2+' if ('Character' in role or 'Vehicle' in role) else '3+'
-            t_val = 10 if ('Vehicle' in role or 'Monster' in role) else 4
-            m_val = '10"' if ('Mounted' in role or 'Vehicle' in role) else '6"'
+            if not stats:
+                w_val = 12 if ('Vehicle' in role or 'Monster' in role) else (6 if ('Character' in role or is_wl) else 2)
+                sv_val = '2+' if ('Character' in role or 'Vehicle' in role) else '3+'
+                t_val = 10 if ('Vehicle' in role or 'Monster' in role) else 4
+                m_val = '10"' if ('Mounted' in role or 'Vehicle' in role) else '6"'
+                stats = {
+                    'M': m_val,
+                    'T': t_val,
+                    'SV': sv_val,
+                    'INV': '4+' if (is_wl or 'Character' in role) else '-',
+                    'W': w_val,
+                    'LD': '6+',
+                    'OC': 2 if 'Battleline' in role else 1
+                }
+
+            w_int = 2
+            try: w_int = int(stats.get('W', 2))
+            except: pass
 
             units.append({
                 'id': f'u_{len(units)+1}_{uuid.uuid4().hex[:6]}',
@@ -165,15 +242,12 @@ class ArmyListParser:
                 'enhancement': enhancement,
                 'model_count': int(sel.attrib.get('number', 1)),
                 'wargear': list(dict.fromkeys(wargear))[:8],
-                'stats': {
-                    'M': m_val,
-                    'T': t_val,
-                    'SV': sv_val,
-                    'INV': '4+' if (is_wl or 'Character' in role) else '-',
-                    'W': w_val,
-                    'LD': '6+',
-                    'OC': 2 if 'Battleline' in role else 1
-                },
+                'weapons': weapons,
+                'abilities': abilities,
+                'rules': unit_rules,
+                'stats': stats,
+                'max_wounds': w_int,
+                'current_wounds': w_int,
                 'keywords': [role, faction]
             })
 
@@ -183,10 +257,12 @@ class ArmyListParser:
             'faction': faction,
             'detachment': detachment,
             'points': sum(u['points'] for u in units) or pts,
-            'points_limit': 2000,
+            'points_limit': pts,
             'warlord': warlord or (units[0]['name'] if units else ''),
             'source_format': 'BattleScribe XML (.ros / .rosz)',
             'source_url': None,
+            'army_rules': army_rules,
+            'detachment_rules': detachment_rules,
             'units': units,
             'enhancements': [u['enhancement'] for u in units if u.get('enhancement')],
             'stratagems': [],
@@ -382,7 +458,182 @@ class ArmyListParser:
         }
 
     def _parse_json_roster(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        name = data.get("name") or data.get("rosterName") or "Imported Army List"
+        roster_obj = data.get("roster", data)
+        roster_name = roster_obj.get("name") or data.get("name") or data.get("rosterName") or "Army Roster"
+        roster_name = roster_name.strip()
+        
+        # Check if it has BattleScribe / NewRecruit forces structure
+        if "forces" in roster_obj:
+            total_pts = 2000
+            for c in roster_obj.get("costs", []):
+                if c.get("name") == "pts":
+                    try: total_pts = int(float(c.get("value", 2000)))
+                    except: pass
+                    
+            forces = roster_obj.get("forces", [])
+            faction = "Warhammer 40,000"
+            army_rules = []
+            detachment = "Core Detachment"
+            detachment_rules = []
+            units = []
+            warlord = ""
+            
+            for force in forces:
+                if force.get("catalogueName"):
+                    faction = force.get("catalogueName")
+                    
+                for r in force.get("rules", []):
+                    rname = r.get("name")
+                    rdesc = r.get("description")
+                    if rname and not any(ar["name"] == rname for ar in army_rules):
+                        army_rules.append({"name": rname, "description": rdesc})
+                        
+                for sel in force.get("selections", []):
+                    s_name = sel.get("name", "")
+                    primary_cat = next((c.get("name") for c in sel.get("categories", []) if c.get("primary")), "Infantry")
+                    
+                    if primary_cat == "Configuration" or s_name in ["Battle Size", "Detachment", "Force Disposition", "Show/Hide Options"]:
+                        for sub in sel.get("selections", []):
+                            sub_name = sub.get("name", "")
+                            if s_name == "Detachment" or "Detachment" in sub.get("group", ""):
+                                detachment = sub_name
+                                for dr in sub.get("rules", []):
+                                    if not any(d["name"] == dr.get("name") for d in detachment_rules):
+                                        detachment_rules.append({"name": dr.get("name"), "description": dr.get("description")})
+                        continue
+                        
+                    unit_pts = 0
+                    for c in sel.get("costs", []):
+                        if c.get("name") == "pts":
+                            try: unit_pts = int(float(c.get("value", 0)))
+                            except: pass
+                            
+                    model_count = int(sel.get("number", 1))
+                    is_warlord = False
+                    enhancement = None
+                    abilities = []
+                    rules = []
+                    weapons = []
+                    stats = {}
+                    
+                    for r in sel.get("rules", []):
+                        if not any(ru["name"] == r.get("name") for ru in rules):
+                            rules.append({"name": r.get("name"), "description": r.get("description")})
+                        
+                    def process_profiles(profiles_list):
+                        nonlocal stats
+                        for prof in profiles_list:
+                            p_type = prof.get("typeName", "")
+                            p_name = prof.get("name", "")
+                            chars = {}
+                            for c in prof.get("characteristics", []):
+                                c_name = c.get("name", "")
+                                c_val = ""
+                                if isinstance(c, dict):
+                                    for k in ["$text", "value", "text", "content", "$"]:
+                                        if k in c and c[k] is not None:
+                                            c_val = str(c[k])
+                                            break
+                                elif isinstance(c, (str, int, float)):
+                                    c_val = str(c)
+                                if c_name:
+                                    chars[c_name] = c_val
+                            
+                            if p_type == "Unit" and not stats:
+                                stats = {
+                                    "M": chars.get("M", "6\""),
+                                    "T": chars.get("T", "4"),
+                                    "SV": chars.get("Sv", chars.get("SV", "3+")),
+                                    "INV": chars.get("InSv", chars.get("INV", "-")),
+                                    "W": int(chars.get("W", 2)) if chars.get("W", "").isdigit() else chars.get("W", "2"),
+                                    "LD": chars.get("LD", chars.get("Ld", "6+")),
+                                    "OC": chars.get("OC", "1")
+                                }
+                            elif p_type in ["Abilities", "Primarch of the First Legion", "Ability"]:
+                                desc = chars.get("Description", chars.get("Effect", ""))
+                                if not any(a["name"] == p_name for a in abilities):
+                                    abilities.append({"name": p_name, "description": desc, "type": p_type})
+                            elif p_type in ["Ranged Weapons", "Melee Weapons", "Weapon"]:
+                                clean_wname = p_name.replace("➤", "").strip()
+                                if not any(w["name"] == clean_wname for w in weapons):
+                                    weapons.append({
+                                        "name": clean_wname,
+                                        "type": "Ranged" if p_type == "Ranged Weapons" or chars.get("Range") != "Melee" else "Melee",
+                                        "range": chars.get("Range", "Melee"),
+                                        "A": chars.get("A", "1"),
+                                        "skill": chars.get("BS", chars.get("WS", "3+")),
+                                        "S": chars.get("S", "4"),
+                                        "AP": chars.get("AP", "0"),
+                                        "D": chars.get("D", "1"),
+                                        "keywords": [k.strip() for k in chars.get("Keywords", "").split(",") if k.strip()]
+                                    })
+                                    
+                    process_profiles(sel.get("profiles", []))
+                    
+                    def traverse_sub_selections(sub_list):
+                        nonlocal is_warlord, enhancement, model_count
+                        for sub in sub_list:
+                            sub_name = sub.get("name", "")
+                            if "warlord" in sub_name.lower() or any("warlord" in c.get("name", "").lower() for c in sub.get("categories", [])):
+                                is_warlord = True
+                            if "enhancement" in sub_name.lower() or any("enhancement" in c.get("name", "").lower() for c in sub.get("categories", [])):
+                                enhancement = sub_name
+                            
+                            process_profiles(sub.get("profiles", []))
+                            for r in sub.get("rules", []):
+                                if not any(ru["name"] == r.get("name") for ru in rules):
+                                    rules.append({"name": r.get("name"), "description": r.get("description")})
+                                    
+                            traverse_sub_selections(sub.get("selections", []))
+                            
+                    traverse_sub_selections(sel.get("selections", []))
+                    
+                    if is_warlord and not warlord:
+                        warlord = s_name
+                        
+                    if not stats:
+                        stats = {"M": "6\"", "T": "4", "SV": "3+", "INV": "-", "W": 2, "LD": "6+", "OC": "1"}
+                        
+                    w_int = 2
+                    try: w_int = int(stats.get("W", 2))
+                    except: pass
+                    
+                    units.append({
+                        "id": sel.get("id", f"u_{len(units)+1}"),
+                        "name": s_name,
+                        "role": primary_cat,
+                        "points": unit_pts,
+                        "model_count": model_count,
+                        "is_warlord": is_warlord,
+                        "enhancement": enhancement,
+                        "stats": stats,
+                        "max_wounds": w_int,
+                        "current_wounds": w_int,
+                        "weapons": weapons,
+                        "abilities": abilities,
+                        "rules": rules,
+                        "wargear": [w["name"] for w in weapons]
+                    })
+                    
+            return {
+                "id": data.get("id") or f"list_{uuid.uuid4().hex[:10]}",
+                "name": roster_name,
+                "faction": faction,
+                "detachment": detachment,
+                "points": sum(u["points"] for u in units) or total_pts,
+                "points_limit": total_pts,
+                "warlord": warlord or (units[0]["name"] if units else ""),
+                "source_format": "JSON Roster",
+                "source_url": data.get("source_url"),
+                "army_rules": army_rules,
+                "detachment_rules": detachment_rules,
+                "units": units,
+                "enhancements": [u["enhancement"] for u in units if u.get("enhancement")],
+                "stratagems": data.get("stratagems") or [],
+                "raw_text": json.dumps(data)
+            }
+
+        # Fallback flat schema
         faction = data.get("faction") or data.get("catalogueName") or "Warhammer 40,000"
         detachment = data.get("detachment") or "Core Detachment"
         points = int(data.get("points") or data.get("costs", {}).get("pts") or 2000)
@@ -410,16 +661,18 @@ class ArmyListParser:
                 "points": pts,
                 "is_warlord": is_wl,
                 "enhancement": enh,
+                "stats": u.get("stats") or {"M": "6\"", "T": "4", "SV": "3+", "INV": "-", "W": 2, "LD": "6+", "OC": "1"},
                 "wargear": u.get("wargear") or [],
                 "weapons": u.get("weapons") or [],
                 "abilities": u.get("abilities") or [],
+                "rules": u.get("rules") or [],
                 "keywords": u.get("keywords") or [role, faction],
             }
             parsed_units.append(unit_obj)
 
         return {
             "id": data.get("id") or f"list_{uuid.uuid4().hex[:10]}",
-            "name": name,
+            "name": roster_name,
             "faction": faction,
             "detachment": detachment,
             "points": points,
@@ -427,6 +680,8 @@ class ArmyListParser:
             "warlord": warlord or (parsed_units[0]["name"] if parsed_units else ""),
             "source_format": "JSON Roster",
             "source_url": data.get("source_url"),
+            "army_rules": data.get("army_rules") or [],
+            "detachment_rules": data.get("detachment_rules") or [],
             "units": parsed_units,
             "enhancements": [u["enhancement"] for u in parsed_units if u.get("enhancement")],
             "stratagems": data.get("stratagems") or [],
