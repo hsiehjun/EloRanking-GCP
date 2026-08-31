@@ -924,6 +924,8 @@ class PostgresDatabase:
                                 "dropped": p_info.get("dropped", False),
                                 "checked_in": p_info.get("checked_in", True),
                                 "pod_num": p_info.get("pod_num"),
+                                "placement": p_info.get("placement"),
+                                "official_placement": p_info.get("placement"),
                                 "current_elo": p_info.get("current_elo", 1500.0),
                                 "peak_elo": p_info.get("peak_elo", 1500.0),
                                 "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -963,6 +965,8 @@ class PostgresDatabase:
                                 "dropped": p_info.get("dropped", False),
                                 "checked_in": p_info.get("checked_in", True),
                                 "pod_num": p_info.get("pod_num"),
+                                "placement": p_info.get("placement"),
+                                "official_placement": p_info.get("placement"),
                                 "current_elo": p_info.get("current_elo", 1500.0),
                                 "peak_elo": p_info.get("peak_elo", 1500.0),
                                 "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -998,10 +1002,13 @@ class PostgresDatabase:
                 for p_id, p_info in participants.items():
                     name_norm = (p_info.get("full_name") or "").strip().lower()
                     if name_norm and name_norm in existing_names:
-                        # Merge pod_num, team, or faction if missing on the active match record
+                        # Merge pod_num, team, placement, or faction if missing on the active match record
                         active_pid = existing_names[name_norm]
                         if player_stats[active_pid].get("pod_num") is None and p_info.get("pod_num") is not None:
                             player_stats[active_pid]["pod_num"] = p_info.get("pod_num")
+                        if player_stats[active_pid].get("official_placement") is None and p_info.get("placement") is not None:
+                            player_stats[active_pid]["official_placement"] = p_info.get("placement")
+                            player_stats[active_pid]["placement"] = p_info.get("placement")
                         if not player_stats[active_pid].get("team") and p_info.get("team"):
                             player_stats[active_pid]["team"] = p_info.get("team")
                         continue
@@ -1015,6 +1022,8 @@ class PostgresDatabase:
                             "dropped": p_info.get("dropped", False),
                             "checked_in": p_info.get("checked_in", True),
                             "pod_num": p_info.get("pod_num"),
+                            "placement": p_info.get("placement"),
+                            "official_placement": p_info.get("placement"),
                             "current_elo": p_info.get("current_elo", 1500.0),
                             "peak_elo": p_info.get("peak_elo", 1500.0),
                             "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -1078,10 +1087,19 @@ class PostgresDatabase:
 
                 # Check if this tournament uses Pods / Brackets (e.g. GW Warhammer Open / NOVA brackets)
                 has_pods = any(p.get("pod_num") is not None and p.get("pod_num") > 0 for p in player_stats.values())
+                # Check if this tournament has official BCP final placings / playoff bracket results
+                has_official_placements = any(p.get("official_placement") is not None and p.get("official_placement") > 0 for p in player_stats.values())
 
                 # Dynamically sort according to the tournament's specific placing configuration
                 def get_standings_sort_key(p):
                     key_tuple = []
+                    # 1. Primary: Official BCP Final Placings (playoff bracket tree, championship matches, head-to-head resolution)
+                    if has_official_placements:
+                        pl = p.get("official_placement")
+                        pl_val = pl if (pl is not None and pl > 0) else 999999
+                        key_tuple.append(-pl_val)
+
+                    # 2. Secondary: Bracket Pods
                     if has_pods:
                         pod = p.get("pod_num")
                         pod_val = pod if (pod is not None and pod > 0) else 9999
@@ -1156,7 +1174,7 @@ class PostgresDatabase:
                             seen_names.add(norm_name)
 
                 for rank_idx, p in enumerate(final_players, 1):
-                    p["placement"] = rank_idx
+                    p["placement"] = p.get("official_placement") or rank_idx
 
                 res["players"] = final_players
                 res["matches"] = matches
