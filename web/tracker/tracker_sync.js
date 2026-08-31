@@ -1213,15 +1213,26 @@
     const countEl = document.getElementById('gt-history-count');
     if (!container) return;
 
-    // Collect all active matches (Firestore)
-    const activeList = (window.gtActiveMatches && Array.isArray(window.gtActiveMatches) && window.gtActiveMatches.length > 0)
+    // 1. Authoritative Completed Matches from PostgreSQL
+    const completedHistory = (window.gtCompletedHistory && window.gtCompletedHistory.length > 0)
+      ? window.gtCompletedHistory
+      : list.filter(it => it.isFinished || it.is_finished);
+
+    const completedIds = new Set(completedHistory.map(c => (c.match_id || c.id || '').trim().toUpperCase()));
+
+    // 2. Active Matches are strictly those NOT finished in PostgreSQL
+    const rawActive = (window.gtActiveMatches && Array.isArray(window.gtActiveMatches))
       ? window.gtActiveMatches
-      : [window.gtPrimaryActive, ...(window.gtUnfinishedSessions || [])].filter(Boolean);
+      : [];
+
+    const activeList = rawActive.filter(a => {
+      const mid = (a.match_id || a.id || '').trim().toUpperCase();
+      return mid && !completedIds.has(mid) && !a.is_finished && a.status !== 'completed';
+    });
 
     const activeIds = new Set(activeList.map(a => (a.match_id || a.id || '').trim().toUpperCase()));
 
-    // Collect completed matches (PostgreSQL)
-    const completed = (window.gtCompletedHistory || list.filter(it => it.isFinished || it.is_finished)).filter(item => {
+    const completed = completedHistory.filter(item => {
       const mid = (item.match_id || item.id || '').trim().toUpperCase();
       return mid && !activeIds.has(mid);
     });

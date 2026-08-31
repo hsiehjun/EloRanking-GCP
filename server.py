@@ -1594,6 +1594,7 @@ if FASTAPI_AVAILABLE:
         user_name = user.get("display_name") if user else None
         
         fs_engine = get_firestore_engine()
+        db = get_database()
         active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name)
         
         seen_matches = set()
@@ -1601,6 +1602,20 @@ if FASTAPI_AVAILABLE:
         for doc in active_docs:
             mid = (doc.get("roomKey") or doc.get("matchId") or (doc.get("state", {}).get("match_id") if isinstance(doc.get("state"), dict) else "") or "").strip().upper()
             if mid and mid not in seen_matches:
+                # Cross-check with PostgreSQL: If already concluded/finished, purge ghost room and NEVER list as active!
+                saved = db.get_tracker_game(mid)
+                if saved and (saved.get("is_finished") or (isinstance(saved.get("state_json"), dict) and saved["state_json"].get("is_finished"))):
+                    try:
+                        fs_engine.discard_room(mid)
+                    except Exception:
+                        pass
+                    if mid in TRACKER_ROOMS:
+                        try:
+                            del TRACKER_ROOMS[mid]
+                        except KeyError:
+                            pass
+                    continue
+
                 seen_matches.add(mid)
                 formatted = _format_firestore_session_item(doc)
                 if not formatted["is_abandoned"]:
@@ -2288,8 +2303,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=39.0">
-  <script src="/tracker/tracker_sync.js?v=39.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=40.0">
+  <script src="/tracker/tracker_sync.js?v=40.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
