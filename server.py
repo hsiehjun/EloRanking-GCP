@@ -2300,6 +2300,14 @@ if FASTAPI_AVAILABLE:
         return RedirectResponse(url=f"/11th/tracker/play{query}", status_code=303)
 
     # Dynamic Upstream Next.js Static Asset & Image Optimization Streaming
+    @app.get("/_next/image", include_in_schema=False)
+    async def serve_next_image_optimizer(request: Request):
+        raw_url = request.query_params.get("url")
+        if not raw_url:
+            raise HTTPException(status_code=400, detail="Missing url parameter")
+        clean_path = raw_url.lstrip("/")
+        return await proxy_gdm_asset(clean_path)
+
     @app.get("/_next/{path:path}", include_in_schema=False)
     async def serve_next_assets(path: str, request: Request):
         return await proxy_gdm_asset(f"_next/{path}", request.url.query)
