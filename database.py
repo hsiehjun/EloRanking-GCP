@@ -834,8 +834,8 @@ class PostgresDatabase:
                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
                        m.winner_id, m.loser_id, m.is_draw, m.is_bye, m.is_done,
                        (tg.match_id IS NOT NULL) as has_tracker_game,
-                       tg.status as tracker_status,
-                       tg.is_done as tracker_is_done
+                       COALESCE(tg.is_finished, FALSE) as tracker_is_done,
+                       COALESCE(tg.started, FALSE) as tracker_started
                 FROM matches m
                 LEFT JOIN tracker_games tg 
                     ON tg.event_id = m.event_id 
