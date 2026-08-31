@@ -706,7 +706,30 @@ function openFeedbackModal() {
     document.body.appendChild(modal);
   }
 
-  const userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) ? currentUser.email : '';
+  const user = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+
+  if (!user) {
+    modal.innerHTML = `
+      <div class="modal-window" style="max-width: 440px; background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; box-shadow:0 25px 60px rgba(0,0,0,0.85); overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; text-align:center; padding: 28px 24px;">
+        <div style="font-size: 36px; margin-bottom: 12px;">🔒</div>
+        <h3 style="font-size: 18px; font-weight: 800; color: #fff; margin: 0 0 8px;">Sign In to Submit Feedback</h3>
+        <p style="font-size: 13px; color: #94a3b8; line-height: 1.5; margin: 0 0 20px;">
+          Feedback and bug reports are linked to verified player accounts so we can investigate your match data and notify you when your issue is resolved.
+        </p>
+        <div style="display: flex; gap: 10px; justify-content: center;">
+          <button onclick="closeFeedbackModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:9px 18px; border-radius:8px; cursor:pointer;">Cancel</button>
+          <a href="/login?redirect=/" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-decoration:none; padding:9px 20px; border-radius:8px; display:inline-flex; align-items:center; gap:6px;">
+            🔑 Sign In / Register
+          </a>
+        </div>
+      </div>
+    `;
+    modal.classList.add('active');
+    return;
+  }
+
+  const userEmail = user.email || user.bcp_email || '';
+  const userName = user.display_name || userEmail;
 
   modal.innerHTML = `
     <div class="modal-window" style="max-width: 520px; background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; box-shadow:0 25px 60px rgba(0,0,0,0.85); overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
@@ -715,7 +738,9 @@ function openFeedbackModal() {
           <span style="font-size:22px;">💬</span>
           <div>
             <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Feedback & Bug Report</h3>
-            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Help us improve OmniTactica 40k</div>
+            <div style="font-size:11px; color:#10b981; margin-top:2px;">
+              Submitting as <strong>${escapeHtml(userName)}</strong> (${escapeHtml(userEmail)})
+            </div>
           </div>
         </div>
         <button onclick="closeFeedbackModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
@@ -802,7 +827,9 @@ async function handleSubmitFeedback() {
   }
 
   try {
-    const sessionToken = (typeof getAuthToken === 'function' ? getAuthToken() : (localStorage.getItem('elo_session_token') || ''));
+    const sessionToken = localStorage.getItem('native_session_token') || 
+                         localStorage.getItem('elo_auth_token') || 
+                         (typeof getCookieToken === 'function' ? getCookieToken() : (localStorage.getItem('elo_session_token') || ''));
     const payload = {
       feedback_type: activeFeedbackType,
       message: message,

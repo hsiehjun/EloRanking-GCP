@@ -259,6 +259,12 @@ async function handleLogout() {
 
 function renderHeaderAuth() {
   const container = document.getElementById('header-user-area');
+  const feedbackBtn = document.getElementById('nav-btn-feedback');
+
+  if (feedbackBtn) {
+    feedbackBtn.style.display = currentUser ? 'inline-flex' : 'none';
+  }
+
   if (!container) return;
 
   if (currentUser) {

@@ -3447,7 +3447,10 @@ if FASTAPI_AVAILABLE:
             session = auth_mgr.get_session(session_token)
             if session:
                 user_id = session.get("id")
-                user_email = user_email or session.get("email")
+                user_email = session.get("email") or user_email
+
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Please sign in with your OmniTactica account to submit feedback.")
 
         db = get_database()
         fb_id = db.save_feedback(
