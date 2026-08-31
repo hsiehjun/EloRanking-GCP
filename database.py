@@ -975,33 +975,48 @@ class PostgresDatabase:
                             "opponents": []
                         }
 
+                # Determine total rounds in tournament
+                max_rounds = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 6)
+                if max_rounds <= 0:
+                    max_rounds = 6
+
                 # Compute win% and Path to Victory (PTV)
+                # In BCP Swiss, earlier losses are more impactful than later losses
+                # (Winning round 1 has highest weight 2^(N-1), winning final round has weight 2^0)
                 for p_id, ps in player_stats.items():
                     tot = ps["event_matches_count"]
                     ps["win_pct"] = (ps["event_wins"] + 0.5 * ps["event_draws"]) / max(1, tot)
                     ptv = 0
                     for r, w in ps["round_wins"].items():
                         if w == 1:
-                            ptv += (1 << (r - 1))
+                            shift = max(0, max_rounds - r)
+                            ptv += (1 << shift)
                     ps["ptv"] = ptv
 
-                # Compute Opponent Game Win % (SoS)
+                # Compute Opponent Game Win % (SoS) with minimum 33% per opponent
                 for p_id, ps in player_stats.items():
                     opp_pcts = [max(0.33, player_stats[opp]["win_pct"]) for opp in ps["opponents"] if opp in player_stats]
                     ps["sos"] = sum(opp_pcts) / max(1, len(opp_pcts)) if opp_pcts else 0.0
 
+                # Compute Extended Opponent Game Win %
+                for p_id, ps in player_stats.items():
+                    opp_sos = [player_stats[opp]["sos"] for opp in ps["opponents"] if opp in player_stats]
+                    ps["ext_sos"] = sum(opp_sos) / max(1, len(opp_sos)) if opp_sos else 0.0
+
                 # Sort by BCP Official Tiebreakers:
-                # 1. Match Wins
+                # 1. Match Wins (Ties = 0.5)
                 # 2. Path to Victory (PTV)
-                # 3. Opponent Win % (SoS)
-                # 4. Battle Points
+                # 3. Opponent Win % (SoS with 33% min)
+                # 4. Total Battle Points
+                # 5. Extended Opponent Win %
                 sorted_roster = sorted(
                     player_stats.values(),
                     key=lambda p: (
                         p["event_wins"] + 0.5 * p["event_draws"],
                         p["ptv"],
-                        p["sos"],
+                        round(p["sos"], 4),
                         p["event_battle_points"],
+                        round(p["ext_sos"], 4),
                         p["current_elo"]
                     ),
                     reverse=True
