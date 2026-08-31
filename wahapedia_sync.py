@@ -100,6 +100,16 @@ class WahapediaSync:
         from psycopg2 import extras
 
         with self.db.get_connection() as conn:
+            # 1. Drop existing waha tables to ensure completely clean TEXT schema with no legacy type/key constraints
+            with conn.cursor() as cursor:
+                for table_name in TABLE_MAPPING.values():
+                    try:
+                        cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
+                    except Exception as e:
+                        logger.debug(f"Drop notice: {e}")
+            conn.commit()
+
+            # 2. Ingest each dataset
             for filename, table_name in TABLE_MAPPING.items():
                 try:
                     rows = self.fetch_csv(filename)
@@ -111,16 +121,13 @@ class WahapediaSync:
                     data_rows = rows[1:]
 
                     with conn.cursor() as cursor:
-                        # Drop & recreate table cleanly with TEXT columns
                         cols_def = ", ".join([f'"{col}" TEXT' for col in header])
-                        cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
                         cursor.execute(f"CREATE TABLE {table_name} ({cols_def});")
 
                         if data_rows:
                             num_cols = len(header)
                             cols_str = ", ".join([f'"{col}"' for col in header])
 
-                            # Normalize data row widths
                             normalized_data = []
                             for r in data_rows:
                                 if len(r) < num_cols:
@@ -132,7 +139,7 @@ class WahapediaSync:
                             insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES %s;"
                             extras.execute_values(cursor, insert_sql, normalized_data, page_size=5000)
 
-                        # Re-add performance indexes
+                        # Create lookup indexes
                         if table_name == "waha_datasheets":
                             cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_datasheets_name ON waha_datasheets(LOWER(name));")
                             cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_datasheets_faction ON waha_datasheets(faction_id);")
@@ -167,6 +174,13 @@ class WahapediaSync:
 
             # Update sync metadata
             with conn.cursor() as cursor:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS waha_sync_metadata (
+                        key VARCHAR(64) PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                """)
                 if remote_update:
                     cursor.execute("""
                         INSERT INTO waha_sync_metadata (key, value, updated_at) 
