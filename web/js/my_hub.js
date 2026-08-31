@@ -26,19 +26,21 @@ async function loadMyHubDashboard() {
 
   try {
     const data = await window.api.getUserDashboard(currentUser.player_id);
-    if (!data.tracker_history || data.tracker_history.length === 0) {
-      try {
-        const histResp = await fetch(`/api/tracker/history?token=${encodeURIComponent(window.api.getAuthToken())}`, {
-          headers: { 'Authorization': `Bearer ${window.api.getAuthToken()}` }
-        });
-        if (histResp.ok) {
-          const histData = await histResp.json();
-          if (histData && histData.history) {
-            data.tracker_history = histData.history;
-          }
+    try {
+      const sessResp = await fetch(`/api/tracker/sessions?token=${encodeURIComponent(window.api.getAuthToken())}`, {
+        headers: { 'Authorization': `Bearer ${window.api.getAuthToken()}` }
+      });
+      if (sessResp.ok) {
+        const sessData = await sessResp.json();
+        if (sessData && sessData.success) {
+          data.primary_active = sessData.primary_active;
+          data.unfinished_sessions = sessData.unfinished_sessions || [];
+          data.completed_history = sessData.completed_history || [];
+          data.tracker_history = sessData.completed_history || [];
         }
-      } catch (e) {}
-    }
+      }
+    } catch (e) {}
+
     myHubData = data;
     renderMyHub(data);
   } catch (err) {
@@ -356,18 +358,81 @@ function renderMyHub(data) {
         ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
       </div>
 
-      <!-- Card 6: Half-Sized 11th Edition Live Game Tracker History -->
+      <!-- Card 6: 3-Tier 11th Edition Live Game Tracker & Match History -->
       <div class="hub-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Match History & Scorecards</h3>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Active Matches & History</h3>
             <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Tracker ➔</a>
+            <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">+ New Match ➔</a>
           </div>
         </div>
-        ${(data.tracker_history && data.tracker_history.length > 0) ? `
+
+        <!-- 1. Primary Active Match Card (Pinned) -->
+        ${data.primary_active ? `
+          <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 800; color: #10b981; text-transform: uppercase; font-family: var(--font-mono);">
+                <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                🟢 Primary Active Match (Round ${data.primary_active.current_round || 1})
+              </span>
+              <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">#${escapeHtml((data.primary_active.match_id || '').replace('WH40K-', ''))}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+              <div>
+                <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(data.primary_active.p1_name || 'Player 1')} (${data.primary_active.p1_score || 0}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(data.primary_active.p2_name || 'Player 2')} (${data.primary_active.p2_score || 0})</b>
+                <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
+                  ${escapeHtml(data.primary_active.p1_faction || 'Army 1')} vs ${escapeHtml(data.primary_active.p2_faction || 'Army 2')}
+                  ${data.primary_active.primary_mission ? ` • 🎯 ${escapeHtml(data.primary_active.primary_mission)}` : ''}
+                </div>
+              </div>
+              <div style="display: flex; gap: 6px; align-items: center;">
+                <a href="/11th/tracker/play?match_id=${encodeURIComponent(data.primary_active.match_id)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
+                  ▶️ Resume Match
+                </a>
+                <button onclick="discardTrackerSession('${data.primary_active.match_id}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Test Match">
+                  🗑️
+                </button>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- 2. Unfinished Casual Sessions Drawer (Collapsible) -->
+        ${(data.unfinished_sessions && data.unfinished_sessions.length > 0) ? `
+          <details style="background: #090d18; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;">
+            <summary style="cursor: pointer; font-size: 0.78rem; font-weight: 700; color: #f59e0b; display: flex; align-items: center; justify-content: space-between;">
+              <span>📁 Unfinished Sessions (${data.unfinished_sessions.length})</span>
+              <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: normal;">Auto-purges after 14 days</span>
+            </summary>
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+              ${data.unfinished_sessions.map(us => `
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #070b14; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; flex-wrap: wrap; gap: 6px;">
+                  <div>
+                    <div style="font-size: 0.78rem; color: #fff; font-weight: 700;">
+                      ${escapeHtml(us.p1_name || 'Player 1')} vs ${escapeHtml(us.p2_name || 'Player 2')}
+                      <span style="font-size: 0.7rem; color: #38bdf8; font-family: var(--font-mono); margin-left: 4px;">(${us.p1_score || 0} - ${us.p2_score || 0})</span>
+                    </div>
+                    <div style="font-size: 0.68rem; color: var(--text-muted);">${escapeHtml(us.p1_faction || 'Army 1')} • #${escapeHtml((us.match_id || '').replace('WH40K-', ''))} • ${us.date || 'Recent'}</div>
+                  </div>
+                  <div style="display: flex; gap: 6px; align-items: center;">
+                    <a href="/11th/tracker/play?match_id=${encodeURIComponent(us.match_id)}" target="_blank" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); border-radius: 6px; padding: 3px 8px; font-size: 0.72rem; text-decoration: none; font-weight: 700;">
+                      ▶️ Resume
+                    </a>
+                    <button onclick="discardTrackerSession('${us.match_id}')" style="background: rgba(239,68,68,0.1); color: #ef4444; border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 3px 7px; font-size: 0.72rem; cursor: pointer;" title="Discard Game">
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </details>
+        ` : ''}
+
+        <!-- 3. Verified Match History / Completed Scorecards -->
+        ${(data.completed_history && data.completed_history.length > 0) ? `
           <div class="table-container" style="max-height: 260px; overflow-y: auto;">
             <table id="hub-tracker-history-table" class="table-compact" style="width: 100%;">
               <thead>
@@ -375,23 +440,18 @@ function renderMyHub(data) {
                   <th>Match</th>
                   <th>Players / Armies</th>
                   <th>Score</th>
-                  <th>Status</th>
+                  <th>Scorecard</th>
                 </tr>
               </thead>
               <tbody>
-                ${data.tracker_history.map(th => {
+                ${data.completed_history.map(th => {
                   const p1 = th.p1_name || 'Player 1';
                   const p2 = th.p2_name || 'Player 2';
                   const p1Score = th.p1_score || 0;
                   const p2Score = th.p2_score || 0;
-                  const isDone = th.is_finished;
                   const matchId = th.match_id || '';
                   const shortId = matchId.replace('WH40K-', '');
-                  const dateStr = th.updated_at ? th.updated_at.substring(5, 10) : (th.created_at ? th.created_at.substring(5, 10) : '-');
-
-                  const statusBadge = isDone 
-                    ? `<span class="badge" style="background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:6px;">Completed</span>`
-                    : `<span class="badge" style="background:rgba(245,158,11,0.15); color:#f59e0b; font-size:0.7rem; font-weight:700; padding:0.15rem 0.5rem; border-radius:6px;">In Progress</span>`;
+                  const dateStr = th.date || (th.updated_at ? th.updated_at.substring(5, 10) : '-');
 
                   return `
                     <tr>
@@ -408,20 +468,24 @@ function renderMyHub(data) {
                       <td>
                         <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
                       </td>
-                      <td>${statusBadge}</td>
+                      <td>
+                        <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="display:inline-flex; align-items:center; gap:3px; background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:6px; text-decoration:none; border:1px solid rgba(16,185,129,0.3);">
+                          📄 Scorecard ↗
+                        </a>
+                      </td>
                     </tr>
                   `;
                 }).join('')}
               </tbody>
             </table>
           </div>
-        ` : `
+        ` : (!data.primary_active && (!data.unfinished_sessions || data.unfinished_sessions.length === 0)) ? `
           <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
             <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
             <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live 11th Edition games with automated VP scoring & real-time sync!</div>
             <a href="/11th/tracker" target="_blank" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
           </div>
-        `}
+        ` : ''}
       </div>
 
     </div>
@@ -1653,6 +1717,29 @@ function launchTrackerWithList(listId) {
   window.open('/11th/tracker', '_blank');
 }
 
+async function discardTrackerSession(matchId) {
+  if (!matchId) return;
+  if (!confirm('Are you sure you want to discard this unfinished session? (Will not count towards your Elo or battle record)')) return;
+
+  try {
+    const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${window.api.getAuthToken()}`
+      },
+      body: JSON.stringify({ token: window.api.getAuthToken() })
+    });
+    if (resp.ok) {
+      if (typeof loadHubDashboard === 'function') {
+        loadHubDashboard();
+      }
+    }
+  } catch(e) {
+    alert('Notice discarding match: ' + e.message);
+  }
+}
+
 window.loadHubArmyLists = loadHubArmyLists;
 window.openImportArmyListModal = openImportArmyListModal;
 window.closeImportArmyListModal = closeImportArmyListModal;
@@ -1662,3 +1749,4 @@ window.closeViewArmyListModal = closeViewArmyListModal;
 window.exportArmyListToBcp = exportArmyListToBcp;
 window.deleteHubArmyList = deleteHubArmyList;
 window.launchTrackerWithList = launchTrackerWithList;
+window.discardTrackerSession = discardTrackerSession;

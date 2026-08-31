@@ -2585,6 +2585,44 @@ class PostgresDatabase:
             conn.commit()
         return True
 
+    def get_user_tracker_sessions(self, user_id: Optional[str] = None, user_name: Optional[str] = None) -> Dict[str, Any]:
+        """Returns structured 3-tier active slot management:
+        1. primary_active: most recently updated unfinished match (< 24h)
+        2. unfinished_sessions: other unfinished matches (< 14d)
+        3. completed_history: completed matches (verified scorecards)
+        """
+        all_games = self.get_tracker_history(limit=100, user_id=user_id, user_name=user_name)
+        now = datetime.now(timezone.utc)
+        
+        primary_active = None
+        unfinished_sessions = []
+        completed_history = []
+        
+        for g in all_games:
+            is_finished = g.get("is_finished") is True
+            updated_at = g.get("updated_at")
+            
+            if is_finished:
+                completed_history.append(g)
+            else:
+                age_hours = 0.0
+                if updated_at:
+                    if isinstance(updated_at, datetime):
+                        dt = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
+                        age_hours = (now - dt).total_seconds() / 3600.0
+                
+                if age_hours <= 24.0 and primary_active is None:
+                    primary_active = g
+                else:
+                    unfinished_sessions.append(g)
+                    
+        return {
+            "primary_active": primary_active,
+            "unfinished_sessions": unfinished_sessions,
+            "completed_history": completed_history,
+            "total_games": len(all_games)
+        }
+
     # =========================================================================
     # EVENT STUDIO: TOURNAMENT MANAGEMENT & BCP TWO-WAY SYNC
     # =========================================================================

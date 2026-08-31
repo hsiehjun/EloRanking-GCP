@@ -982,7 +982,11 @@
       countEl.textContent = list.length > 0 ? `(${list.length})` : '';
     }
 
-    if (list.length === 0) {
+    const primary = window.gtPrimaryActive;
+    const unfinished = window.gtUnfinishedSessions || [];
+    const completed = window.gtCompletedHistory || list.filter(it => it.isFinished || it.is_finished);
+
+    if (!primary && unfinished.length === 0 && completed.length === 0) {
       container.innerHTML = `
         <div style="color:#94a3b8; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
           No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!
@@ -991,109 +995,209 @@
       return;
     }
 
-    container.innerHTML = list.map(item => {
-      const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
-      const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
-      const p1F = item.game?.p1Faction || item.p1_faction || '';
-      const p2F = item.game?.p2Faction || item.p2_faction || '';
-      const p1S = item.p1Score ?? item.p1_score ?? 0;
-      const p2S = item.p2Score ?? item.p2_score ?? 0;
-      const mid = item.match_id || item.id || '';
-      const isDone = item.isFinished || item.is_finished;
-      const dateStr = new Date(item.date || item.updated_at || Date.now()).toLocaleDateString();
+    let outHtml = '';
 
-      const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
+    // 1. Primary Active Match Card (Pinned)
+    if (primary) {
+      const p1 = primary.game?.p1Name || primary.p1_name || 'Player 1';
+      const p2 = primary.game?.p2Name || primary.p2_name || 'Player 2';
+      const p1F = primary.game?.p1Faction || primary.p1_faction || '';
+      const p2F = primary.game?.p2Faction || primary.p2_faction || '';
+      const p1S = primary.p1Score ?? primary.p1_score ?? 0;
+      const p2S = primary.p2Score ?? primary.p2_score ?? 0;
+      const mid = primary.match_id || primary.id || '';
+      const rNum = primary.round || primary.current_round || 1;
 
-      return `
-        <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
-          <div style="min-width:0; flex:1;">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
-              <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(mid.replace('WH40K-', ''))} ↗</span>
-              <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
-            </div>
-            ${factionSubtitle}
-            <div style="font-size:11px; color:#64748b; margin-top:4px;">
-              <span>${dateStr}</span>
-            </div>
+      outHtml += `
+        <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:14px; padding:14px 18px; margin-bottom:12px; box-sizing:border-box;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
+            <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
+              <span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+              🟢 Primary Active Match (Round ${rNum})
+            </span>
+            <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">#${escapeHtml(mid.replace('WH40K-', ''))}</span>
           </div>
-          <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
-            <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
-              ${p1S} - ${p2S}
-            </span>
-            <span style="background:${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}; color:${isDone ? '#10b981' : '#f59e0b'}; border:1px solid ${isDone ? 'rgba(16,185,129,0.3)' : 'rgba(245,158,11,0.3)'}; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
-              ${isDone ? 'Completed' : 'In Progress'}
-            </span>
-            <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
-              📄 Scorecard
-            </button>
-            <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-            </button>
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+              <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} (${p1S}) <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)} (${p2S})</b>
+              <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                ${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}
+                ${primary.primary_mission ? ` • 🎯 ${escapeHtml(primary.primary_mission)}` : ''}
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
+                ▶️ Resume Match
+              </a>
+              <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}')" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
+                🗑️
+              </button>
+            </div>
           </div>
         </div>
       `;
-    }).join('');
+    }
+
+    // 2. Unfinished Casual Sessions Drawer
+    if (unfinished.length > 0) {
+      outHtml += `
+        <details style="background:#090d18; border:1px solid #1e293b; border-radius:12px; padding:10px 14px; margin-bottom:12px;">
+          <summary style="cursor:pointer; font-size:12px; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace; display:flex; align-items:center; justify-content:space-between;">
+            <span>📁 Unfinished Sessions (${unfinished.length})</span>
+            <span style="font-size:10px; color:#64748b; font-weight:normal;">Auto-purges after 14 days</span>
+          </summary>
+          <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
+            ${unfinished.map(us => {
+              const p1 = us.game?.p1Name || us.p1_name || 'Player 1';
+              const p2 = us.game?.p2Name || us.p2_name || 'Player 2';
+              const mid = us.match_id || us.id || '';
+              const p1S = us.p1Score ?? us.p1_score ?? 0;
+              const p2S = us.p2Score ?? us.p2_score ?? 0;
+              const dateStr = us.date ? new Date(us.date).toLocaleDateString() : 'Recent';
+
+              return `
+                <div style="display:flex; justify-content:space-between; align-items:center; background:#070b14; border:1px solid #1e293b; border-radius:8px; padding:8px 12px; flex-wrap:wrap; gap:6px;">
+                  <div>
+                    <div style="font-size:12px; color:#f8fafc; font-weight:700; font-family:'JetBrains Mono',monospace;">
+                      ${escapeHtml(p1)} vs ${escapeHtml(p2)}
+                      <span style="font-size:11px; color:#38bdf8; margin-left:4px;">(${p1S} - ${p2S})</span>
+                    </div>
+                    <div style="font-size:10px; color:#64748b;">${escapeHtml(us.p1_faction || 'Army 1')} • #${escapeHtml(mid.replace('WH40K-', ''))} • ${dateStr}</div>
+                  </div>
+                  <div style="display:flex; gap:6px; align-items:center;">
+                    <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); border-radius:6px; padding:3px 8px; font-size:11px; text-decoration:none; font-family:'JetBrains Mono',monospace; font-weight:700;">
+                      ▶️ Resume
+                    </a>
+                    <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}')" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.25); border-radius:6px; padding:3px 7px; font-size:11px; cursor:pointer;" title="Discard Game">
+                      🗑️
+                    </button>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </details>
+      `;
+    }
+
+    // 3. Completed Verified Scorecards
+    if (completed.length > 0) {
+      outHtml += completed.map(item => {
+        const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
+        const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
+        const p1F = item.game?.p1Faction || item.p1_faction || '';
+        const p2F = item.game?.p2Faction || item.p2_faction || '';
+        const p1S = item.p1Score ?? item.p1_score ?? 0;
+        const p2S = item.p2Score ?? item.p2_score ?? 0;
+        const mid = item.match_id || item.id || '';
+        const dateStr = item.date ? new Date(item.date).toLocaleDateString() : 'Completed';
+
+        const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
+
+        return `
+          <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative; margin-bottom:8px;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
+            <div style="min-width:0; flex:1;">
+              <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
+                <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(mid.replace('WH40K-', ''))} ↗</span>
+                <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
+              </div>
+              ${factionSubtitle}
+              <div style="font-size:11px; color:#64748b; margin-top:4px;">
+                <span>${dateStr}</span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
+              <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
+                ${p1S} - ${p2S}
+              </span>
+              <span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
+                Completed
+              </span>
+              <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+                📄 Scorecard
+              </button>
+              <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    container.innerHTML = outHtml;
   }
 
   // 6. PostgreSQL Database as Sole Source of Truth for History
   async function syncHistoryFromDatabase() {
     try {
       const token = getAuthToken();
-      const resp = await fetch(SYNC_CONFIG.historyEndpoint + (token ? `?token=${encodeURIComponent(token)}` : ''), {
+      const resp = await fetch('/api/tracker/sessions' + (token ? `?token=${encodeURIComponent(token)}` : ''), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       if (resp.ok) {
         const data = await resp.json();
-        const rawList = (data && data.history && Array.isArray(data.history)) ? data.history : [];
-        dbHistoryCache = rawList.map(item => {
-          let s = {};
-          if (typeof item.state_json === 'string') {
-            try { s = JSON.parse(item.state_json); } catch (e) {}
-          } else if (typeof item.state_json === 'object') {
-            s = item.state_json || {};
+        if (data && data.success) {
+          window.gtPrimaryActive = data.primary_active || null;
+          window.gtUnfinishedSessions = data.unfinished_sessions || [];
+          window.gtCompletedHistory = data.completed_history || [];
+
+          const rawList = [
+            ...(data.primary_active ? [data.primary_active] : []),
+            ...(data.unfinished_sessions || []),
+            ...(data.completed_history || [])
+          ];
+
+          dbHistoryCache = rawList.map(item => {
+            let s = {};
+            if (typeof item.state_json === 'string') {
+              try { s = JSON.parse(item.state_json); } catch (e) {}
+            } else if (typeof item.state_json === 'object') {
+              s = item.state_json || {};
+            }
+            return {
+              id: item.match_id,
+              match_id: item.match_id,
+              date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
+              game: s.game || {
+                p1Name: item.p1_name || 'Player 1',
+                p2Name: item.p2_name || 'Player 2',
+                p1Faction: item.p1_faction,
+                p2Faction: item.p2_faction,
+                p1Detachments: item.p1_detachment ? [item.p1_detachment] : [],
+                p2Detachments: item.p2_detachment ? [item.p2_detachment] : [],
+                primary: item.primary_mission || 'Take & Hold',
+                deployment: item.deployment || 'Search & Destroy'
+              },
+              p1: s.p1 || { score: item.p1_score || 0 },
+              p2: s.p2 || { score: item.p2_score || 0 },
+              round: item.current_round || s.round || 1,
+              p1Score: item.p1_score || 0,
+              p2Score: item.p2_score || 0,
+              started: item.started,
+              isFinished: item.is_finished,
+              winner: item.winner_name,
+              ...s
+            };
+          });
+
+          // Filter out locally hidden match IDs to prevent any race condition
+          let locallyHidden = [];
+          try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
+          if (locallyHidden.length > 0) {
+            dbHistoryCache = dbHistoryCache.filter(item => !locallyHidden.includes(item.match_id || item.id));
           }
-          return {
-            id: item.match_id,
-            match_id: item.match_id,
-            date: new Date(item.updated_at || item.created_at || Date.now()).getTime(),
-            game: s.game || {
-              p1Name: item.p1_name || 'Player 1',
-              p2Name: item.p2_name || 'Player 2',
-              p1Faction: item.p1_faction,
-              p2Faction: item.p2_faction,
-              p1Detachments: item.p1_detachment ? [item.p1_detachment] : [],
-              p2Detachments: item.p2_detachment ? [item.p2_detachment] : [],
-              primary: item.primary_mission || 'Take & Hold',
-              deployment: item.deployment || 'Search & Destroy'
-            },
-            p1: s.p1 || { score: item.p1_score || 0 },
-            p2: s.p2 || { score: item.p2_score || 0 },
-            round: item.current_round || s.round || 1,
-            p1Score: item.p1_score || 0,
-            p2Score: item.p2_score || 0,
-            started: item.started,
-            isFinished: item.is_finished,
-            winner: item.winner_name,
-            ...s
-          };
-        });
 
-        // Filter out locally hidden match IDs to prevent any race condition
-        let locallyHidden = [];
-        try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
-        if (locallyHidden.length > 0) {
-          dbHistoryCache = dbHistoryCache.filter(item => !locallyHidden.includes(item.match_id || item.id));
+          originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
+
+          window.dispatchEvent(new StorageEvent('storage', {
+            key: 'gdm-11e-tracker-history',
+            newValue: JSON.stringify(dbHistoryCache),
+            storageArea: localStorage
+          }));
+
+          renderHistoryList(dbHistoryCache);
         }
-
-        originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
-
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: 'gdm-11e-tracker-history',
-          newValue: JSON.stringify(dbHistoryCache),
-          storageArea: localStorage
-        }));
-
-        renderHistoryList(dbHistoryCache);
       }
     } catch (e) {}
   }

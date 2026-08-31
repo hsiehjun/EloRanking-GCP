@@ -1351,6 +1351,73 @@ if FASTAPI_AVAILABLE:
             logger.error(f"Error fetching tracker history: {err}")
             return {"success": False, "history": []}
 
+    @app.get("/api/tracker/sessions", summary="Get user's 3-tier active slot management (primary active, unfinished, completed)")
+    async def api_tracker_user_sessions(
+        request: Request,
+        token: Optional[str] = Query(None)
+    ):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+        user = auth_mgr.get_session(session_token) if session_token else None
+        
+        user_id = user["id"] if user else None
+        user_name = user.get("display_name") if user else None
+        
+        db = get_database()
+        try:
+            sessions = db.get_user_tracker_sessions(user_id=user_id, user_name=user_name)
+            return {"success": True, **sessions}
+        except Exception as err:
+            logger.error(f"Error fetching user tracker sessions: {err}")
+            return {"success": False, "primary_active": None, "unfinished_sessions": [], "completed_history": []}
+
+    @app.post("/api/tracker/room/{match_id}/discard", summary="Discard / abandon a casual test session with zero Elo penalty")
+    async def api_tracker_discard_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
+        match_id = normalize_tracker_match_id(match_id)
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+        user = auth_mgr.get_session(session_token) if session_token else None
+        
+        db = get_database()
+        if user:
+            db.hide_tracker_game_for_user(match_id, user["id"])
+            
+        if match_id in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id]["status"] = "abandoned"
+            state = TRACKER_ROOMS[match_id].get("state", {})
+            if isinstance(state, dict):
+                state["status"] = "abandoned"
+                state["is_abandoned"] = True
+                
+        return {"success": True, "match_id": match_id, "status": "abandoned"}
+
+    @app.post("/api/tracker/room/{match_id}/finalize", summary="Finalize and lock match scorecard and compute Elo")
+    async def api_tracker_finalize_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
+        match_id = normalize_tracker_match_id(match_id)
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+        user = auth_mgr.get_session(session_token) if session_token else None
+        
+        db = get_database()
+        room = TRACKER_ROOMS.get(match_id)
+        state = (payload.state if payload and payload.state else None) or (room.get("state") if room else None) or {}
+        
+        if isinstance(state, dict):
+            state["is_finished"] = True
+            
+        db.save_tracker_game(match_id, state)
+        if match_id in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id]["is_finished"] = True
+            
+        return {
+            "success": True,
+            "match_id": match_id,
+            "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}"
+        }
+
     @app.post("/api/tracker/room/{match_id}/hide", summary="Soft-delete/hide a game from the user's personal history")
     async def api_tracker_hide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
         match_id = normalize_tracker_match_id(match_id)
