@@ -1741,7 +1741,7 @@ if FASTAPI_AVAILABLE:
         bcp_live_events = []
         next_key = None
         try:
-            for _ in range(5):
+            for _ in range(10):
                 bcp_url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
                 if query and query.strip():
                     bcp_url += f"&name={urllib.parse.quote(query.strip())}"
@@ -1771,9 +1771,9 @@ if FASTAPI_AVAILABLE:
                 cursor.execute("""
                 SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
                 FROM events
-                WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
+                WHERE event_date >= CURRENT_DATE - INTERVAL '14 days' AND event_date <= CURRENT_DATE + INTERVAL '120 days'
                 ORDER BY event_date ASC
-                LIMIT 200;
+                LIMIT 1500;
                 """)
                 db_events = [dict(r) for r in cursor.fetchall()]
 
