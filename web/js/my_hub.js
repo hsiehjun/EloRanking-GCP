@@ -1007,42 +1007,34 @@ function openImportArmyListModal() {
 
       <!-- Navigation Tabs -->
       <div style="display:flex; border-bottom:1px solid rgba(255,255,255,0.08); background:rgba(0,0,0,0.25);">
-        <button id="import-tab-file" onclick="switchImportTab('file')" style="flex:1; padding:10px 6px; font-size:12px; font-weight:800; background:rgba(56,189,248,0.12); color:#38bdf8; border:none; border-bottom:2px solid #38bdf8; cursor:pointer;">
+        <button id="import-tab-file" onclick="switchImportTab('file')" style="flex:1; padding:12px 8px; font-size:13px; font-weight:800; background:rgba(56,189,248,0.12); color:#38bdf8; border:none; border-bottom:2px solid #38bdf8; cursor:pointer;">
           📁 Upload File (.json, .rosz, .ros)
         </button>
-        <button id="import-tab-link" onclick="switchImportTab('link')" style="flex:1; padding:10px 6px; font-size:12px; font-weight:700; background:transparent; color:#94a3b8; border:none; border-bottom:2px solid transparent; cursor:pointer;">
-          🌐 NewRecruit Link
-        </button>
-        <button id="import-tab-text" onclick="switchImportTab('text')" style="flex:1; padding:10px 6px; font-size:12px; font-weight:700; background:transparent; color:#94a3b8; border:none; border-bottom:2px solid transparent; cursor:pointer;">
+        <button id="import-tab-text" onclick="switchImportTab('text')" style="flex:1; padding:12px 8px; font-size:13px; font-weight:700; background:transparent; color:#94a3b8; border:none; border-bottom:2px solid transparent; cursor:pointer;">
           ✏️ Paste Text / JSON
         </button>
       </div>
 
       <!-- Tab 1: Upload File -->
       <div id="import-view-file" style="padding:18px;">
-        <div id="hub-drop-zone" onclick="document.getElementById('hub-file-input').click()" style="border:2px dashed #334155; border-radius:12px; padding:28px 16px; text-align:center; background:#070b14; cursor:pointer; transition:all 0.2s;" ondragover="event.preventDefault(); this.style.borderColor='#38bdf8'" ondragleave="this.style.borderColor='#334155'" ondrop="event.preventDefault(); this.style.borderColor='#334155'; handleHubFileDrop(event)">
+        <div id="hub-drop-zone" onclick="document.getElementById('hub-file-input').click()" style="border:2px dashed rgba(56,189,248,0.4); border-radius:12px; padding:32px 16px; text-align:center; background:#070b14; cursor:pointer; transition:all 0.2s;" ondragover="event.preventDefault(); this.style.borderColor='#38bdf8'; this.style.background='rgba(56,189,248,0.05)'" ondragleave="this.style.borderColor='rgba(56,189,248,0.4)'; this.style.background='#070b14'" ondrop="event.preventDefault(); this.style.borderColor='rgba(56,189,248,0.4)'; this.style.background='#070b14'; handleHubFileDrop(event)">
           <input type="file" id="hub-file-input" accept=".json,.ros,.rosz,.txt,.xml" style="display:none;" onchange="handleHubFileUpload(this.files[0])" />
-          <div style="font-size:32px; margin-bottom:8px;">📁</div>
-          <div style="font-size:14px; font-weight:700; color:#fff;">Click or Drag & Drop Roster File</div>
-          <div style="font-size:11px; color:#94a3b8; margin-top:4px;">Supports <b>BattleScribe (.rosz, .ros)</b>, <b>NewRecruit (.json)</b>, & <b>Text (.txt)</b></div>
+          <div style="font-size:36px; margin-bottom:10px;">📁</div>
+          <div style="font-size:15px; font-weight:800; color:#fff;">Click or Drag & Drop Roster File</div>
+          <div style="font-size:12px; color:#94a3b8; margin-top:6px; line-height:1.4;">
+            Supports <b>NewRecruit (.json)</b>, <b>BattleScribe (.rosz, .ros)</b>, & <b>Text (.txt)</b>
+          </div>
+          <div style="margin-top:12px; display:inline-block; background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">
+            ⚡ 1-Click Complete Datasheets & Weapons
+          </div>
         </div>
         <div id="hub-file-status" style="margin-top:12px; font-size:12px; color:#38bdf8; text-align:center; display:none;"></div>
       </div>
 
-      <!-- Tab 2: Link -->
-      <div id="import-view-link" style="padding:18px; display:none;">
-        <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:8px;">NewRecruit Share Link</label>
-        <input id="hub-import-link-input" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; font-size:13px; color:#e2e8f0; outline:none; box-sizing:border-box;" />
-        <div style="margin-top:16px; display:flex; justify-content:flex-end; gap:8px;">
-          <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;">Cancel</button>
-          <button id="hub-btn-do-import-link" onclick="handleHubParseAndSaveLink()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:8px 18px; border-radius:6px; cursor:pointer;">⚡ Import Link</button>
-        </div>
-      </div>
-
-      <!-- Tab 3: Paste Text -->
+      <!-- Tab 2: Paste Text -->
       <div id="import-view-text" style="padding:18px; display:none;">
-        <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:8px;">Paste Army List Text / JSON</label>
-        <textarea id="hub-import-text-input" rows="7" placeholder="Paste roster export from BattleScribe, 40k App, NewRecruit, or JSON..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; font-family:monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical;"></textarea>
+        <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:8px;">Paste Army List Text or JSON Export</label>
+        <textarea id="hub-import-text-input" rows="8" placeholder="Paste full roster export JSON or text from NewRecruit / BattleScribe..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; font-family:monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical;"></textarea>
         <div style="margin-top:16px; display:flex; justify-content:flex-end; gap:8px;">
           <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;">Cancel</button>
           <button id="hub-btn-do-import-text" onclick="handleHubParseAndSaveText()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:8px 18px; border-radius:6px; cursor:pointer;">⚡ Import Text</button>
@@ -1054,7 +1046,7 @@ function openImportArmyListModal() {
 }
 
 function switchImportTab(tab) {
-  const tabs = ['file', 'link', 'text'];
+  const tabs = ['file', 'text'];
   tabs.forEach(t => {
     const btn = document.getElementById(`import-tab-${t}`);
     const view = document.getElementById(`import-view-${t}`);
@@ -1252,37 +1244,71 @@ function renderNativeRosterViewer(list, options = {}) {
     }
   });
 
+  // Helper to group identical units
+  function groupIdenticalUnits(catUnits) {
+    const grouped = [];
+    const map = new Map();
+
+    catUnits.forEach(u => {
+      const wKey = (u.weapons || []).map(w => `${w.name}-${w.Range || w.range}-${w.A}-${w.skill || w.BS || w.WS}-${w.S}-${w.AP}-${w.D}`).sort().join('|');
+      const sKey = u.stats ? `${u.stats.M}-${u.stats.T}-${u.stats.SV}-${u.stats.INV}-${u.stats.W}-${u.stats.LD}-${u.stats.OC}` : '';
+      const key = `${u.name}||${u.enhancement || ''}||${u.is_warlord ? '1' : '0'}||${sKey}||${wKey}`;
+
+      if (map.has(key)) {
+        const existing = map.get(key);
+        existing.quantity = (existing.quantity || 1) + (u.quantity || 1);
+        existing.totalPoints += (u.points || 0);
+        existing._indices.push(u._idx);
+      } else {
+        const entry = {
+          ...u,
+          quantity: u.quantity || 1,
+          unitPoints: u.points || 0,
+          totalPoints: u.points || 0,
+          _indices: [u._idx]
+        };
+        map.set(key, entry);
+        grouped.push(entry);
+      }
+    });
+
+    return grouped;
+  }
+
   if (units.length > 0) {
-    for (const [catName, catUnits] of Object.entries(categories)) {
-      if (catUnits.length === 0) continue;
+    for (const [catName, rawUnits] of Object.entries(categories)) {
+      if (rawUnits.length === 0) continue;
+      const catUnits = groupIdenticalUnits(rawUnits);
+      const totalUnitsInCat = rawUnits.length;
       const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
       
       contentHtml += `
         <div>
           <div style="font-size:0.85rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:0.6rem; display:flex; align-items:center; gap:0.4rem;">
-            <span>${catIcon}</span> ${catName} <span style="font-size:0.75rem; color:#64748b; font-weight:normal;">(${catUnits.length})</span>
+            <span>${catIcon}</span> ${catName} <span style="font-size:0.75rem; color:#64748b; font-weight:normal;">(${totalUnitsInCat})</span>
           </div>
-          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(360px, 1fr)); gap:0.85rem;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:0.85rem;">
             ${catUnits.map(u => {
               const uName = u.name || 'Unit';
-              const uPts = u.points || 0;
+              const uPts = u.unitPoints || u.points || 0;
+              const totalPts = u.totalPoints || uPts;
+              const uQty = u.quantity || 1;
               const uCount = u.model_count || 1;
               const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
-              const maxW = stats.W || 2;
-              const curW = u._current_wounds !== undefined ? u._current_wounds : maxW;
-              const isSlain = u._is_slain || false;
               const weapons = u.weapons || [];
               const abilities = u.abilities || [];
               const rules = u.rules || [];
 
               return `
-                <div class="gt-unit-card" id="unit-card-${u._idx}" style="background:rgba(15, 23, 42, 0.9); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'}; border-radius:12px; padding:1rem; display:flex; flex-direction:column; gap:0.75rem; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
+                <div class="gt-unit-card" style="background:rgba(15, 23, 42, 0.9); border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'}; border-radius:12px; padding:0.9rem; display:flex; flex-direction:column; gap:0.65rem; transition:all 0.2s;">
                   <!-- Top Row: Unit Name & Points -->
                   <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.4rem;">
                     <div style="min-width:0; flex:1;">
                       <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
-                        <span style="font-size:0.8rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${uCount}x</span>
-                        <b style="font-size:0.96rem; color:#fff; font-family:var(--font-mono); text-decoration:${isSlain ? 'line-through' : 'none'};">${escapeHtml(uName)}</b>
+                        ${uQty > 1 ? `
+                          <span class="badge" style="background:#0284c7; color:#fff; font-size:0.75rem; font-weight:800; padding:1px 6px; border-radius:4px; font-family:var(--font-mono);">${uQty}x</span>
+                        ` : (uCount > 1 ? `<span style="font-size:0.8rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${uCount}x</span>` : '')}
+                        <b style="font-size:0.96rem; color:#fff; font-family:var(--font-mono);">${escapeHtml(uName)}</b>
                         ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:0.65rem; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:0.1rem 0.35rem;">👑 WARLORD</span>' : ''}
                       </div>
                       ${u.enhancement ? `<div style="font-size:0.75rem; color:#c084fc; font-weight:700; margin-top:0.2rem;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
@@ -1292,42 +1318,48 @@ function renderNativeRosterViewer(list, options = {}) {
                         </div>
                       ` : ''}
                     </div>
-                    ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.75rem; font-weight:800; font-family:var(--font-mono); flex-shrink:0;">${uPts} PTS</span>` : ''}
+                    ${totalPts > 0 ? `
+                      <span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.75rem; font-weight:800; font-family:var(--font-mono); flex-shrink:0; text-align:right;">
+                        ${uQty > 1 ? `${totalPts} PTS <span style="font-size:0.62rem; color:#94a3b8; font-weight:normal;">(${uPts} ea)</span>` : `${totalPts} PTS`}
+                      </span>
+                    ` : ''}
                   </div>
 
                   <!-- Tactical Statline Bar -->
-                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.45rem 0.2rem; text-align:center; font-family:var(--font-mono);">
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">M</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">T</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">SV</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">INV</div><div style="font-size:0.82rem; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">W</div><div style="font-size:0.82rem; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">LD</div><div style="font-size:0.82rem; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
-                    <div><div style="font-size:0.62rem; color:#64748b; font-weight:700;">OC</div><div style="font-size:0.82rem; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
+                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.45); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:0.4rem 0.15rem; text-align:center; font-family:var(--font-mono);">
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">M</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">T</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">SV</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">INV</div><div style="font-size:0.8rem; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">W</div><div style="font-size:0.8rem; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">LD</div><div style="font-size:0.8rem; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
+                    <div><div style="font-size:0.6rem; color:#64748b; font-weight:700;">OC</div><div style="font-size:0.8rem; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
                   </div>
 
-                  <!-- Weapons Table -->
+                  <!-- Weapons Table (Mobile Responsive) -->
                   ${weapons.length > 0 ? `
-                    <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; overflow:hidden;">
-                      <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 8px; background:rgba(255,255,255,0.04); font-size:0.65rem; font-weight:800; color:#94a3b8; font-family:var(--font-mono); text-transform:uppercase;">
-                        <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
-                      </div>
-                      ${weapons.map(w => `
-                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:5px 8px; border-top:1px solid rgba(255,255,255,0.04); font-size:0.72rem; font-family:var(--font-mono); align-items:center;">
-                          <div style="min-width:0;">
-                            <div style="font-weight:700; color:#f8fafc; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
-                            ${(w.keywords && w.keywords.length > 0) ? `
-                              <div style="font-size:0.62rem; color:#38bdf8; margin-top:1px;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
-                            ` : ''}
-                          </div>
-                          <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
-                          <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
-                          <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
-                          <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
-                          <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
-                          <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
+                    <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:8px; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                      <div style="min-width:320px;">
+                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 8px; background:rgba(255,255,255,0.04); font-size:0.62rem; font-weight:800; color:#94a3b8; font-family:var(--font-mono); text-transform:uppercase;">
+                          <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
                         </div>
-                      `).join('')}
+                        ${weapons.map(w => `
+                          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:5px 8px; border-top:1px solid rgba(255,255,255,0.04); font-size:0.7rem; font-family:var(--font-mono); align-items:center;">
+                            <div style="min-width:0;">
+                              <div style="font-weight:700; color:#f8fafc; font-size:0.72rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
+                              ${(w.keywords && w.keywords.length > 0) ? `
+                                <div style="font-size:0.6rem; color:#38bdf8; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
+                              ` : ''}
+                            </div>
+                            <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
+                            <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
+                            <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
+                            <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
+                            <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
+                            <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
+                          </div>
+                        `).join('')}
+                      </div>
                     </div>
                   ` : ((u.wargear && u.wargear.length > 0) ? `
                     <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
@@ -1340,35 +1372,17 @@ function renderNativeRosterViewer(list, options = {}) {
                     <div style="display:flex; flex-direction:column; gap:4px;">
                       ${rules.length > 0 ? `
                         <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                          ${rules.map(r => `<span style="font-size:0.65rem; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 6px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
+                          ${rules.map(r => `<span style="font-size:0.62rem; font-weight:800; background:rgba(56,189,248,0.1); color:#38bdf8; border:1px solid rgba(56,189,248,0.2); padding:1px 5px; border-radius:4px;">${escapeHtml(r.name)}</span>`).join('')}
                         </div>
                       ` : ''}
                       ${abilities.map(ab => `
-                        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:6px 8px; font-size:0.72rem;">
-                          <b style="color:#facc15; font-size:0.75rem;">${escapeHtml(ab.name)}:</b>
-                          <span style="color:#94a3b8; line-height:1.4;"> ${escapeHtml(ab.description)}</span>
+                        <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:5px 7px; font-size:0.7rem;">
+                          <b style="color:#facc15; font-size:0.72rem;">${escapeHtml(ab.name)}:</b>
+                          <span style="color:#94a3b8; line-height:1.35;"> ${escapeHtml(ab.description)}</span>
                         </div>
                       `).join('')}
                     </div>
                   ` : ''}
-
-                  <!-- Interactive Play Mode Wound Tracker -->
-                  <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:0.5rem; display:flex; justify-content:space-between; align-items:center; gap:0.4rem;">
-                    ${maxW > 1 ? `
-                      <div style="display:flex; align-items:center; gap:0.4rem;">
-                        <span style="font-size:0.72rem; color:#94a3b8; font-weight:700;">WOUNDS:</span>
-                        <div style="display:flex; align-items:center; gap:0.25rem; background:rgba(0,0,0,0.4); border-radius:6px; padding:0.15rem 0.45rem; border:1px solid rgba(239,68,68,0.3);">
-                          <button onclick="window.gtAdjustWounds(${u._idx}, -1)" style="background:transparent; border:none; color:#ef4444; font-weight:900; font-size:0.95rem; cursor:pointer; padding:0 0.25rem;">-</button>
-                          <b id="wound-val-${u._idx}" style="font-size:0.82rem; font-family:var(--font-mono); color:#fff;">${curW} / ${maxW}</b>
-                          <button onclick="window.gtAdjustWounds(${u._idx}, 1)" style="background:transparent; border:none; color:#10b981; font-weight:900; font-size:0.95rem; cursor:pointer; padding:0 0.25rem;">+</button>
-                        </div>
-                      </div>
-                    ` : '<span style="font-size:0.72rem; color:#64748b;">1 Wound Model</span>'}
-
-                    <button onclick="window.gtToggleSlain(${u._idx})" id="slain-btn-${u._idx}" style="font-size:0.72rem; font-weight:800; padding:0.25rem 0.6rem; border-radius:6px; border:1px solid ${isSlain ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}; background:${isSlain ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.04)'}; color:${isSlain ? '#ef4444' : '#94a3b8'}; cursor:pointer;">
-                      ${isSlain ? '💀 SLAIN' : '⚔️ ACTIVE'}
-                    </button>
-                  </div>
                 </div>
               `;
             }).join('')}

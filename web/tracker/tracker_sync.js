@@ -1914,35 +1914,69 @@
         `;
       }
 
-      for (const [catName, catUnits] of Object.entries(categories)) {
-        if (catUnits.length === 0) continue;
+      // Helper to group identical units
+      function groupIdenticalUnits(catUnits) {
+        const grouped = [];
+        const map = new Map();
+
+        catUnits.forEach(u => {
+          const wKey = (u.weapons || []).map(w => `${w.name}-${w.Range || w.range}-${w.A}-${w.skill || w.BS || w.WS}-${w.S}-${w.AP}-${w.D}`).sort().join('|');
+          const sKey = u.stats ? `${u.stats.M}-${u.stats.T}-${u.stats.SV}-${u.stats.INV}-${u.stats.W}-${u.stats.LD}-${u.stats.OC}` : '';
+          const key = `${u.name}||${u.enhancement || ''}||${u.is_warlord ? '1' : '0'}||${sKey}||${wKey}`;
+
+          if (map.has(key)) {
+            const existing = map.get(key);
+            existing.quantity = (existing.quantity || 1) + (u.quantity || 1);
+            existing.totalPoints += (u.points || 0);
+            existing._indices.push(u._idx);
+          } else {
+            const entry = {
+              ...u,
+              quantity: u.quantity || 1,
+              unitPoints: u.points || 0,
+              totalPoints: u.points || 0,
+              _indices: [u._idx]
+            };
+            map.set(key, entry);
+            grouped.push(entry);
+          }
+        });
+
+        return grouped;
+      }
+
+      for (const [catName, rawUnits] of Object.entries(categories)) {
+        if (rawUnits.length === 0) continue;
+        const catUnits = groupIdenticalUnits(rawUnits);
+        const totalUnitsInCat = rawUnits.length;
         const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
         
         contentHtml += `
           <div>
             <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-              <span>${catIcon}</span> ${catName} <span style="font-size:11px; color:#64748b; font-weight:normal;">(${catUnits.length})</span>
+              <span>${catIcon}</span> ${catName} <span style="font-size:11px; color:#64748b; font-weight:normal;">(${totalUnitsInCat})</span>
             </div>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:10px;">
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:10px;">
               ${catUnits.map(u => {
                 const uName = u.name || 'Unit';
-                const uPts = u.points || 0;
+                const uPts = u.unitPoints || u.points || 0;
+                const totalPts = u.totalPoints || uPts;
+                const uQty = u.quantity || 1;
                 const uCount = u.model_count || 1;
                 const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
-                const maxW = stats.W || 2;
-                const curW = u._current_wounds !== undefined ? u._current_wounds : maxW;
-                const isSlain = u._is_slain || false;
                 const weapons = u.weapons || [];
                 const abilities = u.abilities || [];
                 const rules = u.rules || [];
 
                 return `
-                  <div class="gt-unit-card" id="gt-unit-card-${u._idx}" style="background:#0f172a; border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'}; border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
+                  <div class="gt-unit-card" style="background:#0f172a; border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.45)' : 'rgba(255,255,255,0.08)'}; border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px; transition:all 0.2s;">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
                       <div style="min-width:0; flex:1;">
                         <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-                          <span style="font-size:11px; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;">${uCount}x</span>
-                          <b style="font-size:13px; color:#fff; font-family:'JetBrains Mono',monospace; text-decoration:${isSlain ? 'line-through' : 'none'};">${escapeHtml(uName)}</b>
+                          ${uQty > 1 ? `
+                            <span class="badge" style="background:#0284c7; color:#fff; font-size:11px; font-weight:800; padding:1px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace;">${uQty}x</span>
+                          ` : (uCount > 1 ? `<span style="font-size:11px; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;">${uCount}x</span>` : '')}
+                          <b style="font-size:13px; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(uName)}</b>
                           ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:10px; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:1px 5px;">👑 WARLORD</span>' : ''}
                         </div>
                         ${u.enhancement ? `<div style="font-size:11px; color:#c084fc; font-weight:700; margin-top:2px;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
@@ -1952,7 +1986,11 @@
                           </div>
                         ` : ''}
                       </div>
-                      ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace; flex-shrink:0;">${uPts} PTS</span>` : ''}
+                      ${totalPts > 0 ? `
+                        <span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace; flex-shrink:0; text-align:right;">
+                          ${uQty > 1 ? `${totalPts} PTS <span style="font-size:9px; color:#94a3b8; font-weight:normal;">(${uPts} ea)</span>` : `${totalPts} PTS`}
+                        </span>
+                      ` : ''}
                     </div>
 
                     <!-- Statline Bar -->
@@ -1966,28 +2004,30 @@
                       <div><div style="font-size:9px; color:#64748b; font-weight:700;">OC</div><div style="font-size:11px; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
                     </div>
 
-                    <!-- Weapons Table -->
+                    <!-- Weapons Table (Mobile Responsive) -->
                     ${weapons.length > 0 ? `
-                      <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:6px; overflow:hidden;">
-                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:3px 6px; background:rgba(255,255,255,0.04); font-size:9px; font-weight:800; color:#94a3b8; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
-                          <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
-                        </div>
-                        ${weapons.map(w => `
-                          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 6px; border-top:1px solid rgba(255,255,255,0.04); font-size:10px; font-family:'JetBrains Mono',monospace; align-items:center;">
-                            <div style="min-width:0;">
-                              <div style="font-weight:700; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
-                              ${(w.keywords && w.keywords.length > 0) ? `
-                                <div style="font-size:8.5px; color:#38bdf8; margin-top:1px;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
-                              ` : ''}
-                            </div>
-                            <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
-                            <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
-                            <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
-                            <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
-                            <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
-                            <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
+                      <div style="background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:6px; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+                        <div style="min-width:300px;">
+                          <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:3px 6px; background:rgba(255,255,255,0.04); font-size:9px; font-weight:800; color:#94a3b8; font-family:'JetBrains Mono',monospace; text-transform:uppercase;">
+                            <div>Weapon</div><div style="text-align:center;">Rng</div><div style="text-align:center;">A</div><div style="text-align:center;">BS/WS</div><div style="text-align:center;">S</div><div style="text-align:center;">AP</div><div style="text-align:center;">D</div>
                           </div>
-                        `).join('')}
+                          ${weapons.map(w => `
+                            <div style="display:grid; grid-template-columns:2fr 1fr 1fr 1fr 1fr 1fr 1fr; padding:4px 6px; border-top:1px solid rgba(255,255,255,0.04); font-size:10px; font-family:'JetBrains Mono',monospace; align-items:center;">
+                              <div style="min-width:0;">
+                                <div style="font-weight:700; color:#f8fafc; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.type === 'Melee' ? '⚔️' : '🔫'} ${escapeHtml(w.name)}</div>
+                                ${(w.keywords && w.keywords.length > 0) ? `
+                                  <div style="font-size:8.5px; color:#38bdf8; margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${w.keywords.map(k => `[${escapeHtml(k)}]`).join(' ')}</div>
+                                ` : ''}
+                              </div>
+                              <div style="text-align:center; color:#cbd5e1;">${w.range || '-'}</div>
+                              <div style="text-align:center; color:#cbd5e1; font-weight:700;">${w.A || '-'}</div>
+                              <div style="text-align:center; color:#38bdf8; font-weight:700;">${w.skill || '-'}</div>
+                              <div style="text-align:center; color:#cbd5e1;">${w.S || '-'}</div>
+                              <div style="text-align:center; color:#ef4444; font-weight:700;">${w.AP || '0'}</div>
+                              <div style="text-align:center; color:#10b981; font-weight:700;">${w.D || '1'}</div>
+                            </div>
+                          `).join('')}
+                        </div>
                       </div>
                     ` : ((u.wargear && u.wargear.length > 0) ? `
                       <div style="display:flex; flex-wrap:wrap; gap:4px;">
@@ -2011,24 +2051,6 @@
                         `).join('')}
                       </div>
                     ` : ''}
-
-                    <!-- Wound Tracking -->
-                    <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; display:flex; justify-content:space-between; align-items:center; gap:6px;">
-                      ${maxW > 1 ? `
-                        <div style="display:flex; align-items:center; gap:6px;">
-                          <span style="font-size:10px; color:#94a3b8; font-weight:700;">WOUNDS:</span>
-                          <div style="display:flex; align-items:center; gap:4px; background:rgba(0,0,0,0.5); border-radius:6px; padding:2px 6px; border:1px solid rgba(239,68,68,0.3);">
-                            <button onclick="window.gtTrackerAdjustWounds(${u._idx}, -1)" style="background:transparent; border:none; color:#ef4444; font-weight:900; font-size:14px; cursor:pointer; padding:0 3px;">-</button>
-                            <b id="gt-wound-val-${u._idx}" style="font-size:11px; font-family:'JetBrains Mono',monospace; color:#fff;">${curW} / ${maxW}</b>
-                            <button onclick="window.gtTrackerAdjustWounds(${u._idx}, 1)" style="background:transparent; border:none; color:#10b981; font-weight:900; font-size:14px; cursor:pointer; padding:0 3px;">+</button>
-                          </div>
-                        </div>
-                      ` : '<span style="font-size:10px; color:#64748b;">1 Wound Model</span>'}
-
-                      <button onclick="window.gtTrackerToggleSlain(${u._idx})" id="gt-slain-btn-${u._idx}" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:5px; border:1px solid ${isSlain ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}; background:${isSlain ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.04)'}; color:${isSlain ? '#ef4444' : '#94a3b8'}; cursor:pointer;">
-                        ${isSlain ? '💀 SLAIN' : '⚔️ ACTIVE'}
-                      </button>
-                    </div>
                   </div>
                 `;
               }).join('')}
