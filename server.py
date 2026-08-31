@@ -64,6 +64,7 @@ except ImportError:
         from elo import EloEngine
         from auth import get_auth_manager
         from army_list_parser import get_parser as get_army_parser
+        from firestore_db import get_firestore_engine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("EloAPI")
@@ -1038,17 +1039,32 @@ if FASTAPI_AVAILABLE:
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
         
-        # Persist room creation to DB
+        # Persist hot ephemeral room to Cloud Firestore Native
         try:
-            saved = db.save_tracker_game(
-                match_id=match_id,
-                state=initial_state,
-                version=1,
-                user_id_p1=user_id_p1
-            )
-            logger.info(f"💾 [CREATE ROOM] save_tracker_game for {match_id}: {saved}")
+            fs_engine = get_firestore_engine()
+            fs_engine.create_room(match_id, {
+                "user_id_p1": user_id_p1,
+                "user_id_p2": None,
+                "referee_ids": [],
+                "version": 1,
+                "p1_name": p1_name,
+                "p2_name": p2_name,
+                "state": initial_state,
+                "participants": {
+                    "player1": {"uid": user_id_p1, "name": p1_name, "faction": p1_fac, "detachment": p1_det},
+                    "player2": {"uid": None, "name": p2_name, "faction": p2_fac, "detachment": p2_det}
+                },
+                "clock": {
+                    "activePlayer": "player1",
+                    "player1RemainingMs": 4500000,
+                    "player2RemainingMs": 4500000,
+                    "lastSwitchTimestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    "isPaused": True
+                }
+            })
+            logger.info(f"🔥 [CREATE ROOM] Created Firestore document rooms/{match_id}")
         except Exception as err:
-            logger.error(f"❌ [CREATE ROOM] DB save error for {match_id}: {err}", exc_info=True)
+            logger.error(f"❌ [CREATE ROOM] Firestore save error for {match_id}: {err}", exc_info=True)
             
         return {
             "success": True,
@@ -1060,11 +1076,24 @@ if FASTAPI_AVAILABLE:
             "state": initial_state
         }
 
+    @app.get("/api/tracker/firestore/rooms/{match_id}", summary="Diagnostics: Verify and inspect raw document from Cloud Firestore")
+    async def api_tracker_firestore_inspect(match_id: str):
+        match_id = normalize_tracker_match_id(match_id)
+        fs = get_firestore_engine()
+        doc = fs.get_room(match_id)
+        return {
+            "match_id": match_id,
+            "exists_in_firestore": doc is not None,
+            "firestore_connected": fs.is_connected,
+            "firestore_document": doc
+        }
+
     @app.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
     async def api_tracker_check_room(match_id: str, request: Request):
         match_id = normalize_tracker_match_id(match_id)
             
         db = get_database()
+        fs_engine = get_firestore_engine()
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
         session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -1074,20 +1103,33 @@ if FASTAPI_AVAILABLE:
         if match_id in TRACKER_ROOMS:
             room = TRACKER_ROOMS[match_id]
         else:
-            saved = db.get_tracker_game(match_id)
-            if saved and saved.get("state"):
+            fs_doc = fs_engine.get_room(match_id)
+            if fs_doc and fs_doc.get("state"):
                 room = {
                     "match_id": match_id,
-                    "user_id_p1": saved.get("user_id_p1"),
-                    "user_id_p2": saved.get("user_id_p2"),
-                    "p1_name": saved.get("p1_name"),
-                    "p2_name": saved.get("p2_name"),
-                    "version": saved.get("version", 1),
-                    "state": saved["state"]
+                    "user_id_p1": fs_doc.get("user_id_p1"),
+                    "user_id_p2": fs_doc.get("user_id_p2"),
+                    "p1_name": fs_doc.get("p1_name"),
+                    "p2_name": fs_doc.get("p2_name"),
+                    "version": fs_doc.get("version", 1),
+                    "state": fs_doc["state"]
                 }
                 TRACKER_ROOMS[match_id] = room
             else:
-                return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
+                saved = db.get_tracker_game(match_id)
+                if saved and saved.get("state"):
+                    room = {
+                        "match_id": match_id,
+                        "user_id_p1": saved.get("user_id_p1"),
+                        "user_id_p2": saved.get("user_id_p2"),
+                        "p1_name": saved.get("p1_name"),
+                        "p2_name": saved.get("p2_name"),
+                        "version": saved.get("version", 1),
+                        "state": saved["state"]
+                    }
+                    TRACKER_ROOMS[match_id] = room
+                else:
+                    return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
                 
         p1_id = room.get("user_id_p1")
         p2_id = room.get("user_id_p2")
@@ -1107,6 +1149,7 @@ if FASTAPI_AVAILABLE:
     async def api_tracker_join_room(match_id: str, request: Request, payload: Optional[TrackerJoinPayload] = None):
         match_id = normalize_tracker_match_id(match_id)
         db = get_database()
+        fs_engine = get_firestore_engine()
         auth_mgr = get_auth_manager()
         
         auth_header = request.headers.get("Authorization", "")
@@ -1116,19 +1159,31 @@ if FASTAPI_AVAILABLE:
         user_name = user.get("display_name") if user else None
         
         if match_id not in TRACKER_ROOMS:
-            saved = db.get_tracker_game(match_id)
-            if saved and saved.get("state"):
+            fs_doc = fs_engine.get_room(match_id)
+            if fs_doc and fs_doc.get("state"):
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
-                    "user_id_p1": saved.get("user_id_p1"),
-                    "user_id_p2": saved.get("user_id_p2"),
-                    "referee_ids": saved.get("referee_ids", []),
-                    "version": saved.get("version", 1),
-                    "state": saved["state"],
-                    "updated_at": saved.get("updated_at")
+                    "user_id_p1": fs_doc.get("user_id_p1"),
+                    "user_id_p2": fs_doc.get("user_id_p2"),
+                    "referee_ids": fs_doc.get("referee_ids", []),
+                    "version": fs_doc.get("version", 1),
+                    "state": fs_doc["state"],
+                    "updated_at": fs_doc.get("updated_at")
                 }
             else:
-                raise HTTPException(status_code=404, detail="Match room not found")
+                saved = db.get_tracker_game(match_id)
+                if saved and saved.get("state"):
+                    TRACKER_ROOMS[match_id] = {
+                        "match_id": match_id,
+                        "user_id_p1": saved.get("user_id_p1"),
+                        "user_id_p2": saved.get("user_id_p2"),
+                        "referee_ids": saved.get("referee_ids", []),
+                        "version": saved.get("version", 1),
+                        "state": saved["state"],
+                        "updated_at": saved.get("updated_at")
+                    }
+                else:
+                    raise HTTPException(status_code=404, detail="Match room not found")
                 
         room = TRACKER_ROOMS[match_id]
         st = room.get("state", {})
@@ -1168,14 +1223,18 @@ if FASTAPI_AVAILABLE:
             role = "player2"
             room["version"] += 1
             
+            # Sync to Firestore Native without touching PostgreSQL
             try:
-                db.save_tracker_game(
-                    match_id=match_id,
-                    state=st,
-                    version=room["version"],
-                    user_id_p1=room.get("user_id_p1"),
-                    user_id_p2=room["user_id_p2"]
-                )
+                fs_engine.update_room(match_id, {
+                    "user_id_p2": room["user_id_p2"],
+                    "p2_name": game.get("p2Name", "Player 2"),
+                    "state": st,
+                    "version": room["version"],
+                    "participants.player2": {
+                        "uid": room["user_id_p2"],
+                        "name": game.get("p2Name", "Player 2")
+                    }
+                })
             except Exception:
                 pass
             
@@ -1211,7 +1270,7 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")
     async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
         match_id = normalize_tracker_match_id(match_id)
-        db = get_database()
+        fs_engine = get_firestore_engine()
         auth_mgr = get_auth_manager()
         
         auth_header = request.headers.get("Authorization", "")
@@ -1220,17 +1279,17 @@ if FASTAPI_AVAILABLE:
         user_id = user["id"] if user else None
         
         if match_id not in TRACKER_ROOMS:
-            saved = db.get_tracker_game(match_id)
-            if saved and saved.get("state"):
+            fs_doc = fs_engine.get_room(match_id)
+            if fs_doc and fs_doc.get("state"):
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
-                    "user_id_p1": saved.get("user_id_p1"),
-                    "user_id_p2": saved.get("user_id_p2"),
-                    "referee_ids": saved.get("referee_ids", []),
-                    "version": saved.get("version", 1),
-                    "state": saved["state"],
-                    "chess_clock": saved.get("chess_clock"),
-                    "updated_at": saved.get("updated_at")
+                    "user_id_p1": fs_doc.get("user_id_p1"),
+                    "user_id_p2": fs_doc.get("user_id_p2"),
+                    "referee_ids": fs_doc.get("referee_ids", []),
+                    "version": fs_doc.get("version", 1),
+                    "state": fs_doc["state"],
+                    "chess_clock": fs_doc.get("chess_clock"),
+                    "updated_at": fs_doc.get("updated_at")
                 }
             else:
                 TRACKER_ROOMS[match_id] = {
@@ -1270,17 +1329,17 @@ if FASTAPI_AVAILABLE:
         if payload.state.get("user_id_p2"):
             room["user_id_p2"] = payload.state["user_id_p2"]
 
-        # 1. Persistent Storage in PostgreSQL Database
+        # Hot storage update in Cloud Firestore Native (ZERO PostgreSQL write)
         try:
-            db.save_tracker_game(
-                match_id=match_id,
-                state=payload.state,
-                version=payload.version,
-                user_id_p1=room.get("user_id_p1"),
-                user_id_p2=room.get("user_id_p2")
-            )
-        except Exception as db_err:
-            logger.debug(f"Tracker DB save notice: {db_err}")
+            fs_engine.update_room(match_id, {
+                "state": payload.state,
+                "version": payload.version,
+                "user_id_p1": room.get("user_id_p1"),
+                "user_id_p2": room.get("user_id_p2"),
+                "game": payload.state.get("game", {})
+            })
+        except Exception as fs_err:
+            logger.debug(f"Firestore update notice: {fs_err}")
 
         # Broadcast to all connected SSE clients in this room
         listeners = TRACKER_LISTENERS.get(match_id, [])
@@ -1298,10 +1357,22 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/tracker/room/{match_id}", summary="Get current match room state")
     async def api_tracker_get_state(match_id: str):
         match_id = normalize_tracker_match_id(match_id)
+        fs_engine = get_firestore_engine()
         db = get_database()
         
-        # 1. Fetch latest DB state
-        saved = None
+        # Fetch from Firestore / Memory
+        fs_doc = fs_engine.get_room(match_id)
+        if fs_doc and fs_doc.get("state"):
+            TRACKER_ROOMS[match_id] = {
+                "match_id": match_id,
+                "user_id_p1": fs_doc.get("user_id_p1"),
+                "user_id_p2": fs_doc.get("user_id_p2"),
+                "referee_ids": fs_doc.get("referee_ids", []),
+                "version": fs_doc.get("version", 1),
+                "state": fs_doc["state"],
+                "chess_clock": fs_doc.get("chess_clock"),
+                "updated_at": fs_doc.get("updated_at")
+            }
         try:
             saved = db.get_tracker_game(match_id)
         except Exception:
@@ -1771,12 +1842,16 @@ if FASTAPI_AVAILABLE:
         else:
             TRACKER_ROOMS[match_id]["p2_army_list"] = army_list
 
-        # 2. Persist in database safely
+        # 2. Persist in Cloud Firestore Native
         try:
-            db = get_database()
-            db.update_tracker_army_list(match_id, role, army_list)
+            fs_engine = get_firestore_engine()
+            col_list = "p1_army_list" if role == "player1" else "p2_army_list"
+            fs_engine.update_room(match_id, {
+                col_list: army_list,
+                f"rosters.{role}": army_list
+            })
         except Exception as e:
-            logger.warning(f"Error persisting attached army list: {e}")
+            logger.warning(f"Error persisting attached army list in Firestore: {e}")
 
         # 3. Broadcast SSE update to opponent and spectators
         listeners = TRACKER_LISTENERS.get(match_id, [])
@@ -1798,12 +1873,19 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/tracker/room/{match_id}/armylists", summary="Get attached army lists for Player 1 and Player 2")
     async def api_tracker_get_armylists(match_id: str):
         match_id = normalize_tracker_match_id(match_id)
+        fs_engine = get_firestore_engine()
         p1_list = None
         p2_list = None
 
         if match_id in TRACKER_ROOMS:
             p1_list = TRACKER_ROOMS[match_id].get("p1_army_list")
             p2_list = TRACKER_ROOMS[match_id].get("p2_army_list")
+
+        if not p1_list or not p2_list:
+            fs_doc = fs_engine.get_room(match_id)
+            if fs_doc:
+                if not p1_list: p1_list = fs_doc.get("p1_army_list") or fs_doc.get("rosters", {}).get("player1")
+                if not p2_list: p2_list = fs_doc.get("p2_army_list") or fs_doc.get("rosters", {}).get("player2")
 
         if not p1_list or not p2_list:
             db = get_database()
@@ -1844,14 +1926,14 @@ if FASTAPI_AVAILABLE:
             "p2_remaining": int(body.get("p2_remaining", 4500)),
             "round_remaining": int(body.get("round_remaining", 9000)),
             "last_start_time": body.get("last_start_time"),
-            "updated_at": int(time.time() * 1000)
+            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000)
         }
         room["chess_clock"] = clock_data
 
-        # Persist in DB
+        # Persist in Cloud Firestore Native
         try:
-            db = get_database()
-            db.save_tracker_clock(match_id, clock_data)
+            fs_engine = get_firestore_engine()
+            fs_engine.update_room(match_id, {"chess_clock": clock_data, "clock": clock_data})
         except Exception:
             pass
 
@@ -1922,9 +2004,11 @@ if FASTAPI_AVAILABLE:
     GDM_STATIC_CACHE: Dict[str, Tuple[bytes, str, Dict[str, str]]] = {}
 
     BRIDGE_INJECTION_HTML = """
-  <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=28.0">
-  <script src="/tracker/tracker_sync.js?v=28.0"></script>
+  <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=29.0">
+  <script src="/tracker/tracker_sync.js?v=29.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

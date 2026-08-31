@@ -1449,6 +1449,45 @@
     }, 60);
   }
 
+  let fsDocUnsub = null;
+  function initFirestoreDirectSync() {
+    if (!clientState.matchId) return;
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        if (!firebase.apps || !firebase.apps.length) {
+          firebase.initializeApp({ projectId: "eloranking-506820" });
+        }
+        const db = firebase.firestore();
+        const docRef = db.collection('rooms').doc(clientState.matchId);
+        if (fsDocUnsub) fsDocUnsub();
+        
+        fsDocUnsub = docRef.onSnapshot((snap) => {
+          if (snap && snap.exists) {
+            const data = snap.data();
+            if (data) {
+              if (data.clock) {
+                applyRemoteChessClock(data.clock);
+              }
+              if (data.rosters) {
+                if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
+                if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
+                injectMultiplayerHUD();
+              }
+              if (data.version && data.version > clientState.version && data.state && !clientState.isApplyingRemote) {
+                clientState.version = data.version;
+                applyRemoteState(data.state);
+              }
+            }
+          }
+        }, (err) => {
+          console.debug('[Firestore onSnapshot] Native fallback:', err);
+        });
+      } catch(e) {
+        console.debug('[Firestore Init] Notice:', e);
+      }
+    }
+  }
+
   async function broadcastState() {
     if (!clientState.matchId) return;
     const raw = originalGetItem('gdm-11e-tracker-state');
@@ -1470,6 +1509,20 @@
     };
 
     clientState.version++;
+
+    // 1. Direct write to Cloud Firestore if client SDK is loaded
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(clientState.matchId).set({
+          state: parsedState,
+          version: clientState.version,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch(e) {}
+    }
+
+    // 2. Broadcast via API
     try {
       await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/state`, {
         method: 'POST',
@@ -1587,6 +1640,7 @@
 
   let fastPollTimer = null;
   function startHybridSync() {
+    initFirestoreDirectSync();
     startRealtimeStream();
     
     if (fastPollTimer) clearInterval(fastPollTimer);
