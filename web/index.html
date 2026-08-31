@@ -531,11 +531,11 @@
           <button class="es-nav-tab" id="tab-btn-create" onclick="switchStudioTab('create')">➕ Create Tournament</button>
         </div>
 
-        <!-- Active Selected Tournament Banner -->
-        <div class="es-current-event-banner" id="es-current-event-banner" style="margin-bottom: 1.5rem;">
+        <!-- Active Selected Tournament Banner (Hidden until a tournament is actively selected) -->
+        <div class="es-current-event-banner" id="es-current-event-banner" style="display: none; margin-bottom: 1.5rem;">
           <div class="es-ce-info">
-            <div class="es-ce-tag" id="current-event-tier">GRAND TOURNAMENT • 5 ROUNDS</div>
-            <h2 class="es-ce-title" id="current-event-name">Select or Create a Tournament</h2>
+            <div class="es-ce-tag" id="current-event-tier"></div>
+            <h2 class="es-ce-title" id="current-event-name"></h2>
             <div class="es-ce-meta" id="current-event-meta">
               <span id="ce-dates">📅 -</span>
               <span>•</span>
@@ -543,7 +543,7 @@
               <span>•</span>
               <span>👥 <b id="current-event-registered">0</b> Spots Filled</span>
               <span>•</span>
-              <span class="es-status-chip" id="ce-round-status">Round 1 Ready</span>
+              <span class="es-status-chip" id="ce-round-status"></span>
             </div>
           </div>
           <div class="es-ce-actions" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">

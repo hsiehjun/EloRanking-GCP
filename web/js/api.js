@@ -6,6 +6,14 @@ window.api = {
   // Safe Fetch Helper
   async _fetchJson(url, options = {}) {
     try {
+      const token = this.getAuthToken();
+      const headers = Object.assign({}, options.headers || {});
+      if (token && !headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      options.headers = headers;
+      options.credentials = options.credentials || 'include';
+
       const res = await fetch(url, options);
       const text = await res.text();
       try {

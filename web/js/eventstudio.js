@@ -133,7 +133,17 @@ function switchStudioTab(tabName) {
 }
 
 function renderTournamentBanner() {
+  const banner = document.getElementById('es-current-event-banner');
   const t = studioState.activeTournament;
+
+  if (!t) {
+    if (banner) banner.style.display = 'none';
+    const rosterCountEl = document.getElementById('es-roster-count');
+    if (rosterCountEl) rosterCountEl.textContent = '0';
+    return;
+  }
+
+  if (banner) banner.style.display = 'flex';
 
   const tierEl = document.getElementById('current-event-tier');
   const nameEl = document.getElementById('current-event-name');
@@ -142,17 +152,6 @@ function renderTournamentBanner() {
   const locEl = document.getElementById('ce-location');
   const rosterCountEl = document.getElementById('es-roster-count');
   const roundStatusEl = document.getElementById('ce-round-status');
-
-  if (!t) {
-    if (tierEl) tierEl.textContent = 'TOURNAMENT DIRECTOR';
-    if (nameEl) nameEl.textContent = 'No Tournament Selected';
-    if (regEl) regEl.textContent = '0';
-    if (rosterCountEl) rosterCountEl.textContent = '0';
-    if (datesEl) datesEl.textContent = '📅 No Date';
-    if (locEl) locEl.textContent = '📍 Click Create or Import Below';
-    if (roundStatusEl) roundStatusEl.textContent = 'Ready';
-    return;
-  }
 
   const rounds = t.num_rounds || t.rounds || 5;
   const tier = t.tier || 'Grand Tournament';
