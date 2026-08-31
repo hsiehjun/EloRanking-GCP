@@ -1226,6 +1226,9 @@ if FASTAPI_AVAILABLE:
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
     }
+    body.is-tracker-lobby main > :not(#gt-lobby-wrapper) {
+      display: none !important;
+    }
     body:has(#gt-lobby-wrapper) main > :not(#gt-lobby-wrapper) {
       display: none !important;
     }
@@ -1356,6 +1359,14 @@ if FASTAPI_AVAILABLE:
             modified_html = re.sub(r'<title>.*?</title>', '<title>Game Tracker | Warhammer 40,000 Elo Rankings</title>', modified_html, flags=re.IGNORECASE)
             modified_html = re.sub(r'content="GDM[^"]*"', 'content="40k Elo"', modified_html)
             modified_html = modified_html.replace('content="Game Day - Tabletop App"', 'content="Warhammer 40,000 Elo Game Tracker"')
+
+            is_play_page = "play" in path.lower()
+            body_class = "is-tracker-play" if is_play_page else "is-tracker-lobby"
+            if "<body" in modified_html:
+                if 'class="' in modified_html[modified_html.find("<body"):modified_html.find("<body") + 50]:
+                    modified_html = re.sub(r'(<body[^>]*class=")([^"]*)(")', rf'\1\2 {body_class}\3', modified_html, count=1)
+                else:
+                    modified_html = re.sub(r'<body(\s*[^>]*)>', rf'<body\1 class="{body_class}">', modified_html, count=1)
 
             return HTMLResponse(content=modified_html, status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
         except Exception as e:
