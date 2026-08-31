@@ -1342,6 +1342,18 @@
     let parsedState = {};
     try { parsedState = JSON.parse(raw); } catch (e) { return; }
 
+    // Embed unified chess_clock directly into game state payload
+    parsedState.chess_clock = {
+      visible: chessClock.visible,
+      running: chessClock.running,
+      active_player: chessClock.activePlayer,
+      p1_remaining: chessClock.p1Remaining,
+      p2_remaining: chessClock.p2Remaining,
+      round_remaining: chessClock.roundRemaining,
+      last_start_time: chessClock.lastStartTime,
+      updated_at: chessClock.updatedAt
+    };
+
     clientState.version++;
     try {
       await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/state`, {
@@ -1372,6 +1384,11 @@
       const current = originalGetItem('gdm-11e-tracker-state');
       
       originalSetItem('gdm-11e-tracker-state', serialized);
+
+      // 0. Synchronize Chess Clock from game state
+      if (stateObj.chess_clock) {
+        applyRemoteChessClock(stateObj.chess_clock);
+      }
 
       // Ensure CP Counter is enabled by default
       if (stateObj.game) {
@@ -2133,6 +2150,10 @@
 
     if (!clientState.matchId) return;
 
+    // 1. Unified game state sync pipeline
+    notifyStateChanged();
+
+    // 2. Direct fast-path clock endpoint broadcast
     try {
       await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/clock`, {
         method: 'POST',
