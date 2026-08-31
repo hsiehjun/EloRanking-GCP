@@ -1567,6 +1567,39 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=404, detail="Army list not found")
         return {"success": True, "army_list": item}
 
+    # =========================================================================
+    # WAHAPEDIA 11TH EDITION REFERENCE & SYNC ENDPOINTS
+    # =========================================================================
+
+    @app.get("/api/wahapedia/status", summary="Get Wahapedia 11th Edition sync status & stats")
+    async def api_wahapedia_status():
+        db = get_database()
+        return db.waha_get_sync_status()
+
+    @app.post("/api/wahapedia/sync", summary="Trigger sync of Wahapedia 11th edition datasets into PostgreSQL")
+    async def api_wahapedia_sync(force: bool = Query(False)):
+        from wahapedia_sync import sync_wahapedia_job
+        res = await asyncio.to_thread(sync_wahapedia_job, force=force)
+        return res
+
+    @app.get("/api/wahapedia/stratagems", summary="Get detachment and core stratagems from Wahapedia")
+    async def api_wahapedia_stratagems(detachment: str = Query(...), faction: Optional[str] = Query(None)):
+        db = get_database()
+        return {"detachment": detachment, "stratagems": db.waha_get_stratagems(detachment, faction_id=faction)}
+
+    @app.get("/api/wahapedia/enhancements", summary="Get detachment enhancements from Wahapedia")
+    async def api_wahapedia_enhancements(detachment: str = Query(...)):
+        db = get_database()
+        return {"detachment": detachment, "enhancements": db.waha_get_enhancements(detachment)}
+
+    @app.get("/api/wahapedia/unit", summary="Find unit datasheet and statlines from Wahapedia")
+    async def api_wahapedia_unit(name: str = Query(...), faction: Optional[str] = Query(None)):
+        db = get_database()
+        unit = db.waha_find_unit(name, faction_name=faction)
+        if not unit:
+            raise HTTPException(status_code=404, detail=f"Unit '{name}' not found in Wahapedia database")
+        return unit
+
     @app.delete("/api/armylists/{list_id}", summary="Delete an army list")
     async def api_delete_armylist(list_id: str, request: Request):
         auth_mgr = get_auth_manager()

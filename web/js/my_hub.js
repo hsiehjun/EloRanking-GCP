@@ -1178,7 +1178,16 @@ function renderNativeRosterViewer(list, options = {}) {
       if (ld.units && ld.units.length > 0) units = ld.units;
       if (ld.army_rules && ld.army_rules.length > 0) armyRules = ld.army_rules;
       if (ld.detachment_rules && ld.detachment_rules.length > 0) detachmentRules = ld.detachment_rules;
+      if (ld.stratagems && ld.stratagems.length > 0) stratagems = ld.stratagems;
     }
+  }
+
+  let stratagems = list.stratagems || [];
+  if (stratagems.length === 0 && list.list_data) {
+    try {
+      const ld = typeof list.list_data === 'string' ? JSON.parse(list.list_data) : list.list_data;
+      if (ld && ld.stratagems) stratagems = ld.stratagems;
+    } catch(e) {}
   }
 
   const name = list.name || 'Army Roster';
@@ -1207,6 +1216,33 @@ function renderNativeRosterViewer(list, options = {}) {
             <div style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px;">
               <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:4px;">⚡ ${escapeHtml(dr.name)}</div>
               <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(dr.description || '')}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // 2. Detachment Stratagems Banner
+  if (stratagems.length > 0) {
+    contentHtml += `
+      <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(239, 68, 68, 0.25); border-radius:12px; padding:12px 16px;">
+        <div style="font-size:13px; font-weight:800; color:#f87171; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+          <span>⚔️</span> Detachment Stratagems <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${stratagems.length})</span>
+        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px;">
+          ${stratagems.map(st => `
+            <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:6px;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <b style="font-size:12px; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(st.name)}</b>
+                <span class="badge" style="background:rgba(239,68,68,0.2); color:#ef4444; font-size:10px; font-weight:800; border:1px solid rgba(239,68,68,0.4); padding:1px 5px;">${escapeHtml(st.cp_cost || '1 CP')}</span>
+              </div>
+              <div style="display:flex; flex-wrap:wrap; gap:4px; font-size:9.5px;">
+                ${st.type ? `<span style="color:#38bdf8; background:rgba(56,189,248,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.type)}</span>` : ''}
+                ${st.phase ? `<span style="color:#facc15; background:rgba(250,204,21,0.1); padding:1px 4px; border-radius:3px;">🕒 ${escapeHtml(st.phase)}</span>` : ''}
+                ${st.turn ? `<span style="color:#a855f7; background:rgba(168,85,247,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.turn)}</span>` : ''}
+              </div>
+              <div style="font-size:11px; color:#94a3b8; line-height:1.4; white-space:pre-wrap;">${escapeHtml(st.description || '')}</div>
             </div>
           `).join('')}
         </div>

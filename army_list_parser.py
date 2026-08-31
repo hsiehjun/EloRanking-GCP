@@ -20,11 +20,84 @@ logger = logging.getLogger("ArmyListParser")
 class ArmyListParser:
     """Parses army list links, JSON, and text exports into structured match rosters."""
 
+    def _enrich_with_wahapedia(self, roster: Dict[str, Any]) -> Dict[str, Any]:
+        """Auto-enriches parsed roster with full datasheets, stats, weapons, abilities, and stratagems from PostgreSQL."""
+        if not roster or not isinstance(roster, dict):
+            return roster
+
+        try:
+            from database import get_db
+            db = get_db()
+        except Exception as e:
+            logger.debug(f"Wahapedia DB not available for enrichment: {e}")
+            return roster
+
+        faction = roster.get("faction") or ""
+        detachment = roster.get("detachment") or ""
+
+        # 1. Enrich Stratagems if missing
+        if detachment and not roster.get("stratagems"):
+            try:
+                strats = db.waha_get_stratagems(detachment)
+                if strats:
+                    roster["stratagems"] = strats
+            except Exception as e:
+                logger.debug(f"Error enriching stratagems: {e}")
+
+        # 2. Enrich Detachment Enhancements if missing
+        if detachment and not roster.get("available_enhancements"):
+            try:
+                enhancements = db.waha_get_enhancements(detachment)
+                if enhancements:
+                    roster["available_enhancements"] = enhancements
+            except Exception as e:
+                logger.debug(f"Error enriching enhancements: {e}")
+
+        # 3. Enrich Detachment Rules if missing
+        if detachment and not roster.get("detachment_rules"):
+            try:
+                det_rules = db.waha_get_detachment_rules(detachment)
+                if det_rules:
+                    roster["detachment_rules"] = det_rules
+            except Exception as e:
+                logger.debug(f"Error enriching detachment rules: {e}")
+
+        # 4. Enrich each unit
+        units = roster.get("units") or []
+        for u in units:
+            u_name = u.get("name") or ""
+            if not u_name:
+                continue
+
+            needs_stats = not u.get("stats") or (u.get("stats", {}).get("SV") == "3+" and u.get("stats", {}).get("M") == '6"' and not u.get("weapons"))
+            needs_weapons = not u.get("weapons") or len(u.get("weapons", [])) == 0
+            needs_abilities = not u.get("abilities") or len(u.get("abilities", [])) == 0
+
+            if needs_stats or needs_weapons or needs_abilities:
+                try:
+                    w_unit = db.waha_find_unit(u_name, faction_name=faction)
+                    if w_unit:
+                        if needs_stats and w_unit.get("stats"):
+                            u["stats"] = w_unit["stats"]
+                        if needs_weapons and w_unit.get("weapons"):
+                            u["weapons"] = w_unit["weapons"]
+                        if needs_abilities and w_unit.get("abilities"):
+                            u["abilities"] = w_unit["abilities"]
+                        if (not u.get("keywords") or len(u["keywords"]) == 0) and w_unit.get("keywords"):
+                            u["keywords"] = w_unit["keywords"]
+                        if not u.get("role") and w_unit.get("role"):
+                            u["role"] = w_unit["role"]
+                except Exception as e:
+                    logger.debug(f"Error enriching unit {u_name}: {e}")
+
+        return roster
+
     def parse_file(self, raw_bytes: bytes, filename: str = "") -> Dict[str, Any]:
         """Parses an uploaded file (.rosz, .ros, .json, .txt) into a structured match roster."""
         if not raw_bytes:
             return self._create_empty_roster()
 
+        res = None
         fname = filename.lower()
         # 1. Zipped BattleScribe file (.rosz)
         if fname.endswith(".rosz") or raw_bytes.startswith(b"PK\x03\x04"):
@@ -34,78 +107,86 @@ class ArmyListParser:
                     for name in z.namelist():
                         if name.lower().endswith((".ros", ".xml")):
                             xml_str = z.read(name).decode("utf-8", errors="ignore")
-                            return self._parse_battlescribe_xml(xml_str)
+                            res = self._parse_battlescribe_xml(xml_str)
+                            break
             except Exception as e:
                 logger.warning(f"Failed to unzip .rosz file: {e}")
 
         # 2. BattleScribe XML file (.ros / .xml)
-        if fname.endswith((".ros", ".xml")) or raw_bytes.startswith(b"<?xml") or b"<roster" in raw_bytes[:300]:
+        if not res and (fname.endswith((".ros", ".xml")) or raw_bytes.startswith(b"<?xml") or b"<roster" in raw_bytes[:300]):
             try:
                 xml_str = raw_bytes.decode("utf-8", errors="ignore")
-                return self._parse_battlescribe_xml(xml_str)
+                res = self._parse_battlescribe_xml(xml_str)
             except Exception as e:
                 logger.warning(f"Failed to parse XML file: {e}")
 
         # 3. JSON file (.json)
-        if fname.endswith(".json") or raw_bytes.startswith(b"{"):
+        if not res and (fname.endswith(".json") or raw_bytes.startswith(b"{")):
             try:
                 json_str = raw_bytes.decode("utf-8", errors="ignore")
                 data = json.loads(json_str)
-                return self._parse_json_roster(data)
+                res = self._parse_json_roster(data)
             except Exception as e:
                 logger.warning(f"Failed to parse JSON file: {e}")
 
         # 4. Text fallback
-        try:
-            text_str = raw_bytes.decode("utf-8", errors="ignore")
-            return self.parse(text_str)
-        except Exception:
-            return self._create_empty_roster()
+        if not res:
+            try:
+                text_str = raw_bytes.decode("utf-8", errors="ignore")
+                res = self.parse(text_str)
+            except Exception:
+                res = self._create_empty_roster()
+
+        return self._enrich_with_wahapedia(res or self._create_empty_roster())
 
     def parse(self, raw_input: str, source_hint: Optional[str] = None) -> Dict[str, Any]:
         if not raw_input or not raw_input.strip():
             return self._create_empty_roster()
 
         content = raw_input.strip()
+        res = None
 
         # 1. JSON Detection (if content starts and ends with brackets, or parses cleanly as JSON)
         if (content.startswith("{") and content.endswith("}")) or (content.startswith("[") and content.endswith("]")):
             try:
                 data = json.loads(content)
                 if isinstance(data, dict):
-                    return self._parse_json_roster(data)
+                    res = self._parse_json_roster(data)
             except Exception as e:
                 logger.debug("JSON parse error: %s", e)
 
         # 2. XML Detection (.ros / BattleScribe)
-        if content.startswith("<?xml") or content.startswith("<roster") or "<roster" in content[:300]:
-            return self._parse_battlescribe_xml(content)
+        if not res and (content.startswith("<?xml") or content.startswith("<roster") or "<roster" in content[:300]):
+            res = self._parse_battlescribe_xml(content)
 
         # 3. URL Detection (e.g. https://www.newrecruit.eu/app/list/28iCj) - ONLY for actual short single-line URLs
-        if ("newrecruit.eu/app/list/" in content or "newrecruit.eu/app/tournament/" in content or content.startswith(("http://", "https://"))) and len(content) < 500 and "\n" not in content.strip():
-            return self.parse_url(content)
+        if not res and ("newrecruit.eu/app/list/" in content or "newrecruit.eu/app/tournament/" in content or content.startswith(("http://", "https://"))) and len(content) < 500 and "\n" not in content.strip():
+            res = self.parse_url(content)
 
         # 4. JSON inside text fallback (e.g. pasted with surrounding whitespace or markdown codeblocks)
-        if "{" in content and "}" in content:
+        if not res and "{" in content and "}" in content:
             try:
                 start_idx = content.find("{")
                 end_idx = content.rfind("}") + 1
                 sub_json = content[start_idx:end_idx]
                 data = json.loads(sub_json)
                 if isinstance(data, dict) and ("roster" in data or "forces" in data or "units" in data):
-                    return self._parse_json_roster(data)
+                    res = self._parse_json_roster(data)
             except Exception:
                 pass
 
         # 5. Text Format Detection
-        if "FACTION KEYWORD:" in content or (content.startswith("++") and "TOTAL ARMY POINTS" in content):
-            return self._parse_newrecruit_text(content)
-        elif "++ Army Roster" in content or "+ Epic Hero +" in content or "+ Character +" in content:
-            return self._parse_battlescribe_text(content)
-        elif "CHARACTERS" in content or "BATTLELINE" in content or "OTHER DATASHEETS" in content:
-            return self._parse_warhammer_app_text(content)
-        else:
-            return self._parse_generic_text(content)
+        if not res:
+            if "FACTION KEYWORD:" in content or (content.startswith("++") and "TOTAL ARMY POINTS" in content):
+                res = self._parse_newrecruit_text(content)
+            elif "++ Army Roster" in content or "+ Epic Hero +" in content or "+ Character +" in content:
+                res = self._parse_battlescribe_text(content)
+            elif "CHARACTERS" in content or "BATTLELINE" in content or "OTHER DATASHEETS" in content:
+                res = self._parse_warhammer_app_text(content)
+            else:
+                res = self._parse_generic_text(content)
+
+        return self._enrich_with_wahapedia(res or self._create_empty_roster())
 
     def _parse_battlescribe_xml(self, xml_content: str) -> Dict[str, Any]:
         """Parses BattleScribe .ros / .rosz XML content into a rich tactical roster."""

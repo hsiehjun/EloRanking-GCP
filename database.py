@@ -359,7 +359,169 @@ class PostgresDatabase:
                 updated_at TIMESTAMPTZ DEFAULT NOW(),
                 UNIQUE(event_id, round_num)
             );""",
-            "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);"
+            "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);",
+            """CREATE TABLE IF NOT EXISTS waha_factions (
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                link TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_factions_name ON waha_factions(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_sources (
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT,
+                edition TEXT,
+                version TEXT,
+                errata_date TEXT,
+                errata_link TEXT
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_datasheets (
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                faction_id VARCHAR(64),
+                source_id VARCHAR(64),
+                legend TEXT,
+                role TEXT,
+                loadout TEXT,
+                transport TEXT,
+                virtual TEXT,
+                is_support TEXT,
+                leader_head TEXT,
+                leader_footer TEXT,
+                damaged_w TEXT,
+                damaged_description TEXT,
+                link TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_datasheets_name ON waha_datasheets(LOWER(name));",
+            "CREATE INDEX IF NOT EXISTS idx_waha_datasheets_faction ON waha_datasheets(faction_id);",
+            """CREATE TABLE IF NOT EXISTS waha_datasheet_models (
+                datasheet_id VARCHAR(64),
+                line INT,
+                name TEXT,
+                M TEXT,
+                T TEXT,
+                Sv TEXT,
+                inv_sv TEXT,
+                inv_sv_descr TEXT,
+                W TEXT,
+                Ld TEXT,
+                OC TEXT,
+                base_size TEXT,
+                base_size_descr TEXT,
+                PRIMARY KEY (datasheet_id, line)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_models_ds ON waha_datasheet_models(datasheet_id);",
+            """CREATE TABLE IF NOT EXISTS waha_datasheet_wargear (
+                datasheet_id VARCHAR(64),
+                line INT,
+                line_in_wargear INT,
+                dice TEXT,
+                name TEXT NOT NULL,
+                description TEXT,
+                range TEXT,
+                type TEXT,
+                A TEXT,
+                BS_WS TEXT,
+                S TEXT,
+                AP TEXT,
+                D TEXT,
+                PRIMARY KEY (datasheet_id, line, line_in_wargear)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_wargear_ds ON waha_datasheet_wargear(datasheet_id);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_wargear_name ON waha_datasheet_wargear(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_datasheet_abilities (
+                datasheet_id VARCHAR(64),
+                line INT,
+                ability_id VARCHAR(64),
+                model TEXT,
+                name TEXT NOT NULL,
+                description TEXT,
+                type TEXT,
+                parameter TEXT,
+                PRIMARY KEY (datasheet_id, line)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_abilities_ds ON waha_datasheet_abilities(datasheet_id);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_abilities_name ON waha_datasheet_abilities(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_datasheet_keywords (
+                datasheet_id VARCHAR(64),
+                keyword TEXT,
+                model TEXT,
+                is_faction_keyword TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_keywords_ds ON waha_datasheet_keywords(datasheet_id);",
+            """CREATE TABLE IF NOT EXISTS waha_datasheet_costs (
+                datasheet_id VARCHAR(64),
+                line INT,
+                description TEXT,
+                cost INT,
+                PRIMARY KEY (datasheet_id, line)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_costs_ds ON waha_datasheet_costs(datasheet_id);",
+            """CREATE TABLE IF NOT EXISTS waha_datasheet_leaders (
+                leader_id VARCHAR(64),
+                attached_id VARCHAR(64)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_leaders_lead ON waha_datasheet_leaders(leader_id);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_leaders_att ON waha_datasheet_leaders(attached_id);",
+            """CREATE TABLE IF NOT EXISTS waha_stratagems (
+                faction_id VARCHAR(64),
+                name TEXT NOT NULL,
+                id VARCHAR(64) PRIMARY KEY,
+                type TEXT,
+                cp_cost TEXT,
+                legend TEXT,
+                turn TEXT,
+                phase TEXT,
+                detachment TEXT,
+                detachment_id VARCHAR(64),
+                description TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_stratagems_det ON waha_stratagems(LOWER(detachment));",
+            "CREATE INDEX IF NOT EXISTS idx_waha_stratagems_fac ON waha_stratagems(faction_id);",
+            """CREATE TABLE IF NOT EXISTS waha_enhancements (
+                faction_id VARCHAR(64),
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                cost TEXT,
+                detachment TEXT,
+                detachment_id VARCHAR(64),
+                upgrade TEXT,
+                legend TEXT,
+                description TEXT,
+                support_leader TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_enhancements_det ON waha_enhancements(LOWER(detachment));",
+            """CREATE TABLE IF NOT EXISTS waha_army_abilities (
+                id VARCHAR(64) PRIMARY KEY,
+                name TEXT NOT NULL,
+                legend TEXT,
+                faction_id VARCHAR(64),
+                description TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_army_ab_fac ON waha_army_abilities(faction_id);",
+            """CREATE TABLE IF NOT EXISTS waha_detachment_abilities (
+                id VARCHAR(64) PRIMARY KEY,
+                faction_id VARCHAR(64),
+                name TEXT NOT NULL,
+                legend TEXT,
+                description TEXT,
+                detachment TEXT,
+                detachment_id VARCHAR(64)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_det_ab_det ON waha_detachment_abilities(LOWER(detachment));",
+            """CREATE TABLE IF NOT EXISTS waha_detachments (
+                id VARCHAR(64) PRIMARY KEY,
+                faction_id VARCHAR(64),
+                name TEXT NOT NULL,
+                legend TEXT,
+                type TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_detachments_name ON waha_detachments(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_sync_metadata (
+                key VARCHAR(64) PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );"""
         ]
         try:
             with self.get_connection() as conn:
@@ -2980,6 +3142,188 @@ class PostgresDatabase:
             "pods": pod_assignments,
             "pairings": assigned_pairings
         }
+
+    # =========================================================================
+    # WAHAPEDIA 11TH EDITION REFERENCE & AUTO-ENRICHMENT ENGINE
+    # =========================================================================
+
+    def waha_get_sync_status(self) -> Dict[str, Any]:
+        """Returns the current Wahapedia 11th edition sync state and statistics."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT value, updated_at FROM waha_sync_metadata WHERE key = 'last_update';")
+                row = cursor.fetchone()
+                last_update = row[0] if row else None
+                last_sync_time = row[1].isoformat() if row and row[1] else None
+
+                counts = {}
+                for tbl in ["waha_datasheets", "waha_datasheet_models", "waha_datasheet_wargear", 
+                            "waha_datasheet_abilities", "waha_stratagems", "waha_enhancements", "waha_detachments"]:
+                    try:
+                        cursor.execute(f"SELECT COUNT(*) FROM {tbl};")
+                        r = cursor.fetchone()
+                        counts[tbl] = r[0] if r else 0
+                    except Exception:
+                        counts[tbl] = 0
+
+                return {
+                    "edition": "11th Edition (wh40k11ed)",
+                    "last_update": last_update,
+                    "last_sync_time": last_sync_time,
+                    "counts": counts
+                }
+
+    def waha_find_unit(self, unit_name: str, faction_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Finds and builds a full enriched datasheet dict for a unit by name from PostgreSQL."""
+        clean_name = unit_name.strip()
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                # 1. Exact match
+                cursor.execute("SELECT * FROM waha_datasheets WHERE LOWER(name) = LOWER(%s) LIMIT 1;", (clean_name,))
+                row = cursor.fetchone()
+
+                # 2. Variants match
+                if not row:
+                    variants = [
+                        clean_name.replace(" Squad", "").replace(" squad", "").strip(),
+                        clean_name.replace("Deathwing ", "").strip(),
+                        clean_name.replace("Ravenwing ", "").strip(),
+                        clean_name.replace("Vanguard ", "").strip(),
+                        clean_name.replace("Sternguard ", "").strip()
+                    ]
+                    for var in variants:
+                        if var and var != clean_name:
+                            cursor.execute("SELECT * FROM waha_datasheets WHERE LOWER(name) = LOWER(%s) LIMIT 1;", (var,))
+                            row = cursor.fetchone()
+                            if row:
+                                break
+
+                # 3. Fuzzy ILIKE match
+                if not row:
+                    cursor.execute("SELECT * FROM waha_datasheets WHERE name ILIKE %s ORDER BY LENGTH(name) ASC LIMIT 1;", (f"%{clean_name}%",))
+                    row = cursor.fetchone()
+
+                if not row:
+                    return None
+
+                ds_id = row["id"]
+                ds_name = row["name"]
+                faction_id = row["faction_id"]
+                role = row["role"]
+
+                # Models / stats
+                cursor.execute("SELECT * FROM waha_datasheet_models WHERE datasheet_id = %s ORDER BY line ASC;", (ds_id,))
+                models = [dict(m) for m in cursor.fetchall()]
+                stats = {}
+                if models:
+                    m0 = models[0]
+                    stats = {
+                        "M": m0.get("m") or '6"',
+                        "T": m0.get("t") or "4",
+                        "SV": m0.get("sv") or "3+",
+                        "INV": m0.get("inv_sv") or "-",
+                        "W": int(m0.get("w", 2)) if str(m0.get("w", "")).isdigit() else m0.get("w", "2"),
+                        "LD": m0.get("ld") or "6+",
+                        "OC": m0.get("oc") or "1"
+                    }
+
+                # Weapons
+                cursor.execute("SELECT * FROM waha_datasheet_wargear WHERE datasheet_id = %s ORDER BY line ASC, line_in_wargear ASC;", (ds_id,))
+                wargear_rows = cursor.fetchall()
+                weapons = []
+                for w in wargear_rows:
+                    rng = w["range"] or "Melee"
+                    w_type = "Ranged" if (w["type"] and "Ranged" in w["type"]) or rng != "Melee" else "Melee"
+                    skill_val = w["bs_ws"] or "3+"
+                    weapons.append({
+                        "name": w["name"],
+                        "type": w_type,
+                        "range": rng,
+                        "Range": rng,
+                        "A": w["a"] or "1",
+                        "skill": skill_val,
+                        "BS": skill_val if w_type == "Ranged" else "-",
+                        "WS": skill_val if w_type == "Melee" else "-",
+                        "S": w["s"] or "4",
+                        "AP": w["ap"] or "0",
+                        "D": w["d"] or "1",
+                        "description": w["description"] or "",
+                        "keywords": [k.strip() for k in (w["description"] or "").split(",") if k.strip()] if (w["description"] and not w["description"].startswith("■")) else []
+                    })
+
+                # Abilities
+                cursor.execute("SELECT * FROM waha_datasheet_abilities WHERE datasheet_id = %s ORDER BY line ASC;", (ds_id,))
+                abilities = []
+                for a in cursor.fetchall():
+                    abilities.append({
+                        "name": a["name"],
+                        "description": a["description"] or "",
+                        "type": a["type"] or "Abilities"
+                    })
+
+                # Keywords
+                cursor.execute("SELECT keyword FROM waha_datasheet_keywords WHERE datasheet_id = %s;", (ds_id,))
+                keywords = [k["keyword"] for k in cursor.fetchall() if k["keyword"]]
+
+                # Points costs
+                cursor.execute("SELECT description, cost FROM waha_datasheet_costs WHERE datasheet_id = %s ORDER BY line ASC;", (ds_id,))
+                costs = [dict(c) for c in cursor.fetchall()]
+
+                return {
+                    "id": ds_id,
+                    "name": ds_name,
+                    "faction_id": faction_id,
+                    "role": role,
+                    "stats": stats,
+                    "weapons": weapons,
+                    "abilities": abilities,
+                    "keywords": keywords,
+                    "costs": costs,
+                    "models": models
+                }
+
+    def waha_get_stratagems(self, detachment_name: str, faction_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns all stratagems associated with a specific detachment (plus core stratagems) from PostgreSQL."""
+        det_clean = detachment_name.strip()
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT * FROM waha_stratagems 
+                    WHERE LOWER(detachment) = LOWER(%s) 
+                       OR LOWER(detachment) = 'core'
+                       OR detachment IS NULL
+                       OR detachment = ''
+                    ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
+                """, (det_clean,))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def waha_get_enhancements(self, detachment_name: str) -> List[Dict[str, Any]]:
+        """Returns all enhancements associated with a specific detachment from PostgreSQL."""
+        det_clean = detachment_name.strip()
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT * FROM waha_enhancements 
+                    WHERE LOWER(detachment) = LOWER(%s) 
+                    ORDER BY name ASC;
+                """, (det_clean,))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def waha_get_detachment_rules(self, detachment_name: str) -> List[Dict[str, Any]]:
+        """Returns all detachment rules associated with a specific detachment from PostgreSQL."""
+        det_clean = detachment_name.strip()
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT * FROM waha_detachment_abilities 
+                    WHERE LOWER(detachment) = LOWER(%s) 
+                    ORDER BY name ASC;
+                """, (det_clean,))
+                return [dict(r) for r in cursor.fetchall()]
 
 
 
