@@ -1075,7 +1075,7 @@ class ArmyListParser:
             m_det = re.search(r"(?:Detachment|DETACHMENT):\s*([^\n\r\|\+]+)", line, re.IGNORECASE)
             if m_det:
                 detachment = m_det.group(1).strip()
-            elif " - " in line and any(kw in line.lower() for kw in ["task force", "detachment", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "legion", "cult", "coven"]):
+            elif " - " in line and any(kw in line.lower() for kw in ["task force", "detachment", "court", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "legion", "cult", "coven", "strike force", "swarm", "conclave", "horde", "clan", "cabal"]):
                 parts = line.split(" - ")
                 if len(parts) >= 2:
                     det_candidate = re.sub(r"[\(\[].*?[\)\]]", "", parts[-1]).strip()
@@ -1136,7 +1136,7 @@ class ArmyListParser:
                 continue
 
             # Skip roster title line if matched
-            if any(kf.lower() in line.lower() for kf in known_factions) and any(kw in line.lower() for kw in ["task force", "detachment", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "army roster"]):
+            if (roster_name and roster_name.lower() in line.lower()) or (any(kf.lower() in line.lower() for kf in known_factions) and any(kw in line.lower() for kw in ["task force", "detachment", "court", "spearhead", "host", "cadre", "phalanx", "fleet", "brotherhood", "crusade", "army roster", "legion", "cult", "coven", "swarm", "strike force"])):
                 continue
 
             # Check if line is an Enhancement subline

@@ -3179,8 +3179,13 @@ class PostgresDatabase:
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                # 1. Exact match
-                cursor.execute("SELECT * FROM waha_datasheets WHERE LOWER(name) = LOWER(%s) LIMIT 1;", (clean_name,))
+                clean_name = unit_name.strip()
+                # 1. Exact match (and curly quote normalization)
+                cursor.execute("SELECT * FROM waha_datasheets WHERE LOWER(name) = LOWER(%s) OR LOWER(name) = LOWER(%s) OR LOWER(name) = LOWER(%s) LIMIT 1;", (
+                    clean_name,
+                    clean_name.replace("'", "’"),
+                    clean_name.replace("’", "'")
+                ))
                 row = cursor.fetchone()
 
                 # 2. Variants match
@@ -3190,18 +3195,22 @@ class PostgresDatabase:
                         clean_name.replace("Deathwing ", "").strip(),
                         clean_name.replace("Ravenwing ", "").strip(),
                         clean_name.replace("Vanguard ", "").strip(),
-                        clean_name.replace("Sternguard ", "").strip()
+                        clean_name.replace("Sternguard ", "").strip(),
+                        clean_name.replace("'", "’"),
+                        clean_name.replace("’", "'"),
+                        clean_name.replace("’", "").replace("'", "")
                     ]
                     for var in variants:
                         if var and var != clean_name:
-                            cursor.execute("SELECT * FROM waha_datasheets WHERE LOWER(name) = LOWER(%s) LIMIT 1;", (var,))
+                            cursor.execute("SELECT * FROM waha_datasheets WHERE LOWER(name) = LOWER(%s) OR LOWER(name) = LOWER(%s) LIMIT 1;", (var, var.replace("'", "’")))
                             row = cursor.fetchone()
                             if row:
                                 break
 
                 # 3. Fuzzy ILIKE match
                 if not row:
-                    cursor.execute("SELECT * FROM waha_datasheets WHERE name ILIKE %s ORDER BY LENGTH(name) ASC LIMIT 1;", (f"%{clean_name}%",))
+                    search_term = clean_name.replace("'", "%").replace("’", "%")
+                    cursor.execute("SELECT * FROM waha_datasheets WHERE name ILIKE %s ORDER BY LENGTH(name) ASC LIMIT 1;", (f"%%{search_term}%%",))
                     row = cursor.fetchone()
 
                 if not row:
@@ -3291,11 +3300,11 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_stratagems 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
+                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
                       AND name IS NOT NULL AND TRIM(name) != ''
                       AND cp_cost IS NOT NULL AND TRIM(cp_cost) != ''
                     ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
-                """, (det_clean,))
+                """, (det_clean, f"%{det_clean}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
     def waha_get_enhancements(self, detachment_name: str) -> List[Dict[str, Any]]:
@@ -3306,10 +3315,10 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_enhancements 
-                    WHERE LOWER(detachment) = LOWER(%s)
+                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
                       AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
-                """, (det_clean,))
+                """, (det_clean, f"%{det_clean}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
     def waha_get_detachment_rules(self, detachment_name: str) -> List[Dict[str, Any]]:
@@ -3320,10 +3329,10 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_detachment_abilities 
-                    WHERE LOWER(detachment) = LOWER(%s)
+                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
                       AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
-                """, (det_clean,))
+                """, (det_clean, f"%{det_clean}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
 
