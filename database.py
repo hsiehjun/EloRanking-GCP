@@ -3291,9 +3291,10 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_stratagems 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR LOWER(detachment) = 'core')
-                      AND name IS NOT NULL AND name != ''
-                    ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
+                    WHERE (LOWER(detachment) = LOWER(%s) OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
+                      AND name IS NOT NULL AND TRIM(name) != ''
+                      AND cp_cost IS NOT NULL AND TRIM(cp_cost) != ''
+                    ORDER BY CASE WHEN LOWER(detachment) LIKE '%core%' THEN 2 ELSE 1 END, name ASC;
                 """, (det_clean,))
                 return [dict(r) for r in cursor.fetchall()]
 
