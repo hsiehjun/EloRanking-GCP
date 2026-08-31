@@ -1060,8 +1060,24 @@ if FASTAPI_AVAILABLE:
                 "roundNum": payload.round_num if payload else 1,
                 "tableNum": payload.table_num if payload else None
             },
-            "p1": {"score": 0, "rounds": [], "battleReady": True, "cp": 0},
-            "p2": {"score": 0, "rounds": [], "battleReady": True, "cp": 0},
+            "p1": {
+                "score": 0,
+                "rounds": [
+                    {"round": i, "battleRound": i, "primaryScore": 0, "secondaryScore": 0, "secondaries": []}
+                    for i in range(1, 6)
+                ],
+                "battleReady": True,
+                "cp": 0
+            },
+            "p2": {
+                "score": 0,
+                "rounds": [
+                    {"round": i, "battleRound": i, "primaryScore": 0, "secondaryScore": 0, "secondaries": []}
+                    for i in range(1, 6)
+                ],
+                "battleReady": True,
+                "cp": 0
+            },
             "round": 1,
             "started": False,
             "trackCP": True,
@@ -2272,8 +2288,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=38.0">
-  <script src="/tracker/tracker_sync.js?v=38.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=39.0">
+  <script src="/tracker/tracker_sync.js?v=39.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

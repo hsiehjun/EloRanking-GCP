@@ -203,6 +203,37 @@
     try {
       const obj = typeof raw === 'string' ? JSON.parse(raw) : raw;
       if (obj && typeof obj === 'object') {
+        // Sanitize p1 & p2 rounds arrays to ensure no null elements crash Next.js/React!
+        ['p1', 'p2'].forEach(pKey => {
+          if (obj[pKey]) {
+            if (!obj[pKey].rounds || !Array.isArray(obj[pKey].rounds)) {
+              obj[pKey].rounds = [
+                { round: 1, battleRound: 1, primaryScore: 0, secondaryScore: 0, secondaries: [] },
+                { round: 2, battleRound: 2, primaryScore: 0, secondaryScore: 0, secondaries: [] },
+                { round: 3, battleRound: 3, primaryScore: 0, secondaryScore: 0, secondaries: [] },
+                { round: 4, battleRound: 4, primaryScore: 0, secondaryScore: 0, secondaries: [] },
+                { round: 5, battleRound: 5, primaryScore: 0, secondaryScore: 0, secondaries: [] }
+              ];
+            } else {
+              obj[pKey].rounds = obj[pKey].rounds.map((r, idx) => {
+                if (!r || typeof r !== 'object') {
+                  return {
+                    round: idx + 1,
+                    battleRound: idx + 1,
+                    primaryScore: 0,
+                    secondaryScore: 0,
+                    secondaries: []
+                  };
+                }
+                if (typeof r.primaryScore !== 'number') r.primaryScore = 0;
+                if (typeof r.secondaryScore !== 'number') r.secondaryScore = 0;
+                if (!Array.isArray(r.secondaries) && !r.secondaries) r.secondaries = [];
+                return r;
+              });
+            }
+          }
+        });
+
         obj.trackCp = true;
         obj.trackCP = true;
         obj.trackCommandPoints = true;
@@ -1819,10 +1850,9 @@
     if (!incoming) return;
     clientState.isApplyingRemote = true;
     try {
-      const stateObj = typeof incoming === 'string' ? JSON.parse(incoming) : incoming;
+      const sanitized = injectDefaultCpIntoState(incoming);
+      const stateObj = typeof sanitized === 'string' ? JSON.parse(sanitized) : sanitized;
       const serialized = JSON.stringify(stateObj);
-      const current = originalGetItem('gdm-11e-tracker-state');
-      
       originalSetItem('gdm-11e-tracker-state', serialized);
 
       // 0. Synchronize Chess Clock from game state
