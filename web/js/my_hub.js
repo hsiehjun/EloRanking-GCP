@@ -120,88 +120,107 @@ function renderMyHub(data) {
       </div>
     </div>
 
-    <!-- 2-Column Row 1: Tournament Hub & Elo Trajectory -->
+    <!-- Full-Width Row 1: Tournament Hub & Events (Bigger) -->
+    <div class="hub-card" id="hub-tournament-discovery-card" style="margin-top: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">⚔️ Tournament Hub & Events</h3>
+          <span class="badge-live"><span class="live-indicator-dot"></span>Live Schedule</span>
+        </div>
+        <span id="hub-tourney-tab-count" style="font-size: 0.82rem; color: var(--accent); font-weight: 700;">${upcoming.length} registered</span>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="hub-tournaments-nav" style="margin-bottom: 0.85rem;">
+        <button id="hub-btn-tab-registered" class="hub-tourney-tab-btn active" onclick="switchHubTourneyTab('registered')">⚔️ Registered (${upcoming.length})</button>
+        <button id="hub-btn-tab-recommended" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('recommended')">🎯 Recommended Near Me</button>
+      </div>
+
+      <!-- Tab 1: Registered Tournaments -->
+      <div id="hub-tourney-view-registered">
+        ${upcoming.length > 0 ? `
+          <div class="hub-events-grid">
+            ${upcoming.map(ev => `
+              <div class="hub-rec-card" onclick="openEventModal('${ev.event_id}')">
+                <div style="flex: 1; min-width: 0; padding-right: 0.75rem;">
+                  <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                    <b style="font-size: 0.92rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ev.event_name)}</b>
+                    <span class="tier-badge tier-A" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">Registered</span>
+                  </div>
+                  <div style="font-size: 0.78rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                    <span>📅 ${ev.event_date ? ev.event_date.substring(0, 10) : 'TBD'}</span>
+                    <span>•</span>
+                    <span>📍 ${escapeHtml(ev.city || '')} ${escapeHtml(ev.state || '')}</span>
+                  </div>
+                </div>
+                <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
+                  <span class="badge" style="font-size: 0.7rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    👥 ${ev.total_players || 0} Players
+                  </span>
+                  <span style="font-size: 0.72rem; color: var(--accent); font-weight: 600;">${escapeHtml(ev.registered_faction || 'Confirmed')}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        ` : `
+          <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+            <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">📅 No registered upcoming tournaments.</div>
+            <div style="font-size: 0.78rem; max-width: 480px; margin: 0 auto;">${isBcpConnected ? 'Click <b>"Recommended Near Me"</b> above to explore events!' : '<button class="bcp-login-btn" style="margin-top:0.65rem; font-size:0.8rem;" onclick="openBcpLinkModal()">Link BCP Account to Auto-Sync</button>'}</div>
+          </div>
+        `}
+      </div>
+
+      <!-- Tab 2: Recommended Near Me -->
+      <div id="hub-tourney-view-recommended" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.5rem;">
+          <span id="hub-rec-location-label" style="font-weight: 600;">📍 Regional Events</span>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <input type="text" id="hub-rec-search-input" class="hub-search-input" style="width: 140px; padding: 0.3rem 0.55rem; font-size: 0.75rem;" placeholder="Search..." oninput="debounceHubEventsSearch()">
+            <select id="hub-rec-tier-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
+              <option value="">All Tiers</option>
+              <option value="Major">Major</option>
+              <option value="Grand Tournament">GT</option>
+              <option value="RTT / Local">RTT</option>
+            </select>
+            <select id="hub-rec-radius-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
+              <option value="50">50 mi</option>
+              <option value="100" selected>100 mi</option>
+              <option value="250">250 mi</option>
+              <option value="">Any</option>
+            </select>
+          </div>
+        </div>
+        <div id="hub-recommended-list" class="hub-events-grid" style="max-height: 320px; overflow-y: auto;">
+          <div class="empty-state" style="padding: 1.5rem 0; grid-column: 1 / -1;"><div class="spinner"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2-Column Row 1: Half-Sized Army Lists & Elo Trajectory -->
     <div class="hub-grid-2col" style="margin-top: 1.25rem;">
 
-      <!-- Card 1: Half-Sized Tournament Hub & Events -->
-      <div class="hub-card" id="hub-tournament-discovery-card" style="display:flex; flex-direction:column; justify-content:space-between;">
+      <!-- Card: Half-Sized Army Lists & Rosters -->
+      <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
-            <div style="display: flex; align-items: center; gap: 0.6rem;">
-              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">⚔️ Tournament Hub & Events</h3>
-              <span class="badge-live"><span class="live-indicator-dot"></span>Live Schedule</span>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
             </div>
-            <span id="hub-tourney-tab-count" style="font-size: 0.8rem; color: var(--accent); font-weight: 700;">${upcoming.length} registered</span>
+            <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.75rem; padding: 0.3rem 0.75rem; background: var(--accent); color: #0f172a; font-weight: 800;">
+              ➕ Import
+            </button>
           </div>
 
-          <!-- Navigation Tabs -->
-          <div class="hub-tournaments-nav" style="margin-bottom: 0.85rem;">
-            <button id="hub-btn-tab-registered" class="hub-tourney-tab-btn active" onclick="switchHubTourneyTab('registered')">⚔️ Registered (${upcoming.length})</button>
-            <button id="hub-btn-tab-recommended" class="hub-tourney-tab-btn" onclick="switchHubTourneyTab('recommended')">🎯 Recommended Near Me</button>
-          </div>
-
-          <!-- Tab 1: Registered Tournaments -->
-          <div id="hub-tourney-view-registered">
-            ${upcoming.length > 0 ? `
-              <div class="hub-events-grid">
-                ${upcoming.map(ev => `
-                  <div class="hub-rec-card" onclick="openEventModal('${ev.event_id}')">
-                    <div style="flex: 1; min-width: 0; padding-right: 0.75rem;">
-                      <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
-                        <b style="font-size: 0.88rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(ev.event_name)}</b>
-                        <span class="tier-badge tier-A" style="font-size: 0.65rem; padding: 0.1rem 0.4rem;">Registered</span>
-                      </div>
-                      <div style="font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                        <span>📅 ${ev.event_date ? ev.event_date.substring(0, 10) : 'TBD'}</span>
-                        <span>•</span>
-                        <span>📍 ${escapeHtml(ev.city || '')} ${escapeHtml(ev.state || '')}</span>
-                      </div>
-                    </div>
-                    <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem;">
-                      <span class="badge" style="font-size: 0.7rem; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
-                        👥 ${ev.total_players || 0} Players
-                      </span>
-                      <span style="font-size: 0.7rem; color: var(--accent); font-weight: 600;">${escapeHtml(ev.registered_faction || 'Confirmed')}</span>
-                    </div>
-                  </div>
-                `).join('')}
-              </div>
-            ` : `
-              <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-                <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">📅 No registered upcoming tournaments.</div>
-                <div style="font-size: 0.78rem; max-width: 480px; margin: 0 auto;">${isBcpConnected ? 'Click <b>"Recommended Near Me"</b> above to explore events!' : '<button class="bcp-login-btn" style="margin-top:0.65rem; font-size:0.8rem;" onclick="openBcpLinkModal()">Link BCP Account to Auto-Sync</button>'}</div>
-              </div>
-            `}
-          </div>
-
-          <!-- Tab 2: Recommended Near Me -->
-          <div id="hub-tourney-view-recommended" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.5rem;">
-              <span id="hub-rec-location-label" style="font-weight: 600;">📍 Regional Events</span>
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <input type="text" id="hub-rec-search-input" class="hub-search-input" style="width: 140px; padding: 0.3rem 0.55rem; font-size: 0.75rem;" placeholder="Search..." oninput="debounceHubEventsSearch()">
-                <select id="hub-rec-tier-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
-                  <option value="">All Tiers</option>
-                  <option value="Major">Major</option>
-                  <option value="Grand Tournament">GT</option>
-                  <option value="RTT / Local">RTT</option>
-                </select>
-                <select id="hub-rec-radius-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
-                  <option value="50">50 mi</option>
-                  <option value="100" selected>100 mi</option>
-                  <option value="250">250 mi</option>
-                  <option value="">Any</option>
-                </select>
-              </div>
-            </div>
-            <div id="hub-recommended-list" class="hub-events-grid" style="max-height: 240px; overflow-y: auto;">
-              <div class="empty-state" style="padding: 1.5rem 0; grid-column: 1 / -1;"><div class="spinner"></div></div>
+          <div id="hub-armylists-list-container" style="max-height: 240px; overflow-y: auto;">
+            <div style="text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.82rem;">
+              <div class="spinner"></div>
+              <div style="margin-top: 0.5rem;">Loading your army lists...</div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Card 2: Elo Trajectory Progression -->
+      <!-- Card: Half-Sized Elo Trajectory Progression -->
       <div class="hub-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📈 Elo Rating Trajectory</h3>
@@ -400,25 +419,6 @@ function renderMyHub(data) {
         `}
       </div>
 
-    </div>
-
-    <!-- Row 3: Army Lists & Roster Studio -->
-    <div class="hub-card" id="hub-armylists-card" style="margin-top: 1.25rem;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.6rem;">
-        <div style="display: flex; align-items: center; gap: 0.6rem;">
-          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
-        </div>
-        <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; background: var(--accent); color: #0f172a; font-weight: 800;">
-          ➕ Import from NewRecruit
-        </button>
-      </div>
-
-      <div id="hub-armylists-list-container">
-        <div style="text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem;">
-          <div class="spinner"></div>
-          <div style="margin-top: 0.5rem;">Loading your army lists...</div>
-        </div>
-      </div>
     </div>
   `;
 
@@ -934,38 +934,40 @@ function renderHubArmyLists(lists) {
   }
 
   container.innerHTML = `
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;">
+    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
       ${lists.map(l => {
         const pts = l.points || 2000;
 
         return `
-          <div class="hub-rec-card" style="flex-direction: column; align-items: stretch; gap: 0.85rem; padding: 1.15rem; background: rgba(19, 29, 51, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;">
+          <div class="hub-rec-card" style="flex-direction: column; align-items: stretch; gap: 0.65rem; padding: 0.85rem 1rem; background: rgba(19, 29, 51, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
-              <div>
-                <div style="font-size: 1.08rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
-                <div style="font-size: 0.82rem; color: #38bdf8; font-weight: 700; margin-top: 0.2rem;">
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-size: 0.98rem; font-weight: 800; color: #fff; font-family: var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
+                <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 700; margin-top: 0.15rem;">
                   ${escapeHtml(l.faction || 'Warhammer 40k')} • <span style="color: #c084fc;">${escapeHtml(l.detachment || 'Core Detachment')}</span>
                 </div>
               </div>
-              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 800; font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid rgba(245, 158, 11, 0.3);">
+              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 800; font-family: var(--font-mono); font-size: 0.72rem; border: 1px solid rgba(245, 158, 11, 0.3); flex-shrink: 0;">
                 ${pts} PTS
               </span>
             </div>
 
             <!-- Action Buttons Row -->
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.75rem; flex-wrap: wrap;">
-              <button onclick="openViewArmyListModal('${l.id}')" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700;">
-                👁️ View List
-              </button>
-              <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-weight: 700;">
-                ⚔️ Play in Tracker
-              </button>
-              ${l.source_url ? `
-                <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;" title="Edit roster on NewRecruit">
-                  ✏️ Edit on NewRecruit ↗
-                </a>
-              ` : ''}
-              <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.4rem;" title="Delete List">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.55rem; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <button onclick="openViewArmyListModal('${l.id}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700;">
+                  👁️ View
+                </button>
+                <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-weight: 700;">
+                  ⚔️ Play
+                </button>
+                ${l.source_url ? `
+                  <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.74rem; padding: 0.25rem 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;" title="Edit roster on NewRecruit">
+                    ✏️ Edit ↗
+                  </a>
+                ` : ''}
+              </div>
+              <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.85rem; cursor: pointer; padding: 0.2rem 0.3rem;" title="Delete List">
                 🗑️
               </button>
             </div>
