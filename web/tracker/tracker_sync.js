@@ -1889,7 +1889,7 @@
         } catch(e) {}
       }, 50);
 
-    } else if (!activeList || (!activeList.source_url && (!activeList.units || activeList.units.length === 0))) {
+    } else if (!activeList || (!activeList.source_url && !activeList.raw_text && (!activeList.units || activeList.units.length === 0))) {
       // Empty state for Opponent or My List
       const isOpp = tab === 'opponent';
       contentHtml = `
@@ -1905,201 +1905,6 @@
             </button>
           ` : ''}
         </div>
-      `;
-    } else if (activeList.units && activeList.units.length > 0) {
-      const filter = clientState.activeListFilter || 'all';
-      const search = clientState.listSearchQuery || '';
-
-      let filteredUnits = activeList.units || [];
-      if (filter !== 'all') {
-        filteredUnits = filteredUnits.filter(u => {
-          const r = (u.role || '').toLowerCase();
-          const k = (u.keywords || []).map(x => x.toLowerCase());
-          if (filter === 'character') return r.includes('char') || k.includes('character');
-          if (filter === 'battleline') return r.includes('battleline') || k.includes('battleline');
-          if (filter === 'infantry') return r.includes('infantry') || k.includes('infantry');
-          if (filter === 'monster_vehicle') return r.includes('monster') || r.includes('vehicle') || k.includes('monster') || k.includes('vehicle') || r.includes('mounted');
-          if (filter === 'transport') return r.includes('transport') || k.includes('transport');
-          return true;
-        });
-      }
-
-      if (search) {
-        filteredUnits = filteredUnits.filter(u => {
-          const matchName = u.name.toLowerCase().includes(search);
-          const matchWep = (u.weapons || []).some(w => w.name.toLowerCase().includes(search));
-          const matchKw = (u.keywords || []).some(k => k.toLowerCase().includes(search));
-          return matchName || matchWep || matchKw;
-        });
-      }
-
-      const stratagems = activeList.stratagems || [];
-
-      contentHtml = `
-        <!-- Top Info Header -->
-        <div style="background:#0f172a; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 18px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-          <div>
-            <div style="font-size:18px; font-weight:900; color:#f8fafc; font-family:'JetBrains Mono',monospace;">${activeList.name || 'Army Roster'}</div>
-            <div style="font-size:13px; color:#38bdf8; font-weight:700; margin-top:2px;">
-              ${activeList.faction || '40k'} • <span style="color:#a855f7;">${activeList.detachment || 'Core'}</span>
-            </div>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            ${activeList.source_url ? `
-              <a href="${activeList.source_url}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
-                🌐 Open in NewRecruit ↗
-              </a>
-            ` : ''}
-            <span style="background:#070b14; border:1px solid #334155; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace;">
-              ${activeList.points || 2000} / ${activeList.points_limit || 2000} PTS
-            </span>
-            ${activeList.warlord ? `
-              <span style="background:rgba(234,179,8,0.15); border:1px solid #eab308; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:800; color:#facc15;">
-                👑 ${activeList.warlord}
-              </span>
-            ` : ''}
-          </div>
-        </div>
-
-        <!-- Filter Bar & Search -->
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
-          <div style="display:flex; gap:6px; flex-wrap:wrap;">
-            ${['all', 'character', 'battleline', 'infantry', 'monster_vehicle'].map(f => {
-              const label = f === 'all' ? 'All Units' : f === 'monster_vehicle' ? 'Monsters/Vehicles' : f.charAt(0).toUpperCase() + f.slice(1);
-              const isActive = filter === f;
-              return `<button onclick="window.gtSetListFilter('${f}')" class="gt-tab-btn ${isActive ? 'active' : ''}">${label}</button>`;
-            }).join('')}
-          </div>
-          <div style="flex:1; max-width:240px;">
-            <input type="text" placeholder="Search unit / weapon..." value="${search}" oninput="window.gtSearchArmyList(this.value)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:6px 12px; font-size:12px; color:#fff; outline:none;" />
-          </div>
-        </div>
-
-        <!-- Units Roster -->
-        <div>
-          ${filteredUnits.length === 0 ? `<div style="color:#64748b; font-size:13px; text-align:center; padding:30px;">No units match your filter.</div>` : filteredUnits.map((u, uIdx) => {
-            const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
-            const weps = u.weapons || [];
-            const abilities = u.abilities || [];
-            const keywords = u.keywords || [];
-            const maxWounds = stats.W || 1;
-            const modelCount = u.model_count || 1;
-
-            return `
-              <div class="gt-unit-card">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
-                  <div>
-                    <span style="font-size:15px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace;">${u.name}</span>
-                    <span style="background:#1e293b; color:#94a3b8; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-left:6px; text-transform:uppercase;">${u.role || 'Infantry'}</span>
-                    ${u.is_warlord ? `<span style="background:rgba(234,179,8,0.2); color:#facc15; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">👑 WARLORD</span>` : ''}
-                    ${u.enhancement ? `<span style="background:rgba(168,85,247,0.2); color:#c084fc; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">✨ ${u.enhancement}</span>` : ''}
-                  </div>
-                  <div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:800; color:#f59e0b;">
-                    ${u.points || 0} PTS
-                  </div>
-                </div>
-
-                <!-- Statline Grid -->
-                <div class="gt-stat-grid">
-                  <div class="gt-stat-col"><span class="gt-stat-label">M</span><span class="gt-stat-val">${stats.M || '6"'}</span></div>
-                  <div class="gt-stat-col"><span class="gt-stat-label">T</span><span class="gt-stat-val">${stats.T || 4}</span></div>
-                  <div class="gt-stat-col"><span class="gt-stat-label">SV</span><span class="gt-stat-val">${stats.SV || '3+'}</span></div>
-                  <div class="gt-stat-col"><span class="gt-stat-label">INV</span><span class="gt-stat-val" style="color:#a855f7;">${stats.INV || '-'}</span></div>
-                  <div class="gt-stat-col"><span class="gt-stat-label">W</span><span class="gt-stat-val">${stats.W || 1}</span></div>
-                  <div class="gt-stat-col"><span class="gt-stat-label">LD</span><span class="gt-stat-val">${stats.LD || '6+'}</span></div>
-                  <div class="gt-stat-col"><span class="gt-stat-label">OC</span><span class="gt-stat-val">${stats.OC || 1}</span></div>
-                </div>
-
-                <!-- Weapons Table -->
-                ${weps.length > 0 ? `
-                  <table class="gt-wep-table">
-                    <thead>
-                      <tr>
-                        <th>WEAPON</th>
-                        <th>RANGE</th>
-                        <th>A</th>
-                        <th>BS/WS</th>
-                        <th>S</th>
-                        <th>AP</th>
-                        <th>D</th>
-                        <th>ABILITIES</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${weps.map(w => `
-                        <tr>
-                          <td style="font-weight:700; color:#f8fafc;">${w.name}</td>
-                          <td>${w.range || 'Melee'}</td>
-                          <td>${w.attacks || w.A || '1'}</td>
-                          <td>${w.bs_ws || w.BS_WS || '3+'}</td>
-                          <td>${w.strength || w.S || '4'}</td>
-                          <td>${w.ap || w.AP || '0'}</td>
-                          <td>${w.damage || w.D || '1'}</td>
-                          <td style="color:#38bdf8; font-size:10px;">${w.abilities || '-'}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                ` : ''}
-
-                <!-- Abilities -->
-                ${abilities.length > 0 ? `
-                  <div style="margin-top:10px; font-size:11px; color:#cbd5e1;">
-                    <b style="color:#94a3b8; text-transform:uppercase; font-size:10px;">Abilities: </b>
-                    ${abilities.map(a => `<span style="display:inline-block; margin-right:8px; margin-top:2px;"><b>${a.name}:</b> <span style="color:#94a3b8;">${a.description || ''}</span></span>`).join('')}
-                  </div>
-                ` : ''}
-
-                <!-- Keywords -->
-                ${keywords.length > 0 ? `
-                  <div style="margin-top:8px;">
-                    ${keywords.map(k => `<span class="gt-kw-tag">${k}</span>`).join('')}
-                  </div>
-                ` : ''}
-
-                <!-- Wound Tracker for Models in this Unit -->
-                <div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.05); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-                  <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Wound Track:</span>
-                  ${Array.from({ length: Math.min(modelCount, 10) }).map((_, mIdx) => {
-                    const wKey = `${clientState.matchId}_${u.id}_${mIdx}`;
-                    const curW = clientState.wounds[wKey] !== undefined ? clientState.wounds[wKey] : maxWounds;
-                    const isDead = curW === 0;
-                    return `
-                      <div style="display:inline-flex; align-items:center; gap:4px; background:#070b14; border:1px solid ${isDead ? '#ef4444' : '#334155'}; border-radius:6px; padding:2px 6px; font-size:11px;">
-                        <span style="color:#94a3b8; font-size:10px;">M${mIdx+1}:</span>
-                        <button onclick="window.gtAdjustWound('${u.id}', ${mIdx}, -1, ${maxWounds})" style="background:#1e293b; color:#fff; border:none; width:18px; height:18px; border-radius:3px; cursor:pointer; font-weight:800; font-size:11px;">-</button>
-                        <b style="color:${isDead ? '#ef4444' : '#10b981'}; font-family:'JetBrains Mono',monospace; min-width:14px; text-align:center;">${curW}</b>
-                        <button onclick="window.gtAdjustWound('${u.id}', ${mIdx}, 1, ${maxWounds})" style="background:#1e293b; color:#fff; border:none; width:18px; height:18px; border-radius:3px; cursor:pointer; font-weight:800; font-size:11px;">+</button>
-                      </div>
-                    `;
-                  }).join('')}
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
-
-        <!-- Stratagems Section -->
-        ${stratagems.length > 0 ? `
-          <div style="margin-top:24px;">
-            <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
-              <span>⚡ Stratagems</span>
-              <span style="background:#1e293b; color:#94a3b8; font-size:11px; padding:2px 8px; border-radius:4px;">${stratagems.length}</span>
-            </h3>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">
-              ${stratagems.map(s => `
-                <div class="gt-strat-card">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                    <span style="font-weight:800; font-size:13px; color:#f8fafc;">${s.name}</span>
-                    <span style="background:#0284c7; color:#fff; font-size:10px; font-weight:900; padding:2px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace;">${s.cp || 1} CP</span>
-                  </div>
-                  <div style="font-size:10px; color:#a855f7; font-weight:700; text-transform:uppercase; margin-bottom:4px;">${s.phase || 'Any Phase'}</div>
-                  <div style="font-size:11px; color:#94a3b8; line-height:1.4;">${s.description}</div>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        ` : ''}
       `;
     } else if (activeList.source_url) {
       const nrUrl = (typeof getDirectNewRecruitUrl === 'function') ? getDirectNewRecruitUrl(activeList.source_url) : activeList.source_url;
@@ -2120,6 +1925,10 @@
             <iframe src="${escapeHtml(nrUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
           </div>
         </div>
+      `;
+    } else if (activeList.raw_text) {
+      contentHtml = `
+        <div style="padding:20px; background:#070b14; border-radius:12px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#cbd5e1; white-space:pre-wrap; overflow-y:auto; max-height:75vh; line-height:1.5; border:1px solid rgba(255,255,255,0.08);">${escapeHtml(activeList.raw_text)}</div>
       `;
     }
 
