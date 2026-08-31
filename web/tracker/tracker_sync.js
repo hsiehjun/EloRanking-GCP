@@ -241,25 +241,14 @@
         if (cached) currentUser = JSON.parse(cached);
       } catch (e) {}
     }
-    if (!currentUser) return;
-    if (!document.body) {
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', renderUserBar, { once: true });
-      } else {
-        setTimeout(renderUserBar, 50);
-      }
-      return;
-    }
+    if (!currentUser || !document.body) return;
+
     let bar = document.getElementById('gt-user-status-bar');
-    if (!bar || !document.body.contains(bar)) {
-      if (bar && bar.parentNode) {
-        try { bar.parentNode.removeChild(bar); } catch(e) {}
-      }
-      bar = document.createElement('div');
-      bar.id = 'gt-user-status-bar';
-      bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
-      document.body.appendChild(bar);
-    }
+    if (bar && document.body.contains(bar)) return;
+
+    bar = document.createElement('div');
+    bar.id = 'gt-user-status-bar';
+    bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
     bar.innerHTML = `
       <div style="display:flex; align-items:center; gap:6px;">
         <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
@@ -284,6 +273,7 @@
       </span>
       <button onclick="window.__handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:11px; cursor:pointer; font-weight:700; padding:2px 4px; font-family:'JetBrains Mono',monospace;">Logout</button>
     `;
+    document.body.appendChild(bar);
 
     window.__openScorecardModal = function () {
       if (!clientState.matchId) return;
@@ -790,13 +780,20 @@
       syncHistoryFromDatabase();
     }
 
-    tryInject();
-    renderUserBar();
+    let isObserverRunning = false;
     const observer = new MutationObserver(() => {
-      hideNativeGdmEmptyState();
-      renderUserBar();
-      if (!document.getElementById('gt-lobby-wrapper') || !document.body.contains(document.getElementById('gt-lobby-wrapper'))) {
-        tryInject();
+      if (isObserverRunning) return;
+      isObserverRunning = true;
+      try {
+        hideNativeGdmEmptyState();
+        if (!document.getElementById('gt-lobby-wrapper')) {
+          tryInject();
+        }
+        if (!document.getElementById('gt-user-status-bar')) {
+          renderUserBar();
+        }
+      } finally {
+        setTimeout(() => { isObserverRunning = false; }, 200);
       }
     });
     observer.observe(document.body, { childList: true, subtree: true });
@@ -1602,16 +1599,6 @@
       </div>
     `;
   }
-
-  // Persistent periodic check so React reconciler never drops user status bar
-  setInterval(() => {
-    if (currentUser && document.body) {
-      const bar = document.getElementById('gt-user-status-bar');
-      if (!bar || !document.body.contains(bar)) {
-        renderUserBar();
-      }
-    }
-  }, 400);
 
   // Auto-init on load
   if (document.readyState === 'loading') {
