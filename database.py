@@ -2872,6 +2872,22 @@ class PostgresDatabase:
 
         return self.get_studio_event(event_id) or {"id": event_id, "name": name}
 
+    def delete_studio_event(self, event_id: str, organizer_id: Optional[str] = None) -> bool:
+        """Deletes a tournament event and associated data from the database."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if organizer_id:
+                    cursor.execute("""
+                    DELETE FROM events 
+                    WHERE id = %s AND (organizer_id = %s OR organizer_id IS NULL OR id LIKE 'ES-%');
+                    """, (event_id, organizer_id))
+                else:
+                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
+                cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
+                cursor.execute("DELETE FROM matches WHERE event_id = %s;", (event_id,))
+            conn.commit()
+        return True
+
     def save_user_army_list(self, user_id: Optional[str], list_data: Dict[str, Any]) -> Dict[str, Any]:
         """Saves or updates a user army list in the database."""
         list_id = str(list_data.get("id") or f"list_{uuid.uuid4().hex[:10]}")

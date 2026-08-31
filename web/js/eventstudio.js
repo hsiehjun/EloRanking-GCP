@@ -224,11 +224,13 @@ function renderEventsDirectory() {
           <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="selectStudioTournament('${ev.id}', 'roster')">
             👥 Roster
           </button>
-          <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="openEditTournamentModalById('${ev.id}')">
-            ✏️ Edit
-          </button>
+          ${!ev.id.startsWith('ES-') ? `
+            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; text-decoration: none; color: var(--accent);">
+              🔗 BCP ↗
+            </a>
+          ` : ''}
           <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; color: #ef4444; border-color: rgba(239,68,68,0.4);" onclick="deleteStudioTournament('${ev.id}')">
-            🗑️ Delete
+            🗑️ Delete Event
           </button>
         </div>
       </div>

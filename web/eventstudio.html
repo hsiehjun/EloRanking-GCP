@@ -326,21 +326,21 @@
     <div id="es-view-create" class="es-tab-view" style="display: none;">
       <div class="es-form-card">
         <div class="es-form-header">
-          <h3>Create New Tournament</h3>
-          <p class="es-sec-sub">Set tournament format, round structure, and venue configurations</p>
+          <h3>Create New BCP Tournament</h3>
+          <p class="es-sec-sub">Create a real tournament directly on Best Coast Pairings and Event Studio</p>
         </div>
         <div class="form-grid">
-          <div class="form-group">
-            <label class="form-label">Tournament Name</label>
-            <input type="text" id="create-event-name" class="form-input" placeholder="e.g. San Diego Autumn GT 2026">
+          <div class="form-group" style="grid-column: 1 / -1;">
+            <label class="form-label">Tournament Name *</label>
+            <input type="text" id="create-event-name" class="form-input" placeholder="e.g. Ann Arbor Autumn 40k GT 2026" required>
           </div>
           <div class="form-group">
             <label class="form-label">Format / Tier</label>
             <select id="create-event-format" class="form-input" onchange="updateDefaultRounds()">
-              <option value="RTT">RTT / Local (3 Rounds)</option>
-              <option value="GT" selected>Grand Tournament (5-6 Rounds)</option>
-              <option value="Major">Major (7+ Rounds)</option>
-              <option value="League">League / Narrative Play</option>
+              <option value="GT" selected>Grand Tournament (5 Rounds)</option>
+              <option value="RTT">RTT / Local Rogue Trader (3 Rounds)</option>
+              <option value="Major">Major (6-8 Rounds)</option>
+              <option value="League">League / Narrative Play (4 Rounds)</option>
             </select>
           </div>
           <div class="form-group">
@@ -348,25 +348,36 @@
             <input type="number" id="create-event-rounds" class="form-input" value="5" min="1" max="10">
           </div>
           <div class="form-group">
-            <label class="form-label">Start Date</label>
-            <input type="date" id="create-event-start-date" class="form-input" value="2026-09-26">
+            <label class="form-label">Start Date *</label>
+            <input type="date" id="create-event-start-date" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label">End Date</label>
+            <input type="date" id="create-event-end-date" class="form-input">
           </div>
           <div class="form-group">
             <label class="form-label">Max Player Capacity</label>
-            <input type="number" id="create-event-capacity" class="form-input" value="32" min="4" max="256">
+            <input type="number" id="create-event-capacity" class="form-input" value="32" min="4" max="512">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Points Limit</label>
+            <input type="number" id="create-event-points" class="form-input" value="2000" min="500" max="3000" step="500">
           </div>
           <div class="form-group">
             <label class="form-label">Venue / Store Name</label>
-            <input type="text" id="create-event-venue" class="form-input" placeholder="e.g. Game Empire">
+            <input type="text" id="create-event-venue" class="form-input" placeholder="e.g. Vault of Terra Gaming">
           </div>
           <div class="form-group">
-            <label class="form-label">City & State</label>
-            <input type="text" id="create-event-city-state" class="form-input" placeholder="e.g. San Diego, CA">
+            <label class="form-label">City & State / Country</label>
+            <input type="text" id="create-event-city-state" class="form-input" placeholder="e.g. Ann Arbor, MI">
           </div>
         </div>
-        <div class="es-form-actions">
+
+        <div id="create-event-status" style="display: none; margin-top: 1rem; padding: 0.75rem; border-radius: 8px; font-size: 0.85rem; background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.3); color: #38bdf8;"></div>
+
+        <div class="es-form-actions" style="margin-top: 1.5rem;">
           <button class="es-btn-secondary" onclick="switchStudioTab('events')">Cancel</button>
-          <button class="es-btn-primary" onclick="submitCreateTournament()">Create & Launch Tournament</button>
+          <button class="es-btn-primary" id="btn-submit-create-event" onclick="submitCreateTournament()">🚀 Create & Register on BCP</button>
         </div>
       </div>
     </div>

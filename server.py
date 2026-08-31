@@ -281,42 +281,64 @@ if FASTAPI_AVAILABLE:
 
         event_id = f"ES-{secrets.token_hex(4).upper()}"
         bcp_created = False
+        bcp_error = None
 
         # Attempt to register on Best Coast Pairings API if authenticated
         if bcp_token:
             try:
                 import urllib.request, json
                 bcp_url = "https://newprod-api.bestcoastpairings.com/v1/events"
+                
+                # Format ISO timestamps for BCP
+                s_date = payload.start_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                e_date = payload.end_date or s_date
+                event_date_iso = f"{s_date}T09:00:00Z" if len(s_date) == 10 else s_date
+                end_date_iso = f"{e_date}T18:00:00Z" if len(e_date) == 10 else e_date
+
                 bcp_payload = {
                     "name": payload.name,
+                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
                     "eventType": payload.tier or "Grand Tournament",
-                    "eventDate": payload.start_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-                    "endDate": payload.end_date or payload.start_date or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+                    "eventDate": event_date_iso,
+                    "endDate": end_date_iso,
                     "city": payload.city or "",
                     "state": payload.state or "",
                     "country": payload.country or "United States",
                     "venueName": payload.venue or "",
+                    "numberOfRounds": payload.rounds or 5,
                     "numRounds": payload.rounds or 5,
+                    "totalPlayers": payload.capacity or 32,
                     "capacity": payload.capacity or 32,
-                    "points": payload.points or 2000
+                    "points": payload.points or 2000,
+                    "description": payload.mission_pack or "Created via OmniTactica Event Studio"
                 }
                 req = urllib.request.Request(
                     bcp_url,
                     data=json.dumps(bcp_payload).encode("utf-8"),
                     headers={
                         "Authorization": f"Bearer {bcp_token}",
-                        "Content-Type": "application/json"
+                        "client-id": "web-app",
+                        "User-Agent": BCP_USER_AGENT,
+                        "Content-Type": "application/json",
+                        "Accept": "application/json, text/plain, */*"
                     },
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:
+                with urllib.request.urlopen(req, timeout=12) as resp:
                     if resp.status in (200, 201):
                         res_data = json.loads(resp.read().decode("utf-8"))
-                        if isinstance(res_data, dict) and res_data.get("id"):
-                            event_id = res_data["id"]
-                            bcp_created = True
+                        if isinstance(res_data, dict):
+                            new_id = res_data.get("id") or res_data.get("_id") or (res_data.get("data") or {}).get("id")
+                            if new_id:
+                                event_id = str(new_id)
+                                bcp_created = True
+            except urllib.error.HTTPError as he:
+                err_body = he.read().decode("utf-8", errors="ignore")
+                logger.warning(f"BCP Event create HTTP {he.code}: {err_body}")
+                bcp_error = f"BCP API Error ({he.code}): {err_body[:120]}"
             except Exception as e:
-                logger.warning(f"BCP Event create notice (saving locally): {e}")
+                logger.warning(f"BCP Event create notice: {e}")
+                bcp_error = str(e)
 
         # Save to local database
         saved = db.save_studio_event({
@@ -480,19 +502,27 @@ if FASTAPI_AVAILABLE:
                 bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
                 req = urllib.request.Request(
                     bcp_url,
-                    headers={"Authorization": f"Bearer {bcp_token}"},
+                    headers={
+                        "Authorization": f"Bearer {bcp_token}",
+                        "client-id": "web-app",
+                        "User-Agent": BCP_USER_AGENT
+                    },
                     method="DELETE"
                 )
-                with urllib.request.urlopen(req, timeout=8) as resp:
+                with urllib.request.urlopen(req, timeout=10) as resp:
                     if resp.status in (200, 204):
                         bcp_deleted = True
+            except urllib.error.HTTPError as he:
+                err_body = he.read().decode("utf-8", errors="ignore")
+                logger.warning(f"BCP delete HTTP {he.code}: {err_body}")
             except Exception as e:
                 logger.debug(f"BCP delete notice: {e}")
 
         return {
             "success": True,
             "event_id": event_id,
-            "bcp_deleted": bcp_deleted
+            "bcp_deleted": bcp_deleted,
+            "message": "Tournament deleted successfully."
         }
 
     @app.post("/api/eventstudio/event/{event_id}/pairings", summary="Save round pairings and sync game rooms with BCP")
