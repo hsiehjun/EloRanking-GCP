@@ -1661,6 +1661,48 @@
     }, 60);
   }
 
+  function handleRemoteMatchFinalized() {
+    if (clientState.isFinalizing) return;
+    clientState.isFinalizing = true;
+    clearTimeout(clientState.debounceTimer);
+    if (fsDocUnsub) {
+      try { fsDocUnsub(); fsDocUnsub = null; } catch(e) {}
+    }
+    if (clientState.eventSource) {
+      try { clientState.eventSource.close(); clientState.eventSource = null; } catch(e) {}
+    }
+    try { originalRemoveItem('gdm-11e-tracker-state'); } catch(e) {}
+
+    let overlay = document.getElementById('gt-finalized-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'gt-finalized-overlay';
+      overlay.style.cssText = `
+        position: fixed; inset: 0; background: rgba(7,11,20,0.92);
+        z-index: 999999; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; text-align: center;
+        padding: 20px; color: #fff; font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      `;
+      overlay.innerHTML = `
+        <div style="background:#0f172a; border:1px solid #10b981; border-radius:16px; padding:2rem; max-width:440px; box-shadow:0 20px 50px rgba(0,0,0,0.8);">
+          <div style="font-size:3rem; margin-bottom:1rem;">🏁</div>
+          <h2 style="font-size:1.4rem; font-weight:800; color:#10b981; margin:0 0 0.5rem 0;">Match Concluded!</h2>
+          <p style="font-size:0.9rem; color:#94a3b8; line-height:1.5; margin:0 0 1.5rem 0;">
+            The battle record has been permanently saved and archived. Redirecting to the verified scorecard...
+          </p>
+          <a href="/scorecard/${encodeURIComponent(clientState.matchId)}" style="background:#0284c7; color:#fff; padding:10px 20px; border-radius:8px; text-decoration:none; font-weight:700; font-size:0.9rem; display:inline-block;">
+            📄 View Scorecard Now
+          </a>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+    }
+
+    setTimeout(() => {
+      window.location.href = `/scorecard/${encodeURIComponent(clientState.matchId)}`;
+    }, 1000);
+  }
+
   let fsDocUnsub = null;
   function initFirestoreDirectSync() {
     if (!clientState.matchId) return;
@@ -1674,21 +1716,31 @@
         if (fsDocUnsub) fsDocUnsub();
         
         fsDocUnsub = docRef.onSnapshot((snap) => {
-          if (snap && snap.exists) {
-            const data = snap.data();
-            if (data) {
-              if (data.clock) {
-                applyRemoteChessClock(data.clock);
-              }
-              if (data.rosters) {
-                if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
-                if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
-                injectMultiplayerHUD();
-              }
-              if (data.version && data.version > clientState.version && data.state && !clientState.isApplyingRemote) {
-                clientState.version = data.version;
-                applyRemoteState(data.state);
-              }
+          if (!snap || !snap.exists) {
+            // Room was concluded and deleted by opponent!
+            if (clientState.hasJoinedRoom && !clientState.isFinalizing) {
+              handleRemoteMatchFinalized();
+            }
+            return;
+          }
+          clientState.hasJoinedRoom = true;
+          const data = snap.data();
+          if (data) {
+            if (data.status === 'completed' || data.is_finished || (data.state && data.state.is_finished)) {
+              handleRemoteMatchFinalized();
+              return;
+            }
+            if (data.clock) {
+              applyRemoteChessClock(data.clock);
+            }
+            if (data.rosters) {
+              if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
+              if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
+              injectMultiplayerHUD();
+            }
+            if (data.version && data.version > clientState.version && data.state && !clientState.isApplyingRemote) {
+              clientState.version = data.version;
+              applyRemoteState(data.state);
             }
           }
         }, (err) => {
@@ -1737,7 +1789,7 @@
 
     // 2. Broadcast via API
     try {
-      await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/state`, {
+      const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/state`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1752,6 +1804,13 @@
           state: parsedState
         })
       });
+      if (resp.ok) {
+        const resData = await resp.json();
+        if (resData.is_finished || resData.status === 'finalized') {
+          handleRemoteMatchFinalized();
+          return;
+        }
+      }
       window.__broadcastHistoryUpdate();
     } catch (e) {}
   }
@@ -1904,6 +1963,10 @@
       es.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'match_finalized' || msg.status === 'completed' || msg.is_finished) {
+            handleRemoteMatchFinalized();
+            return;
+          }
           if (msg.type === 'state_update') {
             if (msg.sender !== clientState.clientId && msg.state) {
               if (msg.version >= clientState.version) {

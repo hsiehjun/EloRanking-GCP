@@ -1339,6 +1339,18 @@ if FASTAPI_AVAILABLE:
         match_id = normalize_tracker_match_id(match_id)
         fs_engine = get_firestore_engine()
         auth_mgr = get_auth_manager()
+        db = get_database()
+        
+        # Hard Guard: If match is already concluded in PostgreSQL, reject state write and NEVER re-create Firestore room!
+        saved_rec = db.get_tracker_game(match_id)
+        if saved_rec and (saved_rec.get("is_finished") or (isinstance(saved_rec.get("state_json"), dict) and saved_rec["state_json"].get("is_finished"))):
+            return {
+                "success": False,
+                "is_finished": True,
+                "status": "finalized",
+                "scorecard_url": f"/scorecard/{match_id}",
+                "message": "Match has concluded and is locked."
+            }
         
         auth_header = request.headers.get("Authorization", "")
         session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
@@ -1348,6 +1360,14 @@ if FASTAPI_AVAILABLE:
         if match_id not in TRACKER_ROOMS:
             fs_doc = fs_engine.get_room(match_id)
             if fs_doc and fs_doc.get("state"):
+                if fs_doc.get("status") == "completed" or fs_doc.get("is_finished"):
+                    return {
+                        "success": False,
+                        "is_finished": True,
+                        "status": "finalized",
+                        "scorecard_url": f"/scorecard/{match_id}",
+                        "message": "Match has concluded."
+                    }
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
                     "user_id_p1": fs_doc.get("user_id_p1"),
@@ -1690,13 +1710,28 @@ if FASTAPI_AVAILABLE:
         except Exception as e:
             logger.warning(f"Notice saving finalized game to DB: {e}")
 
-        # 2. Delete / remove from Cloud Firestore (active session is concluded!)
+        # 2. Broadcast conclusion to connected SSE listeners (Player 2, Spectators)
+        listeners = TRACKER_LISTENERS.get(match_id, [])
+        finalize_msg = {
+            "type": "match_finalized",
+            "match_id": match_id,
+            "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}",
+            "status": "completed",
+            "is_finished": True
+        }
+        for q in list(listeners):
+            try:
+                await q.put(finalize_msg)
+            except Exception:
+                pass
+
+        # 3. Delete / remove from Cloud Firestore (active session is concluded!)
         try:
             fs_engine.discard_room(match_id)
         except Exception as e:
             logger.warning(f"Notice discarding Firestore room on conclusion {match_id}: {e}")
 
-        # 3. Clean up Memory Cache
+        # 4. Clean up Memory Cache
         if match_id in TRACKER_ROOMS:
             try:
                 del TRACKER_ROOMS[match_id]
@@ -2237,8 +2272,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=37.0">
-  <script src="/tracker/tracker_sync.js?v=37.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=38.0">
+  <script src="/tracker/tracker_sync.js?v=38.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
