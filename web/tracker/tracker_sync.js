@@ -601,6 +601,11 @@
 
   // 3. Initialize Match Room / Play / Setup / Landing
   async function init() {
+    if (!isPlay) {
+      injectLobbyHub();
+      renderUserBar();
+    }
+
     const isAuthed = await verifySession();
     if (!isAuthed) return;
 
@@ -772,73 +777,78 @@
 
   // 4. Landing Page: Inject Mobile-Friendly 2-Player Room Key Generator & Join Card
   function injectLobbyHub() {
+    if (isPlay) return;
+
     function tryInject() {
-      const main = document.querySelector('main') || document.body;
-      if (!main) return;
+      if (isPlay) return;
+      const targetParent = document.querySelector('main') || document.body || document.documentElement;
+      if (!targetParent) return;
 
       let wrapper = document.getElementById('gt-lobby-wrapper');
       if (!wrapper || !document.body.contains(wrapper)) {
-        wrapper = document.createElement('div');
-        wrapper.id = 'gt-lobby-wrapper';
-        wrapper.style.cssText = "width:100%; max-width:820px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
+        if (!wrapper) {
+          wrapper = document.createElement('div');
+          wrapper.id = 'gt-lobby-wrapper';
+          wrapper.style.cssText = "width:100%; max-width:820px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
 
-        wrapper.innerHTML = `
-          <div id="gt-lobby-hub-card" style="margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
-              <div>
-                <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
-                <p style="font-size:11px; color:#94a3b8; margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
-              </div>
-              <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
-            </div>
-
-            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
-              <!-- Host Card -->
-              <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+          wrapper.innerHTML = `
+            <div id="gt-lobby-hub-card" style="margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
                 <div>
-                  <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
-                  <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
+                  <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
+                  <p style="font-size:11px; color:#94a3b8; margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
                 </div>
-                <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
-                  CREATE & ENTER MATCH ➔
-                </button>
+                <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
               </div>
 
-              <!-- Join Card -->
-              <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
-                <div>
-                  <div style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
-                  <p style="font-size:11px; color:#94a3b8; margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
+                <!-- Host Card -->
+                <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+                  <div>
+                    <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
+                    <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
+                  </div>
+                  <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
+                    CREATE & ENTER MATCH ➔
+                  </button>
                 </div>
-                <div>
-                  <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
-                  <div style="display:flex; gap:8px;">
-                    <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+
+                <!-- Join Card -->
+                <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+                  <div>
+                    <div style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
+                    <p style="font-size:11px; color:#94a3b8; margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+                  </div>
+                  <div>
+                    <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
+                    <div style="display:flex; gap:8px;">
+                      <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
+                      <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-              <div style="font-size:14px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
-                GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:4px;"></span>
+            <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+                <div style="font-size:14px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
+                  GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:4px;"></span>
+                </div>
+              </div>
+              <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
+                <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
+                  Loading match history...
+                </div>
               </div>
             </div>
-            <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
-              <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
-                Loading match history...
-              </div>
-            </div>
-          </div>
-        `;
+          `;
+        }
 
-        if (main.firstChild) {
-          main.insertBefore(wrapper, main.firstChild);
+        if (targetParent.firstChild) {
+          targetParent.insertBefore(wrapper, targetParent.firstChild);
         } else {
-          main.appendChild(wrapper);
+          targetParent.appendChild(wrapper);
         }
       }
 
@@ -847,23 +857,13 @@
       syncHistoryFromDatabase();
     }
 
-    let isObserverRunning = false;
-    const observer = new MutationObserver(() => {
-      if (isObserverRunning) return;
-      isObserverRunning = true;
-      try {
-        hideNativeGdmEmptyState();
-        if (!document.getElementById('gt-lobby-wrapper')) {
-          tryInject();
-        }
-        if (!document.getElementById('gt-user-status-bar')) {
-          renderUserBar();
-        }
-      } finally {
-        setTimeout(() => { isObserverRunning = false; }, 200);
-      }
-    });
-    observer.observe(document.body, { childList: true, subtree: true });
+    tryInject();
+    setInterval(tryInject, 400);
+
+    if (document.body) {
+      const observer = new MutationObserver(tryInject);
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
   }
 
   // Waiting Room Modal for Host
@@ -3162,6 +3162,14 @@ Space Marines - Gladius Task Force (2000 pts)
     await origInit();
     setTimeout(loadRoomArmyLists, 100);
   };
+
+  // Immediate synchronous execution on script load (0ms)
+  if (!isPlay) {
+    injectLobbyHub();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', injectLobbyHub);
+    }
+  }
 
   // Auto-init on load
   if (document.readyState === 'loading') {
