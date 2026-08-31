@@ -2011,21 +2011,24 @@ if FASTAPI_AVAILABLE:
         # 2) Event is not yet in DB
         # 3) Event is ongoing/in-progress (is_ended is False)
         # 4) Event has 0 participants or matches scraped
-        should_sync_bcp = (
-            force_sync or
-            not event_details or
-            not event_details.get("is_ended", True) or
-            not event_details.get("players") or
-            (not event_details.get("matches") and (event_details.get("total_players") or 0) > 0)
-        )
-
-        if should_sync_bcp:
+        has_data = event_details and bool(event_details.get("players")) and bool(event_details.get("matches"))
+        if force_sync or not has_data:
             try:
                 scraper = BestCoastPairingsScraper(db=db)
                 scraper.scrape_event(event_id_str)
                 event_details = db.get_event_details(event_id_str)
             except Exception as e:
-                logger.warning(f"Failed to auto-sync BCP details for event {event_id_str}: {e}")
+                logger.warning(f"Failed to sync BCP details for event {event_id_str}: {e}")
+        elif not event_details.get("is_ended", True):
+            # Background refresh for live ongoing tournament without blocking current response
+            def bg_scrape():
+                try:
+                    s = BestCoastPairingsScraper(db=db)
+                    s.scrape_event(event_id_str)
+                except Exception:
+                    pass
+            import threading
+            threading.Thread(target=bg_scrape, daemon=True).start()
 
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found in database or on BCP")
