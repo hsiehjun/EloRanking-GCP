@@ -1690,8 +1690,17 @@ if FASTAPI_AVAILABLE:
         
         room = TRACKER_ROOMS.get(match_id)
         state = room.get("state") if room else None
-        game_rec = db.get_tracker_game(match_id)
         
+        if not state:
+            try:
+                fs_engine = get_firestore_engine()
+                fs_room = fs_engine.get_room(match_id)
+                if fs_room and fs_room.get("state"):
+                    state = fs_room.get("state")
+            except Exception:
+                pass
+                
+        game_rec = db.get_tracker_game(match_id)
         if not state and game_rec:
             state = game_rec.get("state_json") or game_rec
             
@@ -2173,8 +2182,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=29.0">
-  <script src="/tracker/tracker_sync.js?v=29.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=30.0">
+  <script src="/tracker/tracker_sync.js?v=30.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

@@ -2512,8 +2512,8 @@ class PostgresDatabase:
                     
                     if user_id:
                         if user_name:
-                            conditions.append("((user_id_p1 = %s OR user_id_p2 = %s) OR (p1_name ILIKE %s OR p2_name ILIKE %s))")
-                            params.extend([user_id, user_id, f"%{user_name}%", f"%{user_name}%"])
+                            conditions.append("((user_id_p1 = %s OR user_id_p2 = %s) OR (LOWER(p1_name) = LOWER(%s) OR LOWER(p2_name) = LOWER(%s)))")
+                            params.extend([user_id, user_id, user_name.strip(), user_name.strip()])
                         else:
                             conditions.append("(user_id_p1 = %s OR user_id_p2 = %s)")
                             params.extend([user_id, user_id])

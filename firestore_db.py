@@ -154,10 +154,10 @@ class FirestoreRoomEngine:
                     if d.get("status") == "abandoned" or d.get("is_abandoned") or d.get("is_finished"):
                         continue
 
-                    p1_id = d.get("user_id_p1") or d.get("participants", {}).get("player1", {}).get("uid")
-                    p2_id = d.get("user_id_p2") or d.get("participants", {}).get("player2", {}).get("uid")
-                    p1_name = (d.get("p1_name") or d.get("state", {}).get("game", {}).get("p1Name") or "").strip().lower()
-                    p2_name = (d.get("p2_name") or d.get("state", {}).get("game", {}).get("p2Name") or "").strip().lower()
+                    p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+                    p2_id = d.get("user_id_p2") or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+                    p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
+                    p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
                     
                     match = False
                     if not user_id and not user_name:
@@ -166,7 +166,8 @@ class FirestoreRoomEngine:
                         match = True
                     elif user_name:
                         u_lower = user_name.strip().lower()
-                        if (p1_name and (u_lower in p1_name or p1_name in u_lower)) or (p2_name and (u_lower in p2_name or p2_name in u_lower)):
+                        # Strict exact equality matching (no substring containment)
+                        if (p1_name and u_lower == p1_name) or (p2_name and u_lower == p2_name):
                             match = True
                             
                     if match:
@@ -178,10 +179,10 @@ class FirestoreRoomEngine:
         for mid, d in self._fallback_rooms.items():
             rkey = d.get("roomKey") or d.get("matchId") or mid
             if rkey not in seen_keys and d.get("status") == "in_progress" and not d.get("is_abandoned") and not d.get("is_finished"):
-                p1_id = d.get("user_id_p1") or d.get("participants", {}).get("player1", {}).get("uid")
-                p2_id = d.get("user_id_p2") or d.get("participants", {}).get("player2", {}).get("uid")
-                p1_name = (d.get("p1_name") or d.get("state", {}).get("game", {}).get("p1Name") or "").strip().lower()
-                p2_name = (d.get("p2_name") or d.get("state", {}).get("game", {}).get("p2Name") or "").strip().lower()
+                p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+                p2_id = d.get("user_id_p2") or (d.get("participants", {}).get("player2", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
+                p1_name = (d.get("p1_name") or (d.get("state", {}).get("game", {}).get("p1Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
+                p2_name = (d.get("p2_name") or (d.get("state", {}).get("game", {}).get("p2Name") if isinstance(d.get("state"), dict) else "") or "").strip().lower()
                 
                 match = False
                 if not user_id and not user_name:
@@ -190,7 +191,7 @@ class FirestoreRoomEngine:
                     match = True
                 elif user_name:
                     u_lower = user_name.strip().lower()
-                    if (p1_name and (u_lower in p1_name or p1_name in u_lower)) or (p2_name and (u_lower in p2_name or p2_name in u_lower)):
+                    if (p1_name and u_lower == p1_name) or (p2_name and u_lower == p2_name):
                         match = True
                 if match:
                     seen_keys.add(rkey)
