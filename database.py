@@ -3534,35 +3534,131 @@ class PostgresDatabase:
                         deduped.append(r)
                 return deduped
 
+    def _resolve_waha_faction_ids(self, faction_name: str) -> List[str]:
+        """Resolves arbitrary faction string, keywords, and chapters to Wahapedia faction IDs (e.g. 'SM', 'NEC', 'CSM')."""
+        if not faction_name:
+            return []
+        f_clean = faction_name.lower().replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+        matched_ids = []
+        
+        # Space Marines / Chapters
+        if any(k in f_clean for k in ['adeptus astartes', 'space marine', 'dark angel', 'blood angel', 'space wolf', 'space wolves', 'black templar', 'deathwatch', 'ultramarine', 'imperial fist', 'iron hand', 'raven guard', 'salamander', 'white scar', 'iron hands', 'salamanders', 'white scars']):
+            matched_ids.append('SM')
+            
+        # Chaos Space Marines / Legions
+        if any(k in f_clean for k in ['chaos space marine', 'heretic astartes', 'black legion', 'iron warriors', 'night lords', 'word bearers', 'alpha legion']):
+            matched_ids.append('CSM')
+        if 'world eater' in f_clean:
+            matched_ids.append('WE')
+        if 'death guard' in f_clean:
+            matched_ids.append('DG')
+        if 'thousand son' in f_clean:
+            matched_ids.append('TS')
+        if "emperor's children" in f_clean or "emperors children" in f_clean:
+            matched_ids.append('EC')
+        if 'chaos daemon' in f_clean or 'daemons of chaos' in f_clean:
+            matched_ids.append('CD')
+        if 'chaos knight' in f_clean:
+            matched_ids.append('QT')
+            
+        # Imperium
+        if 'adepta sororitas' in f_clean or 'sisters of battle' in f_clean:
+            matched_ids.append('AS')
+        if 'adeptus custodes' in f_clean or 'custodes' in f_clean:
+            matched_ids.append('AC')
+        if 'adeptus mechanicus' in f_clean or 'admech' in f_clean or 'mechanicus' in f_clean:
+            matched_ids.append('AdM')
+        if 'astra militarum' in f_clean or 'imperial guard' in f_clean:
+            matched_ids.append('AM')
+        if 'grey knight' in f_clean:
+            matched_ids.append('GK')
+        if 'imperial knight' in f_clean:
+            matched_ids.append('QI')
+        if 'imperial agent' in f_clean or 'agents of the imperium' in f_clean or 'inquisition' in f_clean:
+            matched_ids.append('AoI')
+            
+        # Xenos
+        if 'necron' in f_clean:
+            matched_ids.append('NEC')
+        if 'tyranid' in f_clean:
+            matched_ids.append('TYR')
+        if 'genestealer cult' in f_clean or 'gsc' in f_clean:
+            matched_ids.append('GC')
+        if 'aeldari' in f_clean or 'craftworld' in f_clean or 'asuryani' in f_clean or 'ynnari' in f_clean:
+            matched_ids.append('AE')
+        if 'drukhari' in f_clean or 'dark eldar' in f_clean:
+            matched_ids.append('DRU')
+        if 'ork' in f_clean:
+            matched_ids.append('ORK')
+        if 'tau' in f_clean or 't’au' in f_clean:
+            matched_ids.append('TAU')
+        if 'votann' in f_clean:
+            matched_ids.append('LoV')
+            
+        return matched_ids
+
     def waha_get_army_rules(self, faction_name: str) -> List[Dict[str, Any]]:
-        """Returns all army rules (e.g. Reanimation Protocols, Oath of Moment) for a faction."""
+        """Returns all army rules (e.g. Oath of Moment, Reanimation Protocols) for a faction or chapter."""
         if not faction_name:
             return []
         fac_clean = faction_name.replace('\u00a0', ' ').strip()
+        fac_lower = fac_clean.lower()
+        matched_fac_ids = self._resolve_waha_faction_ids(fac_clean)
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                clauses = []
+                params = []
+                
+                # 1. Direct faction matching
+                clauses.append("(LOWER(f.name) = LOWER(%s) OR f.name ILIKE %s OR LOWER(ab.faction_id) = LOWER(%s) OR ab.faction_id ILIKE %s)")
+                params.extend([fac_clean, f"%{fac_clean}%", fac_clean, f"%{fac_clean}%"])
+                
+                # 2. Resolved faction IDs (e.g. 'SM', 'NEC', 'CSM')
+                if matched_fac_ids:
+                    id_placeholders = ", ".join(["%s"] * len(matched_fac_ids))
+                    clauses.append(f"ab.faction_id IN ({id_placeholders})")
+                    params.extend(matched_fac_ids)
+                
+                query = f"""
                     SELECT ab.* FROM waha_army_abilities ab
                     LEFT JOIN waha_factions f ON ab.faction_id = f.id
-                    WHERE (LOWER(f.name) = LOWER(%s) OR f.name ILIKE %s
-                       OR LOWER(ab.faction_id) = LOWER(%s) OR ab.faction_id ILIKE %s)
+                    WHERE ({' OR '.join(clauses)})
                       AND ab.faction_id IS NOT NULL AND ab.faction_id != ''
                     ORDER BY ab.name ASC;
-                """, (fac_clean, f"%{fac_clean}%", fac_clean, f"%{fac_clean}%"))
-                res = [dict(r) for r in cursor.fetchall()]
-                if not res:
-                    cursor.execute("""
-                        SELECT * FROM waha_army_abilities
-                        WHERE (LOWER(faction_id) = LOWER(%s) OR faction_id ILIKE %s)
-                          AND faction_id IS NOT NULL AND faction_id != ''
-                        ORDER BY name ASC;
-                    """, (fac_clean, f"%{fac_clean}%"))
-                    res = [dict(r) for r in cursor.fetchall()]
+                """
+                cursor.execute(query, tuple(params))
+                raw_rules = [dict(r) for r in cursor.fetchall()]
+                
+                # 3. Filter / prioritize chapter-specific vs generic abilities
+                filtered_rules = []
+                for r in raw_rules:
+                    r_name = (r.get("name") or "").strip()
+                    r_fac = r.get("faction_id") or ""
+                    
+                    if r_fac == 'SM':
+                        # Core SM rule: Oath of Moment is always included
+                        if r_name == 'Oath of Moment':
+                            filtered_rules.append(r)
+                        elif r_name in ('The Unforgiven', 'The Deathwing', 'The Ravenwing') and any(k in fac_lower for k in ['dark angel', 'unforgiven', 'deathwing', 'ravenwing']):
+                            filtered_rules.append(r)
+                        elif r_name == 'The Sons of Sanguinius' and 'blood angel' in fac_lower:
+                            filtered_rules.append(r)
+                        elif r_name in ('Sons of Russ', 'Sagas', 'Curse of the Wulfen') and any(k in fac_lower for k in ['space wolf', 'space wolves', 'fenris']):
+                            filtered_rules.append(r)
+                        elif r_name in ('Templar Vows', 'Heirs of Sigismund') and 'black templar' in fac_lower:
+                            filtered_rules.append(r)
+                        elif r_name in ('Mission Tactics', 'Kill Teams', 'Deathwatch') and 'deathwatch' in fac_lower:
+                            filtered_rules.append(r)
+                        elif r_name == 'Space Marine Chapters' and not any(ch in fac_lower for ch in ['dark angel', 'blood angel', 'space wolf', 'space wolves', 'black templar', 'deathwatch']):
+                            filtered_rules.append(r)
+                    else:
+                        filtered_rules.append(r)
+                
                 # Deduplicate by ability name
                 seen = set()
                 deduped = []
-                for r in res:
+                for r in filtered_rules or raw_rules:
                     n = (r.get("name") or "").strip().lower()
                     if n and n not in seen:
                         seen.add(n)
