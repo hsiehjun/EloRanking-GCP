@@ -1525,9 +1525,10 @@ if FASTAPI_AVAILABLE:
             
         return {
             "success": True,
-            "primary_active": primary_active,
-            "unfinished_sessions": unfinished_sessions,
+            "active_sessions": active_sessions,
             "completed_history": completed_history,
+            "primary_active": primary_active,
+            "unfinished_sessions": [],
             "total_games": len(completed_history) + len(active_sessions)
         }
 

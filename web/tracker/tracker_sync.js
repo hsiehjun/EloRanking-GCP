@@ -1044,29 +1044,25 @@
     const countEl = document.getElementById('gt-history-count');
     if (!container) return;
 
-    const primary = window.gtPrimaryActive;
-    const primaryId = (primary ? (primary.match_id || primary.id || '') : '').trim().toUpperCase();
+    // Collect all active matches (Firestore)
+    const activeList = (window.gtActiveMatches && Array.isArray(window.gtActiveMatches) && window.gtActiveMatches.length > 0)
+      ? window.gtActiveMatches
+      : [window.gtPrimaryActive, ...(window.gtUnfinishedSessions || [])].filter(Boolean);
 
-    // Strict deduplication: unfinished must NEVER contain primaryId
-    const unfinished = (window.gtUnfinishedSessions || []).filter(item => {
-      const mid = (item.match_id || item.id || '').trim().toUpperCase();
-      return mid && mid !== primaryId;
-    });
+    const activeIds = new Set(activeList.map(a => (a.match_id || a.id || '').trim().toUpperCase()));
 
-    const unfinishedIds = new Set(unfinished.map(u => (u.match_id || u.id || '').trim().toUpperCase()));
-
-    // Strict deduplication: completed must NEVER contain primaryId or any unfinishedIds
+    // Collect completed matches (PostgreSQL)
     const completed = (window.gtCompletedHistory || list.filter(it => it.isFinished || it.is_finished)).filter(item => {
       const mid = (item.match_id || item.id || '').trim().toUpperCase();
-      return mid && mid !== primaryId && !unfinishedIds.has(mid);
+      return mid && !activeIds.has(mid);
     });
 
-    const totalCount = (primary ? 1 : 0) + unfinished.length + completed.length;
+    const totalCount = activeList.length + completed.length;
     if (countEl) {
       countEl.textContent = totalCount > 0 ? `(${totalCount})` : '';
     }
 
-    if (!primary && unfinished.length === 0 && completed.length === 0) {
+    if (activeList.length === 0 && completed.length === 0) {
       container.innerHTML = `
         <div style="color:#94a3b8; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
           No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!
@@ -1077,132 +1073,114 @@
 
     let outHtml = '';
 
-    // 1. Primary Active Match Card (Pinned)
-    if (primary) {
-      const p1 = primary.game?.p1Name || primary.p1_name || 'Player 1';
-      const p2 = primary.game?.p2Name || primary.p2_name || 'Player 2';
-      const p1F = primary.game?.p1Faction || primary.p1_faction || '';
-      const p2F = primary.game?.p2Faction || primary.p2_faction || '';
-      const p1S = primary.p1Score ?? primary.p1_score ?? 0;
-      const p2S = primary.p2Score ?? primary.p2_score ?? 0;
-      const mid = primary.match_id || primary.id || '';
-      const rNum = primary.round || primary.current_round || 1;
-
+    // 1. Active Matches Section (All in Green Cards)
+    if (activeList.length > 0) {
       outHtml += `
-        <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:14px; padding:14px 18px; margin-bottom:12px; box-sizing:border-box;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
-            <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
-              <span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span>
-              🟢 Primary Active Match (Round ${rNum})
-            </span>
-            <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">#${escapeHtml(mid.replace('WH40K-', ''))}</span>
+        <div style="margin-bottom:18px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-family:'JetBrains Mono',monospace; flex-wrap:wrap; gap:4px;">
+            <span style="font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase;">🟢 Active Matches (${activeList.length})</span>
+            <span style="font-size:10px; color:#94a3b8;">⏳ Uncompleted games auto-purge after 14 days</span>
           </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <div>
-              <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} (${p1S}) <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)} (${p2S})</b>
-              <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
-                ${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}
-                ${primary.primary_mission ? ` • 🎯 ${escapeHtml(primary.primary_mission)}` : ''}
-              </div>
-            </div>
-            <div style="display:flex; gap:6px; align-items:center;">
-              <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
-                ▶️ Resume Match
-              </a>
-              <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}')" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
-                🗑️
-              </button>
-            </div>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            ${activeList.map(m => {
+              const p1 = m.game?.p1Name || m.p1_name || 'Player 1';
+              const p2 = m.game?.p2Name || m.p2_name || 'Player 2';
+              const p1F = m.game?.p1Faction || m.p1_faction || '';
+              const p2F = m.game?.p2Faction || m.p2_faction || '';
+              const p1S = m.p1Score ?? m.p1_score ?? 0;
+              const p2S = m.p2Score ?? m.p2_score ?? 0;
+              const mid = m.match_id || m.id || '';
+              const shortId = mid.replace('WH40K-', '');
+              const rNum = m.round || m.current_round || 1;
+              const createdDate = m.created_at || m.date || m.timestamp;
+              const dateLabel = createdDate ? new Date(createdDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
+
+              return `
+                <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
+                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
+                      <span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+                      🟢 Active Match (Round ${rNum})
+                    </span>
+                    <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
+                  </div>
+                  <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div>
+                      <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} (${p1S}) <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)} (${p2S})</b>
+                      <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                        ${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}
+                        ${m.primary_mission ? ` • 🎯 ${escapeHtml(m.primary_mission)}` : ''}
+                      </div>
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center;">
+                      <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
+                        ▶️ Resume Match
+                      </a>
+                      <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}')" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       `;
     }
 
-    // 2. Unfinished Casual Sessions Drawer
-    if (unfinished.length > 0) {
+    // 2. Completed Match History (All in Grey Cards)
+    if (completed.length > 0) {
       outHtml += `
-        <details style="background:#090d18; border:1px solid #1e293b; border-radius:12px; padding:10px 14px; margin-bottom:12px;">
-          <summary style="cursor:pointer; font-size:12px; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace; display:flex; align-items:center; justify-content:space-between;">
-            <span>📁 Unfinished Sessions (${unfinished.length})</span>
-            <span style="font-size:10px; color:#64748b; font-weight:normal;">Auto-purges after 14 days</span>
-          </summary>
-          <div style="display:flex; flex-direction:column; gap:8px; margin-top:10px;">
-            ${unfinished.map(us => {
-              const p1 = us.game?.p1Name || us.p1_name || 'Player 1';
-              const p2 = us.game?.p2Name || us.p2_name || 'Player 2';
-              const mid = us.match_id || us.id || '';
-              const p1S = us.p1Score ?? us.p1_score ?? 0;
-              const p2S = us.p2Score ?? us.p2_score ?? 0;
-              const dateStr = us.date ? new Date(us.date).toLocaleDateString() : 'Recent';
+        <div style="margin-top:14px;">
+          <div style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:8px;">
+            📜 Completed Matches (${completed.length})
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            ${completed.map(item => {
+              const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
+              const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
+              const p1F = item.game?.p1Faction || item.p1_faction || '';
+              const p2F = item.game?.p2Faction || item.p2_faction || '';
+              const p1S = item.p1Score ?? item.p1_score ?? 0;
+              const p2S = item.p2Score ?? item.p2_score ?? 0;
+              const mid = item.match_id || item.id || '';
+              const shortId = mid.replace('WH40K-', '');
+              const dateStr = item.date ? new Date(item.date).toLocaleDateString() : 'Completed';
+              const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
 
               return `
-                <div style="display:flex; justify-content:space-between; align-items:center; background:#070b14; border:1px solid #1e293b; border-radius:8px; padding:8px 12px; flex-wrap:wrap; gap:6px;">
-                  <div>
-                    <div style="font-size:12px; color:#f8fafc; font-weight:700; font-family:'JetBrains Mono',monospace;">
-                      ${escapeHtml(p1)} vs ${escapeHtml(p2)}
-                      <span style="font-size:11px; color:#38bdf8; margin-left:4px;">(${p1S} - ${p2S})</span>
+                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
+                  <div style="min-width:0; flex:1;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
+                      <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
+                      <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
                     </div>
-                    <div style="font-size:10px; color:#64748b;">${escapeHtml(us.p1_faction || 'Army 1')} • #${escapeHtml(mid.replace('WH40K-', ''))} • ${dateStr}</div>
+                    ${factionSubtitle}
+                    <div style="font-size:11px; color:#64748b; margin-top:4px;">
+                      <span>${dateStr}</span>
+                    </div>
                   </div>
-                  <div style="display:flex; gap:6px; align-items:center;">
-                    <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); border-radius:6px; padding:3px 8px; font-size:11px; text-decoration:none; font-family:'JetBrains Mono',monospace; font-weight:700;">
-                      ▶️ Resume
-                    </a>
-                    <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}')" style="background:rgba(239,68,68,0.1); color:#ef4444; border:1px solid rgba(239,68,68,0.25); border-radius:6px; padding:3px 7px; font-size:11px; cursor:pointer;" title="Discard Game">
-                      🗑️
+                  <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
+                    <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
+                      ${p1S} - ${p2S}
+                    </span>
+                    <span style="background:rgba(148,163,184,0.1); color:#94a3b8; border:1px solid rgba(148,163,184,0.25); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
+                      Completed
+                    </span>
+                    <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+                      📄 Scorecard
+                    </button>
+                    <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                     </button>
                   </div>
                 </div>
               `;
             }).join('')}
           </div>
-        </details>
+        </div>
       `;
-    }
-
-    // 3. Completed Verified Scorecards
-    if (completed.length > 0) {
-      outHtml += completed.map(item => {
-        const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
-        const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
-        const p1F = item.game?.p1Faction || item.p1_faction || '';
-        const p2F = item.game?.p2Faction || item.p2_faction || '';
-        const p1S = item.p1Score ?? item.p1_score ?? 0;
-        const p2S = item.p2Score ?? item.p2_score ?? 0;
-        const mid = item.match_id || item.id || '';
-        const dateStr = item.date ? new Date(item.date).toLocaleDateString() : 'Completed';
-
-        const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
-
-        return `
-          <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative; margin-bottom:8px;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
-            <div style="min-width:0; flex:1;">
-              <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
-                <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(mid.replace('WH40K-', ''))} ↗</span>
-                <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
-              </div>
-              ${factionSubtitle}
-              <div style="font-size:11px; color:#64748b; margin-top:4px;">
-                <span>${dateStr}</span>
-              </div>
-            </div>
-            <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
-              <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
-                ${p1S} - ${p2S}
-              </span>
-              <span style="background:rgba(16,185,129,0.15); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
-                Completed
-              </span>
-              <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
-                📄 Scorecard
-              </button>
-              <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-              </button>
-            </div>
-          </div>
-        `;
-      }).join('');
     }
 
     container.innerHTML = outHtml;
@@ -1218,13 +1196,13 @@
       if (resp.ok) {
         const data = await resp.json();
         if (data && data.success) {
-          window.gtPrimaryActive = data.primary_active || null;
-          window.gtUnfinishedSessions = data.unfinished_sessions || [];
+          window.gtActiveMatches = data.active_sessions || (data.primary_active ? [data.primary_active, ...(data.unfinished_sessions || [])] : []);
+          window.gtPrimaryActive = window.gtActiveMatches[0] || null;
+          window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
           window.gtCompletedHistory = data.completed_history || [];
 
           const rawList = [
-            ...(data.primary_active ? [data.primary_active] : []),
-            ...(data.unfinished_sessions || []),
+            ...(window.gtActiveMatches || []),
             ...(data.completed_history || [])
           ];
 
@@ -1346,14 +1324,10 @@
       originalSetItem('gt-hidden-matches', JSON.stringify(locallyHidden));
     }
 
-    // 2. Instant 0ms Optimistic UI Update across all 3 tiers
-    if (window.gtPrimaryActive && (window.gtPrimaryActive.match_id === matchId || window.gtPrimaryActive.id === matchId)) {
-      window.gtPrimaryActive = null;
-      if (window.gtUnfinishedSessions && window.gtUnfinishedSessions.length > 0) {
-        window.gtPrimaryActive = window.gtUnfinishedSessions.shift();
-      }
-    }
-    window.gtUnfinishedSessions = (window.gtUnfinishedSessions || []).filter(item => (item.match_id || item.id) !== matchId);
+    // 2. Instant 0ms Optimistic UI Update
+    window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => (item.match_id || item.id) !== matchId);
+    window.gtPrimaryActive = window.gtActiveMatches[0] || null;
+    window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
     window.gtCompletedHistory = (window.gtCompletedHistory || []).filter(item => (item.match_id || item.id) !== matchId);
     dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
     originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
