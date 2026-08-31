@@ -409,11 +409,10 @@ function renderMyHub(data) {
     <div class="hub-card" id="hub-armylists-card" style="margin-top: 1.25rem;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.6rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
-          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Roster Studio</h3>
-          <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.5rem; font-weight: 700;">Wahapedia Enriched</span>
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
         </div>
         <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; background: var(--accent); color: #0f172a; font-weight: 800;">
-          ➕ Import / Create List
+          ➕ Import from NewRecruit
         </button>
       </div>
 
@@ -924,13 +923,13 @@ function renderHubArmyLists(lists) {
   if (!lists || lists.length === 0) {
     container.innerHTML = `
       <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-        <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📋</div>
+        <div style="font-size: 1.8rem; margin-bottom: 0.5rem;">📋</div>
         <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">No Army Lists Imported Yet</div>
-        <div style="font-size: 0.8rem; max-width: 480px; margin: 0 auto 1.25rem;">
-          Import your rosters from <b>NewRecruit</b>, <b>Warhammer 40,000 App</b>, <b>Battlescribe</b>, or <b>BCP</b> to auto-enrich them with live Wahapedia datasheets, statlines, and stratagems.
+        <div style="font-size: 0.8rem; max-width: 440px; margin: 0 auto 1.25rem; color: #94a3b8;">
+          Import your rosters from <b>NewRecruit</b> using a share link to view your units and launch into Game Tracker!
         </div>
         <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.85rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800;">
-          ➕ Import Your First Army List
+          ➕ Import from NewRecruit
         </button>
       </div>
     `;
@@ -940,51 +939,36 @@ function renderHubArmyLists(lists) {
   container.innerHTML = `
     <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;">
       ${lists.map(l => {
-        const units = l.units || [];
-        const warlord = l.warlord || (units.find(u => u.is_warlord) || {}).name || 'None';
         const pts = l.points || 2000;
-        const ptsLimit = l.points_limit || 2000;
-        const ptsPercent = Math.min(100, Math.round((pts / ptsLimit) * 100));
 
         return `
           <div class="hub-rec-card" style="flex-direction: column; align-items: stretch; gap: 0.85rem; padding: 1.15rem; background: rgba(19, 29, 51, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
               <div>
-                <div style="font-size: 1.05rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">${escapeHtml(l.name || 'Unnamed List')}</div>
+                <div style="font-size: 1.08rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">${escapeHtml(l.name || 'NewRecruit Roster')}</div>
                 <div style="font-size: 0.82rem; color: #38bdf8; font-weight: 700; margin-top: 0.2rem;">
                   ${escapeHtml(l.faction || 'Warhammer 40k')} • <span style="color: #c084fc;">${escapeHtml(l.detachment || 'Core Detachment')}</span>
                 </div>
               </div>
               <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 800; font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid rgba(245, 158, 11, 0.3);">
-                ${pts} / ${ptsLimit} PTS
+                ${pts} PTS
               </span>
-            </div>
-
-            <!-- List Meta Summary -->
-            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary); background: rgba(0,0,0,0.3); padding: 0.5rem 0.75rem; border-radius: 6px;">
-              <span>⚔️ <b>${units.length}</b> Units</span>
-              <span>👑 Warlord: <b style="color:#facc15;">${escapeHtml(warlord)}</b></span>
-              <span>🏷️ ${escapeHtml(l.source_format || 'Custom')}</span>
             </div>
 
             <!-- Action Buttons Row -->
             <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.75rem; flex-wrap: wrap;">
-              <button onclick="openViewArmyListModal('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">
-                👁️ View Roster
+              <button onclick="openViewArmyListModal('${l.id}')" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700;">
+                👁️ View List
               </button>
-              <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">
+              <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-weight: 700;">
                 ⚔️ Play in Tracker
               </button>
               ${l.source_url ? `
-                <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px;" title="Open live list on NewRecruit">
+                <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px; font-weight: 700;" title="Open on NewRecruit">
                   🌐 NewRecruit ↗
                 </a>
-              ` : `
-                <button onclick="exportArmyListToBcp('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);" title="Export clean list text for BCP">
-                  📤 Export BCP
-                </button>
-              `}
-              <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.85rem; cursor: pointer; padding: 0.2rem 0.4rem;" title="Delete List">
+              ` : ''}
+              <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.9rem; cursor: pointer; padding: 0.2rem 0.4rem;" title="Delete List">
                 🗑️
               </button>
             </div>
@@ -1005,28 +989,27 @@ function openImportArmyListModal() {
   }
 
   modal.innerHTML = `
-    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:680px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
-      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:14px; width:100%; max-width:480px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <div style="padding:14px 18px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:18px;">📋</span>
-          <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army List from NewRecruit</h3>
+          <span style="font-size:16px;">📋</span>
+          <h3 style="font-size:15px; font-weight:800; color:#fff; margin:0;">Import from NewRecruit</h3>
         </div>
-        <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
+        <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
       </div>
       
-      <div style="padding:20px; overflow-y:auto; max-height:75vh;">
-        <p style="font-size:12px; color:#94a3b8; margin:0 0 14px; line-height:1.5;">
-          Paste a <b>NewRecruit Link</b> (e.g. <code style="color:#38bdf8; background:#1e293b; padding:1px 5px; border-radius:4px;">https://www.newrecruit.eu/app/list/28iCj</code>) or paste raw export text from <b>NewRecruit</b>, <b>Warhammer App</b>, <b>Battlescribe</b>, or <b>BCP</b>.
-        </p>
+      <div style="padding:18px;">
+        <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:8px;">
+          NewRecruit Share Link
+        </label>
+        <input id="hub-import-paste-area" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; font-family:'Inter',sans-serif; font-size:13px; color:#e2e8f0; outline:none; box-sizing:border-box;" />
 
-        <textarea id="hub-import-paste-area" placeholder="Paste NewRecruit link (https://www.newrecruit.eu/app/list/...) or export text here..." style="width:100%; height:180px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; outline:none; resize:vertical;"></textarea>
-
-        <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
-          <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer;">
+        <div style="margin-top:16px; display:flex; justify-content:flex-end; gap:8px;">
+          <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;">
             Cancel
           </button>
-          <button id="hub-btn-do-import" onclick="handleHubParseAndSaveList()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
-            ⚡ Import & Save to My Hub
+          <button id="hub-btn-do-import" onclick="handleHubParseAndSaveList()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:8px 18px; border-radius:6px; cursor:pointer;">
+            ⚡ Import List
           </button>
         </div>
       </div>
@@ -1041,33 +1024,33 @@ function closeImportArmyListModal() {
 }
 
 async function handleHubParseAndSaveList() {
-  const textarea = document.getElementById('hub-import-paste-area');
+  const input = document.getElementById('hub-import-paste-area');
   const btn = document.getElementById('hub-btn-do-import');
-  if (!textarea || !textarea.value.trim()) {
-    alert('Please paste your NewRecruit link or army list export text.');
+  if (!input || !input.value.trim()) {
+    alert('Please paste your NewRecruit share link.');
     return;
   }
 
   btn.disabled = true;
-  btn.textContent = 'Importing & Enriching...';
+  btn.textContent = 'Importing...';
 
   try {
-    const raw = textarea.value.trim();
+    const raw = input.value.trim();
     const parseRes = await window.api.parseArmyList(raw);
-    if (parseRes.error || !parseRes.army_list) throw new Error(parseRes.error || 'Failed to parse');
+    if (parseRes.error || !parseRes.army_list) throw new Error(parseRes.error || 'Failed to parse list link');
 
     const armyList = parseRes.army_list;
     const saveRes = await window.api.saveArmyList(armyList);
     if (saveRes.error) throw new Error(saveRes.error);
 
     closeImportArmyListModal();
-    alert(`🎉 Successfully saved "${armyList.name}" (${armyList.points} pts, ${armyList.units.length} units)!`);
+    alert(`🎉 Successfully saved "${armyList.name}" (${armyList.points} pts)!`);
     await loadHubArmyLists();
   } catch(e) {
     alert('Error importing list: ' + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = '⚡ Import & Save to My Hub';
+    btn.textContent = '⚡ Import List';
   }
 }
 
@@ -1088,153 +1071,59 @@ async function openViewArmyListModal(listId) {
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'hub-view-armylist-modal';
-    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.85); backdrop-filter:blur(8px); padding:16px;';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.88); backdrop-filter:blur(8px); padding:16px;';
     document.body.appendChild(modal);
   }
 
   const units = list.units || [];
-  const stratagems = list.stratagems || [];
+  const sourceUrl = list.source_url || (list.raw_text && list.raw_text.startsWith('http') ? list.raw_text.trim() : null);
 
   modal.innerHTML = `
-    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:920px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
       <!-- Header -->
-      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div style="padding:14px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div>
           <div style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono);">${escapeHtml(list.name || 'Army Roster')}</div>
           <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">
-            ${escapeHtml(list.faction || '40k')} • <span style="color:#c084fc;">${escapeHtml(list.detachment || 'Core Detachment')}</span>
+            ${escapeHtml(list.faction || '40k')} • <span style="color:#c084fc;">${list.points || 2000} PTS</span>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          ${list.source_url ? `
-            <a href="${escapeHtml(list.source_url)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:6px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+          ${sourceUrl ? `
+            <a href="${escapeHtml(sourceUrl)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:12px; padding:6px 14px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
               🌐 Open in NewRecruit ↗
             </a>
           ` : ''}
-          <button onclick="exportArmyListToBcp('${list.id}')" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">
-            📤 Export BCP
-          </button>
-          <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:11px; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">
+          <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
             ⚔️ Play in Tracker
           </button>
-          <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:800; font-size:11px; padding:6px 12px; border-radius:6px; cursor:pointer;">
+          <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:800; font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;">
             🗑️ Delete
           </button>
           <button onclick="closeViewArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px;">✕</button>
         </div>
       </div>
 
-      <!-- Body -->
-      <div style="padding:20px; overflow-y:auto; flex:1;">
-        <!-- Meta Summary Bar -->
-        <div style="background:#090e1a; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px;">
-          <span>Points: <b style="color:#f59e0b; font-family:var(--font-mono); font-size:13px;">${list.points || 2000} / ${list.points_limit || 2000} PTS</b></span>
-          <span>Warlord: <b style="color:#facc15;">${escapeHtml(list.warlord || 'None')}</b></span>
-          <span>Units: <b style="color:#fff;">${units.length}</b></span>
+      <!-- Body: Embedded View if sourceUrl available, otherwise clean cards -->
+      ${sourceUrl ? `
+        <div style="flex:1; width:100%; height:100%; position:relative; background:#070b14;">
+          <iframe src="${escapeHtml(sourceUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
         </div>
-
-        <!-- Unit Cards -->
-        <div style="display:flex; flex-direction:column; gap:12px;">
-          ${units.map(u => {
-            const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
-            const weps = u.weapons || [];
-            const abilities = u.abilities || [];
-            const keywords = u.keywords || [];
-
-            return `
-              <div style="background:#131d33; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 16px;">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
-                  <div>
-                    <span style="font-size:15px; font-weight:800; color:#f8fafc; font-family:var(--font-mono);">${escapeHtml(u.name)}</span>
-                    <span style="background:#1e293b; color:#94a3b8; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-left:6px; text-transform:uppercase;">${escapeHtml(u.role || 'Infantry')}</span>
-                    ${u.is_warlord ? `<span style="background:rgba(234,179,8,0.2); color:#facc15; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">👑 WARLORD</span>` : ''}
-                    ${u.enhancement ? `<span style="background:rgba(168,85,247,0.2); color:#c084fc; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">✨ ${escapeHtml(u.enhancement)}</span>` : ''}
-                  </div>
-                  <div style="font-family:var(--font-mono); font-size:13px; font-weight:800; color:#f59e0b;">
-                    ${u.points || 0} PTS
-                  </div>
-                </div>
-
-                <!-- Statline Grid -->
-                <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; background:#090e1a; padding:6px; border-radius:8px; text-align:center; margin:8px 0; border:1px solid rgba(255,255,255,0.05); font-family:var(--font-mono);">
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">M</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.M || '6"'}</div></div>
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">T</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.T || 4}</div></div>
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">SV</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.SV || '3+'}</div></div>
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">INV</div><div style="color:#a855f7; font-size:13px; font-weight:800;">${stats.INV || '-'}</div></div>
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">W</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.W || 1}</div></div>
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">LD</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.LD || '6+'}</div></div>
-                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">OC</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.OC || 1}</div></div>
-                </div>
-
-                <!-- Weapons -->
-                ${weps.length > 0 ? `
-                  <table style="width:100%; font-size:11px; border-collapse:collapse; margin-top:6px; background:#0b1120; border-radius:6px; overflow:hidden;">
-                    <thead>
-                      <tr style="background:#1e293b; color:#94a3b8; text-align:left; font-size:10px; font-family:var(--font-mono);">
-                        <th style="padding:4px 8px;">WEAPON</th>
-                        <th style="padding:4px 8px;">RANGE</th>
-                        <th style="padding:4px 8px;">A</th>
-                        <th style="padding:4px 8px;">BS/WS</th>
-                        <th style="padding:4px 8px;">S</th>
-                        <th style="padding:4px 8px;">AP</th>
-                        <th style="padding:4px 8px;">D</th>
-                        <th style="padding:4px 8px;">ABILITIES</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      ${weps.map(w => `
-                        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
-                          <td style="padding:4px 8px; font-weight:700; color:#f8fafc;">${escapeHtml(w.name)}</td>
-                          <td style="padding:4px 8px;">${w.range || 'Melee'}</td>
-                          <td style="padding:4px 8px;">${w.attacks || w.A || '1'}</td>
-                          <td style="padding:4px 8px;">${w.bs_ws || w.BS_WS || '3+'}</td>
-                          <td style="padding:4px 8px;">${w.strength || w.S || '4'}</td>
-                          <td style="padding:4px 8px;">${w.ap || w.AP || '0'}</td>
-                          <td style="padding:4px 8px;">${w.damage || w.D || '1'}</td>
-                          <td style="padding:4px 8px; color:#38bdf8; font-size:10px;">${escapeHtml(w.abilities || '-')}</td>
-                        </tr>
-                      `).join('')}
-                    </tbody>
-                  </table>
-                ` : ''}
-
-                <!-- Abilities & Keywords -->
-                ${abilities.length > 0 ? `
-                  <div style="margin-top:8px; font-size:11px; color:#cbd5e1;">
-                    <b style="color:#94a3b8; font-size:10px; text-transform:uppercase;">Abilities: </b>
-                    ${abilities.map(a => `<span style="display:inline-block; margin-right:8px; margin-top:2px;"><b>${escapeHtml(a.name)}:</b> <span style="color:#94a3b8;">${escapeHtml(a.description || '')}</span></span>`).join('')}
-                  </div>
-                ` : ''}
-
-                ${keywords.length > 0 ? `
-                  <div style="margin-top:6px;">
-                    ${keywords.map(k => `<span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); margin-right:4px; margin-top:2px;">${escapeHtml(k)}</span>`).join('')}
-                  </div>
+      ` : `
+        <div style="padding:20px; overflow-y:auto; flex:1;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+            ${units.map(u => `
+              <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px;">
+                <div style="font-size:15px; font-weight:800; color:#fff;">${escapeHtml(u.name)}</div>
+                <div style="font-size:12px; color:#38bdf8; margin-top:2px;">${u.points || 0} PTS</div>
+                ${(u.wargear || []).length > 0 ? `
+                  <div style="font-size:11px; color:#94a3b8; margin-top:6px;">${u.wargear.join(', ')}</div>
                 ` : ''}
               </div>
-            `;
-          }).join('')}
-        </div>
-
-        <!-- Stratagems -->
-        ${stratagems.length > 0 ? `
-          <div style="margin-top:20px;">
-            <h4 style="font-size:14px; font-weight:800; color:#fff; margin-bottom:10px;">⚡ Detachment Stratagems</h4>
-            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
-              ${stratagems.map(s => `
-                <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 12px;">
-                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                    <b style="font-size:12px; color:#fff;">${escapeHtml(s.name)}</b>
-                    <span style="background:#0284c7; color:#fff; font-size:10px; font-weight:900; padding:1px 5px; border-radius:4px;">${s.cp || 1} CP</span>
-                  </div>
-                  <div style="font-size:10px; color:#a855f7; font-weight:700; text-transform:uppercase; margin-bottom:4px;">${escapeHtml(s.phase || 'Any Phase')}</div>
-                  <div style="font-size:11px; color:#94a3b8;">${escapeHtml(s.description)}</div>
-                </div>
-              `).join('')}
-            </div>
+            `).join('')}
           </div>
-        ` : ''}
-      </div>
+        </div>
+      `}
     </div>
   `;
   modal.style.display = 'flex';

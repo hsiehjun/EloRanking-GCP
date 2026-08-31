@@ -1650,7 +1650,7 @@
           🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
         </button>
 
-        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Opponent's Army List & Wahapedia Stats">
+        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Opponent's Army List">
           📜 Opponent List ${hasOppList ? '🟢' : ''}
         </button>
 
@@ -1794,9 +1794,9 @@
       // Attach / Import View
       contentHtml = `
         <div style="margin-bottom: 20px;">
-          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import New Army List from NewRecruit</h3>
-          <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Paste your <b>NewRecruit Link</b> (e.g. <code style="color:#38bdf8; background:#070b14; padding:1px 5px; border-radius:4px;">https://www.newrecruit.eu/app/list/28iCj</code>) or paste raw export text from <b>NewRecruit</b>, <b>Warhammer App</b>, <b>Battlescribe</b>, or <b>BCP</b>. Wahapedia rules, stats, and weapons will be automatically enriched.</p>
-          <textarea id="gt-import-raw-input" placeholder="Paste NewRecruit link (https://www.newrecruit.eu/app/list/...) or export text here..." style="width:100%; height:130px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:11px; outline:none; resize:vertical;"></textarea>
+          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import Army List from NewRecruit</h3>
+          <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Paste your <b>NewRecruit Link</b> (e.g. <code style="color:#38bdf8; background:#070b14; padding:1px 5px; border-radius:4px;">https://www.newrecruit.eu/app/list/28iCj</code>) to attach your army roster to this match.</p>
+          <input id="gt-import-raw-input" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'Inter',sans-serif; font-size:13px; outline:none; box-sizing:border-box;" />
           <div style="margin-top:10px; display:flex; justify-content:flex-end;">
             <button onclick="window.gtImportAndAttach()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer;">
               ⚡ Import & Attach to Match
@@ -1831,7 +1831,7 @@
                   <div>
                     <div style="font-weight:800; font-size:14px; color:#f8fafc;">${l.name || 'Unnamed List'}</div>
                     <div style="font-size:12px; color:#38bdf8; font-weight:700;">${l.faction || '40k'} • ${l.detachment || 'Core'}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • ${(l.units || []).length} units • Warlord: ${l.warlord || 'None'}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • ${(l.units || []).length} units</div>
                   </div>
                   <button onclick='window.gtAttachList(${JSON.stringify(l).replace(/'/g, "&apos;")})' style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
                     ⚔️ Attach This List
@@ -1843,7 +1843,7 @@
         } catch(e) {}
       }, 50);
 
-    } else if (!activeList || !activeList.units || activeList.units.length === 0) {
+    } else if (!activeList || (!activeList.source_url && (!activeList.units || activeList.units.length === 0))) {
       // Empty state for Opponent or My List
       const isOpp = tab === 'opponent';
       contentHtml = `
@@ -1851,7 +1851,7 @@
           <div style="font-size:42px; margin-bottom:12px;">${isOpp ? '📜' : '📋'}</div>
           <h3 style="font-size:18px; font-weight:800; color:#f8fafc; margin-bottom:6px;">${isOpp ? "Opponent hasn't attached a list yet" : "You haven't attached an army list to this match"}</h3>
           <p style="font-size:13px; color:#94a3b8; max-width:460px; margin:0 auto 20px;">
-            ${isOpp ? "When your opponent attaches their list or NewRecruit link, their full Wahapedia stats, weapons, and rules will appear here in real time." : "Paste your NewRecruit link or attach an army list to view unit statlines, weapon profiles, and track wounds during play."}
+            ${isOpp ? "When your opponent attaches their NewRecruit link, their full army roster will appear here in real time." : "Paste your NewRecruit share link to attach and view your army roster during play."}
           </p>
           ${!isOpp ? `
             <button onclick="window.gtSetListTab('attach')" style="background:#0284c7; color:#fff; font-weight:800; font-size:13px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
@@ -1860,8 +1860,25 @@
           ` : ''}
         </div>
       `;
+    } else if (activeList.source_url) {
+      // Direct Embedded NewRecruit View
+      contentHtml = `
+        <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
+          <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+              <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${activeList.name || 'NewRecruit Roster'}</span>
+              <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${activeList.faction || '40k'} • ${activeList.points || 2000} PTS</span>
+            </div>
+            <a href="${activeList.source_url}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+              🌐 Open in NewRecruit ↗
+            </a>
+          </div>
+          <div style="flex:1; width:100%; height:100%; position:relative;">
+            <iframe src="${escapeHtml(activeList.source_url)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
+          </div>
+        </div>
+      `;
     } else {
-      // Active List Viewer
       const filter = clientState.activeListFilter || 'all';
       const search = clientState.listSearchQuery || '';
 

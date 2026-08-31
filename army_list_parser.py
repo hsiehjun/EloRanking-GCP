@@ -49,7 +49,8 @@ class ArmyListParser:
             return self._parse_generic_text(content)
 
     def parse_url(self, url: str) -> Dict[str, Any]:
-        """Resolves a NewRecruit share link into a clean linked roster."""
+        """Resolves a NewRecruit share link into a clean linked roster with extracted metadata."""
+        import urllib.request
         clean_url = url.strip().split()[0]
         list_id_match = re.search(r"/list/([a-zA-Z0-9_\-]+)", clean_url)
         list_id = list_id_match.group(1) if list_id_match else uuid.uuid4().hex[:8]
@@ -60,6 +61,39 @@ class ArmyListParser:
         roster["name"] = f"NewRecruit Roster (#{list_id})"
         roster["source_url"] = canonical_url
         roster["source_format"] = "NewRecruit Link"
+
+        # Attempt fast metadata fetch
+        try:
+            req = urllib.request.Request(
+                canonical_url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                if resp.status == 200:
+                    html = resp.read().decode("utf-8", errors="ignore")
+                    title_m = re.search(r"<title>([^<]+)</title>", html)
+                    desc_m = re.search(r'<meta property="og:description" content="([^"]+)"', html)
+                    
+                    title = title_m.group(1).strip() if title_m else ""
+                    desc = desc_m.group(1).strip() if desc_m else ""
+
+                    if title and title != "New Recruit":
+                        pts_m = re.search(r"\((\d+)\s*pts?\)", title)
+                        pts = int(pts_m.group(1)) if pts_m else 2000
+                        clean_name = re.sub(r"\s*\(\d+\s*pts?\)", "", title).strip()
+                        roster["name"] = clean_name or roster["name"]
+                        roster["points"] = pts
+                        roster["points_limit"] = pts
+
+                    if desc:
+                        fac_m = re.search(r"^(?:Xenos|Imperium|Chaos)?\s*-?\s*([^\n\r\|]+)", desc)
+                        if fac_m:
+                            fac_name = fac_m.group(1).strip()
+                            if fac_name and fac_name != "Warhammer 40,000":
+                                roster["faction"] = fac_name
+        except Exception as e:
+            logger.debug("Fast NewRecruit metadata fetch notice: %s", e)
+
         return roster
 
     def _create_empty_roster(self) -> Dict[str, Any]:
