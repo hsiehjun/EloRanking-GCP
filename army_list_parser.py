@@ -12,7 +12,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Set, Union
 
 logger = logging.getLogger("ArmyListParser")
 
