@@ -183,6 +183,14 @@
     currentUser = null;
   }
 
+  function saveLocalState(st) {
+    if (!st) return;
+    try {
+      const serialized = typeof st === 'string' ? st : JSON.stringify(st);
+      originalSetItem('gdm-11e-tracker-state', serialized);
+    } catch (e) {}
+  }
+
   // On Landing Page: Clean out active match state if not playing
   if (!isPlay) {
     try {
