@@ -68,21 +68,15 @@ async function fetchFeedbacks() {
 
   currentAdminUser = await checkAdminAuth();
 
-  const allowedEmails = ['swimgeek751@gmail.com', 'hsiehjun@google.com', 'hsiehjun@gmail.com'];
-  const userEmail = currentAdminUser ? (currentAdminUser.email || '').toLowerCase() : '';
-  const userRole = currentAdminUser ? (currentAdminUser.role || '').toLowerCase() : '';
-
-  const isAdmin = currentAdminUser && (
-    allowedEmails.includes(userEmail) || 
-    ['admin', 'superuser', 'developer', 'owner'].includes(userRole)
-  );
+  const userRole = currentAdminUser ? (currentAdminUser.role || 'player').toLowerCase() : '';
+  const isAdmin = currentAdminUser && ['admin', 'superuser', 'developer', 'owner', 'to', 'referee'].includes(userRole);
 
   if (!isAdmin) {
     if (authGate) authGate.style.display = 'block';
     if (mainContent) mainContent.style.display = 'none';
     if (userBadge) {
       userBadge.innerHTML = currentAdminUser ? 
-        `<span style="color:#ef4444; font-size:12px; font-weight:700;">⛔ Logged in as ${escapeHtml(currentAdminUser.email)} (Non-admin)</span>` : 
+        `<span style="color:#ef4444; font-size:12px; font-weight:700;">⛔ ${escapeHtml(currentAdminUser.email)} (Role: ${escapeHtml(userRole)})</span>` : 
         `<a href="/login?redirect=${encodeURIComponent('/admin/feedback')}" class="nav-btn" style="color:#38bdf8;">🔑 Sign In as Admin</a>`;
     }
     return;

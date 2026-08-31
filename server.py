@@ -3422,8 +3422,6 @@ if FASTAPI_AVAILABLE:
         db = get_database()
         return db.get_feedbacks(limit=limit)
 
-    ADMIN_FEEDBACK_EMAILS = {"swimgeek751@gmail.com", "hsiehjun@google.com", "hsiehjun@gmail.com"}
-
     def _is_admin_feedback_request(request: Request, token: Optional[str] = None) -> bool:
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
@@ -3433,11 +3431,8 @@ if FASTAPI_AVAILABLE:
         session = auth_mgr.get_session(session_token)
         if not session:
             return False
-        user_email = (session.get("email") or "").strip().lower()
-        user_role = (session.get("role") or "").strip().lower()
-        if user_email in ADMIN_FEEDBACK_EMAILS or user_role in ("admin", "superuser", "developer", "owner"):
-            return True
-        return False
+        user_role = (session.get("role") or "player").strip().lower()
+        return user_role in ("admin", "superuser", "developer", "owner", "to", "referee")
 
     class FeedbackUpdatePayload(BaseModel):
         status: Optional[str] = None

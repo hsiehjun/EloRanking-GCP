@@ -98,6 +98,9 @@ class AuthManager:
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+                    -- Ensure primary administrator accounts have admin role
+                    UPDATE users SET role = 'admin' WHERE LOWER(email) IN ('swimgeek751@gmail.com', 'hsiehjun@google.com', 'hsiehjun@gmail.com') AND role = 'player';
+
                     CREATE TABLE IF NOT EXISTS user_sessions (
                         session_token VARCHAR(64) PRIMARY KEY,
                         user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
@@ -227,6 +230,17 @@ class AuthManager:
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
+
+    def set_user_role(self, email_or_id: str, role: str) -> bool:
+        """Updates role for a user by email or user ID in PostgreSQL."""
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                UPDATE users SET role = %s, updated_at = NOW() 
+                WHERE LOWER(email) = LOWER(%s) OR id = %s;
+                """, (role.lower(), email_or_id, email_or_id))
+                conn.commit()
+                return cur.rowcount > 0
 
     def update_settings(self, user_id: str, display_name: Optional[str] = None, old_password: Optional[str] = None, new_password: Optional[str] = None) -> Dict[str, Any]:
         """Updates user display name or password."""
