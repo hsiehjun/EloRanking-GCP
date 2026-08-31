@@ -2338,16 +2338,16 @@ class PostgresDatabase:
                 WHERE 1=1
                 """
                 if organizer_id and organizer_bcp_id:
-                    query += " AND (organizer_id = %s OR organizer_bcp_id = %s)"
+                    query += " AND (organizer_id = %s OR organizer_bcp_id = %s OR id LIKE 'ES-%' OR (roster IS NOT NULL AND roster::text != '[]'))"
                     params.extend([organizer_id, organizer_bcp_id])
                 elif organizer_id:
-                    query += " AND organizer_id = %s"
+                    query += " AND (organizer_id = %s OR id LIKE 'ES-%' OR (roster IS NOT NULL AND roster::text != '[]'))"
                     params.append(organizer_id)
                 elif organizer_bcp_id:
-                    query += " AND organizer_bcp_id = %s"
+                    query += " AND (organizer_bcp_id = %s OR id LIKE 'ES-%' OR (roster IS NOT NULL AND roster::text != '[]'))"
                     params.append(organizer_bcp_id)
                 else:
-                    query += " AND (id LIKE 'ES-%' OR organizer_id IS NOT NULL OR (roster IS NOT NULL AND roster::text != '[]') OR (pairings IS NOT NULL AND pairings::text != '{}'))"
+                    query += " AND (id LIKE 'ES-%' OR organizer_id IS NOT NULL OR (roster IS NOT NULL AND roster::text != '[]') OR (pairings IS NOT NULL AND pairings::text != '{}') OR 1=1)"
 
                 query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
                 cursor.execute(query, tuple(params))

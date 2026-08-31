@@ -86,22 +86,18 @@ async function loadStudioEvents() {
       studioState.activeTournament = null;
     }
     
-    renderTournamentBanner();
-    renderEventsDirectory();
-    renderRoster();
-    renderRoundButtons();
-    renderPairings();
-    renderStandings();
+    try { renderTournamentBanner(); } catch(e) { console.warn('banner err:', e); }
+    try { renderEventsDirectory(); } catch(e) { console.warn('events dir err:', e); }
+    try { renderRoster(); } catch(e) { console.warn('roster err:', e); }
+    try { renderRoundButtons(); } catch(e) { console.warn('round btns err:', e); }
+    try { renderPairings(); } catch(e) { console.warn('pairings err:', e); }
+    try { renderStandings(); } catch(e) { console.warn('standings err:', e); }
   } catch (err) {
     console.warn('Notice loading studio events:', err);
     studioState.eventsList = [];
     studioState.activeTournament = null;
-    renderTournamentBanner();
-    renderEventsDirectory();
-    renderRoster();
-    renderRoundButtons();
-    renderPairings();
-    renderStandings();
+    try { renderTournamentBanner(); } catch(e) {}
+    try { renderEventsDirectory(); } catch(e) {}
   }
 }
 
@@ -862,6 +858,7 @@ async function submitCreateTournament() {
   const points = parseInt(ptsEl ? ptsEl.value : '2000', 10) || 2000;
   const venue = venueEl ? venueEl.value.trim() : '';
   const cityState = cityEl ? cityEl.value.trim() : '';
+  const bcpToken = getBcpToken();
 
   if (submitBtn) {
     submitBtn.disabled = true;
@@ -869,7 +866,7 @@ async function submitCreateTournament() {
   }
   if (statusEl) {
     statusEl.style.display = 'block';
-    statusEl.textContent = 'Registering tournament in Event Studio...';
+    statusEl.textContent = 'Registering tournament in Event Studio & BCP...';
   }
 
   try {
@@ -883,12 +880,18 @@ async function submitCreateTournament() {
       points,
       venue,
       city: cityState.split(',')[0].trim(),
-      state: cityState.includes(',') ? cityState.split(',')[1].trim() : ''
+      state: cityState.includes(',') ? cityState.split(',')[1].trim() : '',
+      bcp_token: bcpToken
     };
 
     const res = await window.api.createStudioEvent(payload);
+    if (res && res.error) {
+      alert(`Notice creating tournament: ${res.error}`);
+      return;
+    }
     if (res && res.success) {
-      alert(`🎉 Tournament "${name}" successfully created in Event Studio!`);
+      const bcpMsg = res.bcp_registered ? ' (Synchronized & Registered on Best Coast Pairings)' : '';
+      alert(`🎉 Tournament "${name}" successfully created in Event Studio${bcpMsg}!`);
       if (nameEl) nameEl.value = '';
       if (venueEl) venueEl.value = '';
       if (cityEl) cityEl.value = '';
@@ -898,7 +901,7 @@ async function submitCreateTournament() {
         localStorage.setItem('es_active_event_id', res.event.id);
       }
       await loadStudioEvents();
-      switchStudioTab('roster');
+      switchStudioTab('events');
     }
   } catch (err) {
     console.error('Error creating tournament:', err);
@@ -906,7 +909,7 @@ async function submitCreateTournament() {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = '🚀 Create & Register Tournament';
+      submitBtn.textContent = '🚀 Create & Register on BCP';
     }
     if (statusEl) statusEl.style.display = 'none';
   }
