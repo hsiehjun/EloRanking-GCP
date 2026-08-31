@@ -508,24 +508,16 @@
     <section id="tab-event-studio" class="tab-panel">
       <div class="es-app-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
         
-        <!-- Studio Top Bar & Authentication / BCP Sync Status -->
-        <div class="es-header" style="margin-bottom: 1.25rem;">
-          <div class="es-header-left">
-            <div class="es-brand">
-              <span class="es-brand-badge">BCP TO</span>
-              <span class="es-brand-title">EVENT STUDIO</span>
-            </div>
-            <div style="font-size: 0.8rem; color: var(--text-muted);">
-              Tournament Director Suite • Pairings • 1-Click Trackers • Live BCP Sync
-            </div>
+        <!-- BCP Account Connection Status Highlight Banner -->
+        <div id="es-bcp-account-banner" style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1.15rem; margin-bottom: 1.25rem; font-size: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.65rem;">
+            <span id="es-bcp-status-dot" style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
+            <span id="es-bcp-status-text" style="color: #cbd5e1;">Connected to Best Coast Pairings as <strong id="es-bcp-user-display" style="color: #10b981;">BCP User</strong></span>
           </div>
-          <div class="es-header-right" style="display: flex; gap: 0.5rem; align-items: center;">
-            <div class="es-auth-badge" id="es-auth-status">
-              <span class="status-dot"></span>
-              <span id="es-auth-label">Checking BCP Status...</span>
-            </div>
-            <button class="btn btn-outline" style="font-size: 0.82rem; padding: 0.4rem 0.85rem;" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
-            <button class="btn btn-primary" style="font-size: 0.82rem; padding: 0.4rem 0.9rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+          <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="loadStudioEvents()">🔄 Sync BCP Events</button>
+            <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="openImportBcpModal()">🔗 Import Event</button>
+            <button class="btn btn-primary" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
           </div>
         </div>
 
@@ -1525,19 +1517,19 @@
   </div>
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=35.0"></script>
-  <script src="/js/api.js?v=35.0"></script>
-  <script src="/js/leaderboard.js?v=35.0"></script>
-  <script src="/js/teams.js?v=35.0"></script>
-  <script src="/js/players.js?v=35.0"></script>
-  <script src="/js/tournaments.js?v=35.0"></script>
-  <script src="/js/factions.js?v=35.0"></script>
-  <script src="/js/predictor.js?v=35.0"></script>
-  <script src="/js/modals.js?v=35.0"></script>
-  <script src="/js/auth.js?v=35.0"></script>
-  <script src="/js/my_hub.js?v=35.0"></script>
-  <script src="/js/eventstudio.js?v=35.0"></script>
-  <script src="/js/app.js?v=35.0"></script>
+  <script src="/js/utils.js?v=36.0"></script>
+  <script src="/js/api.js?v=36.0"></script>
+  <script src="/js/leaderboard.js?v=36.0"></script>
+  <script src="/js/teams.js?v=36.0"></script>
+  <script src="/js/players.js?v=36.0"></script>
+  <script src="/js/tournaments.js?v=36.0"></script>
+  <script src="/js/factions.js?v=36.0"></script>
+  <script src="/js/predictor.js?v=36.0"></script>
+  <script src="/js/modals.js?v=36.0"></script>
+  <script src="/js/auth.js?v=36.0"></script>
+  <script src="/js/my_hub.js?v=36.0"></script>
+  <script src="/js/eventstudio.js?v=36.0"></script>
+  <script src="/js/app.js?v=36.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

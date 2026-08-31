@@ -13,24 +13,24 @@
 </head>
 <body class="es-body">
   <div class="es-app-container">
-    <!-- Studio Header -->
-    <header class="es-header">
-      <div class="es-header-left">
-        <a href="/" class="es-back-link">❮ Back to Dashboard</a>
-        <div class="es-brand">
-          <span class="es-brand-badge">BCP TO</span>
-          <span class="es-brand-title">EVENT STUDIO</span>
-        </div>
+    <!-- Studio Top Navigation & Back Link -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+      <a href="/" class="es-back-link" style="margin: 0;">❮ Back to Dashboard</a>
+      <div style="font-size: 0.9rem; font-weight: 700; color: #fff; font-family: var(--font-heading); letter-spacing: 0.05em;">OMNITACTICA • EVENT STUDIO</div>
+    </div>
+
+    <!-- BCP Account Connection Status Highlight Banner -->
+    <div id="es-bcp-account-banner" style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1.15rem; margin-bottom: 1.25rem; font-size: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; gap: 0.65rem;">
+        <span id="es-bcp-status-dot" style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
+        <span id="es-bcp-status-text" style="color: #cbd5e1;">Connected to Best Coast Pairings as <strong id="es-bcp-user-display" style="color: #10b981;">BCP User</strong></span>
       </div>
-      <div class="es-header-right" style="display: flex; gap: 0.5rem; align-items: center;">
-        <div class="es-auth-badge" id="es-auth-status">
-          <span class="status-dot"></span>
-          <span id="es-auth-label">Checking BCP Status...</span>
-        </div>
-        <button class="btn btn-outline" style="font-size: 0.82rem; padding: 0.4rem 0.85rem;" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
-        <button class="es-btn-primary" onclick="switchStudioTab('create')">➕ Create Event</button>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="loadStudioEvents()">🔄 Sync BCP Events</button>
+        <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="openImportBcpModal()">🔗 Import Event</button>
+        <button class="btn btn-primary" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
       </div>
-    </header>
+    </div>
 
     <!-- Studio Navigation Tabs -->
     <div class="es-nav-bar" style="margin-bottom: 1.25rem; display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 4px;">

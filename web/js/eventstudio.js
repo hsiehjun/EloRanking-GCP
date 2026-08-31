@@ -44,23 +44,50 @@ function setDefaultEventDates() {
 }
 
 function updateStudioAuthBadge() {
-  const badge = document.getElementById('es-auth-label');
-  const dot = document.querySelector('.es-auth-badge .status-dot');
-  const user = typeof currentUser !== 'undefined' ? currentUser : null;
+  const banner = document.getElementById('es-bcp-account-banner');
+  const dot = document.getElementById('es-bcp-status-dot');
+  const statusText = document.getElementById('es-bcp-status-text');
+  
+  let user = typeof currentUser !== 'undefined' ? currentUser : null;
+  if (!user) {
+    try {
+      const cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
+      if (cached) user = JSON.parse(cached);
+    } catch(e) {}
+  }
 
-  if (badge) {
-    if (user && user.bcp_user_id) {
-      badge.textContent = `🟢 BCP Connected (${user.bcp_email || user.display_name})`;
-      badge.style.color = '#10b981';
-      if (dot) dot.style.background = '#10b981';
+  if (statusText) {
+    if (user && (user.bcp_connected || user.bcp_user_id || user.bcp_email)) {
+      const email = user.bcp_email || user.email || user.display_name || 'Organizer';
+      if (banner) {
+        banner.style.background = 'rgba(16, 185, 129, 0.08)';
+        banner.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+      }
+      if (dot) {
+        dot.style.background = '#10b981';
+        dot.style.boxShadow = '0 0 8px #10b981';
+      }
+      statusText.innerHTML = `Connected to Best Coast Pairings as <strong style="color: #10b981;">${escapeHtml(email)}</strong>${user.player_id ? ` <span style="font-size:0.75rem; color:var(--text-muted); font-family: var(--font-mono);">(${user.player_id})</span>` : ''}`;
     } else if (user) {
-      badge.textContent = `🔵 Signed in as ${user.display_name} (Link BCP in Account)`;
-      badge.style.color = '#38bdf8';
-      if (dot) dot.style.background = '#38bdf8';
+      if (banner) {
+        banner.style.background = 'rgba(245, 158, 11, 0.08)';
+        banner.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+      }
+      if (dot) {
+        dot.style.background = '#f59e0b';
+        dot.style.boxShadow = 'none';
+      }
+      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> — <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Link BCP Account</a> to sync your official tournaments`;
     } else {
-      badge.textContent = '⚪ Tournament Director Suite';
-      badge.style.color = 'var(--text-muted)';
-      if (dot) dot.style.background = '#94a3b8';
+      if (banner) {
+        banner.style.background = 'rgba(56, 189, 248, 0.05)';
+        banner.style.borderColor = 'rgba(56, 189, 248, 0.2)';
+      }
+      if (dot) {
+        dot.style.background = '#94a3b8';
+        dot.style.boxShadow = 'none';
+      }
+      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign in & Link BCP</a> to manage and publish live tournaments`;
     }
   }
 }
