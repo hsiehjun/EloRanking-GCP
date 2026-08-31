@@ -510,19 +510,15 @@
     saveLocalState(st);
     notifyStateChanged();
 
-    // 1. Direct Firestore SDK update if loaded
+    // 1. Direct Firestore SDK delete if loaded
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
-        db.collection('rooms').doc(matchId).set({
-          status: 'completed',
-          is_finished: true,
-          updatedAt: Date.now()
-        }, { merge: true });
+        db.collection('rooms').doc(matchId).delete();
       } catch(e) {}
     }
 
-    // 2. Server-side finalize
+    // 2. Server-side finalize (persists in PostgreSQL and removes from active Firestore)
     try {
       const token = getAuthToken();
       const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/finalize`, {
@@ -537,7 +533,7 @@
         if (statusEl) {
           statusEl.style.display = 'block';
           statusEl.style.color = '#10b981';
-          statusEl.innerHTML = `✅ Battle record archived and finalized! Redirecting to lobby...`;
+          statusEl.innerHTML = `✅ Battle record archived permanently! Redirecting to lobby...`;
         }
         if (btn) {
           btn.style.background = '#10b981';
@@ -1291,9 +1287,6 @@
                     </span>
                     <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
                       📄 Scorecard
-                    </button>
-                    <button title="Hide from your history (Soft Delete)" onclick="event.stopPropagation(); window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('[data-match-id]'))" style="background:transparent; border:1px solid #334155; color:#94a3b8; width:28px; height:28px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; transition:all 0.15s; margin-left:2px;" onmouseover="this.style.borderColor='#ef4444'; this.style.color='#ef4444'; this.style.background='rgba(239,68,68,0.1)'" onmouseout="this.style.borderColor='#334155'; this.style.color='#94a3b8'; this.style.background='transparent'">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
                     </button>
                   </div>
                 </div>

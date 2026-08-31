@@ -900,6 +900,7 @@ if FASTAPI_AVAILABLE:
     class TrackerActionPayload(BaseModel):
         token: Optional[str] = None
         match_id: Optional[str] = None
+        state: Optional[Dict[str, Any]] = None
 
     class TrackerStatePayload(BaseModel):
         match_id: str
@@ -1581,6 +1582,20 @@ if FASTAPI_AVAILABLE:
         session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
         user = auth_mgr.get_session(session_token) if session_token else None
         
+        # 1. Verify this is NOT a completed / permanent match record
+        db = get_database()
+        try:
+            existing_game = db.get_tracker_game(match_id)
+            if existing_game and existing_game.get("is_finished"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Permanent record: Completed games cannot be discarded or deleted."
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
         fs_engine = get_firestore_engine()
         room_doc = fs_engine.get_room(match_id) or TRACKER_ROOMS.get(match_id)
         
@@ -1612,16 +1627,17 @@ if FASTAPI_AVAILABLE:
                     detail="Forbidden: Only registered players in this match can delete or discard this game."
                 )
         
-        # 1. Update Firestore Native
+        # 2. Update Firestore Native (Delete room from active collection)
         fs_engine.discard_room(match_id)
         
-        # 2. Update memory cache
+        # 3. Update memory cache
         if match_id in TRACKER_ROOMS:
-            TRACKER_ROOMS[match_id]["status"] = "abandoned"
-            TRACKER_ROOMS[match_id]["is_abandoned"] = True
+            try:
+                del TRACKER_ROOMS[match_id]
+            except KeyError:
+                pass
             
-        # 3. If in PostgreSQL, hide it
-        db = get_database()
+        # 4. If in PostgreSQL, hide uncompleted draft
         if user:
             try:
                 db.hide_tracker_game_for_user(match_id, user["id"])
@@ -1640,36 +1656,35 @@ if FASTAPI_AVAILABLE:
         
         fs_engine = get_firestore_engine()
         db = get_database()
-        room = TRACKER_ROOMS.get(match_id) or fs_engine.get_room(match_id)
-        state = (payload.state if payload and payload.state else None) or (room.get("state") if room else None) or {}
+        room = TRACKER_ROOMS.get(match_id) or fs_engine.get_room(match_id) or {}
+        state = (payload.state if payload and payload.state else None) or room.get("state") or {}
         
         if isinstance(state, dict):
             state["is_finished"] = True
+            state["started"] = True
+            state["round"] = 5
             
-        p1_id = room.get("user_id_p1") if room else (user["id"] if user else None)
-        p2_id = room.get("user_id_p2") if room else None
+        p1_id = room.get("user_id_p1") or (user["id"] if user else None)
+        p2_id = room.get("user_id_p2")
 
-        # 1. Update PostgreSQL
+        # 1. Update PostgreSQL permanently
         try:
             db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
         except Exception as e:
             logger.warning(f"Notice saving finalized game to DB: {e}")
 
-        # 2. Update Firestore Native
+        # 2. Delete / remove from Cloud Firestore (active session is concluded!)
         try:
-            fs_engine.update_room(match_id, {
-                "status": "completed",
-                "is_finished": True,
-                "state": state
-            })
+            fs_engine.discard_room(match_id)
         except Exception as e:
-            logger.warning(f"Notice updating Firestore room status: {e}")
+            logger.warning(f"Notice discarding Firestore room on conclusion {match_id}: {e}")
 
-        # 3. Update Memory Cache
+        # 3. Clean up Memory Cache
         if match_id in TRACKER_ROOMS:
-            TRACKER_ROOMS[match_id]["status"] = "completed"
-            TRACKER_ROOMS[match_id]["is_finished"] = True
-            TRACKER_ROOMS[match_id]["state"] = state
+            try:
+                del TRACKER_ROOMS[match_id]
+            except KeyError:
+                pass
             
         return {
             "success": True,
@@ -2205,8 +2220,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=31.0">
-  <script src="/tracker/tracker_sync.js?v=31.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=32.0">
+  <script src="/tracker/tracker_sync.js?v=32.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

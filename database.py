@@ -2297,7 +2297,7 @@ class PostgresDatabase:
         if p2_score == 0 and "p2Score" in state:
             p2_score = int(state["p2Score"])
 
-        is_finished = current_round >= 5 and started
+        is_finished = bool(state.get("is_finished") or state.get("isFinished") or (current_round >= 5 and started))
 
         winner_name = None
         if is_finished:
