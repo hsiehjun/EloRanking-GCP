@@ -2638,6 +2638,14 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(es_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="eventstudio.html not found")
 
+    @app.get("/admin/feedback", include_in_schema=False)
+    @app.get("/admin/feedback.html", include_in_schema=False)
+    async def serve_admin_feedback():
+        af_file = web_dir / "admin_feedback.html"
+        if af_file.exists():
+            return FileResponse(str(af_file), media_type="text/html")
+        raise HTTPException(status_code=404, detail="admin_feedback.html not found")
+
 
     # Global Structured Error Handler
     @app.exception_handler(Exception)
@@ -3413,6 +3421,41 @@ if FASTAPI_AVAILABLE:
     async def api_get_feedbacks(request: Request, limit: int = Query(50)):
         db = get_database()
         return db.get_feedbacks(limit=limit)
+
+    class FeedbackUpdatePayload(BaseModel):
+        status: Optional[str] = None
+        admin_notes: Optional[str] = None
+        message: Optional[str] = None
+        feedback_type: Optional[str] = None
+        token: Optional[str] = None
+
+    @app.get("/api/admin/feedback", summary="Get filtered user feedbacks (Admin)")
+    async def api_admin_get_feedbacks(request: Request, limit: int = Query(100), status: Optional[str] = Query(None), feedback_type: Optional[str] = Query(None)):
+        db = get_database()
+        feedbacks = db.get_feedbacks(limit=limit, status=status, feedback_type=feedback_type)
+        return {"success": True, "feedbacks": feedbacks}
+
+    @app.post("/api/admin/feedback/{feedback_id}/update", summary="Update feedback status, admin notes, or message")
+    async def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePayload, request: Request):
+        db = get_database()
+        ok = db.update_feedback(
+            feedback_id=feedback_id,
+            status=payload.status,
+            admin_notes=payload.admin_notes,
+            message=payload.message,
+            feedback_type=payload.feedback_type
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Feedback entry not found")
+        return {"success": True, "message": "Feedback updated successfully"}
+
+    @app.delete("/api/admin/feedback/{feedback_id}", summary="Delete feedback entry from database")
+    async def api_admin_delete_feedback(feedback_id: str, request: Request):
+        db = get_database()
+        ok = db.delete_feedback(feedback_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Feedback entry not found")
+        return {"success": True, "message": "Feedback deleted successfully"}
 
 def start_server(port: int = 8080, host: str = "0.0.0.0"):
     """Starts the FastAPI Uvicorn ASGI server."""

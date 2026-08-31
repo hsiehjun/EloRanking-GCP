@@ -387,8 +387,12 @@ class PostgresDatabase:
                 page_url TEXT,
                 device_info TEXT,
                 status VARCHAR(32) DEFAULT 'new',
-                created_at TIMESTAMPTZ DEFAULT NOW()
+                admin_notes TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
             );""",
+            "ALTER TABLE user_feedbacks ADD COLUMN IF NOT EXISTS admin_notes TEXT;",
+            "ALTER TABLE user_feedbacks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();",
             "CREATE INDEX IF NOT EXISTS idx_feedbacks_created ON user_feedbacks(created_at DESC);",
             """CREATE TABLE IF NOT EXISTS waha_factions (
                 id TEXT,
@@ -3734,17 +3738,67 @@ class PostgresDatabase:
                 conn.commit()
         return fb_id
 
-    def get_feedbacks(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """Retrieves recent user feedbacks from PostgreSQL."""
+    def get_feedbacks(self, limit: int = 100, status: Optional[str] = None, feedback_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves recent user feedbacks from PostgreSQL with optional filtering."""
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                clauses = []
+                params = []
+                if status and status.lower() != 'all':
+                    clauses.append("LOWER(status) = LOWER(%s)")
+                    params.append(status)
+                if feedback_type and feedback_type.lower() != 'all':
+                    clauses.append("LOWER(feedback_type) = LOWER(%s)")
+                    params.append(feedback_type)
+                
+                where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+                query = f"""
                     SELECT * FROM user_feedbacks
+                    {where_clause}
                     ORDER BY created_at DESC
                     LIMIT %s;
-                """, (limit,))
+                """
+                params.append(limit)
+                cursor.execute(query, tuple(params))
                 return [dict(r) for r in cursor.fetchall()]
+
+    def update_feedback(self, feedback_id: str, status: Optional[str] = None, admin_notes: Optional[str] = None, message: Optional[str] = None, feedback_type: Optional[str] = None) -> bool:
+        """Updates status, admin notes, or message of a feedback entry."""
+        if not feedback_id:
+            return False
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                updates = ["updated_at = NOW()"]
+                params = []
+                if status is not None:
+                    updates.append("status = %s")
+                    params.append(status)
+                if admin_notes is not None:
+                    updates.append("admin_notes = %s")
+                    params.append(admin_notes)
+                if message is not None:
+                    updates.append("message = %s")
+                    params.append(message)
+                if feedback_type is not None:
+                    updates.append("feedback_type = %s")
+                    params.append(feedback_type)
+                
+                params.append(feedback_id)
+                query = f"UPDATE user_feedbacks SET {', '.join(updates)} WHERE id = %s;"
+                cursor.execute(query, tuple(params))
+                conn.commit()
+                return cursor.rowcount > 0
+
+    def delete_feedback(self, feedback_id: str) -> bool:
+        """Deletes a feedback entry from PostgreSQL."""
+        if not feedback_id:
+            return False
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("DELETE FROM user_feedbacks WHERE id = %s;", (feedback_id,))
+                conn.commit()
+                return cursor.rowcount > 0
 
 
 

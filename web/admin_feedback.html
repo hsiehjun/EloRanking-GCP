@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Feedback & Bug Center | Warhammer 40k Elo Ranking</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <style>
+    :root {
+      --bg: #070b14;
+      --card: #0b1120;
+      --card-header: #0f172a;
+      --border: #1e293b;
+      --border-focus: #38bdf8;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --accent: #38bdf8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #c084fc;
+      --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+      --font-mono: "JetBrains Mono", monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 24px;
+    }
+
+    .header-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .logo-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+    .nav-btn:hover {
+      background: rgba(56,189,248,0.1);
+      border-color: rgba(56,189,248,0.4);
+      color: var(--accent);
+    }
+
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      width: 100%;
+      flex: 1;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .metric-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .metric-card .num {
+      font-family: var(--font-mono);
+      font-size: 26px;
+      font-weight: 800;
+      color: #fff;
+    }
+    .metric-card .label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .filter-bar {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill-btn {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pill-btn:hover {
+      border-color: rgba(56,189,248,0.4);
+      color: #fff;
+    }
+    .pill-btn.active {
+      background: #0284c7;
+      border-color: #38bdf8;
+      color: #fff;
+    }
+
+    .search-box {
+      background: #070b14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 7px 12px;
+      color: #fff;
+      font-size: 12px;
+      outline: none;
+      min-width: 240px;
+    }
+    .search-box:focus {
+      border-color: var(--accent);
+    }
+
+    .feedback-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .fb-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 18px 22px;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .fb-card:hover {
+      border-color: rgba(56,189,248,0.3);
+    }
+
+    .fb-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .fb-badges {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .badge {
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-bug { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); }
+    .badge-feature { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); }
+    .badge-general { background: rgba(192,132,252,0.15); color: #c084fc; border: 1px solid rgba(192,132,252,0.3); }
+
+    .status-select {
+      background: #070b14;
+      border: 1px solid var(--border);
+      color: #fff;
+      font-size: 11.5px;
+      font-weight: 700;
+      border-radius: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      outline: none;
+    }
+    .status-new { border-color: #f59e0b; color: #fbbf24; }
+    .status-in_progress { border-color: #38bdf8; color: #38bdf8; }
+    .status-resolved { border-color: #10b981; color: #34d399; }
+    .status-archived { border-color: #64748b; color: #94a3b8; }
+
+    .fb-meta {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .fb-message {
+      font-size: 13.5px;
+      color: #e2e8f0;
+      line-height: 1.6;
+      background: rgba(7, 11, 20, 0.6);
+      border: 1px solid rgba(255,255,255,0.05);
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin: 10px 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .fb-admin-notes-area {
+      margin-top: 10px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px dashed rgba(56,189,248,0.3);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .fb-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .action-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .action-btn:hover { color: #fff; border-color: rgba(255,255,255,0.3); }
+    .action-btn-danger:hover { background: rgba(239,68,68,0.2); border-color: #ef4444; color: #f87171; }
+    .action-btn-success:hover { background: rgba(16,185,129,0.2); border-color: #10b981; color: #34d399; }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0f172a;
+      border: 1px solid var(--accent);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      font-weight: 700;
+      font-size: 13px;
+      z-index: 10000;
+      display: none;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 36px; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-container">
+      <a href="/" class="logo-badge">
+        <span style="font-size: 24px;">🛡️</span>
+        <div>
+          <h1 style="font-size: 15px; font-weight: 800; color: #fff; margin: 0;">Developer Feedback & Bug Center</h1>
+          <div style="font-size: 11px; color: var(--accent); font-weight: 600;">Admin Management Portal</div>
+        </div>
+      </a>
+
+      <div class="nav-links">
+        <a href="/?tab=my-hub" class="nav-btn">🏠 My Hub</a>
+        <a href="/11th/tracker" class="nav-btn">🎲 Game Tracker</a>
+        <a href="/?tab=leaderboard" class="nav-btn">🏆 Leaderboard</a>
+        <button onclick="fetchFeedbacks()" class="nav-btn" style="cursor: pointer;">🔄 Refresh</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Metrics Ribbon -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div>
+          <div class="label">Total Feedback</div>
+          <div class="num" id="stat-total">0</div>
+        </div>
+        <span style="font-size: 28px;">📋</span>
+      </div>
+
+      <div class="metric-card" style="border-color: rgba(239,68,68,0.3);">
+        <div>
+          <div class="label" style="color: #f87171;">Open Bug Reports</div>
+          <div class="num" style="color: #f87171;" id="stat-bugs">0</div>
+        </div>
+        <span style="font-size: 28px;">🐞</span>
+      </div>
+
+      <div class="metric-card" style="border-color: rgba(56,189,248,0.3);">
+        <div>
+          <div class="label" style="color: #38bdf8;">Feature Ideas</div>
+          <div class="num" style="color: #38bdf8;" id="stat-features">0</div>
+        </div>
+        <span style="font-size: 28px;">✨</span>
+      </div>
+
+      <div class="metric-card" style="border-color: rgba(16,185,129,0.3);">
+        <div>
+          <div class="label" style="color: #34d399;">Resolved</div>
+          <div class="num" style="color: #34d399;" id="stat-resolved">0</div>
+        </div>
+        <span style="font-size: 28px;">🟢</span>
+      </div>
+    </div>
+
+    <!-- Filter & Search Controls -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Category:</span>
+        <button class="pill-btn active" onclick="setCategoryFilter("all", this)">All</button>
+        <button class="pill-btn" onclick="setCategoryFilter("bug", this)">🐞 Bugs</button>
+        <button class="pill-btn" onclick="setCategoryFilter("feature", this)">✨ Features</button>
+        <button class="pill-btn" onclick="setCategoryFilter("general", this)">💬 General</button>
+      </div>
+
+      <div class="filter-group">
+        <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Status:</span>
+        <button class="pill-btn active" onclick="setStatusFilter("all", this)">All</button>
+        <button class="pill-btn" onclick="setStatusFilter("new", this)">🟡 New</button>
+        <button class="pill-btn" onclick="setStatusFilter("in_progress", this)">🔵 In Progress</button>
+        <button class="pill-btn" onclick="setStatusFilter("resolved", this)">🟢 Resolved</button>
+      </div>
+
+      <div>
+        <input type="text" id="search-input" class="search-box" placeholder="🔍 Search feedback text, email, or URL..." oninput="handleSearch(this.value)">
+      </div>
+    </div>
+
+    <!-- Feedbacks List Container -->
+    <div id="feedback-list-container" class="feedback-list">
+      <div class="empty-state">
+        <div class="icon">⌛</div>
+        <div>Loading feedbacks from database...</div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let allFeedbacks = [];
+    let currentCategory = "all";
+    let currentStatus = "all";
+    let searchQuery = "";
+
+    function showToast(msg, isError = false) {
+      const t = document.getElementById("toast");
+      if (!t) return;
+      t.innerText = msg;
+      t.style.borderColor = isError ? "#ef4444" : "#38bdf8";
+      t.style.display = "block";
+      setTimeout(() => { t.style.display = "none"; }, 2500);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return "";
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return "-";
+      try {
+        const d = new Date(dateStr);
+        return d.toLocaleString(undefined, { 
+          month: "short", day: "numeric", year: "numeric",
+          hour: "2-digit", minute: "2-digit"
+        });
+      } catch(e) {
+        return dateStr;
+      }
+    }
+
+    async function fetchFeedbacks() {
+      const container = document.getElementById("feedback-list-container");
+      if (container && allFeedbacks.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">⌛</div>
+            <div>Fetching verified feedback entries from PostgreSQL...</div>
+          </div>
+        `;
+      }
+
+      try {
+        const token = localStorage.getItem("elo_session_token") || localStorage.getItem("native_session_token") || "";
+        const resp = await fetch(`/api/admin/feedback?limit=200${token ? "&token=" + encodeURIComponent(token) : ""}`, {
+          headers: token ? { "Authorization": `Bearer ${token}` } : {}
+        });
+
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+
+        const data = await resp.json();
+        allFeedbacks = data.feedbacks || (Array.isArray(data) ? data : []);
+        updateStats();
+        renderFeedbacks();
+      } catch(err) {
+        if (container) {
+          container.innerHTML = `
+            <div class="empty-state" style="color:#ef4444;">
+              <div class="icon">⚠️</div>
+              <div>Failed to load feedbacks: ${escapeHtml(err.message)}</div>
+              <button onclick="fetchFeedbacks()" class="nav-btn" style="margin-top:12px; cursor:pointer;">Retry</button>
+            </div>
+          `;
+        }
+      }
+    }
+
+    function updateStats() {
+      const total = allFeedbacks.length;
+      const bugs = allFeedbacks.filter(f => (f.feedback_type === "bug" || !f.feedback_type) && f.status !== "resolved" && f.status !== "archived").length;
+      const features = allFeedbacks.filter(f => f.feedback_type === "feature").length;
+      const resolved = allFeedbacks.filter(f => f.status === "resolved").length;
+
+      document.getElementById("stat-total").innerText = total;
+      document.getElementById("stat-bugs").innerText = bugs;
+      document.getElementById("stat-features").innerText = features;
+      document.getElementById("stat-resolved").innerText = resolved;
+    }
+
+    function setCategoryFilter(cat, btn) {
+      currentCategory = cat;
+      btn.parentElement.querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderFeedbacks();
+    }
+
+    function setStatusFilter(status, btn) {
+      currentStatus = status;
+      btn.parentElement.querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      renderFeedbacks();
+    }
+
+    function handleSearch(query) {
+      searchQuery = (query || "").trim().toLowerCase();
+      renderFeedbacks();
+    }
+
+    function renderFeedbacks() {
+      const container = document.getElementById("feedback-list-container");
+      if (!container) return;
+
+      let filtered = allFeedbacks.filter(f => {
+        if (currentCategory !== "all" && (f.feedback_type || "bug") !== currentCategory) return false;
+        if (currentStatus !== "all" && (f.status || "new") !== currentStatus) return false;
+        if (searchQuery) {
+          const hay = `${f.message || ""} ${f.user_email || ""} ${f.page_url || ""} ${f.admin_notes || ""}`.toLowerCase();
+          if (!hay.includes(searchQuery)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📭</div>
+            <div style="font-size:16px; font-weight:700; color:#fff;">No feedback matching criteria</div>
+            <div style="margin-top:4px;">Try selecting another category or resetting filters.</div>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map(fb => {
+        const type = fb.feedback_type || "bug";
+        const typeClass = type === "feature" ? "badge-feature" : (type === "general" ? "badge-general" : "badge-bug");
+        const typeLabel = type === "feature" ? "✨ Feature" : (type === "general" ? "💬 General" : "🐞 Bug Report");
+        const status = fb.status || "new";
+
+        return `
+          <div class="fb-card" id="card-${fb.id}">
+            <div class="fb-header">
+              <div class="fb-badges">
+                <span class="badge ${typeClass}">${typeLabel}</span>
+                <select class="status-select status-${status}" onchange="updateStatus("${fb.id}", this.value)">
+                  <option value="new" ${status === "new" ? "selected" : ""}>🟡 New</option>
+                  <option value="in_progress" ${status === "in_progress" ? "selected" : ""}>🔵 In Progress</option>
+                  <option value="resolved" ${status === "resolved" ? "selected" : ""}>🟢 Resolved</option>
+                  <option value="archived" ${status === "archived" ? "selected" : ""}>⚪ Archived</option>
+                </select>
+                <span style="font-family:var(--font-mono); font-size:11px; color:#64748b;">#${fb.id}</span>
+              </div>
+
+              <div class="fb-meta">
+                <span>🕒 ${formatDate(fb.created_at)}</span>
+                ${fb.user_email ? `<span style="color:#38bdf8; font-weight:600;">👤 ${escapeHtml(fb.user_email)}</span>` : "<span style="color:#64748b; font-style:italic;">👤 Anonymous</span>"}
+              </div>
+            </div>
+
+            <!-- Message Body -->
+            <div class="fb-message" id="msg-${fb.id}">${escapeHtml(fb.message)}</div>
+
+            <!-- Context Details (URL & Device) -->
+            <div style="font-size:11.5px; color:#94a3b8; display:flex; flex-wrap:wrap; gap:12px; margin-bottom:8px;">
+              ${fb.page_url ? `
+                <div>
+                  🔗 Page: <a href="${escapeHtml(fb.page_url)}" target="_blank" style="color:#38bdf8; text-decoration:underline;">${escapeHtml(fb.page_url)}</a>
+                </div>
+              ` : ""}
+              ${fb.device_info ? `<div>💻 Device: <span style="font-family:var(--font-mono); color:#cbd5e1;">${escapeHtml(fb.device_info)}</span></div>` : ""}
+            </div>
+
+            <!-- Admin Notes Section -->
+            <div class="fb-admin-notes-area">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                <label style="font-size:11.5px; font-weight:700; color:#38bdf8;">📝 Developer Notes / Resolution Details:</label>
+                <button onclick="saveAdminNotes("${fb.id}")" class="action-btn" style="padding:2px 8px; font-size:11px;">💾 Save Notes</button>
+              </div>
+              <textarea id="notes-${fb.id}" rows="2" placeholder="Add private notes on root cause, fix commit (e.g. Fixed in commit 8488f10), or follow-up status..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#e2e8f0; font-size:12px; font-family:var(--font-sans); outline:none; resize:vertical;">${escapeHtml(fb.admin_notes || "")}</textarea>
+            </div>
+
+            <!-- Card Actions -->
+            <div class="fb-actions">
+              ${status !== "resolved" ? `
+                <button onclick="updateStatus("${fb.id}", "resolved")" class="action-btn action-btn-success">
+                  🟢 Mark Resolved
+                </button>
+              ` : `
+                <button onclick="updateStatus("${fb.id}", "new")" class="action-btn">
+                  🔄 Reopen
+                </button>
+              `}
+              <button onclick="deleteFeedback("${fb.id}")" class="action-btn action-btn-danger">
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function updateStatus(id, newStatus) {
+      try {
+        const token = localStorage.getItem("elo_session_token") || localStorage.getItem("native_session_token") || "";
+        const resp = await fetch(`/api/admin/feedback/${id}/update`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ status: newStatus, token: token })
+        });
+
+        if (resp.ok) {
+          const item = allFeedbacks.find(f => f.id === id);
+          if (item) item.status = newStatus;
+          updateStats();
+          renderFeedbacks();
+          showToast(`Status updated to: ${newStatus}`);
+        } else {
+          throw new Error("Failed to update status");
+        }
+      } catch(err) {
+        showToast(err.message, true);
+      }
+    }
+
+    async function saveAdminNotes(id) {
+      const textarea = document.getElementById(`notes-${id}`);
+      if (!textarea) return;
+      const notes = textarea.value.trim();
+
+      try {
+        const token = localStorage.getItem("elo_session_token") || localStorage.getItem("native_session_token") || "";
+        const resp = await fetch(`/api/admin/feedback/${id}/update`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { "Authorization": `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify({ admin_notes: notes, token: token })
+        });
+
+        if (resp.ok) {
+          const item = allFeedbacks.find(f => f.id === id);
+          if (item) item.admin_notes = notes;
+          showToast("Developer notes saved successfully!");
+        } else {
+          throw new Error("Failed to save notes");
+        }
+      } catch(err) {
+        showToast(err.message, true);
+      }
+    }
+
+    async function deleteFeedback(id) {
+      if (!confirm("Are you sure you want to permanently erase this feedback entry?")) return;
+
+      try {
+        const token = localStorage.getItem("elo_session_token") || localStorage.getItem("native_session_token") || "";
+        const resp = await fetch(`/api/admin/feedback/${id}`, {
+          method: "DELETE",
+          headers: token ? { "Authorization": `Bearer ${token}` } : {}
+        });
+
+        if (resp.ok) {
+          allFeedbacks = allFeedbacks.filter(f => f.id !== id);
+          updateStats();
+          renderFeedbacks();
+          showToast("Feedback erased from database.");
+        } else {
+          throw new Error("Failed to delete feedback");
+        }
+      } catch(err) {
+        showToast(err.message, true);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", fetchFeedbacks);
+  </script>
+</body>
+</html>
