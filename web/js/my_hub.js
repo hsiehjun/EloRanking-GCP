@@ -766,7 +766,7 @@ async function executeHubEventsSearch() {
   container.innerHTML = '<div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>';
 
   try {
-    const data = await window.api.getRecommendedEvents('', query, state, 25);
+    const data = await window.api.getRecommendedEvents('', query, '', null, null, null, 30, state);
     const events = data.events || [];
 
     if (events.length === 0) {

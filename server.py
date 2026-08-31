@@ -1733,17 +1733,43 @@ if FASTAPI_AVAILABLE:
         if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
             user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-        # 2. Query upcoming & recent events directly from PostgreSQL database (100% fast, 0 network lag)
+        # 2. Query Live Upcoming Events from BCP API (Real-time live synchronization)
+        now_dt = datetime.now(timezone.utc)
+        start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
+        end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
+
+        bcp_live_events = []
+        try:
+            bcp_url = f"{BCP_API_BASE}/events?limit=80&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
+            if query and query.strip():
+                bcp_url += f"&name={urllib.parse.quote(query.strip())}"
+            req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
+            with urllib.request.urlopen(req, timeout=4) as resp:
+                bcp_json = json.loads(resp.read().decode("utf-8"))
+                bcp_live_events = bcp_json.get("data", [])
+        except Exception as e:
+            logger.warning(f"Live BCP recommended events fetch notice: {e}")
+
+        # Auto-upsert fresh BCP events into PostgreSQL database so DB stays 100% updated
+        for live_ev in bcp_live_events:
+            try:
+                db.upsert_event(live_ev)
+            except Exception:
+                pass
+
+        # 3. Query upcoming & recent events directly from PostgreSQL database
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
-                SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended
+                SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
                 FROM events
-                WHERE event_date >= CURRENT_DATE - INTERVAL '30 days'
+                WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
                 ORDER BY event_date ASC
-                LIMIT 300;
+                LIMIT 200;
                 """)
-                bcp_events = [dict(r) for r in cursor.fetchall()]
+                db_events = [dict(r) for r in cursor.fetchall()]
+
+        bcp_events = list(bcp_live_events) + db_events
 
         def haversine_miles(lat1, lon1, lat2, lon2):
             R = 3958.8
@@ -1768,11 +1794,12 @@ if FASTAPI_AVAILABLE:
                 continue
             seen_ids.add(ev_id)
 
-            ev_name = ev.get("name", "Tournament")
-            ev_city = ev.get("city", "")
-            ev_state = ev.get("state", "")
-            ev_country = ev.get("country", "")
-            ev_date_str = ev.get("eventDate", "")
+            ev_name = ev.get("name") or "Tournament"
+            ev_city = ev.get("city") or ""
+            ev_state = ev.get("state") or ""
+            ev_country = ev.get("country") or ""
+            ev_date_raw = ev.get("eventDate") or ev.get("event_date")
+            ev_date_str = str(ev_date_raw) if ev_date_raw else ""
 
             # Filter by search query keyword
             if query and query.strip():
@@ -1788,6 +1815,13 @@ if FASTAPI_AVAILABLE:
 
             # Distance calculation
             coord = ev.get("coordinate")
+            if not coord and ev.get("raw_json"):
+                try:
+                    rj = ev["raw_json"] if isinstance(ev["raw_json"], dict) else json.loads(ev["raw_json"])
+                    coord = rj.get("coordinate")
+                except Exception:
+                    pass
+
             dist_val = None
             ev_lat, ev_lng = None, None
             if coord and isinstance(coord, list) and len(coord) == 2:
@@ -1804,7 +1838,7 @@ if FASTAPI_AVAILABLE:
             if radius_miles and dist_val is not None and dist_val > radius_miles:
                 continue
 
-            enrolled = int(ev.get("totalPlayers", 0))
+            enrolled = int(ev.get("totalPlayers") or ev.get("total_players") or 0)
             cap = int(ev.get("numTickets") or ev.get("queryNumPlayers") or enrolled)
             
             # Format time label

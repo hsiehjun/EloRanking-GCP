@@ -179,14 +179,15 @@ window.api = {
   },
 
   // Recommended Events for User & Geo-Search
-  async getRecommendedEvents(playerId = '', query = '', tier = '', lat = null, lng = null, radius = null, limit = 35) {
+  async getRecommendedEvents(playerId = '', query = '', tier = '', lat = null, lng = null, radius = null, limit = 35, state = '') {
     const params = new URLSearchParams();
     if (playerId) params.append('player_id', playerId);
     if (query) params.append('query', query);
     if (tier) params.append('tier', tier);
-    if (lat !== null && lat !== undefined) params.append('lat', lat);
-    if (lng !== null && lng !== undefined) params.append('lng', lng);
-    if (radius !== null && radius !== undefined) params.append('radius_miles', radius);
+    if (state) params.append('state', state);
+    if (lat !== null && lat !== undefined && lat !== '') params.append('lat', lat);
+    if (lng !== null && lng !== undefined && lng !== '') params.append('lng', lng);
+    if (radius !== null && radius !== undefined && radius !== '') params.append('radius_miles', radius);
     if (limit) params.append('limit', limit);
     return this._fetchJson(`/api/events/recommended?${params}`);
   },
