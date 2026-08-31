@@ -376,7 +376,7 @@ function renderMyHub(data) {
             <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
           </div>
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">+ New Match ➔</a>
+            <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
           </div>
         </div>
 
