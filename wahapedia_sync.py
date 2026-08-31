@@ -100,24 +100,33 @@ class WahapediaSync:
         from psycopg2 import extras
 
         with self.db.get_connection() as conn:
-            with conn.cursor() as cursor:
-                for filename, table_name in TABLE_MAPPING.items():
-                    try:
-                        rows = self.fetch_csv(filename)
-                        if not rows:
-                            results[filename] = 0
-                            continue
+            for filename, table_name in TABLE_MAPPING.items():
+                try:
+                    rows = self.fetch_csv(filename)
+                    if not rows:
+                        results[filename] = 0
+                        continue
 
-                        header = [c.strip().lower() for c in rows[0]]
-                        data_rows = rows[1:]
+                    header = [c.strip().lower() for c in rows[0]]
+                    data_rows = rows[1:]
 
-                        # Truncate table in PostgreSQL
+                    with conn.cursor() as cursor:
+                        # Ensure table and all columns exist
+                        cols_def = ", ".join([f'"{col}" TEXT' for col in header])
+                        cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({cols_def});")
+                        for col in header:
+                            try:
+                                cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS "{col}" TEXT;')
+                            except Exception:
+                                pass
+
+                        # Truncate table
                         cursor.execute(f"TRUNCATE TABLE {table_name};")
 
                         if data_rows:
                             num_cols = len(header)
                             placeholders = ",".join(["%s"] * num_cols)
-                            cols_str = ",".join(header)
+                            cols_str = ", ".join([f'"{col}"' for col in header])
 
                             # Normalize data row widths
                             normalized_data = []
@@ -131,13 +140,16 @@ class WahapediaSync:
                             insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders});"
                             extras.execute_batch(cursor, insert_sql, normalized_data, page_size=1000)
 
-                        results[filename] = len(data_rows)
-                        logger.info(f"Ingested {len(data_rows)} rows into {table_name}")
-                    except Exception as e:
-                        logger.error(f"Error syncing {filename} ({table_name}): {e}")
-                        results[filename] = f"Error: {e}"
+                    conn.commit()
+                    results[filename] = len(data_rows)
+                    logger.info(f"Ingested {len(data_rows)} rows into {table_name}")
+                except Exception as e:
+                    conn.rollback()
+                    logger.error(f"Error syncing {filename} ({table_name}): {e}")
+                    results[filename] = f"Error: {e}"
 
-                # Update sync metadata
+            # Update sync metadata
+            with conn.cursor() as cursor:
                 if remote_update:
                     cursor.execute("""
                         INSERT INTO waha_sync_metadata (key, value, updated_at) 
@@ -151,7 +163,6 @@ class WahapediaSync:
                     VALUES ('sync_duration_sec', %s, NOW())
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
                 """, (duration_str,))
-
             conn.commit()
 
         duration = time.time() - start_time

@@ -1579,8 +1579,12 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/wahapedia/sync", summary="Trigger sync of Wahapedia 11th edition datasets into PostgreSQL")
     async def api_wahapedia_sync(force: bool = Query(False)):
         from wahapedia_sync import sync_wahapedia_job
-        res = await asyncio.to_thread(sync_wahapedia_job, force=force)
-        return res
+        try:
+            res = await asyncio.to_thread(sync_wahapedia_job, force=force)
+            return res
+        except Exception as e:
+            logger.error(f"Error in api_wahapedia_sync: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     @app.get("/api/wahapedia/stratagems", summary="Get detachment and core stratagems from Wahapedia")
     async def api_wahapedia_stratagems(detachment: str = Query(...), faction: Optional[str] = Query(None)):
