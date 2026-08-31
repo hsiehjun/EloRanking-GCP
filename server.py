@@ -1553,30 +1553,67 @@ if FASTAPI_AVAILABLE:
         success = db.delete_user_army_list(list_id, user_id=user_id)
         return {"success": success, "deleted_id": list_id}
 
-    @app.get("/api/armylist/nr_proxy/{share_id}", summary="Redirect NewRecruit share link directly to imported Lists view")
-    @app.get("/api/armylists/nr_proxy/{share_id}", summary="Redirect NewRecruit share link directly to imported Lists view")
-    @app.get("/nr_proxy/{share_id}", summary="Redirect NewRecruit share link directly to imported Lists view")
+    @app.get("/nr/app/list/{share_id}", include_in_schema=False)
+    @app.get("/nr_proxy/{share_id}", summary="Proxy NewRecruit share page and automatically import list")
+    @app.get("/api/armylist/nr_proxy/{share_id}", include_in_schema=False)
+    @app.get("/api/armylists/nr_proxy/{share_id}", include_in_schema=False)
     async def api_nr_proxy(share_id: str):
-        """Resolves a NewRecruit share link into the direct imported /app/Lists/{list_key} view."""
+        """Proxies NewRecruit share page with auto-import and direct interactive mode script injection."""
         clean_id = share_id.strip()
         try:
-            rpc_url = "https://www.newrecruit.eu/api/rpc"
-            payload = json.dumps({"method": "open_share_link", "params": [clean_id]}).encode("utf-8")
-            req = urllib.request.Request(
-                rpc_url,
-                data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-            )
+            url = f"https://www.newrecruit.eu/app/list/{clean_id}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
             def _fetch():
-                with urllib.request.urlopen(req, timeout=3.0) as resp:
-                    return json.loads(resp.read().decode("utf-8"))
-            data = await asyncio.to_thread(_fetch)
-            list_key = data.get("list_key") or data.get("_id")
-            if list_key:
-                return RedirectResponse(url=f"https://www.newrecruit.eu/app/Lists/{list_key}", status_code=302)
+                with urllib.request.urlopen(req, timeout=4.0) as resp:
+                    return resp.read().decode("utf-8")
+            html = await asyncio.to_thread(_fetch)
+            
+            # Rewrite relative paths to absolute newrecruit.eu
+            html = html.replace('href="/_nuxt/', 'href="https://www.newrecruit.eu/_nuxt/')
+            html = html.replace('src="/_nuxt/', 'src="https://www.newrecruit.eu/_nuxt/')
+            html = html.replace('href="/favicon', 'href="https://www.newrecruit.eu/favicon')
+            
+            # Inject auto-import and auto-play script
+            auto_script = """
+            <script>
+            (function() {
+              let clickedImport = false;
+              let clickedPlay = false;
+              const timer = setInterval(() => {
+                try {
+                  // 1. Auto-click 'Import List' on share preview page
+                  if (!clickedImport) {
+                    const btns = Array.from(document.querySelectorAll('button'));
+                    const importBtn = btns.find(b => (b.textContent || '').trim().toLowerCase() === 'import list');
+                    if (importBtn) {
+                      clickedImport = true;
+                      console.log('[Auto-Import] Found and auto-clicked Import List button');
+                      importBtn.click();
+                    }
+                  }
+                  // 2. Auto-enable Play Mode once list is imported / loaded
+                  if (!clickedPlay && (window.location.href.includes('/app/Lists') || document.querySelector('.actionButtons, .unitName, .rosterHeader'))) {
+                    const playBtn = Array.from(document.querySelectorAll('button, a, div, span')).find(el => {
+                      const txt = (el.textContent || '').trim().toLowerCase();
+                      return txt === 'play mode' || txt === '🎮 play mode' || txt.includes('play mode');
+                    });
+                    if (playBtn) {
+                      clickedPlay = true;
+                      playBtn.click();
+                      clearInterval(timer);
+                    }
+                  }
+                } catch(e) {}
+              }, 120);
+              setTimeout(() => clearInterval(timer), 12000);
+            })();
+            </script>
+            """
+            html = html.replace("</body>", auto_script + "</body>")
+            return HTMLResponse(content=html, status_code=200)
         except Exception as e:
-            logger.debug(f"Notice resolving direct NewRecruit Lists URL: {e}")
-        return RedirectResponse(url=f"https://www.newrecruit.eu/app/list/{clean_id}", status_code=302)
+            logger.warning(f"Notice proxying NewRecruit auto-import: {e}")
+            return RedirectResponse(url=f"https://www.newrecruit.eu/app/list/{clean_id}", status_code=302)
 
     @app.post("/api/tracker/room/{match_id}/armylist", summary="Attach player army list to live match room")
     async def api_tracker_attach_armylist(match_id: str, request: Request):
@@ -1754,8 +1791,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=21.0">
-  <script src="/tracker/tracker_sync.js?v=21.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=22.0">
+  <script src="/tracker/tracker_sync.js?v=22.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
