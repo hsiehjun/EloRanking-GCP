@@ -1790,10 +1790,60 @@
     await window.gtAttachList(list);
   };
 
+  function generateTrackerRawRosterText(list) {
+    if (list.raw_text && list.raw_text.trim().length > 10) {
+      return list.raw_text.trim();
+    }
+    let out = `${list.faction || 'Warhammer 40,000'} - ${list.detachment || 'Core Detachment'} (${list.points || 2000} pts)\n\n`;
+    const units = list.units || [];
+    const groups = {};
+    for (const u of units) {
+      const role = (u.role || 'Other Datasheets').toUpperCase();
+      if (!groups[role]) groups[role] = [];
+      groups[role].push(u);
+    }
+    for (const [role, uList] of Object.entries(groups)) {
+      out += `+ ${role} +\n`;
+      for (const u of uList) {
+        const cnt = u.model_count && u.model_count > 1 ? `${u.model_count}x ` : '';
+        out += `${cnt}${u.name} [${u.points || 0} pts]`;
+        const tags = [];
+        if (u.is_warlord) tags.push('Warlord');
+        if (u.enhancement) tags.push(`Enhancement: ${u.enhancement}`);
+        if (tags.length > 0) out += `: ${tags.join(', ')}`;
+        out += '\n';
+        if (u.wargear && u.wargear.length > 0) {
+          out += `  • Wargear: ${u.wargear.join(', ')}\n`;
+        }
+      }
+      out += '\n';
+    }
+    return out.trim();
+  }
+
+  window.gtCopyTrackerRawText = function() {
+    const isP1 = clientState.role === 'player1';
+    const myList = isP1 ? clientState.p1ArmyList : clientState.p2ArmyList;
+    const oppList = isP1 ? clientState.p2ArmyList : clientState.p1ArmyList;
+    const activeList = clientState.activeListTab === 'opponent' ? oppList : myList;
+    if (!activeList) return;
+    const rawText = generateTrackerRawRosterText(activeList);
+    navigator.clipboard.writeText(rawText).then(() => {
+      alert('📋 Raw roster text copied to clipboard!');
+    }).catch(() => {
+      prompt('Copy your roster text below:', rawText);
+    });
+  };
+
+  window.gtToggleRosterViewMode = function(mode) {
+    clientState.rosterViewMode = mode;
+    renderArmyListModal();
+  };
+
   window.gtImportAndAttach = async function() {
     const textarea = document.getElementById('gt-import-raw-input');
     if (!textarea || !textarea.value.trim()) {
-      alert('Please paste your NewRecruit share link.');
+      alert('Please paste your army roster text or JSON.');
       return;
     }
     const rawText = textarea.value.trim();
@@ -1824,6 +1874,8 @@
   };
 
   function renderTrackerNativeRoster(list) {
+    const activeMode = clientState.rosterViewMode || 'enriched';
+
     let units = list.units || [];
     let armyRules = list.army_rules || [];
     let detachmentRules = list.detachment_rules || [];
@@ -1854,6 +1906,41 @@
     const detachment = list.detachment || 'Core Detachment';
     const points = list.points || 2000;
     const warlord = list.warlord || '';
+
+    // Top Header with Dual View Mode Switcher
+    const headerHtml = `
+      <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+        <div>
+          <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(name)}</span>
+          <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
+          ${warlord ? `<span style="font-size:12px; color:#facc15; font-weight:700; margin-left:8px;">👑 ${escapeHtml(warlord)}</span>` : ''}
+        </div>
+        <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px;">
+          <button onclick="window.gtToggleRosterViewMode('enriched')" style="background:${activeMode==='enriched'?'#0284c7':'transparent'}; color:${activeMode==='enriched'?'#fff':'#94a3b8'}; border:none; padding:4px 10px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+            ⚡ Enriched
+          </button>
+          <button onclick="window.gtToggleRosterViewMode('text')" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:4px 10px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+            📄 Raw Text
+          </button>
+        </div>
+      </div>
+    `;
+
+    if (activeMode === 'text') {
+      const rawText = generateTrackerRawRosterText(list);
+      return `
+        ${headerHtml}
+        <div style="display:flex; flex-direction:column; padding:16px; background:#070b14; flex:1; overflow:hidden;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <span style="font-size:12px; font-weight:700; color:#38bdf8;">📄 Monospaced Roster View</span>
+            <button onclick="window.gtCopyTrackerRawText()" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:5px;">
+              📋 Copy Raw Text
+            </button>
+          </div>
+          <pre style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#e2e8f0; line-height:1.55; white-space:pre-wrap; overflow-y:auto; word-break:break-word; max-height:70vh;">${escapeHtml(rawText)}</pre>
+        </div>
+      `;
+    }
 
     const categories = {
       'Epic Heroes & Characters': [],
@@ -2157,12 +2244,17 @@
       // Attach / Import View
       contentHtml = `
         <div style="margin-bottom: 20px;">
-          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import Army List from NewRecruit</h3>
-          <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Paste your <b>NewRecruit Link</b> (e.g. <code style="color:#38bdf8; background:#070b14; padding:1px 5px; border-radius:4px;">https://www.newrecruit.eu/app/list/28iCj</code>) to attach your army roster to this match.</p>
-          <input id="gt-import-raw-input" type="text" placeholder="https://www.newrecruit.eu/app/list/..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'Inter',sans-serif; font-size:13px; outline:none; box-sizing:border-box;" />
+          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import & Enrich Army List</h3>
+          <p style="font-size:12px; color:#94a3b8; margin-bottom:10px;">Paste your raw <b>Army Roster text</b> or JSON (from NewRecruit, BattleScribe, 40k App, or BCP) to automatically enrich with Wahapedia stats and attach to this match.</p>
+          <textarea id="gt-import-raw-input" rows="7" placeholder="Paste your army roster text here... e.g.
+
+Space Marines - Gladius Task Force (2000 pts)
+1x Captain in Gravis Armour (80 pts): Warlord, Enhancement: The Artificer Armour (+10 pts)
+10x Intercessor Squad (160 pts)
+5x Terminator Squad (175 pts)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:12px; outline:none; box-sizing:border-box; line-height:1.5; resize:vertical;"></textarea>
           <div style="margin-top:10px; display:flex; justify-content:flex-end;">
-            <button onclick="window.gtImportAndAttach()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer;">
-              ⚡ Import & Attach to Match
+            <button onclick="window.gtImportAndAttach()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              ⚡ Import, Enrich & Attach
             </button>
           </div>
         </div>

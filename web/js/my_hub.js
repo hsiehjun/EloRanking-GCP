@@ -995,49 +995,42 @@ function openImportArmyListModal() {
   }
 
   modal.innerHTML = `
-    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:520px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:600px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
       <!-- Header -->
-      <div style="padding:14px 18px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:18px;">📋</span>
-          <h3 style="font-size:15px; font-weight:800; color:#fff; margin:0;">Import Army Roster</h3>
-        </div>
-        <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
-      </div>
-
-      <!-- Navigation Tabs -->
-      <div style="display:flex; border-bottom:1px solid rgba(255,255,255,0.08); background:rgba(0,0,0,0.25);">
-        <button id="import-tab-file" onclick="switchImportTab('file')" style="flex:1; padding:12px 8px; font-size:13px; font-weight:800; background:rgba(56,189,248,0.12); color:#38bdf8; border:none; border-bottom:2px solid #38bdf8; cursor:pointer;">
-          📁 Upload File (.json, .rosz, .ros)
-        </button>
-        <button id="import-tab-text" onclick="switchImportTab('text')" style="flex:1; padding:12px 8px; font-size:13px; font-weight:700; background:transparent; color:#94a3b8; border:none; border-bottom:2px solid transparent; cursor:pointer;">
-          ✏️ Paste Text / JSON
-        </button>
-      </div>
-
-      <!-- Tab 1: Upload File -->
-      <div id="import-view-file" style="padding:18px;">
-        <div id="hub-drop-zone" onclick="document.getElementById('hub-file-input').click()" style="border:2px dashed rgba(56,189,248,0.4); border-radius:12px; padding:32px 16px; text-align:center; background:#070b14; cursor:pointer; transition:all 0.2s;" ondragover="event.preventDefault(); this.style.borderColor='#38bdf8'; this.style.background='rgba(56,189,248,0.05)'" ondragleave="this.style.borderColor='rgba(56,189,248,0.4)'; this.style.background='#070b14'" ondrop="event.preventDefault(); this.style.borderColor='rgba(56,189,248,0.4)'; this.style.background='#070b14'; handleHubFileDrop(event)">
-          <input type="file" id="hub-file-input" accept=".json,.ros,.rosz,.txt,.xml" style="display:none;" onchange="handleHubFileUpload(this.files[0])" />
-          <div style="font-size:36px; margin-bottom:10px;">📁</div>
-          <div style="font-size:15px; font-weight:800; color:#fff;">Click or Drag & Drop Roster File</div>
-          <div style="font-size:12px; color:#94a3b8; margin-top:6px; line-height:1.4;">
-            Supports <b>NewRecruit (.json)</b>, <b>BattleScribe (.rosz, .ros)</b>, & <b>Text (.txt)</b>
-          </div>
-          <div style="margin-top:12px; display:inline-block; background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; padding:4px 10px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">
-            ⚡ 1-Click Complete Datasheets & Weapons
+      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:22px;">📋</span>
+          <div>
+            <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army Roster</h3>
+            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Paste text from NewRecruit, BattleScribe, 40k App, or BCP</div>
           </div>
         </div>
-        <div id="hub-file-status" style="margin-top:12px; font-size:12px; color:#38bdf8; text-align:center; display:none;"></div>
+        <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
       </div>
 
-      <!-- Tab 2: Paste Text -->
-      <div id="import-view-text" style="padding:18px; display:none;">
-        <label style="display:block; font-size:12px; font-weight:700; color:#94a3b8; margin-bottom:8px;">Paste Army List Text or JSON Export</label>
-        <textarea id="hub-import-text-input" rows="8" placeholder="Paste full roster export JSON or text from NewRecruit / BattleScribe..." style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; font-family:monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical;"></textarea>
-        <div style="margin-top:16px; display:flex; justify-content:flex-end; gap:8px;">
-          <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:8px 14px; border-radius:6px; cursor:pointer;">Cancel</button>
-          <button id="hub-btn-do-import-text" onclick="handleHubParseAndSaveText()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:8px 18px; border-radius:6px; cursor:pointer;">⚡ Import Text</button>
+      <!-- Paste Text Content -->
+      <div style="padding:20px;">
+        <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">
+          Paste Army List Text:
+        </label>
+        <textarea id="hub-import-text-input" rows="11" placeholder="Paste your army roster text here... e.g.
+
+Space Marines - Gladius Task Force (2000 pts)
+1x Captain in Gravis Armour (80 pts): Warlord, Enhancement: The Artificer Armour (+10 pts)
+10x Intercessor Squad (160 pts)
+5x Terminator Squad (175 pts)
+1x Redemptor Dreadnought (210 pts)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:10px; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical; line-height:1.5;"></textarea>
+
+        <div style="margin-top:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:11px; color:#94a3b8;">
+            ✨ Automatically enriches with <b>11th Edition Wahapedia</b> datasheets & stratagems.
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:9px 16px; border-radius:8px; cursor:pointer;">Cancel</button>
+            <button id="hub-btn-do-import-text" onclick="handleHubParseAndSaveText()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:9px 20px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              ⚡ Import & Enrich Roster
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1045,99 +1038,16 @@ function openImportArmyListModal() {
   modal.style.display = 'flex';
 }
 
-function switchImportTab(tab) {
-  const tabs = ['file', 'text'];
-  tabs.forEach(t => {
-    const btn = document.getElementById(`import-tab-${t}`);
-    const view = document.getElementById(`import-view-${t}`);
-    if (btn && view) {
-      if (t === tab) {
-        btn.style.background = 'rgba(56,189,248,0.12)';
-        btn.style.color = '#38bdf8';
-        btn.style.borderBottom = '2px solid #38bdf8';
-        view.style.display = 'block';
-      } else {
-        btn.style.background = 'transparent';
-        btn.style.color = '#94a3b8';
-        btn.style.borderBottom = '2px solid transparent';
-        view.style.display = 'none';
-      }
-    }
-  });
-}
-
-function handleHubFileDrop(event) {
-  if (event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0]) {
-    handleHubFileUpload(event.dataTransfer.files[0]);
-  }
-}
-
-async function handleHubFileUpload(file) {
-  if (!file) return;
-  const statusEl = document.getElementById('hub-file-status');
-  if (statusEl) {
-    statusEl.style.display = 'block';
-    statusEl.innerHTML = `<div class="spinner" style="display:inline-block; vertical-align:middle; width:14px; height:14px; margin-right:6px;"></div> Uploading & parsing <b>${escapeHtml(file.name)}</b>...`;
-  }
-
-  try {
-    const parseRes = await window.api.uploadArmyListFile(file);
-    if (parseRes.error || !parseRes.army_list) throw new Error(parseRes.error || 'Failed to parse roster file');
-
-    const armyList = parseRes.army_list;
-    const saveRes = await window.api.saveArmyList(armyList);
-    if (saveRes.error) throw new Error(saveRes.error);
-
-    closeImportArmyListModal();
-    alert(`🎉 Successfully imported "${armyList.name}" (${armyList.points} pts, ${armyList.units?.length || 0} units)!`);
-    await loadHubArmyLists();
-  } catch(e) {
-    if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;">Error: ${escapeHtml(e.message)}</span>`;
-    alert('Error uploading roster file: ' + e.message);
-  }
-}
-
-async function handleHubParseAndSaveLink() {
-  const input = document.getElementById('hub-import-link-input');
-  const btn = document.getElementById('hub-btn-do-import-link');
-  if (!input || !input.value.trim()) {
-    alert('Please paste your NewRecruit share link.');
-    return;
-  }
-
-  btn.disabled = true;
-  btn.textContent = 'Importing...';
-
-  try {
-    const raw = input.value.trim();
-    const parseRes = await window.api.parseArmyList(raw);
-    if (parseRes.error || !parseRes.army_list) throw new Error(parseRes.error || 'Failed to parse link');
-
-    const armyList = parseRes.army_list;
-    const saveRes = await window.api.saveArmyList(armyList);
-    if (saveRes.error) throw new Error(saveRes.error);
-
-    closeImportArmyListModal();
-    alert(`🎉 Successfully saved "${armyList.name}" (${armyList.points} pts)!`);
-    await loadHubArmyLists();
-  } catch(e) {
-    alert('Error importing link: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '⚡ Import Link';
-  }
-}
-
 async function handleHubParseAndSaveText() {
   const input = document.getElementById('hub-import-text-input');
   const btn = document.getElementById('hub-btn-do-import-text');
   if (!input || !input.value.trim()) {
-    alert('Please paste your army roster text or JSON.');
+    alert('Please paste your army roster text.');
     return;
   }
 
   btn.disabled = true;
-  btn.textContent = 'Importing...';
+  btn.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; margin-right:6px; vertical-align:middle;"></span> Enriching with Wahapedia...';
 
   try {
     const raw = input.value.trim();
@@ -1149,13 +1059,14 @@ async function handleHubParseAndSaveText() {
     if (saveRes.error) throw new Error(saveRes.error);
 
     closeImportArmyListModal();
-    alert(`🎉 Successfully saved "${armyList.name}" (${armyList.points} pts)!`);
+    alert(`🎉 Successfully imported and enriched "${armyList.name}" (${armyList.points} pts, ${armyList.units?.length || 0} units)!`);
     await loadHubArmyLists();
+    openViewArmyListModal(armyList.id);
   } catch(e) {
     alert('Error importing roster: ' + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = '⚡ Import Text';
+    btn.textContent = '⚡ Import & Enrich Roster';
   }
 }
 
@@ -1164,7 +1075,75 @@ function closeImportArmyListModal() {
   if (modal) modal.style.display = 'none';
 }
 
+function generateRawRosterText(list) {
+  if (list.raw_text && list.raw_text.trim().length > 10) {
+    return list.raw_text.trim();
+  }
+  let out = `${list.faction || 'Warhammer 40,000'} - ${list.detachment || 'Core Detachment'} (${list.points || 2000} pts)\n\n`;
+  const units = list.units || [];
+  const groups = {};
+  for (const u of units) {
+    const role = (u.role || 'Other Datasheets').toUpperCase();
+    if (!groups[role]) groups[role] = [];
+    groups[role].push(u);
+  }
+  for (const [role, uList] of Object.entries(groups)) {
+    out += `+ ${role} +\n`;
+    for (const u of uList) {
+      const cnt = u.model_count && u.model_count > 1 ? `${u.model_count}x ` : '';
+      out += `${cnt}${u.name} [${u.points || 0} pts]`;
+      const tags = [];
+      if (u.is_warlord) tags.push('Warlord');
+      if (u.enhancement) tags.push(`Enhancement: ${u.enhancement}`);
+      if (tags.length > 0) out += `: ${tags.join(', ')}`;
+      out += '\n';
+      if (u.wargear && u.wargear.length > 0) {
+        out += `  • Wargear: ${u.wargear.join(', ')}\n`;
+      }
+    }
+    out += '\n';
+  }
+  return out.trim();
+}
+
+window.generateRawRosterText = generateRawRosterText;
+
+window.copyHubRawText = function(listId) {
+  const list = (hubSavedLists || []).find(l => l.id === listId);
+  if (!list) return;
+  const rawText = generateRawRosterText(list);
+  navigator.clipboard.writeText(rawText).then(() => {
+    alert('📋 Raw roster text copied to clipboard!');
+  }).catch(() => {
+    prompt('Copy your roster text below:', rawText);
+  });
+};
+
+window.setHubRosterViewMode = function(mode, listId) {
+  window.hubCurrentViewMode = mode;
+  openViewArmyListModal(listId, mode);
+};
+
 function renderNativeRosterViewer(list, options = {}) {
+  const viewMode = options.mode || window.hubCurrentViewMode || 'enriched';
+
+  if (viewMode === 'text') {
+    const rawText = generateRawRosterText(list);
+    return `
+      <div style="display:flex; flex-direction:column; padding:20px; flex:1; overflow:hidden; background:#070b14;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+          <div style="font-size:13px; font-weight:800; color:#38bdf8; display:flex; align-items:center; gap:6px;">
+            <span>📄</span> Raw Roster Text (Monospaced / Copy-Friendly)
+          </div>
+          <button onclick="copyHubRawText('${list.id}')" style="background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:800; font-size:12px; padding:7px 16px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            📋 Copy Raw Text
+          </button>
+        </div>
+        <pre id="hub-raw-roster-content" style="flex:1; margin:0; background:#030712; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:18px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; line-height:1.6; white-space:pre-wrap; overflow-y:auto; word-break:break-word;">${escapeHtml(rawText)}</pre>
+      </div>
+    `;
+  }
+
   let units = list.units || [];
   let armyRules = list.army_rules || [];
   let detachmentRules = list.detachment_rules || [];
@@ -1515,8 +1494,8 @@ window.gtToggleSlain = function(unitIdx, forceSlain = null) {
   }
 };
 
-async function openViewArmyListModal(listId) {
-  let list = hubSavedLists.find(l => l.id === listId);
+async function openViewArmyListModal(listId, mode = null) {
+  let list = (hubSavedLists || []).find(l => l.id === listId);
   if (!list || !list.units || list.units.length === 0) {
     try {
       const res = await window.api.getArmyList(listId);
@@ -1527,6 +1506,9 @@ async function openViewArmyListModal(listId) {
     alert('List not found');
     return;
   }
+
+  const activeMode = mode || window.hubCurrentViewMode || 'enriched';
+  window.hubCurrentViewMode = activeMode;
 
   // Auto-heal if list is missing units and has a source_url or raw_text
   if ((!list.units || list.units.length === 0) && (list.source_url || list.raw_text)) {
@@ -1553,19 +1535,30 @@ async function openViewArmyListModal(listId) {
 
   const units = list.units || [];
   const warlord = list.warlord || '';
-  const bodyHtml = renderNativeRosterViewer(list);
+  const bodyHtml = renderNativeRosterViewer(list, { mode: activeMode });
 
   modal.innerHTML = `
     <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
       <!-- Header -->
-      <div style="padding:14px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <div style="padding:12px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
         <div>
-          <div style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono);">${escapeHtml(list.name || 'Army Roster')}</div>
+          <div style="font-size:17px; font-weight:900; color:#fff; font-family:var(--font-mono);">${escapeHtml(list.name || 'Army Roster')}</div>
           <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">
             ${escapeHtml(list.faction || '40k')} • <span style="color:#a855f7;">${escapeHtml(list.detachment || 'Core Detachment')}</span> • <span style="color:#f59e0b;">${list.points || 2000} PTS</span>
             ${warlord ? ` • <span style="color:#facc15;">👑 ${escapeHtml(warlord)}</span>` : ''}
           </div>
         </div>
+
+        <!-- Mode Toggle Segmented Control -->
+        <div style="display:flex; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.1); border-radius:8px; padding:3px; gap:4px;">
+          <button onclick="setHubRosterViewMode('enriched', '${list.id}')" style="background:${activeMode==='enriched'?'#0284c7':'transparent'}; color:${activeMode==='enriched'?'#fff':'#94a3b8'}; border:none; padding:5px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:5px;">
+            ⚡ Enriched Datasheets
+          </button>
+          <button onclick="setHubRosterViewMode('text', '${list.id}')" style="background:${activeMode==='text'?'#0284c7':'transparent'}; color:${activeMode==='text'?'#fff':'#94a3b8'}; border:none; padding:5px 12px; border-radius:6px; font-weight:800; font-size:11px; cursor:pointer; display:flex; align-items:center; gap:5px;">
+            📄 Raw Roster Text
+          </button>
+        </div>
+
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
           <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:6px 14px; border-radius:6px; cursor:pointer;">
             ⚔️ Play in Tracker

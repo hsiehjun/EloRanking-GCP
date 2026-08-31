@@ -3294,7 +3294,7 @@ class PostgresDatabase:
                     WHERE (LOWER(detachment) = LOWER(%s) OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
                       AND name IS NOT NULL AND TRIM(name) != ''
                       AND cp_cost IS NOT NULL AND TRIM(cp_cost) != ''
-                    ORDER BY CASE WHEN LOWER(detachment) LIKE '%core%' THEN 2 ELSE 1 END, name ASC;
+                    ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
                 """, (det_clean,))
                 return [dict(r) for r in cursor.fetchall()]
 
