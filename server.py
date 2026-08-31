@@ -25,13 +25,16 @@ except ImportError:
 
 
 try:
-    from fastapi import FastAPI, HTTPException, Query, Request, Response
+    from fastapi import FastAPI, HTTPException, Query, Request, Response, BackgroundTasks
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, HTMLResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     import uvicorn
     FASTAPI_AVAILABLE = True
 except ImportError:
+    class BackgroundTasks:
+        def add_task(self, *args, **kwargs):
+            pass
     FASTAPI_AVAILABLE = False
 
 try:
