@@ -282,7 +282,7 @@ class PostgresDatabase:
             logger.info(f"init_db notice (schema already created or active DDL lock): {e}")
 
         # Run independent column migrations
-        for migration in [
+        migrations_list = [
             "ALTER TABLE players ADD COLUMN IF NOT EXISTS team TEXT;",
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
@@ -388,14 +388,18 @@ class PostgresDatabase:
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_strat_det ON wahapedia_stratagems(detachment);",
             "CREATE INDEX IF NOT EXISTS idx_waha_strat_fac ON wahapedia_stratagems(faction_id);"
-        ]:
-            try:
-                with self.get_connection() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute(migration)
-                    conn.commit()
-            except Exception as e:
-                logger.debug(f"Migration notice: {e}")
+        ]
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    for migration in migrations_list:
+                        try:
+                            cursor.execute(migration)
+                        except Exception as e:
+                            logger.debug(f"Migration notice: {e}")
+                conn.commit()
+        except Exception as err:
+            logger.debug(f"init_db migrations notice: {err}")
 
     def ensure_tracker_table(self):
         """Guarantees that tracker_games table and all required columns exist."""
@@ -455,14 +459,17 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_evt ON tracker_games(event_id, round_num, table_num);"
         ]
-        for s in stmts:
-            try:
-                with self.get_connection() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute(s)
-                    conn.commit()
-            except Exception as e:
-                logger.debug(f"Tracker ensure table notice: {e}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    for s in stmts:
+                        try:
+                            cursor.execute(s)
+                        except Exception as e:
+                            logger.debug(f"Tracker ensure table notice: {e}")
+                conn.commit()
+        except Exception as err:
+            logger.debug(f"ensure_tracker_table batch notice: {err}")
 
     def upsert_event(self, event_data: Dict[str, Any]):
         """Inserts or updates an event record in PostgreSQL."""

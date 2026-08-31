@@ -9,12 +9,12 @@ port = os.environ.get("PORT", "8080")
 bind = os.environ.get("GUNICORN_BIND", f"0.0.0.0:{port}")
 backlog = 2048
 
-# Worker Processes: (2 * cores) + 1 capped for memory efficiency
+# Worker Processes: 1-2 async Uvicorn workers for Cloud Run memory efficiency
 cores = multiprocessing.cpu_count()
-workers = int(os.environ.get("GUNICORN_WORKERS", min(max(2 * cores + 1, 4), 8)))
+workers = int(os.environ.get("GUNICORN_WORKERS", min(max(cores, 1), 2)))
 worker_class = "uvicorn.workers.UvicornWorker"
 worker_connections = 1000
-timeout = 60
+timeout = 120
 keepalive = 5
 
 # Process Naming & Lifecycle
