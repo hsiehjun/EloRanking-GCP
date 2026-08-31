@@ -1430,10 +1430,6 @@ window.gtRefreshRoster = async function(listId) {
   }
 };
 
-  contentHtml += `</div>`;
-  return contentHtml;
-}
-
 window.gtAdjustWounds = function(unitIdx, delta) {
   const el = document.getElementById(`wound-val-${unitIdx}`);
   if (!el) return;
