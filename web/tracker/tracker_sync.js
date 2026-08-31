@@ -1301,10 +1301,10 @@
     window.__broadcastHistoryUpdate = function() {};
   }
 
-  // Soft Delete: Hide tracker game for current user (Instant Optimistic UI)
+  // Instant (0ms) Optimistic Discard & Deletion for Active/Unfinished Match Session
   window.__gdmHideTrackerGame = async function(matchId, cardEl) {
     if (!matchId) return;
-    if (!confirm(`Hide match #${matchId} from your personal history?\n\n(Note: This will only hide it from your view. The match remains safely preserved in the database for the other player.)`)) {
+    if (!confirm(`Discard & delete match #${matchId.replace('WH40K-', '')}?\n\n(This will remove it from your active sessions with zero Elo penalty.)`)) {
       return;
     }
 
@@ -1316,37 +1316,52 @@
       originalSetItem('gt-hidden-matches', JSON.stringify(locallyHidden));
     }
 
-    // 2. Instant Optimistic UI Update (0ms)
+    // 2. Instant 0ms Optimistic UI Update across all 3 tiers
+    if (window.gtPrimaryActive && (window.gtPrimaryActive.match_id === matchId || window.gtPrimaryActive.id === matchId)) {
+      window.gtPrimaryActive = null;
+      if (window.gtUnfinishedSessions && window.gtUnfinishedSessions.length > 0) {
+        window.gtPrimaryActive = window.gtUnfinishedSessions.shift();
+      }
+    }
+    window.gtUnfinishedSessions = (window.gtUnfinishedSessions || []).filter(item => (item.match_id || item.id) !== matchId);
+    window.gtCompletedHistory = (window.gtCompletedHistory || []).filter(item => (item.match_id || item.id) !== matchId);
     dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
     originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
 
+    // Instant DOM re-render with smooth animation (0ms perceived latency)
     if (cardEl) {
-      cardEl.style.transition = 'opacity 0.2s, transform 0.2s';
+      cardEl.style.transition = 'opacity 0.15s, transform 0.15s';
       cardEl.style.opacity = '0';
-      cardEl.style.transform = 'translateX(20px)';
+      cardEl.style.transform = 'scale(0.95)';
       setTimeout(() => {
         renderHistoryList(dbHistoryCache);
-      }, 210);
+      }, 150);
     } else {
       renderHistoryList(dbHistoryCache);
     }
 
     window.__broadcastHistoryUpdate();
 
-    // 3. Persist to PostgreSQL backend
+    // 3. Instant direct Firestore delete if Firebase client SDK is active
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(matchId).delete();
+      } catch(e) {}
+    }
+
+    // 4. Server-side deletion in background
     try {
       const token = getAuthToken();
-      await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/hide`, {
+      fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': token ? `Bearer ${token}` : ''
         },
         body: JSON.stringify({ token: token, match_id: matchId })
-      });
-    } catch (err) {
-      console.error('[GDM Sync] Error hiding game:', err);
-    }
+      }).catch(() => {});
+    } catch (err) {}
   };
 
   // Comprehensive 40k Factions Directory for bulletproof DOM recognition

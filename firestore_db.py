@@ -111,11 +111,23 @@ class FirestoreRoomEngine:
         return True
 
     def discard_room(self, match_id: str) -> bool:
-        """Marks a match room as abandoned in Firestore."""
-        return self.update_room(match_id, {
-            "status": "abandoned",
-            "is_abandoned": True
-        })
+        """Deletes / discards a match room from Firestore."""
+        match_id = match_id.strip().upper()
+        if self._client:
+            try:
+                ref = self.get_room_doc_ref(match_id)
+                if ref:
+                    ref.delete()
+                    logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{match_id}")
+            except Exception as e:
+                logger.error(f"Error discarding Firestore room {match_id}: {e}")
+
+        if match_id in self._fallback_rooms:
+            try:
+                del self._fallback_rooms[match_id]
+            except KeyError:
+                pass
+        return True
 
     def finalize_room(self, match_id: str) -> bool:
         """Marks a match room as completed in Firestore."""

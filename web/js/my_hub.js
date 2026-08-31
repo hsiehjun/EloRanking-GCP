@@ -1721,22 +1721,42 @@ async function discardTrackerSession(matchId) {
   if (!matchId) return;
   if (!confirm('Are you sure you want to discard this unfinished session? (Will not count towards your Elo or battle record)')) return;
 
+  // 1. Instant 0ms Optimistic UI update on Hub
+  const cards = document.querySelectorAll(`[onclick*="${matchId}"]`);
+  cards.forEach(c => {
+    const parentRow = c.closest('div, tr');
+    if (parentRow) {
+      parentRow.style.transition = 'opacity 0.15s, transform 0.15s';
+      parentRow.style.opacity = '0';
+      parentRow.style.transform = 'scale(0.95)';
+      setTimeout(() => parentRow.remove(), 150);
+    }
+  });
+
+  // 2. Direct Firestore SDK deletion if loaded
+  if (typeof firebase !== 'undefined' && firebase.firestore) {
+    try {
+      const db = firebase.firestore();
+      db.collection('rooms').doc(matchId).delete();
+    } catch(e) {}
+  }
+
+  // 3. Background server-side discard
   try {
-    const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
+    const token = window.api ? window.api.getAuthToken() : null;
+    await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${window.api.getAuthToken()}`
+        'Authorization': token ? `Bearer ${token}` : ''
       },
-      body: JSON.stringify({ token: window.api.getAuthToken() })
+      body: JSON.stringify({ token: token, match_id: matchId })
     });
-    if (resp.ok) {
-      if (typeof loadHubDashboard === 'function') {
-        loadHubDashboard();
-      }
+    if (typeof loadHubDashboard === 'function') {
+      loadHubDashboard();
     }
   } catch(e) {
-    alert('Notice discarding match: ' + e.message);
+    console.warn('Notice discarding match:', e);
   }
 }
 
