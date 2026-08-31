@@ -2015,7 +2015,7 @@ if FASTAPI_AVAILABLE:
         needs_roster_sync = (
             force_sync or 
             not has_data or 
-            (event_details and any(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
+            (event_details and all(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
         )
 
         if needs_roster_sync:
