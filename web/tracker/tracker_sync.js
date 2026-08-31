@@ -81,7 +81,13 @@
     isApplyingRemote: false,
     eventSource: null,
     debounceTimer: null,
-    p2Connected: false
+    p2Connected: false,
+    p1ArmyList: null,
+    p2ArmyList: null,
+    activeListTab: 'opponent',
+    activeListFilter: 'all',
+    listSearchQuery: '',
+    wounds: {}
   };
 
   let dbHistoryCache = [];
@@ -1506,6 +1512,17 @@
           } else if (msg.type === 'presence') {
             clientState.onlineCount = msg.count || 1;
             injectMultiplayerHUD();
+          } else if (msg.type === 'army_list_updated') {
+            if (msg.role === 'player1') {
+              clientState.p1ArmyList = msg.army_list;
+            } else if (msg.role === 'player2') {
+              clientState.p2ArmyList = msg.army_list;
+            }
+            injectMultiplayerHUD();
+            const modal = document.getElementById('gt-army-list-modal');
+            if (modal && modal.style.display !== 'none') {
+              renderArmyListModal();
+            }
           }
         } catch (e) {}
       };
@@ -1550,7 +1567,7 @@
     }, true);
   }
 
-  // 8. Floating Multiplayer Status HUD with Connected Player Names
+  // 8. Floating Multiplayer Status HUD with Connected Player Names & Army Lists
   function injectMultiplayerHUD() {
     let hud = document.getElementById('gt-sync-hud');
     if (!hud) {
@@ -1580,11 +1597,15 @@
       p2Display = `${p2Raw} (You)`;
     }
 
+    const isP1 = clientState.role === 'player1';
+    const hasMyList = isP1 ? !!clientState.p1ArmyList : !!clientState.p2ArmyList;
+    const hasOppList = isP1 ? !!clientState.p2ArmyList : !!clientState.p1ArmyList;
+
     const statusDotColor = isP2Ready ? '#10b981' : '#f59e0b';
     const statusDotPulse = isP2Ready ? '' : 'animation:pulse 1.5s infinite;';
 
     hud.innerHTML = `
-      <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.65); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px);">
+      <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.65); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px); flex-wrap:wrap;">
         <span style="display:flex; align-items:center; gap:5px; font-weight:800; font-family:'JetBrains Mono',monospace;">
           <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}"></span>
           <span style="color:#38bdf8;">${p1Display}</span>
@@ -1592,13 +1613,441 @@
           <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
         </span>
         <b style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10px; background:#070b14; padding:2px 6px; border-radius:4px; border:1px solid #334155;">#${clientState.matchId}</b>
-        <span id="gt-hud-online" style="color:#94a3b8; font-size:10px;">${clientState.onlineCount || 1} online</span>
+        
+        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Opponent's Army List & Wahapedia Stats">
+          📜 Opponent List ${hasOppList ? '🟢' : ''}
+        </button>
+
+        <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View or Attach Your Army List">
+          📋 My List ${hasMyList ? '🟢' : ''}
+        </button>
+
         <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">
           🔗 Share
         </button>
       </div>
     `;
   }
+
+  // 9. Interactive Army List Inspector Modal & Wahapedia Rules Viewer
+  async function loadRoomArmyLists() {
+    if (!clientState.matchId) return;
+    try {
+      const resp = await fetch(`/api/tracker/room/${clientState.matchId}/armylists`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.p1_army_list) clientState.p1ArmyList = data.p1_army_list;
+        if (data.p2_army_list) clientState.p2ArmyList = data.p2_army_list;
+        injectMultiplayerHUD();
+      }
+    } catch(e) {}
+  }
+
+  window.gtOpenArmyListModal = function(tab = 'opponent') {
+    clientState.activeListTab = tab;
+    let modal = document.getElementById('gt-army-list-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'gt-army-list-modal';
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    renderArmyListModal();
+  };
+
+  window.gtCloseArmyListModal = function() {
+    const modal = document.getElementById('gt-army-list-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  window.gtSetListTab = function(tab) {
+    clientState.activeListTab = tab;
+    renderArmyListModal();
+  };
+
+  window.gtSetListFilter = function(filter) {
+    clientState.activeListFilter = filter;
+    renderArmyListModal();
+  };
+
+  window.gtSearchArmyList = function(query) {
+    clientState.listSearchQuery = (query || '').toLowerCase().trim();
+    renderArmyListModal();
+  };
+
+  window.gtAdjustWound = function(unitId, modelIdx, delta, maxW) {
+    const key = `${clientState.matchId}_${unitId}_${modelIdx}`;
+    let current = clientState.wounds[key];
+    if (current === undefined) current = maxW;
+    current = Math.max(0, Math.min(maxW, current + delta));
+    clientState.wounds[key] = current;
+    renderArmyListModal();
+  };
+
+  window.gtAttachList = async function(listData) {
+    try {
+      const role = clientState.role === 'player2' ? 'player2' : 'player1';
+      const resp = await fetch(`/api/tracker/room/${clientState.matchId}/armylist`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+        body: JSON.stringify({ role: role, army_list: listData })
+      });
+      if (resp.ok) {
+        if (role === 'player1') clientState.p1ArmyList = listData;
+        else clientState.p2ArmyList = listData;
+        clientState.activeListTab = 'my';
+        injectMultiplayerHUD();
+        renderArmyListModal();
+        alert('⚔️ Army List Attached to Match Room!');
+      }
+    } catch(e) {
+      alert('Error attaching army list: ' + e);
+    }
+  };
+
+  window.gtImportAndAttach = async function() {
+    const textarea = document.getElementById('gt-import-raw-input');
+    if (!textarea || !textarea.value.trim()) {
+      alert('Please paste your army list text or JSON.');
+      return;
+    }
+    const rawText = textarea.value.trim();
+    try {
+      const parseResp = await fetch('/api/armylists/parse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: rawText })
+      });
+      if (!parseResp.ok) throw new Error('Failed to parse roster');
+      const pData = await parseResp.json();
+      const armyList = pData.army_list;
+
+      // Save to user lists if logged in
+      try {
+        await fetch('/api/armylists', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+          body: JSON.stringify(armyList)
+        });
+      } catch(e) {}
+
+      // Attach to current match
+      await window.gtAttachList(armyList);
+    } catch(e) {
+      alert('Parse error: ' + e);
+    }
+  };
+
+  async function renderArmyListModal() {
+    const modal = document.getElementById('gt-army-list-modal');
+    if (!modal) return;
+
+    const isP1 = clientState.role === 'player1';
+    const myList = isP1 ? clientState.p1ArmyList : clientState.p2ArmyList;
+    const oppList = isP1 ? clientState.p2ArmyList : clientState.p1ArmyList;
+
+    let activeList = null;
+    if (clientState.activeListTab === 'opponent') activeList = oppList;
+    else if (clientState.activeListTab === 'my') activeList = myList;
+
+    const tab = clientState.activeListTab;
+
+    let contentHtml = '';
+
+    if (tab === 'attach') {
+      // Attach / Import View
+      contentHtml = `
+        <div style="margin-bottom: 20px;">
+          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import New Army List</h3>
+          <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Paste text from <b>Warhammer 40k App</b>, <b>NewRecruit</b>, <b>Battlescribe</b>, or <b>BCP</b>. Wahapedia rules, stats, and weapons will be automatically enriched.</p>
+          <textarea id="gt-import-raw-input" placeholder="Paste export text here..." style="width:100%; height:130px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:11px; outline:none; resize:vertical;"></textarea>
+          <div style="margin-top:10px; display:flex; justify-content:flex-end;">
+            <button onclick="window.gtImportAndAttach()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer;">
+              ⚡ Parse & Attach to Match
+            </button>
+          </div>
+        </div>
+
+        <div id="gt-saved-lists-container">
+          <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin-bottom:10px;">📋 Pick from Your Saved Lists</h3>
+          <div id="gt-saved-lists-grid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+            <div style="color:#94a3b8; font-size:12px; font-style:italic;">Loading saved lists...</div>
+          </div>
+        </div>
+      `;
+
+      // Async fetch saved lists
+      setTimeout(async () => {
+        const grid = document.getElementById('gt-saved-lists-grid');
+        if (!grid) return;
+        try {
+          const resp = await fetch('/api/armylists', {
+            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const lists = data.army_lists || [];
+            if (lists.length === 0) {
+              grid.innerHTML = `<div style="color:#64748b; font-size:12px; grid-column:1/-1;">No saved lists found. Use the importer above or create one in My Hub.</div>`;
+            } else {
+              grid.innerHTML = lists.map(l => `
+                <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; gap:10px;">
+                  <div>
+                    <div style="font-weight:800; font-size:14px; color:#f8fafc;">${l.name || 'Unnamed List'}</div>
+                    <div style="font-size:12px; color:#38bdf8; font-weight:700;">${l.faction || '40k'} • ${l.detachment || 'Core'}</div>
+                    <div style="font-size:11px; color:#94a3b8; margin-top:4px;">${l.points || 2000} pts • ${(l.units || []).length} units • Warlord: ${l.warlord || 'None'}</div>
+                  </div>
+                  <button onclick='window.gtAttachList(${JSON.stringify(l).replace(/'/g, "&apos;")})' style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:8px 12px; border-radius:6px; cursor:pointer;">
+                    ⚔️ Attach This List
+                  </button>
+                </div>
+              `).join('');
+            }
+          }
+        } catch(e) {}
+      }, 50);
+
+    } else if (!activeList || !activeList.units || activeList.units.length === 0) {
+      // Empty state for Opponent or My List
+      const isOpp = tab === 'opponent';
+      contentHtml = `
+        <div style="text-align:center; padding:50px 20px;">
+          <div style="font-size:42px; margin-bottom:12px;">${isOpp ? '📜' : '📋'}</div>
+          <h3 style="font-size:18px; font-weight:800; color:#f8fafc; margin-bottom:6px;">${isOpp ? "Opponent hasn't attached a list yet" : "You haven't attached an army list to this match"}</h3>
+          <p style="font-size:13px; color:#94a3b8; max-width:460px; margin:0 auto 20px;">
+            ${isOpp ? "When your opponent attaches their list, their full Wahapedia stats, weapons, and rules will appear here in real time." : "Attach an army list to view unit statlines, weapon profiles, and track wounds during play."}
+          </p>
+          ${!isOpp ? `
+            <button onclick="window.gtSetListTab('attach')" style="background:#0284c7; color:#fff; font-weight:800; font-size:13px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
+              ➕ Attach / Import My Army List
+            </button>
+          ` : ''}
+        </div>
+      `;
+    } else {
+      // Active List Viewer
+      const filter = clientState.activeListFilter || 'all';
+      const search = clientState.listSearchQuery || '';
+
+      let filteredUnits = activeList.units || [];
+      if (filter !== 'all') {
+        filteredUnits = filteredUnits.filter(u => {
+          const r = (u.role || '').toLowerCase();
+          const k = (u.keywords || []).map(x => x.toLowerCase());
+          if (filter === 'character') return r.includes('char') || k.includes('character');
+          if (filter === 'battleline') return r.includes('battleline') || k.includes('battleline');
+          if (filter === 'infantry') return r.includes('infantry') || k.includes('infantry');
+          if (filter === 'monster_vehicle') return r.includes('monster') || r.includes('vehicle') || k.includes('monster') || k.includes('vehicle');
+          if (filter === 'transport') return r.includes('transport') || k.includes('transport');
+          return true;
+        });
+      }
+
+      if (search) {
+        filteredUnits = filteredUnits.filter(u => {
+          const matchName = u.name.toLowerCase().includes(search);
+          const matchWep = (u.weapons || []).some(w => w.name.toLowerCase().includes(search));
+          const matchKw = (u.keywords || []).some(k => k.toLowerCase().includes(search));
+          return matchName || matchWep || matchKw;
+        });
+      }
+
+      const stratagems = activeList.stratagems || [];
+
+      contentHtml = `
+        <!-- Top Info Header -->
+        <div style="background:#0f172a; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:14px 18px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <div style="font-size:18px; font-weight:900; color:#f8fafc; font-family:'JetBrains Mono',monospace;">${activeList.name || 'Army Roster'}</div>
+            <div style="font-size:13px; color:#38bdf8; font-weight:700; margin-top:2px;">
+              ${activeList.faction || '40k'} • <span style="color:#a855f7;">${activeList.detachment || 'Core'}</span>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <span style="background:#070b14; border:1px solid #334155; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace;">
+              ${activeList.points || 2000} / ${activeList.points_limit || 2000} PTS
+            </span>
+            ${activeList.warlord ? `
+              <span style="background:rgba(234,179,8,0.15); border:1px solid #eab308; padding:4px 10px; border-radius:6px; font-size:11px; font-weight:800; color:#facc15;">
+                👑 ${activeList.warlord}
+              </span>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Filter Bar & Search -->
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:16px; flex-wrap:wrap;">
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            ${['all', 'character', 'battleline', 'infantry', 'monster_vehicle'].map(f => {
+              const label = f === 'all' ? 'All Units' : f === 'monster_vehicle' ? 'Monsters/Vehicles' : f.charAt(0).toUpperCase() + f.slice(1);
+              const isActive = filter === f;
+              return `<button onclick="window.gtSetListFilter('${f}')" class="gt-tab-btn ${isActive ? 'active' : ''}">${label}</button>`;
+            }).join('')}
+          </div>
+          <div style="flex:1; max-width:240px;">
+            <input type="text" placeholder="Search unit / weapon..." value="${search}" oninput="window.gtSearchArmyList(this.value)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:6px 12px; font-size:12px; color:#fff; outline:none;" />
+          </div>
+        </div>
+
+        <!-- Units Roster -->
+        <div>
+          ${filteredUnits.length === 0 ? `<div style="color:#64748b; font-size:13px; text-align:center; padding:30px;">No units match your filter.</div>` : filteredUnits.map((u, uIdx) => {
+            const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
+            const weps = u.weapons || [];
+            const abilities = u.abilities || [];
+            const keywords = u.keywords || [];
+            const maxWounds = stats.W || 1;
+            const modelCount = u.model_count || 1;
+
+            return `
+              <div class="gt-unit-card">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+                  <div>
+                    <span style="font-size:15px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace;">${u.name}</span>
+                    <span style="background:#1e293b; color:#94a3b8; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-left:6px; text-transform:uppercase;">${u.role || 'Infantry'}</span>
+                    ${u.is_warlord ? `<span style="background:rgba(234,179,8,0.2); color:#facc15; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">👑 WARLORD</span>` : ''}
+                    ${u.enhancement ? `<span style="background:rgba(168,85,247,0.2); color:#c084fc; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">✨ ${u.enhancement}</span>` : ''}
+                  </div>
+                  <div style="font-family:'JetBrains Mono',monospace; font-size:13px; font-weight:800; color:#f59e0b;">
+                    ${u.points || 0} PTS
+                  </div>
+                </div>
+
+                <!-- Statline Grid -->
+                <div class="gt-stat-grid">
+                  <div class="gt-stat-col"><span class="gt-stat-label">M</span><span class="gt-stat-val">${stats.M || '6"'}</span></div>
+                  <div class="gt-stat-col"><span class="gt-stat-label">T</span><span class="gt-stat-val">${stats.T || 4}</span></div>
+                  <div class="gt-stat-col"><span class="gt-stat-label">SV</span><span class="gt-stat-val">${stats.SV || '3+'}</span></div>
+                  <div class="gt-stat-col"><span class="gt-stat-label">INV</span><span class="gt-stat-val" style="color:#a855f7;">${stats.INV || '-'}</span></div>
+                  <div class="gt-stat-col"><span class="gt-stat-label">W</span><span class="gt-stat-val">${stats.W || 1}</span></div>
+                  <div class="gt-stat-col"><span class="gt-stat-label">LD</span><span class="gt-stat-val">${stats.LD || '6+'}</span></div>
+                  <div class="gt-stat-col"><span class="gt-stat-label">OC</span><span class="gt-stat-val">${stats.OC || 1}</span></div>
+                </div>
+
+                <!-- Weapons Table -->
+                ${weps.length > 0 ? `
+                  <table class="gt-wep-table">
+                    <thead>
+                      <tr>
+                        <th>WEAPON</th>
+                        <th>RANGE</th>
+                        <th>A</th>
+                        <th>BS/WS</th>
+                        <th>S</th>
+                        <th>AP</th>
+                        <th>D</th>
+                        <th>ABILITIES</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${weps.map(w => `
+                        <tr>
+                          <td style="font-weight:700; color:#f8fafc;">${w.name}</td>
+                          <td>${w.range || 'Melee'}</td>
+                          <td>${w.attacks || w.A || '1'}</td>
+                          <td>${w.bs_ws || w.BS_WS || '3+'}</td>
+                          <td>${w.strength || w.S || '4'}</td>
+                          <td>${w.ap || w.AP || '0'}</td>
+                          <td>${w.damage || w.D || '1'}</td>
+                          <td style="color:#38bdf8; font-size:10px;">${w.abilities || '-'}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                ` : ''}
+
+                <!-- Abilities -->
+                ${abilities.length > 0 ? `
+                  <div style="margin-top:10px; font-size:11px; color:#cbd5e1;">
+                    <b style="color:#94a3b8; text-transform:uppercase; font-size:10px;">Abilities: </b>
+                    ${abilities.map(a => `<span style="display:inline-block; margin-right:8px; margin-top:2px;"><b>${a.name}:</b> <span style="color:#94a3b8;">${a.description || ''}</span></span>`).join('')}
+                  </div>
+                ` : ''}
+
+                <!-- Keywords -->
+                ${keywords.length > 0 ? `
+                  <div style="margin-top:8px;">
+                    ${keywords.map(k => `<span class="gt-kw-tag">${k}</span>`).join('')}
+                  </div>
+                ` : ''}
+
+                <!-- Wound Tracker for Models in this Unit -->
+                <div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.05); display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Wound Track:</span>
+                  ${Array.from({ length: Math.min(modelCount, 10) }).map((_, mIdx) => {
+                    const wKey = `${clientState.matchId}_${u.id}_${mIdx}`;
+                    const curW = clientState.wounds[wKey] !== undefined ? clientState.wounds[wKey] : maxWounds;
+                    const isDead = curW === 0;
+                    return `
+                      <div style="display:inline-flex; align-items:center; gap:4px; background:#070b14; border:1px solid ${isDead ? '#ef4444' : '#334155'}; border-radius:6px; padding:2px 6px; font-size:11px;">
+                        <span style="color:#94a3b8; font-size:10px;">M${mIdx+1}:</span>
+                        <button onclick="window.gtAdjustWound('${u.id}', ${mIdx}, -1, ${maxWounds})" style="background:#1e293b; color:#fff; border:none; width:18px; height:18px; border-radius:3px; cursor:pointer; font-weight:800; font-size:11px;">-</button>
+                        <b style="color:${isDead ? '#ef4444' : '#10b981'}; font-family:'JetBrains Mono',monospace; min-width:14px; text-align:center;">${curW}</b>
+                        <button onclick="window.gtAdjustWound('${u.id}', ${mIdx}, 1, ${maxWounds})" style="background:#1e293b; color:#fff; border:none; width:18px; height:18px; border-radius:3px; cursor:pointer; font-weight:800; font-size:11px;">+</button>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Stratagems Section -->
+        ${stratagems.length > 0 ? `
+          <div style="margin-top:24px;">
+            <h3 style="font-size:16px; font-weight:800; color:#f8fafc; margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+              <span>⚡ Stratagems</span>
+              <span style="background:#1e293b; color:#94a3b8; font-size:11px; padding:2px 8px; border-radius:4px;">${stratagems.length}</span>
+            </h3>
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px;">
+              ${stratagems.map(s => `
+                <div class="gt-strat-card">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <span style="font-weight:800; font-size:13px; color:#f8fafc;">${s.name}</span>
+                    <span style="background:#0284c7; color:#fff; font-size:10px; font-weight:900; padding:2px 6px; border-radius:4px; font-family:'JetBrains Mono',monospace;">${s.cp || 1} CP</span>
+                  </div>
+                  <div style="font-size:10px; color:#a855f7; font-weight:700; text-transform:uppercase; margin-bottom:4px;">${s.phase || 'Any Phase'}</div>
+                  <div style="font-size:11px; color:#94a3b8; line-height:1.4;">${s.description}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      `;
+    }
+
+    modal.innerHTML = `
+      <div class="gt-modal-dialog">
+        <div class="gt-modal-header">
+          <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+            <button onclick="window.gtSetListTab('opponent')" class="gt-tab-btn ${tab === 'opponent' ? 'active' : ''}">
+              📜 Opponent's List ${oppList ? '🟢' : ''}
+            </button>
+            <button onclick="window.gtSetListTab('my')" class="gt-tab-btn ${tab === 'my' ? 'active' : ''}">
+              📋 My List ${myList ? '🟢' : ''}
+            </button>
+            <button onclick="window.gtSetListTab('attach')" class="gt-tab-btn ${tab === 'attach' ? 'active' : ''}">
+              ➕ Attach / Import
+            </button>
+          </div>
+          <button onclick="window.gtCloseArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px; line-height:1;">
+            ✕
+          </button>
+        </div>
+        <div class="gt-modal-body">
+          ${contentHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  // Hook into startup
+  const origInit = init;
+  init = async function() {
+    await origInit();
+    setTimeout(loadRoomArmyLists, 100);
+  };
 
   // Auto-init on load
   if (document.readyState === 'loading') {

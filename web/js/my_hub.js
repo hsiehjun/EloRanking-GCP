@@ -399,12 +399,33 @@ function renderMyHub(data) {
       </div>
 
     </div>
+
+    <!-- Row 3: Army Lists & Roster Studio -->
+    <div class="hub-card" id="hub-armylists-card" style="margin-top: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.6rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Roster Studio</h3>
+          <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.5rem; font-weight: 700;">Wahapedia Enriched</span>
+        </div>
+        <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.8rem; padding: 0.35rem 0.85rem; background: var(--accent); color: #0f172a; font-weight: 800;">
+          ➕ Import / Create List
+        </button>
+      </div>
+
+      <div id="hub-armylists-list-container">
+        <div style="text-align: center; padding: 2rem; color: var(--text-muted); font-size: 0.85rem;">
+          <div class="spinner"></div>
+          <div style="margin-top: 0.5rem;">Loading your army lists...</div>
+        </div>
+      </div>
+    </div>
   `;
 
   container.innerHTML = html;
 
-  // Render SVG Trajectory
+  // Render SVG Trajectory & Load Army Lists
   renderHubTrajectory(history);
+  loadHubArmyLists();
 }
 
 function renderHubTrajectory(history) {
@@ -870,3 +891,403 @@ window.switchHubTourneyTab = switchHubTourneyTab;
 window.loadHubRecommendedEvents = loadHubRecommendedEvents;
 window.debounceHubEventsSearch = debounceHubEventsSearch;
 window.executeHubEventsSearch = executeHubEventsSearch;
+
+/* ==========================================================================
+   ARMY LISTS & ROSTER STUDIO CONTROLLERS
+   ========================================================================== */
+
+let hubSavedLists = [];
+
+async function loadHubArmyLists() {
+  const container = document.getElementById('hub-armylists-list-container');
+  if (!container) return;
+
+  try {
+    const res = await window.api.getArmyLists();
+    const lists = res.army_lists || [];
+    hubSavedLists = lists;
+    renderHubArmyLists(lists);
+  } catch(e) {
+    container.innerHTML = `<div style="color:var(--loss); font-size:0.85rem; padding:1.5rem; text-align:center;">Error loading army lists: ${e.message}</div>`;
+  }
+}
+
+function renderHubArmyLists(lists) {
+  const container = document.getElementById('hub-armylists-list-container');
+  if (!container) return;
+
+  if (!lists || lists.length === 0) {
+    container.innerHTML = `
+      <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+        <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📋</div>
+        <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">No Army Lists Imported Yet</div>
+        <div style="font-size: 0.8rem; max-width: 480px; margin: 0 auto 1.25rem;">
+          Import your rosters from <b>NewRecruit</b>, <b>Warhammer 40,000 App</b>, <b>Battlescribe</b>, or <b>BCP</b> to auto-enrich them with live Wahapedia datasheets, statlines, and stratagems.
+        </div>
+        <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.85rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800;">
+          ➕ Import Your First Army List
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem;">
+      ${lists.map(l => {
+        const units = l.units || [];
+        const warlord = l.warlord || (units.find(u => u.is_warlord) || {}).name || 'None';
+        const pts = l.points || 2000;
+        const ptsLimit = l.points_limit || 2000;
+        const ptsPercent = Math.min(100, Math.round((pts / ptsLimit) * 100));
+
+        return `
+          <div class="hub-rec-card" style="flex-direction: column; align-items: stretch; gap: 0.85rem; padding: 1.15rem; background: rgba(19, 29, 51, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;">
+              <div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: #fff; font-family: var(--font-mono);">${escapeHtml(l.name || 'Unnamed List')}</div>
+                <div style="font-size: 0.82rem; color: #38bdf8; font-weight: 700; margin-top: 0.2rem;">
+                  ${escapeHtml(l.faction || 'Warhammer 40k')} • <span style="color: #c084fc;">${escapeHtml(l.detachment || 'Core Detachment')}</span>
+                </div>
+              </div>
+              <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-weight: 800; font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid rgba(245, 158, 11, 0.3);">
+                ${pts} / ${ptsLimit} PTS
+              </span>
+            </div>
+
+            <!-- List Meta Summary -->
+            <div style="display: flex; align-items: center; justify-content: space-between; font-size: 0.78rem; color: var(--text-secondary); background: rgba(0,0,0,0.3); padding: 0.5rem 0.75rem; border-radius: 6px;">
+              <span>⚔️ <b>${units.length}</b> Units</span>
+              <span>👑 Warlord: <b style="color:#facc15;">${escapeHtml(warlord)}</b></span>
+              <span>🏷️ ${escapeHtml(l.source_format || 'Custom')}</span>
+            </div>
+
+            <!-- Action Buttons Row -->
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.75rem; flex-wrap: wrap;">
+              <button onclick="openViewArmyListModal('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">
+                👁️ View Roster
+              </button>
+              <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">
+                ⚔️ Play in Tracker
+              </button>
+              <button onclick="exportArmyListToBcp('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);" title="Export clean list text for BCP">
+                📤 Export BCP
+              </button>
+              <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.85rem; cursor: pointer; padding: 0.2rem 0.4rem;" title="Delete List">
+                🗑️
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function openImportArmyListModal() {
+  let modal = document.getElementById('hub-import-armylist-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'hub-import-armylist-modal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.85); backdrop-filter:blur(8px); padding:16px;';
+    document.body.appendChild(modal);
+  }
+
+  modal.innerHTML = `
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:680px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">📋</span>
+          <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army List</h3>
+        </div>
+        <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
+      </div>
+      
+      <div style="padding:20px; overflow-y:auto; max-height:75vh;">
+        <p style="font-size:12px; color:#94a3b8; margin:0 0 14px;">
+          Paste list export text from <b>Warhammer 40k App</b>, <b>NewRecruit (Text or JSON)</b>, <b>Battlescribe</b>, or <b>BCP</b>. Our parser will auto-detect the format and enrich it with full Wahapedia statlines, weapon profiles, and abilities.
+        </p>
+
+        <textarea id="hub-import-paste-area" placeholder="Paste export text here..." style="width:100%; height:200px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:11px; color:#e2e8f0; outline:none; resize:vertical;"></textarea>
+
+        <div id="hub-parse-preview" style="display:none; margin-top:14px; background:#131d33; border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:12px;">
+          <div style="font-weight:800; font-size:13px; color:#38bdf8;" id="hub-preview-title">Preview</div>
+          <div style="font-size:11px; color:#94a3b8; margin-top:4px;" id="hub-preview-meta"></div>
+        </div>
+
+        <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
+          <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer;">
+            Cancel
+          </button>
+          <button id="hub-btn-do-import" onclick="handleHubParseAndSaveList()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
+            ⚡ Parse & Save to My Hub
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function closeImportArmyListModal() {
+  const modal = document.getElementById('hub-import-armylist-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleHubParseAndSaveList() {
+  const textarea = document.getElementById('hub-import-paste-area');
+  const btn = document.getElementById('hub-btn-do-import');
+  if (!textarea || !textarea.value.trim()) {
+    alert('Please paste your army list export text.');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Parsing & Enriching...';
+
+  try {
+    const raw = textarea.value.trim();
+    const parseRes = await window.api.parseArmyList(raw);
+    if (parseRes.error || !parseRes.army_list) throw new Error(parseRes.error || 'Failed to parse');
+
+    const armyList = parseRes.army_list;
+    const saveRes = await window.api.saveArmyList(armyList);
+    if (saveRes.error) throw new Error(saveRes.error);
+
+    closeImportArmyListModal();
+    alert(`🎉 Successfully saved "${armyList.name}" (${armyList.points} pts, ${armyList.units.length} units)!`);
+    await loadHubArmyLists();
+  } catch(e) {
+    alert('Error importing list: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '⚡ Parse & Save to My Hub';
+  }
+}
+
+async function openViewArmyListModal(listId) {
+  let list = hubSavedLists.find(l => l.id === listId);
+  if (!list) {
+    try {
+      const res = await window.api.getArmyList(listId);
+      list = res.army_list;
+    } catch(e) {}
+  }
+  if (!list) {
+    alert('List not found');
+    return;
+  }
+
+  let modal = document.getElementById('hub-view-armylist-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'hub-view-armylist-modal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.85); backdrop-filter:blur(8px); padding:16px;';
+    document.body.appendChild(modal);
+  }
+
+  const units = list.units || [];
+  const stratagems = list.stratagems || [];
+
+  modal.innerHTML = `
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:920px; max-height:90vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <!-- Header -->
+      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+        <div>
+          <div style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono);">${escapeHtml(list.name || 'Army Roster')}</div>
+          <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">
+            ${escapeHtml(list.faction || '40k')} • <span style="color:#c084fc;">${escapeHtml(list.detachment || 'Core Detachment')}</span>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button onclick="exportArmyListToBcp('${list.id}')" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">
+            📤 Export BCP
+          </button>
+          <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:11px; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">
+            ⚔️ Play in Tracker
+          </button>
+          <button onclick="closeViewArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px;">✕</button>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:20px; overflow-y:auto; flex:1;">
+        <!-- Meta Summary Bar -->
+        <div style="background:#090e1a; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px 14px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; font-size:12px;">
+          <span>Points: <b style="color:#f59e0b; font-family:var(--font-mono); font-size:13px;">${list.points || 2000} / ${list.points_limit || 2000} PTS</b></span>
+          <span>Warlord: <b style="color:#facc15;">${escapeHtml(list.warlord || 'None')}</b></span>
+          <span>Units: <b style="color:#fff;">${units.length}</b></span>
+        </div>
+
+        <!-- Unit Cards -->
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          ${units.map(u => {
+            const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
+            const weps = u.weapons || [];
+            const abilities = u.abilities || [];
+            const keywords = u.keywords || [];
+
+            return `
+              <div style="background:#131d33; border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:12px 16px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; flex-wrap:wrap; gap:6px;">
+                  <div>
+                    <span style="font-size:15px; font-weight:800; color:#f8fafc; font-family:var(--font-mono);">${escapeHtml(u.name)}</span>
+                    <span style="background:#1e293b; color:#94a3b8; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-left:6px; text-transform:uppercase;">${escapeHtml(u.role || 'Infantry')}</span>
+                    ${u.is_warlord ? `<span style="background:rgba(234,179,8,0.2); color:#facc15; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">👑 WARLORD</span>` : ''}
+                    ${u.enhancement ? `<span style="background:rgba(168,85,247,0.2); color:#c084fc; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">✨ ${escapeHtml(u.enhancement)}</span>` : ''}
+                  </div>
+                  <div style="font-family:var(--font-mono); font-size:13px; font-weight:800; color:#f59e0b;">
+                    ${u.points || 0} PTS
+                  </div>
+                </div>
+
+                <!-- Statline Grid -->
+                <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; background:#090e1a; padding:6px; border-radius:8px; text-align:center; margin:8px 0; border:1px solid rgba(255,255,255,0.05); font-family:var(--font-mono);">
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">M</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.M || '6"'}</div></div>
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">T</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.T || 4}</div></div>
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">SV</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.SV || '3+'}</div></div>
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">INV</div><div style="color:#a855f7; font-size:13px; font-weight:800;">${stats.INV || '-'}</div></div>
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">W</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.W || 1}</div></div>
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">LD</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.LD || '6+'}</div></div>
+                  <div><div style="font-size:9px; color:#64748b; font-weight:800;">OC</div><div style="color:#38bdf8; font-size:13px; font-weight:800;">${stats.OC || 1}</div></div>
+                </div>
+
+                <!-- Weapons -->
+                ${weps.length > 0 ? `
+                  <table style="width:100%; font-size:11px; border-collapse:collapse; margin-top:6px; background:#0b1120; border-radius:6px; overflow:hidden;">
+                    <thead>
+                      <tr style="background:#1e293b; color:#94a3b8; text-align:left; font-size:10px; font-family:var(--font-mono);">
+                        <th style="padding:4px 8px;">WEAPON</th>
+                        <th style="padding:4px 8px;">RANGE</th>
+                        <th style="padding:4px 8px;">A</th>
+                        <th style="padding:4px 8px;">BS/WS</th>
+                        <th style="padding:4px 8px;">S</th>
+                        <th style="padding:4px 8px;">AP</th>
+                        <th style="padding:4px 8px;">D</th>
+                        <th style="padding:4px 8px;">ABILITIES</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${weps.map(w => `
+                        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);">
+                          <td style="padding:4px 8px; font-weight:700; color:#f8fafc;">${escapeHtml(w.name)}</td>
+                          <td style="padding:4px 8px;">${w.range || 'Melee'}</td>
+                          <td style="padding:4px 8px;">${w.attacks || w.A || '1'}</td>
+                          <td style="padding:4px 8px;">${w.bs_ws || w.BS_WS || '3+'}</td>
+                          <td style="padding:4px 8px;">${w.strength || w.S || '4'}</td>
+                          <td style="padding:4px 8px;">${w.ap || w.AP || '0'}</td>
+                          <td style="padding:4px 8px;">${w.damage || w.D || '1'}</td>
+                          <td style="padding:4px 8px; color:#38bdf8; font-size:10px;">${escapeHtml(w.abilities || '-')}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                ` : ''}
+
+                <!-- Abilities & Keywords -->
+                ${abilities.length > 0 ? `
+                  <div style="margin-top:8px; font-size:11px; color:#cbd5e1;">
+                    <b style="color:#94a3b8; font-size:10px; text-transform:uppercase;">Abilities: </b>
+                    ${abilities.map(a => `<span style="display:inline-block; margin-right:8px; margin-top:2px;"><b>${escapeHtml(a.name)}:</b> <span style="color:#94a3b8;">${escapeHtml(a.description || '')}</span></span>`).join('')}
+                  </div>
+                ` : ''}
+
+                ${keywords.length > 0 ? `
+                  <div style="margin-top:6px;">
+                    ${keywords.map(k => `<span style="display:inline-block; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:700; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); margin-right:4px; margin-top:2px;">${escapeHtml(k)}</span>`).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Stratagems -->
+        ${stratagems.length > 0 ? `
+          <div style="margin-top:20px;">
+            <h4 style="font-size:14px; font-weight:800; color:#fff; margin-bottom:10px;">⚡ Detachment Stratagems</h4>
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px;">
+              ${stratagems.map(s => `
+                <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:10px 12px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                    <b style="font-size:12px; color:#fff;">${escapeHtml(s.name)}</b>
+                    <span style="background:#0284c7; color:#fff; font-size:10px; font-weight:900; padding:1px 5px; border-radius:4px;">${s.cp || 1} CP</span>
+                  </div>
+                  <div style="font-size:10px; color:#a855f7; font-weight:700; text-transform:uppercase; margin-bottom:4px;">${escapeHtml(s.phase || 'Any Phase')}</div>
+                  <div style="font-size:11px; color:#94a3b8;">${escapeHtml(s.description)}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function closeViewArmyListModal() {
+  const modal = document.getElementById('hub-view-armylist-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function exportArmyListToBcp(listId) {
+  const list = hubSavedLists.find(l => l.id === listId);
+  if (!list) return;
+
+  const units = list.units || [];
+  let out = `${list.faction || 'Warhammer 40,000'} - ${list.detachment || 'Detachment'} (${list.points || 2000} pts)\n\n`;
+
+  // Group by role
+  const groups = {};
+  for (const u of units) {
+    const role = (u.role || 'OTHER DATASHEETS').toUpperCase();
+    if (!groups[role]) groups[role] = [];
+    groups[role].push(u);
+  }
+
+  for (const [role, uList] of Object.entries(groups)) {
+    out += `${role}\n`;
+    for (const u of uList) {
+      out += `${u.name} (${u.points || 0} pts)\n`;
+      if (u.is_warlord) out += `  • Warlord\n`;
+      if (u.enhancement) out += `  • Enhancement: ${u.enhancement}\n`;
+      if (u.weapons && u.weapons.length > 0) {
+        out += `  • Wargear: ${u.weapons.map(w => w.name).join(', ')}\n`;
+      }
+    }
+    out += '\n';
+  }
+
+  navigator.clipboard.writeText(out).then(() => {
+    alert('📋 BCP Tournament Roster copied to clipboard!');
+  }).catch(() => {
+    prompt('Copy your BCP list text below:', out);
+  });
+}
+
+async function deleteHubArmyList(listId) {
+  if (!confirm('Are you sure you want to delete this army list?')) return;
+  try {
+    await window.api.deleteArmyList(listId);
+    await loadHubArmyLists();
+  } catch(e) {
+    alert('Error deleting list: ' + e.message);
+  }
+}
+
+function launchTrackerWithList(listId) {
+  const list = hubSavedLists.find(l => l.id === listId);
+  // Launch tracker with preloaded state
+  window.open('/11th/tracker', '_blank');
+}
+
+window.loadHubArmyLists = loadHubArmyLists;
+window.openImportArmyListModal = openImportArmyListModal;
+window.closeImportArmyListModal = closeImportArmyListModal;
+window.handleHubParseAndSaveList = handleHubParseAndSaveList;
+window.openViewArmyListModal = openViewArmyListModal;
+window.closeViewArmyListModal = closeViewArmyListModal;
+window.exportArmyListToBcp = exportArmyListToBcp;
+window.deleteHubArmyList = deleteHubArmyList;
+window.launchTrackerWithList = launchTrackerWithList;

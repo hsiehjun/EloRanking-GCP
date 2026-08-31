@@ -317,5 +317,59 @@ window.api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+  },
+
+  // Army Lists: Get User Lists
+  async getArmyLists() {
+    return this._fetchJson('/api/armylists', {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // Army Lists: Get Single List
+  async getArmyList(listId) {
+    return this._fetchJson(`/api/armylists/${encodeURIComponent(listId)}`, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // Army Lists: Save or Create
+  async saveArmyList(listData) {
+    return this._fetchJson('/api/armylists', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify(listData)
+    });
+  },
+
+  // Army Lists: Delete List
+  async deleteArmyList(listId) {
+    return this._fetchJson(`/api/armylists/${encodeURIComponent(listId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // Army Lists: Parse Multi-format Text
+  async parseArmyList(rawText, formatHint = null) {
+    return this._fetchJson('/api/armylists/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: rawText, format: formatHint })
+    });
+  },
+
+  // Wahapedia: Lookup Datasheet
+  async getWahapediaDatasheet(unitName, faction = null) {
+    let url = `/api/wahapedia/datasheet?name=${encodeURIComponent(unitName)}`;
+    if (faction) url += `&faction=${encodeURIComponent(faction)}`;
+    return this._fetchJson(url);
+  },
+
+  // Wahapedia: Get Stratagems
+  async getWahapediaStratagems(faction = 'Space Marines', detachment = null) {
+    let url = `/api/wahapedia/stratagems?faction=${encodeURIComponent(faction)}`;
+    if (detachment) url += `&detachment=${encodeURIComponent(detachment)}`;
+    return this._fetchJson(url);
   }
 };

@@ -56,6 +56,8 @@ except ImportError:
         from scraper import BestCoastPairingsScraper
         from elo import EloEngine
         from auth import get_auth_manager
+        from wahapedia_service import get_wahapedia
+        from army_list_parser import get_parser as get_army_parser
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("EloAPI")
@@ -1237,6 +1239,162 @@ if FASTAPI_AVAILABLE:
             "recent_history_count": len(history),
             "history_error": hist_err,
             "table_columns": columns_info
+        }
+
+    # ==========================================
+    # ARMY LISTS & WAHAPEDIA DATASHEET ENDPOINTS
+    # ==========================================
+
+    @app.post("/api/armylists/parse", summary="Parse and enrich army list from text or JSON")
+    async def api_parse_armylist(req: Request):
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        raw_text = body.get("text") or body.get("raw_text") or ""
+        source_format = body.get("format")
+        parser = get_army_parser()
+        parsed = parser.parse(raw_text, source_hint=source_format)
+        return {"success": True, "army_list": parsed}
+
+    @app.get("/api/armylists", summary="Get saved army lists for current user")
+    async def api_get_armylists(request: Request):
+        auth_mgr = get_auth_manager()
+        session_token = request.cookies.get("session_token")
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ", 1)[1]
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        db = get_database()
+        lists = db.get_user_army_lists(user_id=user_id)
+        return {"success": True, "army_lists": lists}
+
+    @app.post("/api/armylists", summary="Save or create user army list")
+    async def api_save_armylist(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+        auth_mgr = get_auth_manager()
+        session_token = request.cookies.get("session_token")
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ", 1)[1]
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        db = get_database()
+        saved = db.save_user_army_list(user_id=user_id, list_data=body)
+        return {"success": True, "army_list": saved}
+
+    @app.get("/api/armylists/{list_id}", summary="Get single army list by ID")
+    async def api_get_armylist(list_id: str, request: Request):
+        auth_mgr = get_auth_manager()
+        session_token = request.cookies.get("session_token")
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ", 1)[1]
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        db = get_database()
+        item = db.get_user_army_list(list_id, user_id=user_id)
+        if not item:
+            raise HTTPException(status_code=404, detail="Army list not found")
+        return {"success": True, "army_list": item}
+
+    @app.delete("/api/armylists/{list_id}", summary="Delete an army list")
+    async def api_delete_armylist(list_id: str, request: Request):
+        auth_mgr = get_auth_manager()
+        session_token = request.cookies.get("session_token")
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ", 1)[1]
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        db = get_database()
+        success = db.delete_user_army_list(list_id, user_id=user_id)
+        return {"success": success, "deleted_id": list_id}
+
+    @app.get("/api/wahapedia/datasheet", summary="Lookup Wahapedia datasheet profile")
+    async def api_wahapedia_datasheet(name: str = Query(..., description="Unit name"), faction: Optional[str] = Query(None)):
+        waha = get_wahapedia()
+        profile = waha.lookup_unit(name, faction=faction)
+        if not profile:
+            raise HTTPException(status_code=404, detail=f"Datasheet not found for {name}")
+        return {"success": True, "datasheet": profile}
+
+    @app.get("/api/wahapedia/stratagems", summary="Get Stratagems for faction and detachment")
+    async def api_wahapedia_stratagems(faction: str = Query("Space Marines"), detachment: Optional[str] = Query(None)):
+        waha = get_wahapedia()
+        strats = waha.get_stratagems_for_detachment(faction, detachment)
+        return {"success": True, "stratagems": strats}
+
+    @app.post("/api/tracker/room/{match_id}/armylist", summary="Attach player army list to live match room")
+    async def api_tracker_attach_armylist(match_id: str, request: Request):
+        match_id = normalize_tracker_match_id(match_id)
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+        role = body.get("role") or "player1"
+        army_list = body.get("army_list") or {}
+
+        # 1. Update in-memory room
+        if match_id in TRACKER_ROOMS:
+            if role == "player1":
+                TRACKER_ROOMS[match_id]["p1_army_list"] = army_list
+            else:
+                TRACKER_ROOMS[match_id]["p2_army_list"] = army_list
+
+        # 2. Persist in database
+        db = get_database()
+        db.update_tracker_army_list(match_id, role, army_list)
+
+        # 3. Broadcast SSE update to opponent and spectators
+        if match_id in TRACKER_LISTENERS:
+            payload = json.dumps({
+                "type": "army_list_updated",
+                "match_id": match_id,
+                "role": role,
+                "army_list": army_list,
+                "sender": role
+            })
+            for q in list(TRACKER_LISTENERS[match_id]):
+                try:
+                    await q.put(payload)
+                except Exception:
+                    pass
+
+        return {"success": True, "match_id": match_id, "role": role, "army_list": army_list}
+
+    @app.get("/api/tracker/room/{match_id}/armylists", summary="Get attached army lists for Player 1 and Player 2")
+    async def api_tracker_get_armylists(match_id: str):
+        match_id = normalize_tracker_match_id(match_id)
+        p1_list = None
+        p2_list = None
+
+        if match_id in TRACKER_ROOMS:
+            p1_list = TRACKER_ROOMS[match_id].get("p1_army_list")
+            p2_list = TRACKER_ROOMS[match_id].get("p2_army_list")
+
+        if not p1_list or not p2_list:
+            db = get_database()
+            game_rec = db.get_tracker_game(match_id)
+            if game_rec:
+                if not p1_list: p1_list = game_rec.get("p1_army_list")
+                if not p2_list: p2_list = game_rec.get("p2_army_list")
+
+        return {
+            "success": True,
+            "match_id": match_id,
+            "p1_army_list": p1_list,
+            "p2_army_list": p2_list
         }
 
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")

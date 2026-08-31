@@ -306,7 +306,28 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_events_organizer_id ON events(organizer_id);",
             "CREATE INDEX IF NOT EXISTS idx_events_organizer_bcp_id ON events(organizer_bcp_id);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
-            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);"
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);",
+            """CREATE TABLE IF NOT EXISTS user_army_lists (
+                id VARCHAR(64) PRIMARY KEY,
+                user_id VARCHAR(64),
+                name TEXT NOT NULL,
+                faction TEXT NOT NULL,
+                detachment TEXT,
+                points INT DEFAULT 2000,
+                points_limit INT DEFAULT 2000,
+                warlord TEXT,
+                source_format TEXT,
+                raw_text TEXT,
+                list_data JSONB NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_user_army_lists_uid ON user_army_lists(user_id);",
+            "CREATE INDEX IF NOT EXISTS idx_user_army_lists_faction ON user_army_lists(faction);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list_id VARCHAR(64);"
         ]:
             try:
                 with self.get_connection() as conn:
@@ -343,6 +364,10 @@ class PostgresDatabase:
                 winner_name TEXT,
                 version INT DEFAULT 1,
                 state_json JSONB,
+                p1_army_list JSONB,
+                p2_army_list JSONB,
+                p1_army_list_id VARCHAR(64),
+                p2_army_list_id VARCHAR(64),
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             );""",
@@ -358,6 +383,10 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS table_num INT;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS who_went_first TEXT;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS bcp_submitted BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list_id VARCHAR(64);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);",
@@ -2439,14 +2468,129 @@ class PostgresDatabase:
 
         return self.get_studio_event(event_id) or {"id": event_id, "name": name}
 
-    def delete_studio_event(self, event_id: str, organizer_id: Optional[str] = None) -> bool:
-        """Deletes tournament from database with organizer verification."""
+    def save_user_army_list(self, user_id: Optional[str], list_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves or updates a user army list in the database."""
+        list_id = str(list_data.get("id") or f"list_{uuid.uuid4().hex[:10]}")
+        name = str(list_data.get("name") or "Unnamed Army List")
+        faction = str(list_data.get("faction") or "Unknown Faction")
+        detachment = str(list_data.get("detachment") or "")
+        points = int(list_data.get("points") or 2000)
+        points_limit = int(list_data.get("points_limit") or 2000)
+        warlord = str(list_data.get("warlord") or "")
+        source_format = str(list_data.get("source_format") or "Custom")
+        raw_text = str(list_data.get("raw_text") or "")
+        list_json = json.dumps(list_data)
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                INSERT INTO user_army_lists (
+                    id, user_id, name, faction, detachment, points, points_limit,
+                    warlord, source_format, raw_text, list_data, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s::jsonb, NOW()
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    faction = EXCLUDED.faction,
+                    detachment = EXCLUDED.detachment,
+                    points = EXCLUDED.points,
+                    points_limit = EXCLUDED.points_limit,
+                    warlord = EXCLUDED.warlord,
+                    source_format = EXCLUDED.source_format,
+                    raw_text = EXCLUDED.raw_text,
+                    list_data = EXCLUDED.list_data,
+                    updated_at = NOW();
+                """, (
+                    list_id, user_id, name, faction, detachment, points, points_limit,
+                    warlord, source_format, raw_text, list_json
+                ))
+            conn.commit()
+
+        return self.get_user_army_list(list_id, user_id=user_id) or list_data
+
+    def get_user_army_lists(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retrieves all saved army lists for a given user or global defaults."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                if user_id:
+                    cursor.execute("""
+                    SELECT id, user_id, name, faction, detachment, points, points_limit,
+                           warlord, source_format, list_data, created_at, updated_at
+                    FROM user_army_lists
+                    WHERE user_id = %s OR user_id IS NULL
+                    ORDER BY updated_at DESC;
+                    """, (user_id,))
+                else:
+                    cursor.execute("""
+                    SELECT id, user_id, name, faction, detachment, points, points_limit,
+                           warlord, source_format, list_data, created_at, updated_at
+                    FROM user_army_lists
+                    ORDER BY updated_at DESC
+                    LIMIT 50;
+                    """)
+                rows = cursor.fetchall()
+                res = []
+                for r in rows:
+                    item = dict(r)
+                    if isinstance(item.get("list_data"), dict):
+                        for k, v in item["list_data"].items():
+                            if k not in item:
+                                item[k] = v
+                    res.append(item)
+                return res
+
+    def get_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retrieves a single army list by ID."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                SELECT id, user_id, name, faction, detachment, points, points_limit,
+                       warlord, source_format, raw_text, list_data, created_at, updated_at
+                FROM user_army_lists
+                WHERE id = %s;
+                """, (list_id,))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                item = dict(row)
+                if isinstance(item.get("list_data"), dict):
+                    for k, v in item["list_data"].items():
+                        if k not in item:
+                            item[k] = v
+                return item
+
+    def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
+        """Deletes an army list by ID."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                if organizer_id:
-                    cursor.execute("DELETE FROM events WHERE id = %s AND organizer_id = %s;", (event_id, organizer_id))
+                if user_id:
+                    cursor.execute("DELETE FROM user_army_lists WHERE id = %s AND (user_id = %s OR user_id IS NULL);", (list_id, user_id))
                 else:
-                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
+                    cursor.execute("DELETE FROM user_army_lists WHERE id = %s;", (list_id,))
+            conn.commit()
+        return True
+
+    def update_tracker_army_list(self, match_id: str, player_role: str, list_data: Dict[str, Any]) -> bool:
+        """Attaches an army list to Player 1 or Player 2 in a game tracker room."""
+        list_json = json.dumps(list_data) if list_data else None
+        list_id = list_data.get("id") if list_data else None
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if player_role == "player1":
+                    cursor.execute("""
+                    UPDATE tracker_games 
+                    SET p1_army_list = %s::jsonb, p1_army_list_id = %s, updated_at = NOW()
+                    WHERE match_id = %s;
+                    """, (list_json, list_id, match_id))
+                else:
+                    cursor.execute("""
+                    UPDATE tracker_games 
+                    SET p2_army_list = %s::jsonb, p2_army_list_id = %s, updated_at = NOW()
+                    WHERE match_id = %s;
+                    """, (list_json, list_id, match_id))
             conn.commit()
         return True
 
