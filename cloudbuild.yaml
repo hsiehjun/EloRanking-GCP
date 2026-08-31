@@ -1,68 +1,67 @@
-# ==============================================================================
-# GOOGLE CLOUD BUILD PIPELINE FOR ELO RANKING
-# ==============================================================================
 steps:
-  # 1. Build container image with caching
+  # 1. Build Docker image with both $COMMIT_SHA and :latest tags
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'build-image'
     args:
       - 'build'
       - '-t'
-      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
       - '-t'
-      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:latest'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:latest'
       - '.'
 
-  # 2. Push image to Artifact Registry
+  # 2. Push image tags to Google Artifact Registry
   - name: 'gcr.io/cloud-builders/docker'
+    id: 'push-image'
     args:
       - 'push'
-      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$BUILD_ID'
+      - '--all-tags'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking'
 
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:latest'
-
-  # 3. Deploy to Cloud Run
+  # 3. Deploy Cloud Run Web Service: elo-ranking
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-web-service'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - '$_SERVICE_NAME'
+      - 'elo-ranking'
       - '--image'
-      - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$BUILD_ID'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
       - '--region'
-      - '$_REGION'
-      - '--platform'
-      - 'managed'
-      - '--allow-unauthenticated'
-      - '--add-cloudsql-instances'
-      - '$_CLOUDSQL_INSTANCE'
-      - '--set-env-vars'
-      - 'DATABASE_URL=dbname=$_DB_NAME user=$_DB_USER password=$_DB_PASS host=/cloudsql/$_CLOUDSQL_INSTANCE,CRON_SECRET_KEY=$_CRON_SECRET'
-      - '--memory'
-      - '1Gi'
-      - '--cpu'
-      - '1'
-      - '--min-instances'
-      - '0'
-      - '--max-instances'
-      - '10'
+      - 'us-central1'
+
+  # 4. Update Cloud Run Job: elo-tournament-sync-job
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-tournament-job'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'elo-tournament-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+
+  # 5. Update Cloud Run Job: wahapedia-sync-job
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-wahapedia-job'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'wahapedia-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
 
 images:
-  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:$BUILD_ID'
-  - '$_REGION-docker.pkg.dev/$PROJECT_ID/$_REPO_NAME/$_SERVICE_NAME:latest'
-
-substitutions:
-  _REGION: 'us-central1'
-  _REPO_NAME: 'elo-ranking'
-  _SERVICE_NAME: 'elo-ranking'
-  _CLOUDSQL_INSTANCE: '$PROJECT_ID:us-central1:elo-ranking-db'
-  _DB_NAME: 'elo_ranking'
-  _DB_USER: 'elo_user'
-  _DB_PASS: 'Jung@1475369'
-  _CRON_SECRET: 'wh40k-elo-secret-cron-key'
+  - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+  - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:latest'
 
 options:
   logging: CLOUD_LOGGING_ONLY
