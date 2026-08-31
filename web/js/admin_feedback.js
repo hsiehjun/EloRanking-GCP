@@ -91,15 +91,28 @@ async function fetchFeedbacks() {
 
   currentAdminUser = await checkAdminAuth();
 
-  const userRole = currentAdminUser ? (currentAdminUser.role || 'player').toLowerCase() : '';
-  const isAdmin = currentAdminUser && ['admin', 'superuser', 'developer', 'owner', 'to', 'referee'].includes(userRole);
+  let userRole = '';
+  let userEmail = '';
+  let userDisplayName = '';
+
+  if (currentAdminUser) {
+    const u = (currentAdminUser.user && typeof currentAdminUser.user === 'object') ? currentAdminUser.user : currentAdminUser;
+    userRole = (u.role || '').toLowerCase();
+    userEmail = (u.email || '').toLowerCase();
+    userDisplayName = u.display_name || u.email || 'Admin';
+  }
+
+  const isAdmin = currentAdminUser && (
+    ['admin', 'superuser', 'developer', 'owner', 'to', 'referee'].includes(userRole) ||
+    ['swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com'].includes(userEmail)
+  );
 
   if (!isAdmin) {
     if (authGate) authGate.style.display = 'block';
     if (mainContent) mainContent.style.display = 'none';
     if (userBadge) {
       userBadge.innerHTML = currentAdminUser ? 
-        `<span style="color:#ef4444; font-size:12px; font-weight:700;">⛔ ${escapeHtml(currentAdminUser.email)} (Role: ${escapeHtml(userRole)})</span>` : 
+        `<span style="color:#ef4444; font-size:12px; font-weight:700;">⛔ ${escapeHtml(userEmail || 'User')} (Role: ${escapeHtml(userRole || 'player')})</span>` : 
         `<a href="/login?redirect=${encodeURIComponent('/admin/feedback')}" class="nav-btn" style="color:#38bdf8;">🔑 Sign In as Admin</a>`;
     }
     return;
@@ -112,7 +125,7 @@ async function fetchFeedbacks() {
     userBadge.innerHTML = `
       <div style="display:flex; align-items:center; gap:8px; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.3); padding:4px 10px; border-radius:9999px; font-size:12px;">
         <span style="width:7px; height:7px; border-radius:50%; background:#10b981;"></span>
-        <span style="color:#34d399; font-weight:700;">Admin: ${escapeHtml(currentAdminUser.display_name || currentAdminUser.email)}</span>
+        <span style="color:#34d399; font-weight:700;">Admin: ${escapeHtml(userDisplayName)}</span>
       </div>
     `;
   }
