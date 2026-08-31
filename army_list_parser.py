@@ -79,6 +79,11 @@ class ArmyListParser:
                         total_cost = data.get("totalCost") or 2000
                         roster["points"] = total_cost
                         roster["points_limit"] = total_cost
+                        
+                        list_key = data.get("list_key") or data.get("_id")
+                        if list_key:
+                            roster["source_url"] = f"https://www.newrecruit.eu/app/Lists/{list_key}"
+                            roster["direct_app_url"] = f"https://www.newrecruit.eu/app/Lists/{list_key}"
 
                         army = data.get("army", {})
                         faction = roster["faction"]

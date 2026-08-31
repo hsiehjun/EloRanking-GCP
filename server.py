@@ -1553,6 +1553,29 @@ if FASTAPI_AVAILABLE:
         success = db.delete_user_army_list(list_id, user_id=user_id)
         return {"success": success, "deleted_id": list_id}
 
+    @app.get("/api/armylist/nr_proxy/{share_id}", summary="Redirect NewRecruit share link directly to imported Lists view")
+    async def api_nr_proxy(share_id: str):
+        """Resolves a NewRecruit share link into the direct imported /app/Lists/{list_key} view."""
+        clean_id = share_id.strip()
+        try:
+            rpc_url = "https://www.newrecruit.eu/api/rpc"
+            payload = json.dumps({"method": "open_share_link", "params": [clean_id]}).encode("utf-8")
+            req = urllib.request.Request(
+                rpc_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            )
+            def _fetch():
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            data = await asyncio.to_thread(_fetch)
+            list_key = data.get("list_key") or data.get("_id")
+            if list_key:
+                return RedirectResponse(url=f"https://www.newrecruit.eu/app/Lists/{list_key}", status_code=302)
+        except Exception as e:
+            logger.debug(f"Notice resolving direct NewRecruit Lists URL: {e}")
+        return RedirectResponse(url=f"https://www.newrecruit.eu/app/list/{clean_id}", status_code=302)
+
     @app.post("/api/tracker/room/{match_id}/armylist", summary="Attach player army list to live match room")
     async def api_tracker_attach_armylist(match_id: str, request: Request):
         match_id = normalize_tracker_match_id(match_id)
@@ -1729,8 +1752,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=18.0">
-  <script src="/tracker/tracker_sync.js?v=18.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=19.0">
+  <script src="/tracker/tracker_sync.js?v=19.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

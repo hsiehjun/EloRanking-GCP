@@ -16,6 +16,16 @@
       .replace(/'/g, '&#39;');
   }
 
+  function getDirectNewRecruitUrl(url) {
+    if (!url) return '';
+    const match = url.match(/newrecruit\.eu\/app\/list\/([a-zA-Z0-9_\-]+)/i);
+    if (match) {
+      const shareId = match[1];
+      return `/api/armylist/nr_proxy/${shareId}`;
+    }
+    return url;
+  }
+
   // 1. Suppress and block GDM's native install prompt from triggering in tracker
   window.addEventListener('beforeinstallprompt', (e) => {
     e.stopImmediatePropagation();
@@ -2092,6 +2102,7 @@
         ` : ''}
       `;
     } else if (activeList.source_url) {
+      const nrUrl = (typeof getDirectNewRecruitUrl === 'function') ? getDirectNewRecruitUrl(activeList.source_url) : activeList.source_url;
       contentHtml = `
         <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
           <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
@@ -2100,13 +2111,13 @@
               <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(activeList.faction || '40k')} • ${activeList.points || 2000} PTS</span>
             </div>
             <div style="display:flex; align-items:center; gap:8px;">
-              <a href="${escapeHtml(activeList.source_url)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
-                🌐 Open in NewRecruit ↗
+              <a href="${escapeHtml(nrUrl)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+                🎮 Open in NewRecruit ↗
               </a>
             </div>
           </div>
           <div style="flex:1; width:100%; height:100%; position:relative;">
-            <iframe src="${escapeHtml(activeList.source_url)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
+            <iframe src="${escapeHtml(nrUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
           </div>
         </div>
       `;

@@ -1051,6 +1051,16 @@ async function handleHubParseAndSaveList() {
   }
 }
 
+function getDirectNewRecruitUrl(url) {
+  if (!url) return '';
+  const match = url.match(/newrecruit\.eu\/app\/list\/([a-zA-Z0-9_\-]+)/i);
+  if (match) {
+    const shareId = match[1];
+    return `/api/armylist/nr_proxy/${shareId}`;
+  }
+  return url;
+}
+
 async function openViewArmyListModal(listId) {
   let list = hubSavedLists.find(l => l.id === listId);
   if (!list) {
@@ -1073,7 +1083,8 @@ async function openViewArmyListModal(listId) {
   }
 
   const units = list.units || [];
-  const sourceUrl = list.source_url || (list.raw_text && list.raw_text.startsWith('http') ? list.raw_text.trim() : null);
+  const rawSourceUrl = list.source_url || (list.raw_text && list.raw_text.startsWith('http') ? list.raw_text.trim() : null);
+  const sourceUrl = getDirectNewRecruitUrl(rawSourceUrl);
 
   modal.innerHTML = `
     <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
