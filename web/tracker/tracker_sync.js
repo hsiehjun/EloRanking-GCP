@@ -1946,6 +1946,11 @@
                           ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:10px; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:1px 5px;">👑 WARLORD</span>' : ''}
                         </div>
                         ${u.enhancement ? `<div style="font-size:11px; color:#c084fc; font-weight:700; margin-top:2px;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
+                        ${(u.keywords && u.keywords.length > 0) ? `
+                          <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;">
+                            ${u.keywords.map(k => `<span style="font-size:9px; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:0px 4px; border-radius:3px;">${escapeHtml(k)}</span>`).join('')}
+                          </div>
+                        ` : ''}
                       </div>
                       ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace; flex-shrink:0;">${uPts} PTS</span>` : ''}
                     </div>

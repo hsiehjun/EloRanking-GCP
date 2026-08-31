@@ -1286,6 +1286,11 @@ function renderNativeRosterViewer(list, options = {}) {
                         ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:0.65rem; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:0.1rem 0.35rem;">👑 WARLORD</span>' : ''}
                       </div>
                       ${u.enhancement ? `<div style="font-size:0.75rem; color:#c084fc; font-weight:700; margin-top:0.2rem;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
+                      ${(u.keywords && u.keywords.length > 0) ? `
+                        <div style="display:flex; flex-wrap:wrap; gap:3px; margin-top:4px;">
+                          ${u.keywords.map(k => `<span style="font-size:0.62rem; color:#94a3b8; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.08); padding:0px 5px; border-radius:3px;">${escapeHtml(k)}</span>`).join('')}
+                        </div>
+                      ` : ''}
                     </div>
                     ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:0.75rem; font-weight:800; font-family:var(--font-mono); flex-shrink:0;">${uPts} PTS</span>` : ''}
                   </div>

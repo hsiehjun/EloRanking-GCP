@@ -68,24 +68,37 @@ class ArmyListParser:
 
         content = raw_input.strip()
 
-        # 1. URL Detection (e.g. https://www.newrecruit.eu/app/list/28iCj)
-        if content.startswith(("http://", "https://")) or "newrecruit.eu" in content:
-            return self.parse_url(content)
+        # 1. JSON Detection (if content starts and ends with brackets, or parses cleanly as JSON)
+        if (content.startswith("{") and content.endswith("}")) or (content.startswith("[") and content.endswith("]")):
+            try:
+                data = json.loads(content)
+                if isinstance(data, dict):
+                    return self._parse_json_roster(data)
+            except Exception as e:
+                logger.debug("JSON parse error: %s", e)
 
         # 2. XML Detection (.ros / BattleScribe)
         if content.startswith("<?xml") or content.startswith("<roster") or "<roster" in content[:300]:
             return self._parse_battlescribe_xml(content)
 
-        # 3. JSON Detection
-        if content.startswith("{") and content.endswith("}"):
-            try:
-                data = json.loads(content)
-                return self._parse_json_roster(data)
-            except Exception as e:
-                logger.debug("JSON parse fallback: %s", e)
+        # 3. URL Detection (e.g. https://www.newrecruit.eu/app/list/28iCj) - ONLY for actual short single-line URLs
+        if ("newrecruit.eu/app/list/" in content or "newrecruit.eu/app/tournament/" in content or content.startswith(("http://", "https://"))) and len(content) < 500 and "\n" not in content.strip():
+            return self.parse_url(content)
 
-        # 4. Text Format Detection
-        if "FACTION KEYWORD:" in content or "newrecruit" in content.lower() or (content.startswith("++") and "TOTAL ARMY POINTS" in content):
+        # 4. JSON inside text fallback (e.g. pasted with surrounding whitespace or markdown codeblocks)
+        if "{" in content and "}" in content:
+            try:
+                start_idx = content.find("{")
+                end_idx = content.rfind("}") + 1
+                sub_json = content[start_idx:end_idx]
+                data = json.loads(sub_json)
+                if isinstance(data, dict) and ("roster" in data or "forces" in data or "units" in data):
+                    return self._parse_json_roster(data)
+            except Exception:
+                pass
+
+        # 5. Text Format Detection
+        if "FACTION KEYWORD:" in content or (content.startswith("++") and "TOTAL ARMY POINTS" in content):
             return self._parse_newrecruit_text(content)
         elif "++ Army Roster" in content or "+ Epic Hero +" in content or "+ Character +" in content:
             return self._parse_battlescribe_text(content)
@@ -165,7 +178,7 @@ class ArmyListParser:
                 p_type = prof.attrib.get('typeName', '')
                 chars = {c.attrib.get('name'): (c.text or '') for c in prof.findall('.//characteristic')}
 
-                if p_type == 'Unit' and not stats:
+                if (p_type == 'Unit' or ('M' in chars and 'T' in chars and 'Sv' in chars)) and not stats:
                     stats = {
                         'M': chars.get('M', '6"'),
                         'T': chars.get('T', '4'),
@@ -175,24 +188,30 @@ class ArmyListParser:
                         'LD': chars.get('LD', chars.get('Ld', '6+')),
                         'OC': chars.get('OC', '1')
                     }
-                elif p_type in ('Abilities', 'Ability', 'Primarch of the First Legion'):
-                    desc = chars.get('Description', chars.get('Effect', ''))
-                    if not any(a['name'] == p_name for a in abilities):
-                        abilities.append({'name': p_name, 'description': desc, 'type': p_type})
-                elif p_type in ('Ranged Weapons', 'Melee Weapons', 'Weapon'):
+                elif p_type in ('Ranged Weapons', 'Melee Weapons', 'Weapon') or ('Range' in chars and ('A' in chars or 'S' in chars or 'BS' in chars or 'WS' in chars)):
                     clean_wname = p_name.replace('➤', '').strip()
                     if not any(w['name'] == clean_wname for w in weapons):
+                        rng = chars.get('Range', 'Melee')
+                        w_type = 'Ranged' if p_type == 'Ranged Weapons' or rng != 'Melee' else 'Melee'
+                        skill_val = chars.get('BS' if w_type == 'Ranged' else 'WS', chars.get('BS', chars.get('WS', '3+')))
                         weapons.append({
                             'name': clean_wname,
-                            'type': 'Ranged' if p_type == 'Ranged Weapons' or chars.get('Range') != 'Melee' else 'Melee',
-                            'range': chars.get('Range', 'Melee'),
+                            'type': w_type,
+                            'range': rng,
+                            'Range': rng,
                             'A': chars.get('A', '1'),
-                            'skill': chars.get('BS', chars.get('WS', '3+')),
+                            'skill': skill_val,
+                            'BS': chars.get('BS', skill_val),
+                            'WS': chars.get('WS', skill_val),
                             'S': chars.get('S', '4'),
                             'AP': chars.get('AP', '0'),
                             'D': chars.get('D', '1'),
                             'keywords': [k.strip() for k in chars.get('Keywords', '').split(',') if k.strip()]
                         })
+                elif p_type in ('Abilities', 'Ability', 'Primarch of the First Legion') or ('Description' in chars or 'Effect' in chars or 'Rules' in chars):
+                    desc = chars.get('Description', chars.get('Effect', chars.get('Rules', '')))
+                    if p_name and not any(a['name'] == p_name for a in abilities):
+                        abilities.append({'name': p_name, 'description': desc, 'type': p_type})
 
             for r_node in sel.findall('.//rules/rule'):
                 ru_name = r_node.attrib.get('name')
@@ -539,7 +558,7 @@ class ArmyListParser:
                                 if c_name:
                                     chars[c_name] = c_val
                             
-                            if p_type == "Unit" and not stats:
+                            if (p_type == "Unit" or ("M" in chars and "T" in chars and "Sv" in chars)) and not stats:
                                 stats = {
                                     "M": chars.get("M", "6\""),
                                     "T": chars.get("T", "4"),
@@ -549,26 +568,34 @@ class ArmyListParser:
                                     "LD": chars.get("LD", chars.get("Ld", "6+")),
                                     "OC": chars.get("OC", "1")
                                 }
-                            elif p_type in ["Abilities", "Primarch of the First Legion", "Ability"]:
-                                desc = chars.get("Description", chars.get("Effect", ""))
-                                if not any(a["name"] == p_name for a in abilities):
-                                    abilities.append({"name": p_name, "description": desc, "type": p_type})
-                            elif p_type in ["Ranged Weapons", "Melee Weapons", "Weapon"]:
+                            elif p_type in ["Ranged Weapons", "Melee Weapons", "Weapon"] or ("Range" in chars and ("A" in chars or "S" in chars or "BS" in chars or "WS" in chars)):
                                 clean_wname = p_name.replace("➤", "").strip()
                                 if not any(w["name"] == clean_wname for w in weapons):
+                                    rng = chars.get("Range", "Melee")
+                                    w_type = "Ranged" if p_type == "Ranged Weapons" or rng != "Melee" else "Melee"
+                                    skill_val = chars.get("BS" if w_type == "Ranged" else "WS", chars.get("BS", chars.get("WS", "3+")))
                                     weapons.append({
                                         "name": clean_wname,
-                                        "type": "Ranged" if p_type == "Ranged Weapons" or chars.get("Range") != "Melee" else "Melee",
-                                        "range": chars.get("Range", "Melee"),
+                                        "type": w_type,
+                                        "range": rng,
+                                        "Range": rng,
                                         "A": chars.get("A", "1"),
-                                        "skill": chars.get("BS", chars.get("WS", "3+")),
+                                        "skill": skill_val,
+                                        "BS": chars.get("BS", skill_val),
+                                        "WS": chars.get("WS", skill_val),
                                         "S": chars.get("S", "4"),
                                         "AP": chars.get("AP", "0"),
                                         "D": chars.get("D", "1"),
                                         "keywords": [k.strip() for k in chars.get("Keywords", "").split(",") if k.strip()]
                                     })
+                            elif p_type in ["Abilities", "Primarch of the First Legion", "Ability"] or ("Description" in chars or "Effect" in chars or "Rules" in chars):
+                                desc = chars.get("Description", chars.get("Effect", chars.get("Rules", "")))
+                                if p_name and not any(a["name"] == p_name for a in abilities):
+                                    abilities.append({"name": p_name, "description": desc, "type": p_type})
                                     
                     process_profiles(sel.get("profiles", []))
+                    
+                    unit_keywords = [c.get("name") for c in sel.get("categories", []) if c.get("name") and not c.get("name").startswith("Configuration") and c.get("name") != "Unit"]
                     
                     def traverse_sub_selections(sub_list):
                         nonlocal is_warlord, enhancement, model_count
@@ -579,6 +606,11 @@ class ArmyListParser:
                             if "enhancement" in sub_name.lower() or any("enhancement" in c.get("name", "").lower() for c in sub.get("categories", [])):
                                 enhancement = sub_name
                             
+                            for c in sub.get("categories", []):
+                                c_n = c.get("name")
+                                if c_n and c_n not in unit_keywords and not c_n.startswith("Configuration"):
+                                    unit_keywords.append(c_n)
+                                    
                             process_profiles(sub.get("profiles", []))
                             for r in sub.get("rules", []):
                                 if not any(ru["name"] == r.get("name") for ru in rules):
@@ -612,7 +644,8 @@ class ArmyListParser:
                         "weapons": weapons,
                         "abilities": abilities,
                         "rules": rules,
-                        "wargear": [w["name"] for w in weapons]
+                        "wargear": [w["name"] for w in weapons],
+                        "keywords": unit_keywords
                     })
                     
             return {
