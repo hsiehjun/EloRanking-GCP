@@ -2232,6 +2232,16 @@ class PostgresDatabase:
                                 d["chess_clock"] = json.loads(d["chess_clock"])
                             except Exception:
                                 d["chess_clock"] = None
+                        if isinstance(d.get("p1_army_list"), str):
+                            try:
+                                d["p1_army_list"] = json.loads(d["p1_army_list"])
+                            except Exception:
+                                pass
+                        if isinstance(d.get("p2_army_list"), str):
+                            try:
+                                d["p2_army_list"] = json.loads(d["p2_army_list"])
+                            except Exception:
+                                pass
                         return d
                     return None
 
@@ -2244,6 +2254,56 @@ class PostgresDatabase:
                 return do_select()
             except Exception:
                 return None
+
+    def update_tracker_army_list(self, match_id: str, role: str, army_list: Dict[str, Any]) -> bool:
+        """Persists attached player army list into the tracker_games table."""
+        if not match_id:
+            return False
+        match_id = match_id.strip().upper()
+        col_list = "p1_army_list" if role in ["player1", "p1"] else "p2_army_list"
+        col_id = "p1_army_list_id" if role in ["player1", "p1"] else "p2_army_list_id"
+        col_fac = "p1_faction" if role in ["player1", "p1"] else "p2_faction"
+        col_det = "p1_detachment" if role in ["player1", "p1"] else "p2_detachment"
+
+        list_id = army_list.get("id") if isinstance(army_list, dict) else None
+        list_json = json.dumps(army_list) if army_list else None
+        faction = army_list.get("faction") if isinstance(army_list, dict) else None
+        detachment = army_list.get("detachment") if isinstance(army_list, dict) else None
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    # Update row if exists
+                    cursor.execute(f"""
+                    UPDATE tracker_games
+                    SET {col_list} = %s::jsonb,
+                        {col_id} = COALESCE(%s, {col_id}),
+                        {col_fac} = COALESCE(%s, {col_fac}),
+                        {col_det} = COALESCE(%s, {col_det}),
+                        updated_at = NOW()
+                    WHERE match_id = %s;
+                    """, (list_json, list_id, faction, detachment, match_id))
+                    
+                    if cursor.rowcount == 0:
+                        cursor.execute(f"""
+                        INSERT INTO tracker_games (match_id, {col_list}, {col_id}, {col_fac}, {col_det}, updated_at, created_at)
+                        VALUES (%s, %s::jsonb, %s, %s, %s, NOW(), NOW())
+                        ON CONFLICT (match_id) DO UPDATE
+                        SET {col_list} = EXCLUDED.{col_list},
+                            {col_id} = COALESCE(EXCLUDED.{col_id}, tracker_games.{col_id}),
+                            {col_fac} = COALESCE(EXCLUDED.{col_fac}, tracker_games.{col_fac}),
+                            {col_det} = COALESCE(EXCLUDED.{col_det}, tracker_games.{col_det}),
+                            updated_at = NOW();
+                        """, (match_id, list_json, list_id, faction, detachment))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.warning(f"Error updating tracker army list for match {match_id}: {e}")
+            try:
+                self.ensure_tracker_table()
+            except Exception:
+                pass
+            return False
 
     def save_tracker_clock(self, match_id: str, clock_data: Dict[str, Any]) -> bool:
         """Persists live tournament chess clock state in PostgreSQL."""
