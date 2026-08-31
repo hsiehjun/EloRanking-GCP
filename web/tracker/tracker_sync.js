@@ -46,7 +46,7 @@
         if (
           (txt.includes('INSTALL') && (txt.includes('HOME SCREEN') || txt.includes('HOMESCREEN') || txt.includes('APP') || txt.includes('BROWSER'))) ||
           (txt.includes('ADD TO HOME SCREEN') || txt.includes('ADD TO HOMESCREEN')) ||
-          (txt.includes('INSTALL GDM') || (txt.includes('INSTALL 40K ELO') && !el.closest('#pwa-install-banner')))
+          (txt.includes('INSTALL GDM') || txt.includes('INSTALL 40K ELO') || txt.includes('INSTALL OMNITACTICA'))
         ) {
           const popup = el.closest('div[class*="fixed"], div[class*="absolute"], [role="dialog"], [role="alert"]') || el;
           if (popup && popup !== document.body && popup !== document.documentElement && !popup.contains(document.getElementById('gt-lobby-wrapper'))) {

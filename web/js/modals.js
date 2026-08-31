@@ -715,7 +715,7 @@ function openFeedbackModal() {
           <span style="font-size:22px;">💬</span>
           <div>
             <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Feedback & Bug Report</h3>
-            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Help us improve 40k Elo Ranking & Game Tracker</div>
+            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Help us improve OmniTactica 40k</div>
           </div>
         </div>
         <button onclick="closeFeedbackModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>

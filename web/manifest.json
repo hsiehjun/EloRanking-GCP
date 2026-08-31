@@ -1,0 +1,17 @@
+{
+  "name": "OmniTactica - Warhammer 40k Suite",
+  "short_name": "OmniTactica",
+  "description": "OmniTactica Warhammer 40,000 Elo Rankings, Tournament Companion & Live Game Tracker",
+  "start_url": "/?tab=my-hub",
+  "display": "standalone",
+  "background_color": "#070b14",
+  "theme_color": "#070b14",
+  "icons": [
+    {
+      "src": "/assets/logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

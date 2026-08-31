@@ -89,9 +89,9 @@ def get_elo_engine():
 
 if FASTAPI_AVAILABLE:
     app = FastAPI(
-        title="Warhammer 40,000 Elo Ranking API",
-        version="2.0.0",
-        description="High-performance async API for Best Coast Pairings match history, player Elo standings, and tournament pairings.",
+        title="OmniTactica - Warhammer 40k Suite API",
+        version="2.1.0",
+        description="High-performance async API for OmniTactica: Warhammer 40,000 Elo rankings, live match tracker, and BCP tournament suite.",
         docs_url="/docs",
         redoc_url="/redoc"
     )

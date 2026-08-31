@@ -162,9 +162,9 @@ function showPwaInstallBanner() {
   `;
 
   banner.innerHTML = `
-    <img src="/assets/logo.svg" alt="40k Elo" style="width:44px; height:44px; border-radius:10px; border:1px solid #1e293b; flex-shrink:0;">
+    <img src="/assets/logo.svg" alt="OmniTactica" style="width:44px; height:44px; border-radius:10px; border:1px solid #1e293b; flex-shrink:0;">
     <div style="flex:1; min-width:0;">
-      <div style="font-size:0.9rem; font-weight:800; color:#fff; font-family:'JetBrains Mono',monospace;">Install 40k Elo App</div>
+      <div style="font-size:0.9rem; font-weight:800; color:#fff; font-family:'JetBrains Mono',monospace;">Install OmniTactica App</div>
       <div style="font-size:0.75rem; color:var(--text-muted); line-height:1.35; margin-top:2px;">Get instant access to Elo Rankings, Meta Stats & Game Tracker on your phone or desktop.</div>
     </div>
     <div style="display:flex; align-items:center; gap:8px;">
