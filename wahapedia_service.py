@@ -66,15 +66,11 @@ class WahapediaService:
         self.load_all_data()
 
     def ensure_data_files(self):
-        """Ensures all required CSV dumps exist locally; downloads them if missing."""
+        """Checks if CSV files exist locally; does not block startup if offline."""
         os.makedirs(DATA_DIR, exist_ok=True)
-        missing = [f for f in CSV_FILES if not os.path.exists(os.path.join(DATA_DIR, f))]
-        if missing:
-            logger.info(f"Downloading {len(missing)} missing Wahapedia CSV dumps to {DATA_DIR}...")
-            self.download_csv_dumps(missing)
 
     def download_csv_dumps(self, files_to_download: Optional[List[str]] = None) -> bool:
-        """Downloads official Wahapedia CSV exports."""
+        """Downloads official Wahapedia CSV exports in background."""
         targets = files_to_download or CSV_FILES
         os.makedirs(DATA_DIR, exist_ok=True)
         success = True
@@ -83,14 +79,14 @@ class WahapediaService:
             dest = os.path.join(DATA_DIR, fname)
             try:
                 req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                with urllib.request.urlopen(req, timeout=4) as resp:
                     if resp.status == 200:
                         data = resp.read()
                         with open(dest, "wb") as f:
                             f.write(data)
                         logger.info(f"Downloaded {fname} ({len(data):,} bytes)")
             except Exception as e:
-                logger.warning(f"Failed to download {fname}: {e}")
+                logger.debug(f"Notice downloading {fname}: {e}")
                 success = False
         return success
 
@@ -269,9 +265,6 @@ class WahapediaService:
                         self.stratagems_by_detachment[key].append(strat_obj)
 
         logger.info(f"Loaded {len(self.datasheets):,} Wahapedia datasheets and {len(self.stratagems_by_detachment):,} detachment stratagem sets into cache.")
-
-        # Sync to PostgreSQL database tables if available
-        self._sync_to_db_if_available(factions_list, datasheets_list, stratagems_list)
 
     def _sync_to_db_if_available(self, factions: List[Dict[str, Any]], datasheets: List[Dict[str, Any]], stratagems: List[Dict[str, Any]]):
         """Attempts to sync Wahapedia datasets into PostgreSQL tables."""

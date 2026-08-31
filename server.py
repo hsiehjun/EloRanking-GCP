@@ -137,7 +137,7 @@ if FASTAPI_AVAILABLE:
     # Periodic Wahapedia Database Updater
     async def run_periodic_wahapedia_sync():
         """Periodic background job: syncs official Wahapedia rules into PostgreSQL every 24 hours."""
-        await asyncio.sleep(5)  # Initial grace boot delay
+        await asyncio.sleep(45)  # Initial grace boot delay for Cloud Run health checks
         while True:
             try:
                 waha = get_wahapedia()

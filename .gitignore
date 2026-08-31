@@ -2,7 +2,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
-data/
+data/*
+!data/wahapedia/
 scratch/
 *.sql
 *.tar.gz
