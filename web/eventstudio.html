@@ -67,9 +67,15 @@
 
     <!-- TAB 1: Events Directory -->
     <div id="es-view-events" class="es-tab-view">
-      <div class="es-section-header">
-        <h3>Managed Tournaments</h3>
-        <button class="es-btn-primary" onclick="switchStudioTab('create')">+ New Event</button>
+      <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Managed Tournaments</h3>
+          <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Tournaments organized by your BCP account or created in Event Studio</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-outline" style="font-size: 0.82rem; padding: 0.4rem 0.85rem;" onclick="loadStudioEvents()">🔄 Sync BCP Events</button>
+          <button class="es-btn-primary" onclick="switchStudioTab('create')">➕ Create Event</button>
+        </div>
       </div>
       <div class="es-events-grid" id="es-events-list">
         <!-- Rendered dynamically -->
