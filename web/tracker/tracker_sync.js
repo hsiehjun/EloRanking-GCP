@@ -1646,9 +1646,11 @@
           ⏱️ Clock
         </button>
 
-        <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Call Tournament Director / Floor Judge to this Table">
-          🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
-        </button>
+        ${tournamentId ? `
+          <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Call Tournament Director / Floor Judge to this Table">
+            🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
+          </button>
+        ` : ''}
 
         <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Opponent's Army List">
           📜 Opponent List ${hasOppList ? '🟢' : ''}
@@ -2389,6 +2391,18 @@
   clientState.activeJudgeCall = null;
 
   window.gtOpenJudgeModal = function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let stateObj = {};
+    try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
+    const game = stateObj.game || {};
+    const tournamentId = urlParams.get('event_id') || urlParams.get('tournament_id') || game.tournament_id || game.eventId || '';
+
+    if (!tournamentId) {
+      alert('Floor Judge calling is only available for matches registered with an active tournament/event.');
+      return;
+    }
+
     let modal = document.getElementById('gt-judge-modal');
     if (!modal) {
       modal = document.createElement('div');
