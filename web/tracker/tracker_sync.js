@@ -58,19 +58,69 @@
     } catch(e) {}
   }
 
+  // 1.5 Auto-repair any Next.js optimized images (e.g. terrain layouts, mission cards)
+  function repairNextImages() {
+    try {
+      const imgs = document.querySelectorAll('img');
+      for (const img of imgs) {
+        const src = img.getAttribute('src') || '';
+        if (src.includes('/_next/image?url=') && !img.dataset.gdmRepaired) {
+          try {
+            const u = new URL(src, window.location.href);
+            const rawTarget = u.searchParams.get('url');
+            if (rawTarget) {
+              img.dataset.gdmRepaired = 'true';
+              img.src = `https://gdmissions.app${rawTarget}`;
+            }
+          } catch(e) {}
+        }
+      }
+    } catch(e) {}
+  }
+
+  window.addEventListener('error', function(e) {
+    if (e.target && e.target.tagName === 'IMG') {
+      const src = e.target.getAttribute('src') || '';
+      if (src.includes('/_next/image') || src.includes('/assets/11th/')) {
+        try {
+          const u = new URL(src, window.location.href);
+          const rawTarget = u.searchParams.get('url') || u.pathname;
+          if (rawTarget && !e.target.dataset.retried) {
+            e.target.dataset.retried = 'true';
+            e.target.src = `https://gdmissions.app${rawTarget}`;
+          }
+        } catch(err) {}
+      }
+    }
+  }, true);
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
       suppressGdmInstallPrompts();
-      setInterval(suppressGdmInstallPrompts, 400);
+      repairNextImages();
+      setInterval(() => {
+        suppressGdmInstallPrompts();
+        repairNextImages();
+      }, 300);
       if (document.body) {
-        new MutationObserver(suppressGdmInstallPrompts).observe(document.body, { childList: true, subtree: true });
+        new MutationObserver(() => {
+          suppressGdmInstallPrompts();
+          repairNextImages();
+        }).observe(document.body, { childList: true, subtree: true });
       }
     });
   } else {
     suppressGdmInstallPrompts();
-    setInterval(suppressGdmInstallPrompts, 400);
+    repairNextImages();
+    setInterval(() => {
+      suppressGdmInstallPrompts();
+      repairNextImages();
+    }, 300);
     if (document.body) {
-      new MutationObserver(suppressGdmInstallPrompts).observe(document.body, { childList: true, subtree: true });
+      new MutationObserver(() => {
+        suppressGdmInstallPrompts();
+        repairNextImages();
+      }).observe(document.body, { childList: true, subtree: true });
     }
   }
 
