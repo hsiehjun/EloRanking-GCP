@@ -3370,57 +3370,169 @@ class PostgresDatabase:
                     "models": models
                 }
 
+    def _extract_detachment_search_terms(self, detachment_name: str) -> Tuple[List[str], List[str]]:
+        """Extracts candidate detachment names and rule names from an arbitrary detachment input string."""
+        if not detachment_name:
+            return [], []
+        import re
+        raw = detachment_name.replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+        
+        # 1. Extract parenthetical expressions as candidate rule names
+        rule_hints = [r.strip() for r in re.findall(r'\((.*?)\)', raw) if r.strip()]
+        
+        # 2. Strip parentheses for the base detachment string
+        no_parens = re.sub(r'\(.*?\)', '', raw).strip()
+        
+        # 3. Strip any faction prefixes like 'Xenos - Necrons:' or 'Necrons -'
+        if ':' in no_parens:
+            no_parens = no_parens.split(':', 1)[-1].strip()
+        if ' - ' in no_parens and not any(kw in no_parens.lower() for kw in ['task force', 'spearhead', 'legion', 'court', 'host', 'fleet', 'phalanx', 'cadre', 'detachment']):
+            parts = no_parens.split(' - ')
+            no_parens = parts[-1].strip()
+            
+        # 4. Split by comma, semicolon, slash, or ampersand
+        sub_parts = [p.strip() for p in re.split(r'[,;/&]+', no_parens) if p.strip()]
+        
+        candidate_dets = []
+        for sp in sub_parts:
+            if sp and sp not in candidate_dets:
+                candidate_dets.append(sp)
+        if no_parens and no_parens not in candidate_dets:
+            candidate_dets.append(no_parens)
+        if raw and raw not in candidate_dets:
+            candidate_dets.append(raw)
+            
+        return candidate_dets, rule_hints
+
     def waha_get_stratagems(self, detachment_name: str, faction_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns all stratagems associated with a specific detachment (plus core stratagems) from PostgreSQL."""
         if not detachment_name:
             return []
-        import re
-        det_clean = re.sub(r'\(.*?\)', '', detachment_name or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+        candidate_dets, rule_hints = self._extract_detachment_search_terms(detachment_name)
+        if not candidate_dets and not rule_hints:
+            return []
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                expanded_dets = list(candidate_dets)
+                if rule_hints:
+                    r_clauses = ["LOWER(name) = LOWER(%s) OR name ILIKE %s" for _ in rule_hints]
+                    r_params = []
+                    for rh in rule_hints:
+                        r_params.extend([rh, f"%{rh}%"])
+                    cursor.execute(f"SELECT DISTINCT detachment FROM waha_detachment_abilities WHERE {' OR '.join(r_clauses)};", tuple(r_params))
+                    for row in cursor.fetchall():
+                        d = row.get("detachment")
+                        if d and d not in expanded_dets:
+                            expanded_dets.append(d)
+
+                clauses = []
+                params = []
+                for det in expanded_dets:
+                    clauses.append("LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s")
+                    params.extend([det, f"%{det}%"])
+                
+                # Include Core Stratagems
+                clauses.append("LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems'")
+                
+                query = f"""
                     SELECT * FROM waha_stratagems 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
+                    WHERE ({' OR '.join(clauses)})
                       AND name IS NOT NULL AND TRIM(name) != ''
                       AND cp_cost IS NOT NULL AND TRIM(cp_cost) != ''
                     ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
-                """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
-                return [dict(r) for r in cursor.fetchall()]
+                """
+                cursor.execute(query, tuple(params))
+                rows = [dict(r) for r in cursor.fetchall()]
+                seen = set()
+                deduped = []
+                for r in rows:
+                    n = (r.get("name") or "").strip().lower()
+                    if n and n not in seen:
+                        seen.add(n)
+                        deduped.append(r)
+                return deduped
 
     def waha_get_enhancements(self, detachment_name: str) -> List[Dict[str, Any]]:
         """Returns all enhancements associated with a specific detachment from PostgreSQL."""
         if not detachment_name:
             return []
-        import re
-        det_clean = re.sub(r'\(.*?\)', '', detachment_name or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+        candidate_dets, rule_hints = self._extract_detachment_search_terms(detachment_name)
+        if not candidate_dets and not rule_hints:
+            return []
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                expanded_dets = list(candidate_dets)
+                if rule_hints:
+                    r_clauses = ["LOWER(name) = LOWER(%s) OR name ILIKE %s" for _ in rule_hints]
+                    r_params = []
+                    for rh in rule_hints:
+                        r_params.extend([rh, f"%{rh}%"])
+                    cursor.execute(f"SELECT DISTINCT detachment FROM waha_detachment_abilities WHERE {' OR '.join(r_clauses)};", tuple(r_params))
+                    for row in cursor.fetchall():
+                        d = row.get("detachment")
+                        if d and d not in expanded_dets:
+                            expanded_dets.append(d)
+
+                clauses = []
+                params = []
+                for det in expanded_dets:
+                    clauses.append("LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s")
+                    params.extend([det, f"%{det}%"])
+                
+                query = f"""
                     SELECT * FROM waha_enhancements 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
+                    WHERE ({' OR '.join(clauses)})
                       AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
-                """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
-                return [dict(r) for r in cursor.fetchall()]
+                """
+                cursor.execute(query, tuple(params))
+                rows = [dict(r) for r in cursor.fetchall()]
+                seen = set()
+                deduped = []
+                for r in rows:
+                    n = (r.get("name") or "").strip().lower()
+                    if n and n not in seen:
+                        seen.add(n)
+                        deduped.append(r)
+                return deduped
 
     def waha_get_detachment_rules(self, detachment_name: str) -> List[Dict[str, Any]]:
-        """Returns all detachment rules associated with a specific detachment from PostgreSQL."""
+        """Returns all detachment rules associated with a specific detachment or rule name from PostgreSQL."""
         if not detachment_name:
             return []
-        import re
-        det_clean = re.sub(r'\(.*?\)', '', detachment_name or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+        candidate_dets, rule_hints = self._extract_detachment_search_terms(detachment_name)
+        if not candidate_dets and not rule_hints:
+            return []
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                clauses = []
+                params = []
+                for det in candidate_dets:
+                    clauses.append("LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s")
+                    params.extend([det, f"%{det}%"])
+                for r_hint in rule_hints:
+                    clauses.append("LOWER(name) = LOWER(%s) OR name ILIKE %s")
+                    params.extend([r_hint, f"%{r_hint}%"])
+                
+                query = f"""
                     SELECT * FROM waha_detachment_abilities 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
+                    WHERE ({' OR '.join(clauses)})
                       AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
-                """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
-                return [dict(r) for r in cursor.fetchall()]
+                """
+                cursor.execute(query, tuple(params))
+                rows = [dict(r) for r in cursor.fetchall()]
+                seen = set()
+                deduped = []
+                for r in rows:
+                    n = (r.get("name") or "").strip().lower()
+                    if n and n not in seen:
+                        seen.add(n)
+                        deduped.append(r)
+                return deduped
 
     def waha_get_army_rules(self, faction_name: str) -> List[Dict[str, Any]]:
         """Returns all army rules (e.g. Reanimation Protocols, Oath of Moment) for a faction."""
@@ -3433,19 +3545,29 @@ class PostgresDatabase:
                 cursor.execute("""
                     SELECT ab.* FROM waha_army_abilities ab
                     LEFT JOIN waha_factions f ON ab.faction_id = f.id
-                    WHERE LOWER(f.name) = LOWER(%s) OR f.name ILIKE %s
-                       OR LOWER(ab.faction_id) = LOWER(%s) OR ab.faction_id ILIKE %s
+                    WHERE (LOWER(f.name) = LOWER(%s) OR f.name ILIKE %s
+                       OR LOWER(ab.faction_id) = LOWER(%s) OR ab.faction_id ILIKE %s)
+                      AND ab.faction_id IS NOT NULL AND ab.faction_id != ''
                     ORDER BY ab.name ASC;
                 """, (fac_clean, f"%{fac_clean}%", fac_clean, f"%{fac_clean}%"))
                 res = [dict(r) for r in cursor.fetchall()]
                 if not res:
                     cursor.execute("""
                         SELECT * FROM waha_army_abilities
-                        WHERE LOWER(faction_id) = LOWER(%s) OR faction_id ILIKE %s
+                        WHERE (LOWER(faction_id) = LOWER(%s) OR faction_id ILIKE %s)
+                          AND faction_id IS NOT NULL AND faction_id != ''
                         ORDER BY name ASC;
                     """, (fac_clean, f"%{fac_clean}%"))
                     res = [dict(r) for r in cursor.fetchall()]
-                return res
+                # Deduplicate by ability name
+                seen = set()
+                deduped = []
+                for r in res:
+                    n = (r.get("name") or "").strip().lower()
+                    if n and n not in seen:
+                        seen.add(n)
+                        deduped.append(r)
+                return deduped
 
 
 

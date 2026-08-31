@@ -35,8 +35,12 @@ class ArmyListParser:
         faction = roster.get("faction") or ""
         detachment = roster.get("detachment") or ""
         
-        clean_det = re.sub(r'\(.*?\)', '', detachment or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip() if detachment else ""
-        lookup_det = clean_det or detachment
+        # Include any detachment rule names in lookup if available
+        rule_hints = [r.get("name") for r in (roster.get("detachment_rules") or []) if r.get("name")]
+        if rule_hints:
+            lookup_det = f"{detachment} ({', '.join(rule_hints)})"
+        else:
+            lookup_det = detachment
 
         # 1. Enrich Army Rules if missing
         if faction and not roster.get("army_rules"):
