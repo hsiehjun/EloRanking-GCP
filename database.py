@@ -1231,7 +1231,8 @@ class PostgresDatabase:
         lat: Optional[float] = None,
         lng: Optional[float] = None,
         radius_miles: Optional[float] = None,
-        limit: int = 25
+        limit: int = 25,
+        sort_by: str = "date"
     ) -> Dict[str, Any]:
         """Returns personalized upcoming event recommendations with Haversine distance calculations, Average Field Elo, and capacity metrics."""
         with self.get_connection() as conn:
@@ -1436,13 +1437,19 @@ class PostgresDatabase:
                 if radius_miles and user_lat:
                     rows = [r for r in rows if r.get("distance_miles") is not None and r["distance_miles"] <= radius_miles]
 
-                # Sort primarily by proximity (distance in miles), then by date soonest
+                # Sort events based on selected sort_by mode (date soonest by default, distance, or elo)
                 def sort_key(e):
-                    d = e.get("distance_miles")
-                    d_score = d if d is not None else 99999.0
                     dt = e.get("event_date")
                     dt_ts = dt.timestamp() if dt else 9999999999.0
-                    return (d_score, dt_ts)
+                    d = e.get("distance_miles")
+                    d_score = d if d is not None else 99999.0
+                    if sort_by == "distance":
+                        return (d_score, dt_ts)
+                    elif sort_by == "elo":
+                        elo = float(e.get("avg_elo_display") or 0.0)
+                        return (-elo, dt_ts, d_score)
+                    else:  # "date" (soonest first)
+                        return (dt_ts, d_score)
 
                 sorted_events = sorted(rows, key=sort_key)
 

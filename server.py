@@ -2276,6 +2276,7 @@ if FASTAPI_AVAILABLE:
         lat: Optional[float] = Query(None),
         lng: Optional[float] = Query(None),
         radius_miles: Optional[float] = Query(None),
+        sort_by: str = Query("date"),
         limit: int = Query(35, ge=1, le=100)
     ):
         db = get_database()
@@ -2595,12 +2596,18 @@ if FASTAPI_AVAILABLE:
             elif "rtt" in t_target or "local" in t_target:
                 processed_events = [e for e in processed_events if e["tier"] == "RTT / Local"]
 
-        # Sort: Nearest distance first, then soonest date
+        # Sort events based on selected sort_by mode (date soonest by default, distance, or elo)
         def event_sort_key(e):
+            dt = e.get("event_date") or "9999-99-99"
             d = e.get("distance_miles")
             d_val = d if d is not None else 99999.0
-            dt = e.get("event_date") or "9999-99-99"
-            return (d_val, dt)
+            if sort_by == "distance":
+                return (d_val, dt)
+            elif sort_by == "elo":
+                elo = float(e.get("avg_elo_display") or 0.0)
+                return (-elo, dt, d_val)
+            else:  # "date" (soonest first)
+                return (dt, d_val)
 
         sorted_events = sorted(processed_events, key=event_sort_key)
 

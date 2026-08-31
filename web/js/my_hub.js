@@ -175,7 +175,12 @@ function renderMyHub(data) {
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-secondary); flex-wrap: wrap; gap: 0.5rem;">
           <span id="hub-rec-location-label" style="font-weight: 600;">📍 Regional Events</span>
           <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-            <input type="text" id="hub-rec-search-input" class="hub-search-input" style="width: 140px; padding: 0.3rem 0.55rem; font-size: 0.75rem;" placeholder="Search..." oninput="debounceHubEventsSearch()">
+            <input type="text" id="hub-rec-search-input" class="hub-search-input" style="width: 130px; padding: 0.3rem 0.55rem; font-size: 0.75rem;" placeholder="Search..." oninput="debounceHubEventsSearch()">
+            <select id="hub-rec-sort-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
+              <option value="date" selected>📅 Soonest Date</option>
+              <option value="distance">📍 Closest Distance</option>
+              <option value="elo">🏆 Highest Field Elo</option>
+            </select>
             <select id="hub-rec-tier-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
               <option value="">All Tiers</option>
               <option value="Major">Major</option>
@@ -703,10 +708,12 @@ async function loadHubRecommendedEvents() {
   container.innerHTML = '<div class="empty-state" style="padding: 1.5rem 0;"><div class="spinner"></div></div>';
 
   const searchInput = document.getElementById('hub-rec-search-input');
+  const sortSelect = document.getElementById('hub-rec-sort-select');
   const query = searchInput ? searchInput.value.trim() : '';
   const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
   const selectedTier = tierSelect ? tierSelect.value : '';
   const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 100;
+  const selectedSort = sortSelect ? sortSelect.value : 'date';
 
   // Determine coordinates: Custom chosen location > Live device GPS > Competitor Home fallback
   let userLat = null;
@@ -728,7 +735,7 @@ async function loadHubRecommendedEvents() {
   }
 
   try {
-    const data = await window.api.getRecommendedEvents(playerId, query, selectedTier, userLat, userLng, selectedRadius, 40);
+    const data = await window.api.getRecommendedEvents(playerId, query, selectedTier, userLat, userLng, selectedRadius, 40, '', selectedSort);
     const events = data.events || [];
     
     if (label) {
