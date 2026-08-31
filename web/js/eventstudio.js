@@ -1223,11 +1223,9 @@ function copyStandingsText() {
 function exportRosterCsv() {
   const t = studioState.activeTournament;
   if (!t) return;
-  let csv = 'Name,Faction,Detachment,Email,CheckedIn,ListSubmitted
-';
+  let csv = 'Name,Faction,Detachment,Email,CheckedIn,ListSubmitted\n';
   (t.roster || []).forEach(p => {
-    csv += `"${p.name}","${p.faction || ''}","${p.detachment || ''}","${p.email || ''}",${p.checkedIn !== false},${p.listSubmitted !== false}
-`;
+    csv += `"${p.name}","${p.faction || ''}","${p.detachment || ''}","${p.email || ''}",${p.checkedIn !== false},${p.listSubmitted !== false}\n`;
   });
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);

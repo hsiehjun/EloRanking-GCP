@@ -1093,13 +1093,7 @@ function openImportArmyListModal() {
         <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">
           Paste Army List Text:
         </label>
-        <textarea id="hub-import-text-input" rows="10" placeholder="Paste your army roster text here... e.g.
-
-Space Marines - Gladius Task Force (2000 pts)
-1x Captain in Gravis Armour (80 pts): Warlord, Enhancement: The Artificer Armour (+10 pts)
-10x Intercessor Squad (160 pts)
-5x Terminator Squad (175 pts)
-1x Redemptor Dreadnought (210 pts)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:10px; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical; line-height:1.5;"></textarea>
+        <textarea id="hub-import-text-input" rows="10" placeholder="Paste your army roster text here... (e.g. Space Marines - Gladius Task Force, Units, Enhancements, Points)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:10px; padding:12px 14px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; outline:none; box-sizing:border-box; resize:vertical; line-height:1.5;"></textarea>
 
         <div style="margin-top:12px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
           <div style="font-size:11px; color:#94a3b8;">
@@ -1822,7 +1816,7 @@ function discardTrackerSession(matchId) {
 window.loadHubArmyLists = loadHubArmyLists;
 window.openImportArmyListModal = openImportArmyListModal;
 window.closeImportArmyListModal = closeImportArmyListModal;
-window.handleHubParseAndSaveList = handleHubParseAndSaveList;
+window.handleHubParseAndSaveText = handleHubParseAndSaveText;
 window.openViewArmyListModal = openViewArmyListModal;
 window.closeViewArmyListModal = closeViewArmyListModal;
 window.exportArmyListToBcp = exportArmyListToBcp;
