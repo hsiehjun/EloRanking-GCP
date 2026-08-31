@@ -962,8 +962,21 @@ class PostgresDatabase:
                         if p1_id:
                             ps["opponents"].append(p1_id)
 
+                # Track existing player names to avoid alias ID duplicates
+                existing_names = {ps["full_name"].strip().lower(): p_id for p_id, ps in player_stats.items() if ps["event_matches_count"] > 0 and ps["full_name"] not in ("Player", "Player 1", "Player 2", "BYE")}
+
                 # Add any enrolled players who haven't played a round yet
                 for p_id, p_info in participants.items():
+                    name_norm = (p_info.get("full_name") or "").strip().lower()
+                    if name_norm and name_norm in existing_names:
+                        # Merge pod_num, team, or faction if missing on the active match record
+                        active_pid = existing_names[name_norm]
+                        if player_stats[active_pid].get("pod_num") is None and p_info.get("pod_num") is not None:
+                            player_stats[active_pid]["pod_num"] = p_info.get("pod_num")
+                        if not player_stats[active_pid].get("team") and p_info.get("team"):
+                            player_stats[active_pid]["team"] = p_info.get("team")
+                        continue
+
                     if p_id not in player_stats:
                         player_stats[p_id] = {
                             "player_id": p_id,
