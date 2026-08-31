@@ -1276,20 +1276,30 @@ function exportArmyListToBcp(listId) {
 
 async function deleteHubArmyList(listId, fromModal = false) {
   if (!confirm('Are you sure you want to permanently delete this army list?')) return;
+  
+  if (fromModal) {
+    closeViewArmyListModal();
+  }
+
+  // 1. Instant 0ms Optimistic UI Removal
+  const prevLists = [...(hubSavedLists || [])];
+  hubSavedLists = (hubSavedLists || []).filter(l => l.id !== listId);
+  renderHubArmyLists(hubSavedLists);
+
+  // 2. Perform async deletion in background
   try {
     const res = await window.api.deleteArmyList(listId);
     if (res && res.error) {
+      console.warn('Delete army list warning:', res.error);
+      // Revert if server returned an error
+      hubSavedLists = prevLists;
+      renderHubArmyLists(hubSavedLists);
       alert('Error deleting list: ' + res.error);
-      return;
     }
-    if (fromModal) {
-      closeViewArmyListModal();
-    }
-    // Optimistically update list in state
-    hubSavedLists = (hubSavedLists || []).filter(l => l.id !== listId);
-    renderHubArmyLists(hubSavedLists);
-    await loadHubArmyLists();
   } catch(e) {
+    console.error('Delete error:', e);
+    hubSavedLists = prevLists;
+    renderHubArmyLists(hubSavedLists);
     alert('Error deleting list: ' + e.message);
   }
 }
