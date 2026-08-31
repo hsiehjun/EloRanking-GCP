@@ -173,6 +173,79 @@ class BestCoastPairingsScraper:
 
         return players
 
+    def sync_event_roster(self, event_id: str) -> int:
+        """Quickly updates the participant roster and podNum in ~0.5s without re-fetching all round matches."""
+        enrolled_players = self.fetch_event_players(event_id)
+        count = 0
+        for p in enrolled_players:
+            user = p.get("user") or {}
+            user_id = user.get("id") or p.get("userId") or p.get("id")
+            if not user_id:
+                continue
+            first_name = user.get("firstName") or p.get("firstName") or ""
+            last_name = user.get("lastName") or p.get("lastName") or ""
+            full_name = f"{first_name} {last_name}".strip() or p.get("name") or "Player"
+
+            faction_obj = p.get("faction") or p.get("parentFaction") or ""
+            faction_name = ""
+            if isinstance(faction_obj, dict):
+                faction_name = faction_obj.get("name", "")
+            elif isinstance(faction_obj, str):
+                faction_name = faction_obj
+
+            team_name = (
+                p.get("team") or p.get("teamName") or 
+                user.get("team") or user.get("teamName") or 
+                p.get("club") or user.get("club") or 
+                p.get("gamingClub") or user.get("gamingClub") or 
+                p.get("clubName") or user.get("clubName") or ""
+            )
+            if isinstance(team_name, dict):
+                team_name = team_name.get("name") or team_name.get("teamName") or ""
+            team_name = str(team_name).strip()
+
+            raw_place = p.get("placing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
+            placing_num = None
+            if raw_place is not None:
+                try:
+                    placing_num = int(raw_place)
+                except (ValueError, TypeError):
+                    pass
+
+            raw_pts = p.get("points") or p.get("battlePoints") or p.get("totalPoints")
+            pts_num = None
+            if raw_pts is not None:
+                try:
+                    pts_num = int(raw_pts)
+                except (ValueError, TypeError):
+                    pass
+
+            raw_pod = p.get("podNum") or p.get("pod_num")
+            pod_num = None
+            if raw_pod is not None:
+                try:
+                    pod_num = int(raw_pod)
+                except (ValueError, TypeError):
+                    pass
+
+            self.db.upsert_player(user_id, first_name, last_name, full_name, team=team_name)
+            self.db.upsert_event_participant(
+                event_id=event_id,
+                player_id=user_id,
+                first_name=first_name,
+                last_name=last_name,
+                full_name=full_name,
+                faction=faction_name,
+                team=team_name,
+                dropped=bool(p.get("dropped")),
+                checked_in=bool(p.get("checkedIn")),
+                placement=placing_num,
+                battle_points=pts_num,
+                pod_num=pod_num
+            )
+            count += 1
+        return count
+
     def parse_and_store_match(self, event_data: Dict[str, Any], pairing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Extracts structured match details and stores both players and match outcome in DB."""
         match_id = pairing.get("id")
