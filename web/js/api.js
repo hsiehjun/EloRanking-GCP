@@ -345,6 +345,60 @@ window.api = {
     });
   },
 
+  // EventStudio: Create Judge Call (from Game Room)
+  async createJudgeCall(payload) {
+    return this._fetchJson('/api/eventstudio/judge_call', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Get Judge Calls for Tournament
+  async getJudgeCalls(eventId, activeOnly = false) {
+    return this._fetchJson(`/api/eventstudio/judge_calls?event_id=${encodeURIComponent(eventId)}&active_only=${activeOnly}`);
+  },
+
+  // EventStudio: Resolve Judge Call
+  async resolveJudgeCall(callId, status = 'resolved') {
+    return this._fetchJson('/api/eventstudio/judge_call/resolve', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ call_id: callId, status })
+    });
+  },
+
+  // EventStudio: Match Predictor
+  async getMatchPredictor(p1_id = '', p2_id = '', p1_name = '', p2_name = '', p1_faction = '', p2_faction = '') {
+    const params = new URLSearchParams({
+      p1_id, p2_id, p1_name, p2_name, p1_faction, p2_faction
+    });
+    return this._fetchJson(`/api/eventstudio/match_predictor?${params}`);
+  },
+
+  // EventStudio: Generate Day 2 Pod Brackets
+  async generateDay2Pods(eventId, payload = {}) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pods/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Save WTC Draft
+  async saveWtcDraft(payload) {
+    return this._fetchJson('/api/eventstudio/wtc_draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Get WTC Draft
+  async getWtcDraft(eventId, roundNum) {
+    return this._fetchJson(`/api/eventstudio/wtc_draft?event_id=${encodeURIComponent(eventId)}&round_num=${roundNum}`);
+  },
+
   // Army Lists: Get User Lists
   async getArmyLists() {
     return this._fetchJson('/api/armylists', {

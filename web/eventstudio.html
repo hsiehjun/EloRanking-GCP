@@ -32,12 +32,15 @@
     </header>
 
     <!-- Studio Navigation Tabs -->
-    <div class="es-nav-bar">
-      <button class="es-nav-tab active" id="tab-btn-events" onclick="switchStudioTab('events')">⚔️ Managed Tournaments (<span id="es-events-count">0</span>)</button>
-      <button class="es-nav-tab" id="tab-btn-roster" onclick="switchStudioTab('roster')">👥 Player Roster (<span id="es-roster-count">0</span>)</button>
-      <button class="es-nav-tab" id="tab-btn-pairings" onclick="switchStudioTab('pairings')">🎲 Swiss Pairings & Live Tables</button>
-      <button class="es-nav-tab" id="tab-btn-standings" onclick="switchStudioTab('standings')">🏆 Live Standings & SoS</button>
-      <button class="es-nav-tab" id="tab-btn-create" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+    <div class="es-nav-bar" style="margin-bottom: 1.25rem; display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 4px;">
+      <button class="es-nav-tab active" id="tab-btn-events" onclick="switchStudioTab('events')">⚔️ Tournaments (<span id="es-events-count">0</span>)</button>
+      <button class="es-nav-tab" id="tab-btn-dashboard" onclick="switchStudioTab('dashboard')">📊 TO Dashboard</button>
+      <button class="es-nav-tab" id="tab-btn-pairings" onclick="switchStudioTab('pairings')">🎲 Swiss Pairings</button>
+      <button class="es-nav-tab" id="tab-btn-wtc" onclick="switchStudioTab('wtc')">🛡️ WTC Team Draft</button>
+      <button class="es-nav-tab" id="tab-btn-pods" onclick="switchStudioTab('pods')">⚡ Day 2 Pods</button>
+      <button class="es-nav-tab" id="tab-btn-roster" onclick="switchStudioTab('roster')">👥 Roster (<span id="es-roster-count">0</span>)</button>
+      <button class="es-nav-tab" id="tab-btn-standings" onclick="switchStudioTab('standings')">🏆 Standings</button>
+      <button class="es-nav-tab" id="tab-btn-create" onclick="switchStudioTab('create')">➕ Create</button>
     </div>
 
     <!-- Active Selected Tournament Banner (Hidden until a tournament is actively selected) -->
@@ -68,6 +71,164 @@
         <button class="es-btn-primary" onclick="switchStudioTab('create')">+ New Event</button>
       </div>
       <div class="es-events-grid" id="es-events-list">
+        <!-- Rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- TAB 2: TO Live Operations Dashboard -->
+    <div id="es-view-dashboard" class="es-tab-view" style="display: none;">
+      <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; color: #fff;">Tournament Director Live Operations Dashboard</h3>
+          <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Real-time floor telemetry, match completion rates, and judge call dispatch</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="refreshDashboardCalls()">🔄 Refresh Queue</button>
+          <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="switchStudioTab('pairings')">🎲 View Round Tables</button>
+        </div>
+      </div>
+
+      <!-- Operations Metric KPI Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.15rem;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Round Progress</div>
+          <div style="display: flex; align-items: baseline; gap: 0.5rem; margin: 0.4rem 0;">
+            <span id="dash-round-pct" style="font-size: 1.7rem; font-weight: 900; color: #38bdf8; font-family: var(--font-mono);">0%</span>
+            <span id="dash-round-sub" style="font-size: 0.8rem; color: var(--text-muted);">0 / 0 Tables Done</span>
+          </div>
+          <div style="background: #0f172a; height: 6px; border-radius: 999px; overflow: hidden;">
+            <div id="dash-round-progress-bar" style="background: #38bdf8; width: 0%; height: 100%; transition: width 0.3s ease;"></div>
+          </div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.15rem;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Active Tables</div>
+          <div style="margin: 0.4rem 0;">
+            <span id="dash-active-tables" style="font-size: 1.7rem; font-weight: 900; color: #10b981; font-family: var(--font-mono);">0</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">Tables currently in combat</div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.15rem;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Judge Dispatch Queue</div>
+          <div style="margin: 0.4rem 0; display: flex; align-items: center; gap: 0.5rem;">
+            <span id="dash-pending-calls" style="font-size: 1.7rem; font-weight: 900; color: #f43f5e; font-family: var(--font-mono);">0</span>
+            <span id="dash-calls-badge" class="badge" style="background: rgba(244,63,94,0.15); color: #f43f5e; border: 1px solid rgba(244,63,94,0.3); font-size: 0.75rem;">All Quiet</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">Calls awaiting floor judge</div>
+        </div>
+
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.15rem;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">Active Round Clock</div>
+          <div style="margin: 0.4rem 0;">
+            <span id="dash-clock-display" style="font-size: 1.7rem; font-weight: 900; color: #fff; font-family: var(--font-mono);">02:30:00</span>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted);">Round time remaining</div>
+        </div>
+      </div>
+
+      <!-- Live Judge Calls Dispatch Queue Section -->
+      <div style="background: var(--bg-card); border: 1px solid rgba(244, 63, 94, 0.35); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem; box-shadow: 0 10px 30px rgba(0,0,0,0.4);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.3rem;">🚨</span>
+            <div>
+              <h4 style="margin: 0; color: #fff; font-size: 1.05rem;">Live Floor Judge Dispatch Alerts</h4>
+              <div style="font-size: 0.75rem; color: var(--text-muted);">Player calls from live game tables appear here instantly</div>
+            </div>
+          </div>
+          <span id="dash-live-pulse" style="font-size: 0.75rem; color: #10b981; font-weight: 700; display: flex; align-items: center; gap: 0.35rem;">
+            <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981;"></span> Live Stream Active
+          </span>
+        </div>
+        
+        <div id="es-judge-calls-list">
+          <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+            ✅ No pending judge calls. Floor is quiet.
+          </div>
+        </div>
+      </div>
+
+      <!-- Floor Tables Overview -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem;">
+        <h4 style="margin: 0 0 1rem; color: #fff; font-size: 1.05rem;">Active Round Tables Status</h4>
+        <div id="es-dash-tables-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: WTC Team Match Pairing Draft Tool -->
+    <div id="es-view-wtc" class="es-tab-view" style="display: none;">
+      <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; color: #fff;">🛡️ WTC Team Pairing Draft Matrix</h3>
+          <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Strategic 5-man or 8-man Captain pick/ban and defender draft phase</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="resetWtcDraft()">↺ Reset Draft</button>
+          <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="commitWtcDraftToPairings()">💾 Push to Round Pairings</button>
+        </div>
+      </div>
+
+      <!-- WTC Setup & Format Controls -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div>
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">TEAM A (BLUE)</label>
+          <input type="text" id="wtc-team-a-name" value="Team Alpha" style="width: 100%; background: #070b14; border: 1px solid #334155; color: #fff; padding: 0.45rem 0.75rem; border-radius: 6px; font-weight: 700;" onchange="renderWtcDraftMatrix()" />
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">TEAM B (RED)</label>
+          <input type="text" id="wtc-team-b-name" value="Team Bravo" style="width: 100%; background: #070b14; border: 1px solid #334155; color: #fff; padding: 0.45rem 0.75rem; border-radius: 6px; font-weight: 700;" onchange="renderWtcDraftMatrix()" />
+        </div>
+        <div>
+          <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">TEAM FORMAT</label>
+          <select id="wtc-team-size" style="width: 100%; background: #070b14; border: 1px solid #334155; color: #fff; padding: 0.45rem 0.75rem; border-radius: 6px; font-weight: 700;" onchange="renderWtcDraftMatrix()">
+            <option value="5" selected>5-Player Team (WTC Standard)</option>
+            <option value="8">8-Player Team (Major Invitational)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Interactive Draft Board -->
+      <div id="wtc-draft-container">
+        <!-- Rendered dynamically by renderWtcDraftMatrix() -->
+      </div>
+    </div>
+
+    <!-- TAB 4: Multi-Day Pod & Bracket Engine -->
+    <div id="es-view-pods" class="es-tab-view" style="display: none;">
+      <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; color: #fff;">⚡ Multi-Day Pod & Bracket Progression Engine</h3>
+          <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Automate Day 1 cut transitions into Championship Pods, Consolation Brackets, and Flights</span>
+        </div>
+        <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="triggerGeneratePods()">⚡ Generate Day 2 Brackets</button>
+      </div>
+
+      <!-- Pod Configuration Card -->
+      <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.25rem;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">BRACKET STRUCTURE</label>
+            <select id="pod-structure-select" style="width: 100%; background: #070b14; border: 1px solid #334155; color: #fff; padding: 0.45rem 0.75rem; border-radius: 6px; font-weight: 700;" onchange="previewPodBreakdown()">
+              <option value="4_2" selected>Top 4 Championship (Pod 1) + Seeds 5-8 Consolation (Pod 2)</option>
+              <option value="8_2">Top 8 Championship (Pod 1) + Seeds 9-16 Consolation (Pod 2)</option>
+              <option value="4_4">Four 4-Player Pods (Top 16 Flights)</option>
+            </select>
+          </div>
+          <div>
+            <label style="display: block; font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.35rem;">TARGET DAY 2 ROUND</label>
+            <input type="number" id="pod-target-round" value="6" style="width: 100%; background: #070b14; border: 1px solid #334155; color: #fff; padding: 0.45rem 0.75rem; border-radius: 6px; font-family: var(--font-mono); font-weight: 700;" />
+          </div>
+        </div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.5;">
+          💡 <b>How it works:</b> Event Studio takes Day 1 Swiss standings, assigns official <code>pod_num</code> to each competitor, and generates single-elimination or within-pod Swiss bracket pairings (1 vs 4, 2 vs 3, etc.) with carryover tiebreaker support.
+        </div>
+      </div>
+
+      <!-- Pod Preview Container -->
+      <div id="es-pod-preview-container">
         <!-- Rendered dynamically -->
       </div>
     </div>

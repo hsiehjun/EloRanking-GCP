@@ -327,7 +327,33 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
-            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list_id VARCHAR(64);"
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list_id VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS tournament_id VARCHAR(128);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS table_number INT;",
+            """CREATE TABLE IF NOT EXISTS tournament_judge_calls (
+                id VARCHAR(64) PRIMARY KEY,
+                event_id VARCHAR(128) NOT NULL,
+                table_num INT,
+                match_id VARCHAR(64),
+                player_name VARCHAR(128),
+                category VARCHAR(64),
+                note TEXT,
+                status VARCHAR(32) DEFAULT 'pending',
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                resolved_at TIMESTAMPTZ
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_judge_calls_event ON tournament_judge_calls(event_id, status);",
+            """CREATE TABLE IF NOT EXISTS tournament_wtc_drafts (
+                id VARCHAR(64) PRIMARY KEY,
+                event_id VARCHAR(128) NOT NULL,
+                round_num INT NOT NULL,
+                team_a_name VARCHAR(128),
+                team_b_name VARCHAR(128),
+                draft_state JSONB,
+                updated_at TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(event_id, round_num)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);"
         ]:
             try:
                 with self.get_connection() as conn:
@@ -2301,6 +2327,7 @@ class PostgresDatabase:
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                params = []
                 query = """
                 SELECT id, name, event_date, end_date, city, state, country, venue,
                        tier, total_players, num_rounds, current_round, is_ended,
@@ -2584,27 +2611,257 @@ class PostgresDatabase:
             conn.commit()
         return True
 
-    def update_tracker_army_list(self, match_id: str, player_role: str, list_data: Dict[str, Any]) -> bool:
-        """Attaches an army list to Player 1 or Player 2 in a game tracker room."""
-        list_json = json.dumps(list_data) if list_data else None
-        list_id = list_data.get("id") if list_data else None
+    # =========================================================================
+    # EVENT STUDIO: JUDGE DISPATCH & TO CALLS
+    # =========================================================================
+
+    def create_judge_call(
+        self,
+        event_id: str,
+        table_num: Optional[int] = None,
+        match_id: Optional[str] = None,
+        player_name: str = "Competitor",
+        category: str = "Rules Dispute",
+        note: str = ""
+    ) -> Dict[str, Any]:
+        """Creates a judge dispatch call from a tournament game table."""
+        call_id = f"JC-{uuid.uuid4().hex[:8].upper()}"
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO tournament_judge_calls (
+                    id, event_id, table_num, match_id, player_name, category, note, status, created_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
+                RETURNING id, event_id, table_num, match_id, player_name, category, note, status, created_at;
+                """, (call_id, event_id, table_num, match_id, player_name, category, note))
+                row = cursor.fetchone()
+            conn.commit()
+        return {
+            "id": call_id,
+            "event_id": event_id,
+            "table_num": table_num,
+            "match_id": match_id,
+            "player_name": player_name,
+            "category": category,
+            "note": note,
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+
+    def get_judge_calls(self, event_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
+        """Lists judge dispatch calls for a tournament."""
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                sql = "SELECT * FROM tournament_judge_calls WHERE event_id = %s"
+                if active_only:
+                    sql += " AND status IN ('pending', 'en_route')"
+                sql += " ORDER BY created_at DESC LIMIT 100;"
+                cursor.execute(sql, (event_id,))
+                rows = cursor.fetchall()
+                calls = []
+                for r in rows:
+                    c = dict(r)
+                    if c.get("created_at"):
+                        c["created_at"] = c["created_at"].isoformat()
+                    if c.get("resolved_at"):
+                        c["resolved_at"] = c["resolved_at"].isoformat()
+                    calls.append(c)
+                return calls
+
+    def resolve_judge_call(self, call_id: str, status: str = "resolved") -> bool:
+        """Marks a judge call as en_route, resolved, or cancelled."""
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                if status == "resolved":
+                    cursor.execute("""
+                    UPDATE tournament_judge_calls 
+                    SET status = %s, resolved_at = NOW() 
+                    WHERE id = %s;
+                    """, (status, call_id))
+                else:
+                    cursor.execute("""
+                    UPDATE tournament_judge_calls 
+                    SET status = %s 
+                    WHERE id = %s;
+                    """, (status, call_id))
+            conn.commit()
+        return True
+
+    # =========================================================================
+    # EVENT STUDIO: WTC / TEAM MATCH PAIRING DRAFT
+    # =========================================================================
+
+    def save_wtc_draft(self, event_id: str, round_num: int, team_a_name: str, team_b_name: str, draft_state: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves active WTC team captain pairing draft state."""
+        draft_id = f"WTC-{event_id}-{round_num}"
+        draft_json = json.dumps(draft_state)
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO tournament_wtc_drafts (
+                    id, event_id, round_num, team_a_name, team_b_name, draft_state, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, NOW())
+                ON CONFLICT (event_id, round_num) DO UPDATE SET
+                    team_a_name = EXCLUDED.team_a_name,
+                    team_b_name = EXCLUDED.team_b_name,
+                    draft_state = EXCLUDED.draft_state,
+                    updated_at = NOW();
+                """, (draft_id, event_id, round_num, team_a_name, team_b_name, draft_json))
+            conn.commit()
+        return {"success": True, "draft_id": draft_id, "event_id": event_id, "round_num": round_num}
+
+    def get_wtc_draft(self, event_id: str, round_num: int) -> Optional[Dict[str, Any]]:
+        """Retrieves WTC team captain pairing draft state."""
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                SELECT * FROM tournament_wtc_drafts
+                WHERE event_id = %s AND round_num = %s;
+                """, (event_id, round_num))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                res = dict(row)
+                if isinstance(res.get("draft_state"), str):
+                    try:
+                        res["draft_state"] = json.loads(res["draft_state"])
+                    except Exception:
+                        pass
+                return res
+
+    # =========================================================================
+    # EVENT STUDIO: AUTOMATED MULTI-DAY POD & BRACKET PROGRESSION
+    # =========================================================================
+
+    def generate_day2_pod_brackets(
+        self,
+        event_id: str,
+        pod_size: int = 4,
+        num_pods: int = 2,
+        target_round: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Automates Day 1 -> Day 2 Pod & Bracket progression.
+        Ranks players based on Day 1 Swiss standings, assigns them into Pods (Championship Pod 1, Consolation Pod 2, etc.),
+        and generates tournament bracket pairings (1 vs 4, 2 vs 3).
+        """
+        ev = self.get_event_details(event_id)
+        if not ev or not ev.get("players"):
+            # Fallback to studio event roster
+            ev_studio = self.get_studio_event(event_id)
+            if not ev_studio or not ev_studio.get("roster"):
+                return {"error": "No players found to generate pod brackets."}
+            players = ev_studio.get("roster", [])
+        else:
+            players = ev.get("players", [])
+
+        # Current total rounds
+        curr_round = ev.get("num_rounds") or 5
+        day2_round = target_round or (curr_round + 1)
+
+        pod_assignments = []
+        assigned_pairings = []
+        table_counter = 1
 
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                if player_role == "player1":
-                    cursor.execute("""
-                    UPDATE tracker_games 
-                    SET p1_army_list = %s::jsonb, p1_army_list_id = %s, updated_at = NOW()
-                    WHERE match_id = %s;
-                    """, (list_json, list_id, match_id))
-                else:
-                    cursor.execute("""
-                    UPDATE tracker_games 
-                    SET p2_army_list = %s::jsonb, p2_army_list_id = %s, updated_at = NOW()
-                    WHERE match_id = %s;
-                    """, (list_json, list_id, match_id))
+                # Assign each slice of players to a Pod
+                for p_idx in range(num_pods):
+                    p_num = p_idx + 1
+                    start_idx = p_idx * pod_size
+                    end_idx = start_idx + pod_size
+                    pod_players = players[start_idx:end_idx]
+                    
+                    if not pod_players:
+                        break
+
+                    pod_name = "Championship Bracket" if p_num == 1 else (f"Consolation Bracket {p_num - 1}" if p_num <= 3 else f"Flight Pod {p_num}")
+                    pod_assignments.append({
+                        "pod_num": p_num,
+                        "pod_name": pod_name,
+                        "seeds": [{"seed": idx + 1, "player_id": p.get("player_id") or p.get("id"), "name": p.get("full_name") or p.get("name"), "faction": p.get("faction")} for idx, p in enumerate(pod_players)]
+                    })
+
+                    # Update pod_num in event_participants
+                    for p in pod_players:
+                        pid = str(p.get("player_id") or p.get("id"))
+                        cursor.execute("""
+                        UPDATE event_participants 
+                        SET pod_num = %s 
+                        WHERE event_id = %s AND player_id = %s;
+                        """, (p_num, event_id, pid))
+
+                    # Generate initial bracket pairings (Seed 1 vs Seed 4, Seed 2 vs Seed 3 for 4-man pod)
+                    if len(pod_players) == 4:
+                        pairs = [
+                            (pod_players[0], pod_players[3]),  # 1 vs 4
+                            (pod_players[1], pod_players[2])   # 2 vs 3
+                        ]
+                    elif len(pod_players) == 8:
+                        pairs = [
+                            (pod_players[0], pod_players[7]),  # 1 vs 8
+                            (pod_players[3], pod_players[4]),  # 4 vs 5
+                            (pod_players[1], pod_players[6]),  # 2 vs 7
+                            (pod_players[2], pod_players[5])   # 3 vs 6
+                        ]
+                    else:
+                        # Standard fold
+                        pairs = []
+                        half = len(pod_players) // 2
+                        for i in range(half):
+                            pairs.append((pod_players[i], pod_players[len(pod_players) - 1 - i]))
+
+                    for p1, p2 in pairs:
+                        p1_id = str(p1.get("player_id") or p1.get("id"))
+                        p2_id = str(p2.get("player_id") or p2.get("id"))
+                        p1_name = p1.get("full_name") or p1.get("name") or "Player 1"
+                        p2_name = p2.get("full_name") or p2.get("name") or "Player 2"
+                        p1_fac = p1.get("faction") or "Unknown"
+                        p2_fac = p2.get("faction") or "Unknown"
+
+                        assigned_pairings.append({
+                            "table": table_counter,
+                            "round": day2_round,
+                            "pod_num": p_num,
+                            "pod_name": pod_name,
+                            "p1": p1_id,
+                            "p2": p2_id,
+                            "p1_name": p1_name,
+                            "p2_name": p2_name,
+                            "p1_faction": p1_fac,
+                            "p2_faction": p2_fac,
+                            "p1Score": None,
+                            "p2Score": None,
+                            "status": "pending"
+                        })
+                        table_counter += 1
+
+                # Save generated pairings to event JSON
+                cursor.execute("SELECT pairings FROM events WHERE id = %s;", (event_id,))
+                existing_pairings_row = cursor.fetchone()
+                existing_pairings = {}
+                if existing_pairings_row and existing_pairings_row[0]:
+                    existing_pairings = existing_pairings_row[0] if isinstance(existing_pairings_row[0], dict) else json.loads(existing_pairings_row[0])
+                
+                existing_pairings[str(day2_round)] = assigned_pairings
+
+                cursor.execute("""
+                UPDATE events 
+                SET pairings = %s::jsonb, num_rounds = GREATEST(num_rounds, %s)
+                WHERE id = %s;
+                """, (json.dumps(existing_pairings), day2_round, event_id))
             conn.commit()
-        return True
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "target_round": day2_round,
+            "num_pods": len(pod_assignments),
+            "pods": pod_assignments,
+            "pairings": assigned_pairings
+        }
 
 
 class PostgresConnectionContext:

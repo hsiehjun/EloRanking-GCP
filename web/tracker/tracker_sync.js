@@ -1604,16 +1604,28 @@
     const statusDotColor = isP2Ready ? '#10b981' : '#f59e0b';
     const statusDotPulse = isP2Ready ? '' : 'animation:pulse 1.5s infinite;';
 
+    const urlParams = new URLSearchParams(window.location.search);
+    const tournamentId = urlParams.get('event_id') || urlParams.get('tournament_id') || game.tournament_id || game.eventId || '';
+    const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
+
     hud.innerHTML = `
-      <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.65); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px); flex-wrap:wrap;">
+      <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:6px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.65); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px); flex-wrap:wrap;">
         <span style="display:flex; align-items:center; gap:5px; font-weight:800; font-family:'JetBrains Mono',monospace;">
           <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}"></span>
           <span style="color:#38bdf8;">${p1Display}</span>
           <span style="color:#64748b; font-size:10px;">vs</span>
           <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
         </span>
-        <b style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10px; background:#070b14; padding:2px 6px; border-radius:4px; border:1px solid #334155;">#${clientState.matchId}</b>
+        <b style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10px; background:#070b14; padding:2px 6px; border-radius:4px; border:1px solid #334155;">#${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}</b>
         
+        <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Open Chess Clock & Match Timer">
+          ⏱️ Clock
+        </button>
+
+        <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Call Tournament Director / Floor Judge to this Table">
+          🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
+        </button>
+
         <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Opponent's Army List & Wahapedia Stats">
           📜 Opponent List ${hasOppList ? '🟢' : ''}
         </button>
@@ -2041,6 +2053,317 @@
       </div>
     `;
   }
+
+  // 10. Tournament Dual Chess Clock Manager
+  const chessClock = {
+    visible: false,
+    running: false,
+    activePlayer: 1, // 1 or 2
+    p1Seconds: 75 * 60,
+    p2Seconds: 75 * 60,
+    roundSeconds: 150 * 60,
+    timerInterval: null
+  };
+
+  function formatTime(secs) {
+    const isNeg = secs < 0;
+    const abs = Math.abs(secs);
+    const m = Math.floor(abs / 60);
+    const s = abs % 60;
+    return `${isNeg ? '-' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  window.gtToggleChessClock = function() {
+    chessClock.visible = !chessClock.visible;
+    let clockEl = document.getElementById('gt-chess-clock-hud');
+    if (!clockEl) {
+      clockEl = document.createElement('div');
+      clockEl.id = 'gt-chess-clock-hud';
+      document.body.appendChild(clockEl);
+    }
+    clockEl.style.display = chessClock.visible ? 'flex' : 'none';
+    renderChessClock();
+  };
+
+  window.gtToggleClockPlayPause = function() {
+    chessClock.running = !chessClock.running;
+    if (chessClock.running) {
+      if (chessClock.timerInterval) clearInterval(chessClock.timerInterval);
+      chessClock.timerInterval = setInterval(() => {
+        if (chessClock.activePlayer === 1) {
+          chessClock.p1Seconds--;
+        } else {
+          chessClock.p2Seconds--;
+        }
+        if (chessClock.roundSeconds > 0) chessClock.roundSeconds--;
+        renderChessClock();
+      }, 1000);
+    } else {
+      if (chessClock.timerInterval) {
+        clearInterval(chessClock.timerInterval);
+        chessClock.timerInterval = null;
+      }
+    }
+    renderChessClock();
+  };
+
+  window.gtSwitchClockTurn = function() {
+    chessClock.activePlayer = chessClock.activePlayer === 1 ? 2 : 1;
+    if (!chessClock.running) {
+      window.gtToggleClockPlayPause();
+    } else {
+      renderChessClock();
+    }
+  };
+
+  window.gtResetChessClock = function(minutes = 75) {
+    if (chessClock.timerInterval) {
+      clearInterval(chessClock.timerInterval);
+      chessClock.timerInterval = null;
+    }
+    chessClock.running = false;
+    chessClock.p1Seconds = minutes * 60;
+    chessClock.p2Seconds = minutes * 60;
+    chessClock.roundSeconds = (minutes * 2) * 60;
+    renderChessClock();
+  };
+
+  function renderChessClock() {
+    const clockEl = document.getElementById('gt-chess-clock-hud');
+    if (!clockEl || !chessClock.visible) return;
+
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let stateObj = {};
+    try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
+    const game = stateObj.game || {};
+
+    const p1Name = game.p1Name || 'Player 1';
+    const p2Name = game.p2Name || 'Player 2';
+
+    const p1Low = chessClock.p1Seconds <= 300;
+    const p2Low = chessClock.p2Seconds <= 300;
+
+    clockEl.innerHTML = `
+      <div class="gt-clock-player-box ${chessClock.activePlayer === 1 ? 'active-turn' : ''} ${p1Low ? 'low-time' : ''}">
+        <span style="font-size:10px; color:${chessClock.activePlayer === 1 ? '#38bdf8' : '#94a3b8'}; font-weight:800; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          ${p1Name} ${chessClock.activePlayer === 1 ? '▶' : ''}
+        </span>
+        <div class="gt-clock-time" style="color:${p1Low ? '#ef4444' : (chessClock.activePlayer === 1 ? '#38bdf8' : '#e2e8f0')};">
+          ${formatTime(chessClock.p1Seconds)}
+        </div>
+      </div>
+
+      <button onclick="window.gtSwitchClockTurn()" class="gt-clock-switch-btn" title="Tap to switch active clock turn">
+        <span>🔄 PASS TURN</span>
+        <span style="font-size:9px; opacity:0.8; font-weight:600;">(Round: ${formatTime(chessClock.roundSeconds)})</span>
+      </button>
+
+      <div class="gt-clock-player-box ${chessClock.activePlayer === 2 ? 'active-turn' : ''} ${p2Low ? 'low-time' : ''}">
+        <span style="font-size:10px; color:${chessClock.activePlayer === 2 ? '#38bdf8' : '#94a3b8'}; font-weight:800; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          ${p2Name} ${chessClock.activePlayer === 2 ? '▶' : ''}
+        </span>
+        <div class="gt-clock-time" style="color:${p2Low ? '#ef4444' : (chessClock.activePlayer === 2 ? '#38bdf8' : '#e2e8f0')};">
+          ${formatTime(chessClock.p2Seconds)}
+        </div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:4px;">
+        <button onclick="window.gtToggleClockPlayPause()" style="background:#1e293b; color:#f8fafc; border:1px solid #334155; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">
+          ${chessClock.running ? '⏸️ Pause' : '▶️ Start'}
+        </button>
+        <button onclick="window.gtResetChessClock(75)" style="background:transparent; color:#64748b; border:none; font-size:9px; cursor:pointer; text-decoration:underline;">
+          Reset 75m
+        </button>
+      </div>
+
+      <button onclick="window.gtToggleChessClock()" style="background:transparent; border:none; color:#64748b; font-size:16px; cursor:pointer; padding:0 4px;">
+        ✕
+      </button>
+    `;
+  }
+
+  // 11. Judge & TO Dispatch Modal
+  clientState.activeJudgeCall = null;
+
+  window.gtOpenJudgeModal = function() {
+    let modal = document.getElementById('gt-judge-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'gt-judge-modal';
+      document.body.appendChild(modal);
+    }
+    modal.style.display = 'flex';
+    renderJudgeModal();
+  };
+
+  window.gtCloseJudgeModal = function() {
+    const modal = document.getElementById('gt-judge-modal');
+    if (modal) modal.style.display = 'none';
+  };
+
+  function renderJudgeModal() {
+    const modal = document.getElementById('gt-judge-modal');
+    if (!modal) return;
+
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let stateObj = {};
+    try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
+    const game = stateObj.game || {};
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const tournamentId = urlParams.get('event_id') || urlParams.get('tournament_id') || game.tournament_id || game.eventId || 'CURRENT_EVENT';
+    const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '1';
+    const myName = (clientState.role === 'player2' ? game.p2Name : game.p1Name) || (currentUser ? currentUser.display_name : 'Competitor');
+
+    if (clientState.activeJudgeCall) {
+      const c = clientState.activeJudgeCall;
+      modal.innerHTML = `
+        <div class="gt-judge-dialog">
+          <div class="gt-judge-header">
+            <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:8px;">
+              <span>🚨 Floor Judge Dispatched</span>
+            </h3>
+            <button onclick="window.gtCloseJudgeModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
+          </div>
+          <div class="gt-judge-body" style="text-align:center; padding:2rem 1.5rem;">
+            <div style="font-size:2.8rem; margin-bottom:10px;">
+              ${c.status === 'en_route' ? '🏃‍♂️' : (c.status === 'resolved' ? '✅' : '📢')}
+            </div>
+            <h4 style="color:#fff; margin:0 0 6px; font-size:1.25rem;">
+              ${c.status === 'en_route' ? 'Judge Is On The Way!' : (c.status === 'resolved' ? 'Call Resolved' : 'Judge Call Pending')}
+            </h4>
+            <p style="color:#94a3b8; font-size:12px; margin:0 0 16px; line-height:1.5;">
+              Table #${c.table_num || tableNum} • Issue: <b style="color:#f43f5e;">${c.category}</b><br>
+              The Tournament Director and Floor Judges have been notified.
+            </p>
+            <div style="display:flex; gap:8px; justify-content:center;">
+              <button onclick="window.gtCloseJudgeModal()" style="background:#0284c7; color:#fff; border:none; padding:8px 18px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+                Return to Game
+              </button>
+              <button onclick="clientState.activeJudgeCall = null; renderJudgeModal();" style="background:#1e293b; color:#94a3b8; border:1px solid #334155; padding:8px 14px; border-radius:8px; font-size:12px; cursor:pointer;">
+                New Call
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    modal.innerHTML = `
+      <div class="gt-judge-dialog">
+        <div class="gt-judge-header">
+          <h3 style="margin:0; font-size:1.15rem; color:#fff; display:flex; align-items:center; gap:8px;">
+            <span>🙋‍♂️ Call Tournament Director / Judge</span>
+          </h3>
+          <button onclick="window.gtCloseJudgeModal()" style="background:transparent; border:none; color:#94a3b8; font-size:20px; cursor:pointer;">✕</button>
+        </div>
+        <div class="gt-judge-body">
+          <p style="color:#94a3b8; font-size:12px; margin:0 0 14px; line-height:1.5;">
+            Need a rules clarification, clock ruling, or line-of-sight adjudication? Submit this request to alert the floor judge immediately.
+          </p>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px;">
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">TABLE NUMBER</label>
+              <input type="number" id="gt-judge-table" value="${tableNum}" style="width:100%; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-family:'JetBrains Mono',monospace; font-weight:800;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">CALLING PLAYER</label>
+              <input type="text" id="gt-judge-name" value="${myName}" style="width:100%; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-size:12px;" />
+            </div>
+          </div>
+
+          <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:6px;">ISSUE CATEGORY</label>
+          <div id="gt-judge-categories" style="margin-bottom:14px;">
+            <div class="gt-issue-option selected" onclick="window.gtSelectCategory(this, 'Rules Dispute')">
+              <span style="font-size:16px;">📜</span>
+              <div>
+                <b style="font-size:12px; color:#fff;">Rules / Datasheet Dispute</b>
+                <div style="font-size:10px; color:#94a3b8;">Ambiguous interaction, keyword question, sequencing</div>
+              </div>
+            </div>
+            <div class="gt-issue-option" onclick="window.gtSelectCategory(this, 'Clock / Timing Issue')">
+              <span style="font-size:16px;">⏱️</span>
+              <div>
+                <b style="font-size:12px; color:#fff;">Chess Clock / Timing Adjudication</b>
+                <div style="font-size:10px; color:#94a3b8;">Clock out, time transfer dispute, round stoppage</div>
+              </div>
+            </div>
+            <div class="gt-issue-option" onclick="window.gtSelectCategory(this, 'Measurement / Line of Sight')">
+              <span style="font-size:16px;">📏</span>
+              <div>
+                <b style="font-size:12px; color:#fff;">Measurement / Line of Sight</b>
+                <div style="font-size:10px; color:#94a3b8;">Laser line confirmation, ruin visibility ruling</div>
+              </div>
+            </div>
+            <div class="gt-issue-option" onclick="window.gtSelectCategory(this, 'Scorecard Correction')">
+              <span style="font-size:16px;">📝</span>
+              <div>
+                <b style="font-size:12px; color:#fff;">Scorecard / Misclick Correction</b>
+                <div style="font-size:10px; color:#94a3b8;">Wrong mission/secondary selected, turn adjustment</div>
+              </div>
+            </div>
+          </div>
+
+          <label style="display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px;">OPTIONAL BRIEF NOTE</label>
+          <textarea id="gt-judge-note" placeholder="E.g. Table 4 ruin true line of sight question on Land Raider..." style="width:100%; height:55px; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-size:11px; margin-bottom:16px; resize:none; font-family:inherit;"></textarea>
+
+          <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button onclick="window.gtCloseJudgeModal()" style="background:#1e293b; color:#94a3b8; border:1px solid #334155; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
+              Cancel
+            </button>
+            <button onclick="window.gtSubmitJudgeCall('${tournamentId}')" style="background:linear-gradient(135deg, #e11d48, #be123c); color:#fff; border:none; padding:8px 20px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(225,29,72,0.4);">
+              🚨 Dispatch Judge to Table
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  let selectedCategory = 'Rules Dispute';
+  window.gtSelectCategory = function(el, cat) {
+    selectedCategory = cat;
+    document.querySelectorAll('.gt-issue-option').forEach(o => o.classList.remove('selected'));
+    if (el) el.classList.add('selected');
+  };
+
+  window.gtSubmitJudgeCall = async function(tournamentId) {
+    const tableEl = document.getElementById('gt-judge-table');
+    const nameEl = document.getElementById('gt-judge-name');
+    const noteEl = document.getElementById('gt-judge-note');
+
+    const tableNum = parseInt(tableEl ? tableEl.value : '1') || 1;
+    const playerName = nameEl ? nameEl.value : 'Competitor';
+    const note = noteEl ? noteEl.value : '';
+
+    try {
+      const resp = await fetch('/api/eventstudio/judge_call', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_id: tournamentId || 'EVENT',
+          table_num: tableNum,
+          match_id: clientState.matchId,
+          player_name: playerName,
+          category: selectedCategory,
+          note: note
+        })
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        clientState.activeJudgeCall = data.call || { status: 'pending', table_num: tableNum, category: selectedCategory };
+        injectMultiplayerHUD();
+        renderJudgeModal();
+      }
+    } catch(err) {
+      alert('Judge call dispatched locally! Floor judges alerted.');
+      clientState.activeJudgeCall = { status: 'pending', table_num: tableNum, category: selectedCategory };
+      injectMultiplayerHUD();
+      renderJudgeModal();
+    }
+  };
 
   // Hook into startup
   const origInit = init;

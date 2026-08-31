@@ -107,7 +107,7 @@ async function loadStudioEvents() {
 
 function switchStudioTab(tabName) {
   studioState.activeTab = tabName;
-  const tabs = ['events', 'roster', 'pairings', 'standings', 'create'];
+  const tabs = ['events', 'dashboard', 'pairings', 'wtc', 'pods', 'roster', 'standings', 'create'];
 
   tabs.forEach(t => {
     const btn = document.getElementById(`tab-btn-${t}`);
@@ -124,11 +124,14 @@ function switchStudioTab(tabName) {
   });
 
   if (tabName === 'events') renderEventsDirectory();
+  if (tabName === 'dashboard') renderDashboard();
   if (tabName === 'roster') renderRoster();
   if (tabName === 'pairings') {
     renderRoundButtons();
     renderPairings();
   }
+  if (tabName === 'wtc') renderWtcDraftMatrix();
+  if (tabName === 'pods') previewPodBreakdown();
   if (tabName === 'standings') renderStandings();
 }
 
@@ -422,6 +425,9 @@ function renderPairings() {
             ${isCompleted ? `${pair.p1Score} - ${pair.p2Score} VP` : '<span style="color: var(--text-muted); font-size: 0.8rem;">Score Pending</span>'}
           </div>
           <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+            <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; color: #38bdf8; border-color: rgba(56,189,248,0.4);" onclick="openMatchPredictorModal('${escapeHtml(p1.name)}', '${escapeHtml(p2.name)}', '${escapeHtml(p1.faction)}', '${escapeHtml(p2.faction)}', '${pair.p1}', '${pair.p2}')">
+              🔮 Predict
+            </button>
             <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.65rem;" onclick="launchTournamentTracker('${t.id}', ${r}, ${pair.table}, '${escapeHtml(p1.name)}', '${escapeHtml(p2.name)}', '${pair.p1}', '${pair.p2}')">
               🎲 Track Table
             </button>
@@ -1193,4 +1199,585 @@ function exportRosterCsv() {
   a.href = url;
   a.download = `roster_${t.id}.csv`;
   a.click();
+}
+
+// =========================================================================
+// FEATURE 1: TO LIVE OPERATIONS DASHBOARD & JUDGE CALL DISPATCH
+// =========================================================================
+
+let dashboardPollTimer = null;
+
+async function renderDashboard() {
+  const t = studioState.activeTournament;
+  if (!t) return;
+
+  const r = studioState.currentRound;
+  const pairingsMap = t.pairings || {};
+  const pairings = pairingsMap[String(r)] || pairingsMap[r] || [];
+
+  // Compute metrics
+  const totalTables = pairings.length;
+  const completedTables = pairings.filter(p => p.status === 'completed' || (p.p1Score !== null && p.p1Score !== undefined && p.p2Score !== null && p.p2Score !== undefined)).length;
+  const activeTables = totalTables - completedTables;
+  const pct = totalTables > 0 ? Math.round((completedTables / totalTables) * 100) : 0;
+
+  const pctEl = document.getElementById('dash-round-pct');
+  const subEl = document.getElementById('dash-round-sub');
+  const barEl = document.getElementById('dash-round-progress-bar');
+  const activeEl = document.getElementById('dash-active-tables');
+  const clockEl = document.getElementById('dash-clock-display');
+
+  if (pctEl) pctEl.textContent = `${pct}%`;
+  if (subEl) subEl.textContent = `${completedTables} / ${totalTables} Tables Done`;
+  if (barEl) barEl.style.width = `${pct}%`;
+  if (activeEl) activeEl.textContent = activeTables;
+  if (clockEl) {
+    const hrs = Math.floor(studioState.timerSeconds / 3600);
+    const mins = Math.floor((studioState.timerSeconds % 3600) / 60);
+    const secs = studioState.timerSeconds % 60;
+    clockEl.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  // Render Tables Grid
+  const tablesContainer = document.getElementById('es-dash-tables-grid');
+  if (tablesContainer) {
+    if (pairings.length === 0) {
+      tablesContainer.innerHTML = '<div style="grid-column: 1 / -1; color: var(--text-muted); font-size: 0.85rem; padding: 1rem; text-align: center;">No pairings active for this round yet.</div>';
+    } else {
+      const rosterMap = {};
+      (t.roster || []).forEach(p => rosterMap[p.id] = p);
+
+      tablesContainer.innerHTML = pairings.map(pair => {
+        const p1 = rosterMap[pair.p1] || { name: pair.p1_name || 'Player 1', faction: pair.p1_faction || 'Unknown' };
+        const p2 = rosterMap[pair.p2] || { name: pair.p2_name || 'Player 2', faction: pair.p2_faction || 'Unknown' };
+        const isDone = pair.status === 'completed' || (pair.p1Score !== null && pair.p1Score !== undefined);
+
+        return `
+          <div style="background: #0d1527; border: 1px solid ${isDone ? 'rgba(16,185,129,0.3)' : 'var(--border)'}; border-radius: 8px; padding: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+              <span style="font-family: var(--font-mono); font-weight: 800; color: var(--accent); font-size: 0.82rem;">TABLE ${pair.table}</span>
+              <span class="badge" style="background: ${isDone ? 'rgba(16,185,129,0.15)' : 'rgba(56,189,248,0.15)'}; color: ${isDone ? '#10b981' : '#38bdf8'}; font-size: 0.7rem;">
+                ${isDone ? `Final: ${pair.p1Score}-${pair.p2Score}` : 'Combat In Progress'}
+              </span>
+            </div>
+            <div style="font-size: 0.85rem; font-weight: 700; color: #fff; line-height: 1.4;">
+              ${escapeHtml(p1.name)} <span style="font-size: 0.72rem; color: var(--text-muted);">(${escapeHtml(p1.faction)})</span><br>
+              <span style="color: var(--text-muted); font-size: 0.75rem;">vs</span><br>
+              ${escapeHtml(p2.name)} <span style="font-size: 0.72rem; color: var(--text-muted);">(${escapeHtml(p2.faction)})</span>
+            </div>
+            <div style="display: flex; gap: 0.4rem; margin-top: 0.6rem;">
+              <button class="btn btn-outline" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; width: 100%; justify-content: center;" onclick="launchTournamentTracker('${t.id}', ${r}, ${pair.table}, '${escapeHtml(p1.name)}', '${escapeHtml(p2.name)}', '${pair.p1}', '${pair.p2}')">
+                🎲 Floor Tracker
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  // Refresh Judge Calls
+  await refreshDashboardCalls();
+
+  // Start polling while active
+  if (dashboardPollTimer) clearInterval(dashboardPollTimer);
+  dashboardPollTimer = setInterval(() => {
+    if (studioState.activeTab === 'dashboard') {
+      refreshDashboardCalls();
+    } else {
+      clearInterval(dashboardPollTimer);
+      dashboardPollTimer = null;
+    }
+  }, 7000);
+}
+
+async function refreshDashboardCalls() {
+  const t = studioState.activeTournament;
+  if (!t) return;
+
+  try {
+    const res = await window.api.getJudgeCalls(t.id);
+    const calls = (res && res.calls) ? res.calls : [];
+    const pendingCalls = calls.filter(c => c.status === 'pending' || c.status === 'en_route');
+
+    const countEl = document.getElementById('dash-pending-calls');
+    const badgeEl = document.getElementById('dash-calls-badge');
+    const listEl = document.getElementById('es-judge-calls-list');
+
+    if (countEl) countEl.textContent = pendingCalls.length;
+    if (badgeEl) {
+      if (pendingCalls.length > 0) {
+        badgeEl.textContent = `${pendingCalls.length} ACTION REQUIRED`;
+        badgeEl.style.background = 'rgba(244,63,94,0.2)';
+        badgeEl.style.color = '#f43f5e';
+      } else {
+        badgeEl.textContent = 'All Quiet';
+        badgeEl.style.background = 'rgba(16,185,129,0.15)';
+        badgeEl.style.color = '#10b981';
+      }
+    }
+
+    if (listEl) {
+      if (calls.length === 0) {
+        listEl.innerHTML = '<div style="padding: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">✅ No judge calls on record. Floor is quiet.</div>';
+        return;
+      }
+
+      listEl.innerHTML = calls.map(c => {
+        const isPending = c.status === 'pending';
+        const isEnRoute = c.status === 'en_route';
+        const isResolved = c.status === 'resolved';
+
+        const statusColor = isPending ? '#f43f5e' : (isEnRoute ? '#38bdf8' : '#10b981');
+        const statusLabel = isPending ? '🟡 PENDING JUDGE' : (isEnRoute ? '🔵 JUDGE EN ROUTE' : '🟢 RESOLVED');
+
+        return `
+          <div style="background: #0f172a; border: 1px solid ${isPending ? 'rgba(244,63,94,0.4)' : 'rgba(255,255,255,0.08)'}; border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 0.6rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                <span style="font-family: var(--font-mono); font-weight: 900; color: #fff; font-size: 0.95rem; background: #1e293b; padding: 2px 8px; border-radius: 4px;">
+                  TABLE ${c.table_num || 'Floor'}
+                </span>
+                <span class="badge" style="background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; font-size: 0.72rem; font-weight: 700;">
+                  ${statusLabel}
+                </span>
+                <span style="font-size: 0.78rem; color: var(--accent); font-weight: 700;">
+                  ${escapeHtml(c.category || 'General Issue')}
+                </span>
+              </div>
+              <div style="font-size: 0.82rem; color: #e2e8f0;">
+                Calling Player: <b>${escapeHtml(c.player_name || 'Competitor')}</b>
+                ${c.note ? ` • <span style="color: var(--text-muted); font-style: italic;">"${escapeHtml(c.note)}"</span>` : ''}
+              </div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
+                Logged at ${c.created_at ? new Date(c.created_at).toLocaleTimeString() : 'Just now'}
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.4rem;">
+              ${isPending ? `
+                <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.75rem; color: #38bdf8; border-color: rgba(56,189,248,0.4);" onclick="markJudgeCallEnRoute('${c.id}')">
+                  🏃 En Route
+                </button>
+              ` : ''}
+              ${!isResolved ? `
+                <button class="btn btn-primary" style="font-size: 0.75rem; padding: 0.3rem 0.75rem;" onclick="resolveJudgeCall('${c.id}')">
+                  ✅ Resolve
+                </button>
+              ` : `
+                <span style="font-size: 0.75rem; color: #10b981; font-weight: 700;">Completed</span>
+              `}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch(err) {
+    console.warn('Notice refreshing dashboard judge calls:', err);
+  }
+}
+
+async function markJudgeCallEnRoute(callId) {
+  try {
+    await window.api.resolveJudgeCall(callId, 'en_route');
+    await refreshDashboardCalls();
+  } catch(e) {
+    alert('Error updating judge call status.');
+  }
+}
+
+async function resolveJudgeCall(callId) {
+  try {
+    await window.api.resolveJudgeCall(callId, 'resolved');
+    await refreshDashboardCalls();
+  } catch(e) {
+    alert('Error resolving judge call.');
+  }
+}
+
+// =========================================================================
+// FEATURE 2: TACTICAL MATCH PREDICTOR MODAL
+// =========================================================================
+
+async function openMatchPredictorModal(p1Name, p2Name, p1Faction, p2Faction, p1Id, p2Id) {
+  const modal = document.getElementById('es-match-predictor-modal');
+  const loading = document.getElementById('mp-loading');
+  const content = document.getElementById('mp-content');
+
+  if (!modal) return;
+  modal.style.display = 'flex';
+  if (loading) loading.style.display = 'block';
+  if (content) content.style.display = 'none';
+
+  try {
+    const res = await window.api.getMatchPredictor(p1Id, p2Id, p1Name, p2Name, p1Faction, p2Faction);
+    
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'block';
+
+    const p1 = res.player1 || {};
+    const p2 = res.player2 || {};
+
+    const p1NameEl = document.getElementById('mp-p1-name');
+    const p2NameEl = document.getElementById('mp-p2-name');
+    const p1FacEl = document.getElementById('mp-p1-faction');
+    const p2FacEl = document.getElementById('mp-p2-faction');
+    const p1EloEl = document.getElementById('mp-p1-elo');
+    const p2EloEl = document.getElementById('mp-p2-elo');
+
+    const p1ProbEl = document.getElementById('mp-p1-prob');
+    const p2ProbEl = document.getElementById('mp-p2-prob');
+    const favoredEl = document.getElementById('mp-favored-chip');
+
+    const expScoreEl = document.getElementById('mp-expected-score');
+    const expDiffEl = document.getElementById('mp-expected-diff');
+
+    const facWinrateEl = document.getElementById('mp-faction-winrate');
+    const facTotalEl = document.getElementById('mp-faction-total');
+    const h2hListEl = document.getElementById('mp-h2h-list');
+
+    if (p1NameEl) p1NameEl.textContent = p1.name || p1Name;
+    if (p2NameEl) p2NameEl.textContent = p2.name || p2Name;
+    if (p1FacEl) p1FacEl.textContent = p1.faction || p1Faction || 'Unknown';
+    if (p2FacEl) p2FacEl.textContent = p2.faction || p2Faction || 'Unknown';
+    if (p1EloEl) p1EloEl.textContent = Number(p1.elo || 1500).toFixed(1);
+    if (p2EloEl) p2EloEl.textContent = Number(p2.elo || 1500).toFixed(1);
+
+    if (p1ProbEl) p1ProbEl.textContent = `${p1.win_probability || 50}%`;
+    if (p2ProbEl) p2ProbEl.textContent = `${p2.win_probability || 50}%`;
+    
+    if (favoredEl) {
+      favoredEl.textContent = res.favored_player === 'Even Matchup' ? 'Even Matchup (50/50)' : `Favored: ${res.favored_player} (+${res.elo_diff} Elo)`;
+    }
+
+    if (expScoreEl) expScoreEl.textContent = `${p1.expected_score || 75} - ${p2.expected_score || 75} VP`;
+    if (expDiffEl) expDiffEl.textContent = `${res.expected_differential || 0} pts`;
+
+    if (facWinrateEl) facWinrateEl.textContent = `${res.faction_matchup ? res.faction_matchup.p1_faction_win_pct : 50}%`;
+    if (facTotalEl) facTotalEl.textContent = `(${res.faction_matchup ? res.faction_matchup.total_games : 0} recorded matches)`;
+
+    if (h2hListEl) {
+      const h2h = res.h2h_history || [];
+      if (h2h.length === 0) {
+        h2hListEl.innerHTML = '<div style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No prior tournament matchups between these competitors.</div>';
+      } else {
+        h2hListEl.innerHTML = h2h.map(m => `
+          <div style="font-size: 0.82rem; color: #e2e8f0; padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between;">
+            <span>${escapeHtml(m.event_name)}</span>
+            <b style="font-family: var(--font-mono); color: var(--accent);">${m.score}</b>
+          </div>
+        `).join('');
+      }
+    }
+  } catch(err) {
+    if (loading) loading.innerHTML = '<div style="color: #ef4444;">Error calculating match prediction.</div>';
+  }
+}
+
+// =========================================================================
+// FEATURE 3: WTC / TEAM MATCH PAIRING DRAFT MATRIX
+// =========================================================================
+
+let wtcDraftState = {
+  format: 5,
+  teamA: 'Team Alpha',
+  teamB: 'Team Bravo',
+  rosterA: [],
+  rosterB: [],
+  step: 1, // 1: Defender Nomination, 2: Attacker Proposals, 3: Captain Pick, 4: Finalized
+  defenderA: null,
+  defenderB: null,
+  attackersA: [],
+  attackersB: [],
+  assignedTables: [] // [{ table: 1, p1, p2, p1_name, p2_name, p1_faction, p2_faction }]
+};
+
+function renderWtcDraftMatrix() {
+  const container = document.getElementById('wtc-draft-container');
+  if (!container) return;
+
+  const t = studioState.activeTournament;
+  const teamSizeSelect = document.getElementById('wtc-team-size');
+  const teamANameInput = document.getElementById('wtc-team-a-name');
+  const teamBNameInput = document.getElementById('wtc-team-b-name');
+
+  const format = teamSizeSelect ? parseInt(teamSizeSelect.value) : 5;
+  const teamAName = teamANameInput ? teamANameInput.value : 'Team Alpha';
+  const teamBName = teamBNameInput ? teamBNameInput.value : 'Team Bravo';
+
+  wtcDraftState.format = format;
+  wtcDraftState.teamA = teamAName;
+  wtcDraftState.teamB = teamBName;
+
+  // Derive Roster A and Roster B from event roster or generate team slots
+  const fullRoster = t ? (t.roster || []) : [];
+  if (fullRoster.length >= format * 2) {
+    wtcDraftState.rosterA = fullRoster.slice(0, format);
+    wtcDraftState.rosterB = fullRoster.slice(format, format * 2);
+  } else {
+    // Generate default team slots
+    const factions = ['Space Marines', 'Necrons', 'Aeldari', 'Orks', 'Tyranids', 'Tau Empire', 'Chaos Space Marines', 'Adeptus Custodes'];
+    wtcDraftState.rosterA = Array.from({ length: format }, (_, i) => ({
+      id: `TA-${i+1}`,
+      name: `${teamAName} Player ${i+1}`,
+      faction: factions[i % factions.length],
+      elo: 1650 - (i * 30)
+    }));
+    wtcDraftState.rosterB = Array.from({ length: format }, (_, i) => ({
+      id: `TB-${i+1}`,
+      name: `${teamBName} Player ${i+1}`,
+      faction: factions[(i + 2) % factions.length],
+      elo: 1630 - (i * 25)
+    }));
+  }
+
+  // Build Interactive Draft UI
+  container.innerHTML = `
+    <!-- Strategic Step Banner -->
+    <div style="background: linear-gradient(135deg, rgba(2,132,199,0.15), rgba(99,102,241,0.15)); border: 1px solid rgba(56,189,248,0.3); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+        <span style="font-family: var(--font-mono); font-weight: 900; color: #38bdf8; font-size: 0.95rem;">
+          WTC PAIRING DRAFT PHASE: STEP ${wtcDraftState.step} OF 4
+        </span>
+        <span class="badge" style="background: #1e293b; color: #fff; font-size: 0.75rem;">
+          ${wtcDraftState.assignedTables.length} / ${format} Tables Assigned
+        </span>
+      </div>
+      <div style="font-size: 0.85rem; color: #e2e8f0; line-height: 1.5;">
+        ${wtcDraftState.step === 1 ? '👉 <b>Step 1 (Defender Nomination):</b> Both captains secretly or simultaneously nominate 1 Defender.' : ''}
+        ${wtcDraftState.step === 2 ? '👉 <b>Step 2 (Attacker Proposals):</b> Each captain puts forward 2 Attackers against the opposing Defender.' : ''}
+        ${wtcDraftState.step === 3 ? '👉 <b>Step 3 (Captain Selection & Table Pick):</b> Opposing captain chooses 1 Attacker to match their Defender and picks the table layout.' : ''}
+        ${wtcDraftState.step === 4 ? '🎉 <b>Step 4 (Draft Complete):</b> All tables assigned! Review tactical advantage matrix below and push to live pairings.' : ''}
+      </div>
+      <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+        <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="advanceWtcDraftStep()">
+          ${wtcDraftState.step < 4 ? 'Advance Draft Step ⏩' : 'Draft Completed'}
+        </button>
+        <button class="btn btn-outline" style="font-size: 0.8rem; padding: 0.35rem 0.85rem;" onclick="autoSolveWtcDraft()">
+          🎲 Auto-Draft Optimal Matchups
+        </button>
+      </div>
+    </div>
+
+    <!-- Live Pairings Matrix -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; margin-bottom: 1.5rem; overflow-x: auto;">
+      <h4 style="margin: 0 0 1rem; color: #fff; font-size: 1.05rem;">Team Matchup Advantage Matrix (${teamAName} vs ${teamBName})</h4>
+      <table class="data-table" style="width: 100%; text-align: center; font-size: 0.85rem;">
+        <thead>
+          <tr>
+            <th style="text-align: left;">${teamAName} / ${teamBName}</th>
+            ${wtcDraftState.rosterB.map(b => `<th style="text-align: center;">${escapeHtml(b.name)}<br><span style="font-size: 0.7rem; color: var(--text-muted); font-weight: normal;">${escapeHtml(b.faction)} (${b.elo || 1500})</span></th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${wtcDraftState.rosterA.map(a => `
+            <tr>
+              <td style="text-align: left; font-weight: 700; color: #fff;">
+                ${escapeHtml(a.name)}<br>
+                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: normal;">${escapeHtml(a.faction)} (${a.elo || 1500})</span>
+              </td>
+              ${wtcDraftState.rosterB.map(b => {
+                const diff = (a.elo || 1500) - (b.elo || 1500);
+                const p1Prob = Math.round((1.0 / (1.0 + Math.pow(10, -diff / 400))) * 100);
+                const bg = diff > 80 ? 'rgba(16,185,129,0.18)' : (diff < -80 ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.12)');
+                const color = diff > 80 ? '#10b981' : (diff < -80 ? '#ef4444' : '#f59e0b');
+                return `
+                  <td style="background: ${bg}; color: ${color}; font-family: var(--font-mono); font-weight: 800; padding: 0.6rem 0.4rem;">
+                    ${p1Prob}%
+                    <div style="font-size: 0.68rem; font-weight: normal; opacity: 0.85;">${diff > 0 ? `+${diff}` : diff} Elo</div>
+                  </td>
+                `;
+              }).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Assigned Tables Breakdown -->
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem;">
+      <h4 style="margin: 0 0 1rem; color: #fff; font-size: 1.05rem;">Assigned Table Matchups</h4>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
+        ${Array.from({ length: format }, (_, i) => {
+          const match = wtcDraftState.assignedTables[i] || {
+            table: i + 1,
+            p1_name: wtcDraftState.rosterA[i]?.name || `Table ${i+1} P1`,
+            p2_name: wtcDraftState.rosterB[i]?.name || `Table ${i+1} P2`,
+            p1_faction: wtcDraftState.rosterA[i]?.faction || 'Faction',
+            p2_faction: wtcDraftState.rosterB[i]?.faction || 'Faction'
+          };
+          return `
+            <div style="background: #090f1e; border: 1px solid var(--border); border-radius: 8px; padding: 0.85rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                <span style="font-family: var(--font-mono); font-weight: 800; color: var(--accent); font-size: 0.8rem;">TABLE ${i + 1}</span>
+                <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.7rem;">Draft Ready</span>
+              </div>
+              <div style="font-size: 0.85rem; font-weight: 700; color: #fff;">
+                ${escapeHtml(match.p1_name)} <span style="font-size: 0.72rem; color: #38bdf8;">(${escapeHtml(match.p1_faction)})</span><br>
+                <span style="color: var(--text-muted); font-size: 0.72rem;">vs</span><br>
+                ${escapeHtml(match.p2_name)} <span style="font-size: 0.72rem; color: #f43f5e;">(${escapeHtml(match.p2_faction)})</span>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function advanceWtcDraftStep() {
+  if (wtcDraftState.step < 4) {
+    wtcDraftState.step++;
+    renderWtcDraftMatrix();
+  }
+}
+
+function autoSolveWtcDraft() {
+  wtcDraftState.assignedTables = Array.from({ length: wtcDraftState.format }, (_, i) => ({
+    table: i + 1,
+    p1: wtcDraftState.rosterA[i]?.id || `TA-${i+1}`,
+    p2: wtcDraftState.rosterB[i]?.id || `TB-${i+1}`,
+    p1_name: wtcDraftState.rosterA[i]?.name || `Player A${i+1}`,
+    p2_name: wtcDraftState.rosterB[i]?.name || `Player B${i+1}`,
+    p1_faction: wtcDraftState.rosterA[i]?.faction || 'Space Marines',
+    p2_faction: wtcDraftState.rosterB[i]?.faction || 'Necrons',
+    status: 'pending'
+  }));
+  wtcDraftState.step = 4;
+  renderWtcDraftMatrix();
+}
+
+function resetWtcDraft() {
+  wtcDraftState.step = 1;
+  wtcDraftState.assignedTables = [];
+  renderWtcDraftMatrix();
+}
+
+async function commitWtcDraftToPairings() {
+  const t = studioState.activeTournament;
+  if (!t) {
+    alert('Please select or create a tournament first.');
+    return;
+  }
+
+  if (wtcDraftState.assignedTables.length === 0) {
+    autoSolveWtcDraft();
+  }
+
+  const r = studioState.currentRound;
+  if (!t.pairings) t.pairings = {};
+  t.pairings[String(r)] = wtcDraftState.assignedTables;
+
+  try {
+    await window.api.saveStudioPairings(t.id, {
+      round_num: r,
+      pairings: wtcDraftState.assignedTables
+    });
+    alert(`🎉 WTC Team Match draft successfully pushed to Round ${r} Pairings!`);
+    switchStudioTab('pairings');
+  } catch(err) {
+    alert(`Pairings saved locally for Round ${r}!`);
+    switchStudioTab('pairings');
+  }
+}
+
+// =========================================================================
+// FEATURE 4: MULTI-DAY POD & BRACKET PROGRESSION ENGINE
+// =========================================================================
+
+function previewPodBreakdown() {
+  const container = document.getElementById('es-pod-preview-container');
+  if (!container) return;
+
+  const t = studioState.activeTournament;
+  const structSelect = document.getElementById('pod-structure-select');
+  const struct = structSelect ? structSelect.value : '4_2';
+
+  const roster = t ? (t.roster || []) : [];
+  const podSize = struct.startsWith('8_') ? 8 : 4;
+  const numPods = 2;
+
+  const pod1Players = roster.slice(0, podSize);
+  const pod2Players = roster.slice(podSize, podSize * 2);
+
+  container.innerHTML = `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+      <!-- Pod 1: Championship Bracket -->
+      <div style="background: var(--bg-card); border: 1px solid rgba(56,189,248,0.4); border-radius: var(--radius-lg); padding: 1.25rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+          <h4 style="margin: 0; color: #fff; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🏆 Pod 1: Championship Bracket</span>
+          </h4>
+          <span class="badge badge-match-prime">Seeds 1–${podSize}</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+          Plays for 1st Place Tournament Champion & Top Pod Placements
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+          ${pod1Players.length > 0 ? pod1Players.map((p, idx) => `
+            <div style="background: #090f1e; border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; color: #fff; font-size: 0.85rem;">#${idx + 1} ${escapeHtml(p.name)}</span>
+              <span style="font-size: 0.72rem; color: var(--accent);">${escapeHtml(p.faction || 'Unassigned')}</span>
+            </div>
+          `).join('') : '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 0.5rem;">Seeds will populate from Day 1 Standings.</div>'}
+        </div>
+      </div>
+
+      <!-- Pod 2: Consolation Bracket -->
+      <div style="background: var(--bg-card); border: 1px solid rgba(245,158,11,0.4); border-radius: var(--radius-lg); padding: 1.25rem; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+          <h4 style="margin: 0; color: #fff; font-size: 1.05rem; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🛡️ Pod 2: Consolation Bracket</span>
+          </h4>
+          <span class="badge" style="background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);">Seeds ${podSize + 1}–${podSize * 2}</span>
+        </div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+          Plays for Bracket 2 Champion & Consolation Flight Placings
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+          ${pod2Players.length > 0 ? pod2Players.map((p, idx) => `
+            <div style="background: #090f1e; border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; color: #fff; font-size: 0.85rem;">#${podSize + idx + 1} ${escapeHtml(p.name)}</span>
+              <span style="font-size: 0.72rem; color: #f59e0b;">${escapeHtml(p.faction || 'Unassigned')}</span>
+            </div>
+          `).join('') : '<div style="color: var(--text-muted); font-size: 0.8rem; padding: 0.5rem;">Seeds will populate from Day 1 Standings.</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function triggerGeneratePods() {
+  const t = studioState.activeTournament;
+  if (!t) {
+    alert('Please select or create a tournament first.');
+    return;
+  }
+
+  const structSelect = document.getElementById('pod-structure-select');
+  const targetRoundInput = document.getElementById('pod-target-round');
+
+  const struct = structSelect ? structSelect.value : '4_2';
+  const podSize = struct.startsWith('8_') ? 8 : 4;
+  const numPods = 2;
+  const targetRound = targetRoundInput ? parseInt(targetRoundInput.value) : (t.num_rounds || 5) + 1;
+
+  try {
+    const res = await window.api.generateDay2Pods(t.id, {
+      pod_size: podSize,
+      num_pods: numPods,
+      target_round: targetRound
+    });
+
+    if (res && res.success) {
+      alert(`⚡ Day 2 Brackets generated successfully for Round ${targetRound}! Championship & Consolation Pods created.`);
+      studioState.currentRound = targetRound;
+      await loadStudioEvents();
+      switchStudioTab('pairings');
+    } else {
+      alert(`Error generating pods: ${res?.error || 'Unknown error'}`);
+    }
+  } catch(err) {
+    alert('Notice generating Day 2 brackets: ' + err.message);
+  }
 }

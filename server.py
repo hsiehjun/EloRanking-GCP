@@ -645,6 +645,218 @@ if FASTAPI_AVAILABLE:
             "bcp_synced": bcp_synced
         }
 
+    class JudgeCallCreatePayload(BaseModel):
+        event_id: str
+        table_num: Optional[int] = None
+        match_id: Optional[str] = None
+        player_name: Optional[str] = "Competitor"
+        category: Optional[str] = "Rules Dispute"
+        note: Optional[str] = ""
+
+    class JudgeCallResolvePayload(BaseModel):
+        call_id: str
+        status: Optional[str] = "resolved"
+
+    @app.post("/api/eventstudio/judge_call", summary="Submit judge / TO floor assistance call from game room")
+    async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
+        db = get_database()
+        res = db.create_judge_call(
+            event_id=payload.event_id,
+            table_num=payload.table_num,
+            match_id=payload.match_id,
+            player_name=payload.player_name or "Competitor",
+            category=payload.category or "Rules Dispute",
+            note=payload.note or ""
+        )
+        return {"success": True, "call": res}
+
+    @app.get("/api/eventstudio/judge_calls", summary="List active judge calls for a tournament")
+    async def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = False):
+        db = get_database()
+        calls = db.get_judge_calls(event_id=event_id, active_only=active_only)
+        return {"success": True, "event_id": event_id, "calls": calls}
+
+    @app.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved)")
+    async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
+        db = get_database()
+        ok = db.resolve_judge_call(call_id=payload.call_id, status=payload.status or "resolved")
+        return {"success": ok, "call_id": payload.call_id, "status": payload.status}
+
+    class PodGeneratePayload(BaseModel):
+        pod_size: Optional[int] = 4
+        num_pods: Optional[int] = 2
+        target_round: Optional[int] = None
+
+    @app.post("/api/eventstudio/event/{event_id}/pods/generate", summary="Automate multi-day Pod & Bracket progression")
+    async def api_eventstudio_generate_pods(event_id: str, payload: PodGeneratePayload):
+        db = get_database()
+        res = db.generate_day2_pod_brackets(
+            event_id=event_id,
+            pod_size=payload.pod_size or 4,
+            num_pods=payload.num_pods or 2,
+            target_round=payload.target_round
+        )
+        return res
+
+    @app.get("/api/eventstudio/match_predictor", summary="Predict tactical matchup outcome, win probability, and score differential")
+    async def api_eventstudio_match_predictor(
+        p1_id: Optional[str] = None,
+        p2_id: Optional[str] = None,
+        p1_name: Optional[str] = "Player 1",
+        p2_name: Optional[str] = "Player 2",
+        p1_faction: Optional[str] = "Unknown",
+        p2_faction: Optional[str] = "Unknown"
+    ):
+        db = get_database()
+        
+        # 1. Elo Ratings
+        p1_elo = 1500.0
+        p2_elo = 1500.0
+        p1_matches = 0
+        p2_matches = 0
+
+        with db.get_connection() as conn:
+            from psycopg2 import extras
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                if p1_id:
+                    cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_id = %s;", (p1_id,))
+                    r1 = cursor.fetchone()
+                    if r1:
+                        p1_elo = float(r1["current_elo"] or 1500.0)
+                        p1_matches = int(r1["total_matches"] or 0)
+                elif p1_name:
+                    cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p1_name}%",))
+                    r1 = cursor.fetchone()
+                    if r1:
+                        p1_elo = float(r1["current_elo"] or 1500.0)
+                        p1_matches = int(r1["total_matches"] or 0)
+
+                if p2_id:
+                    cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_id = %s;", (p2_id,))
+                    r2 = cursor.fetchone()
+                    if r2:
+                        p2_elo = float(r2["current_elo"] or 1500.0)
+                        p2_matches = int(r2["total_matches"] or 0)
+                elif p2_name:
+                    cursor.execute("SELECT current_elo, total_matches FROM player_ratings WHERE player_name ILIKE %s ORDER BY current_elo DESC LIMIT 1;", (f"%{p2_name}%",))
+                    r2 = cursor.fetchone()
+                    if r2:
+                        p2_elo = float(r2["current_elo"] or 1500.0)
+                        p2_matches = int(r2["total_matches"] or 0)
+
+                # 2. Faction Matchup Win Rate
+                fac1 = p1_faction or "Unknown"
+                fac2 = p2_faction or "Unknown"
+                fac_p1_wins = 0
+                fac_total = 0
+                if fac1 != "Unknown" and fac2 != "Unknown":
+                    cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_games,
+                        SUM(CASE WHEN (winner_id = player1_id AND player1_faction = %s) OR (winner_id = player2_id AND player2_faction = %s) THEN 1 ELSE 0 END) as fac1_wins
+                    FROM matches
+                    WHERE is_done = TRUE AND (
+                        (player1_faction = %s AND player2_faction = %s) OR
+                        (player1_faction = %s AND player2_faction = %s)
+                    );
+                    """, (fac1, fac1, fac1, fac2, fac2, fac1))
+                    fac_row = cursor.fetchone()
+                    if fac_row and fac_row.get("total_games"):
+                        fac_total = int(fac_row["total_games"] or 0)
+                        fac_p1_wins = int(fac_row["fac1_wins"] or 0)
+
+                # 3. Head-to-Head History
+                h2h_matches = []
+                if (p1_id and p2_id) or (p1_name and p2_name):
+                    cursor.execute("""
+                    SELECT m.round, m.player1_name, m.player2_name, m.player1_score, m.player2_score, m.match_date, e.name as event_name
+                    FROM matches m
+                    LEFT JOIN events e ON m.event_id = e.id
+                    WHERE is_done = TRUE AND (
+                        (m.player1_name ILIKE %s AND m.player2_name ILIKE %s) OR
+                        (m.player1_name ILIKE %s AND m.player2_name ILIKE %s)
+                    )
+                    ORDER BY m.match_date DESC LIMIT 5;
+                    """, (f"%{p1_name}%", f"%{p2_name}%", f"%{p2_name}%", f"%{p1_name}%"))
+                    h2h_rows = cursor.fetchall()
+                    for hr in h2h_rows:
+                        h2h_matches.append({
+                            "event_name": hr.get("event_name") or "Tournament Match",
+                            "date": hr.get("match_date").isoformat() if hr.get("match_date") else None,
+                            "p1_name": hr.get("player1_name"),
+                            "p2_name": hr.get("player2_name"),
+                            "score": f"{hr.get('player1_score')} - {hr.get('player2_score')}"
+                        })
+
+        # Calculate Elo Win Probability: P(A) = 1 / (1 + 10^((R_B - R_A)/400))
+        elo_diff = p1_elo - p2_elo
+        p1_win_prob = 1.0 / (1.0 + math.pow(10.0, -elo_diff / 400.0))
+        p2_win_prob = 1.0 - p1_win_prob
+
+        # Adjust slightly for faction matchup if >10 recorded games
+        if fac_total >= 10:
+            fac_rate = fac_p1_wins / max(1, fac_total)
+            p1_win_prob = 0.75 * p1_win_prob + 0.25 * fac_rate
+            p1_win_prob = max(0.05, min(0.95, p1_win_prob))
+            p2_win_prob = 1.0 - p1_win_prob
+
+        # Expected score prediction (Base 75 pts average, +/- up to 18 pts)
+        expected_diff = round((p1_win_prob - 0.5) * 36.0)
+        p1_expected_score = max(40, min(100, 75 + int(expected_diff / 2)))
+        p2_expected_score = max(40, min(100, 75 - int(expected_diff / 2)))
+
+        favored = p1_name if p1_win_prob > 0.52 else (p2_name if p2_win_prob > 0.52 else "Even Matchup")
+
+        return {
+            "player1": {
+                "name": p1_name,
+                "faction": p1_faction,
+                "elo": round(p1_elo, 1),
+                "win_probability": round(p1_win_prob * 100, 1),
+                "expected_score": p1_expected_score
+            },
+            "player2": {
+                "name": p2_name,
+                "faction": p2_faction,
+                "elo": round(p2_elo, 1),
+                "win_probability": round(p2_win_prob * 100, 1),
+                "expected_score": p2_expected_score
+            },
+            "favored_player": favored,
+            "elo_diff": round(abs(elo_diff), 1),
+            "expected_differential": abs(p1_expected_score - p2_expected_score),
+            "faction_matchup": {
+                "total_games": fac_total,
+                "p1_faction_win_pct": round((fac_p1_wins / max(1, fac_total)) * 100, 1) if fac_total > 0 else 50.0
+            },
+            "h2h_history": h2h_matches
+        }
+
+    class WtcDraftSavePayload(BaseModel):
+        event_id: str
+        round_num: int
+        team_a_name: Optional[str] = "Team A"
+        team_b_name: Optional[str] = "Team B"
+        draft_state: Dict[str, Any]
+
+    @app.post("/api/eventstudio/wtc_draft", summary="Save active WTC team captain pairing draft state")
+    async def api_eventstudio_save_wtc_draft(payload: WtcDraftSavePayload):
+        db = get_database()
+        res = db.save_wtc_draft(
+            event_id=payload.event_id,
+            round_num=payload.round_num,
+            team_a_name=payload.team_a_name or "Team A",
+            team_b_name=payload.team_b_name or "Team B",
+            draft_state=payload.draft_state
+        )
+        return res
+
+    @app.get("/api/eventstudio/wtc_draft", summary="Get WTC team captain pairing draft state")
+    async def api_eventstudio_get_wtc_draft(event_id: str, round_num: int):
+        db = get_database()
+        res = db.get_wtc_draft(event_id=event_id, round_num=round_num)
+        return {"success": True, "event_id": event_id, "round_num": round_num, "draft": res}
+
 
     # =========================================================================
     # MULTIPLAYER REALTIME GAME TRACKER ENGINE & SUPABASE SYNC
