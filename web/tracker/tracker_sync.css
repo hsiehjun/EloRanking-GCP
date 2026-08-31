@@ -341,5 +341,11 @@ div[class*="fixed"]:has(a[href*="install"]) {
   border-color: rgba(244, 63, 94, 0.4);
 }
 
+/* Unified Match Navigation Bar Top Spacing */
+body:has(#gt-sync-hud) {
+  padding-top: 54px !important;
+}
 
-
+#gt-sync-hud::-webkit-scrollbar {
+  display: none;
+}

@@ -241,6 +241,11 @@
   }
 
   function renderUserBar() {
+    if (isPlay) {
+      const old = document.getElementById('gt-user-status-bar');
+      if (old) old.remove();
+      return;
+    }
     if (!currentUser) {
       try {
         const cached = originalGetItem('native_user_profile') || originalGetItem('bcp_user_profile');
@@ -257,20 +262,12 @@
     bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
     bar.innerHTML = `
       <div style="display:flex; align-items:center; gap:6px;">
-        <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+        <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
           🏠 My Hub
         </a>
-        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;" onmouseover="this.style.background='rgba(245,158,11,0.25)'" onmouseout="this.style.background='rgba(245,158,11,0.12)'">
+        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
           🎲 Lobby
         </a>
-        ${isPlay ? `
-          <button onclick="window.__openCompleteModal()" style="display:inline-flex; align-items:center; gap:4px; color:#fff; background:#059669; border:1px solid #10b981; padding:3px 9px; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.background='#047857'" onmouseout="this.style.background='#059669'">
-            🏁 Complete Game
-          </button>
-          <button onclick="window.__openScorecardModal()" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
-            📄 Scorecard
-          </button>
-        ` : ''}
       </div>
       <span style="color:#334155;">|</span>
       <span style="display:inline-flex; align-items:center; gap:5px;">
@@ -1600,6 +1597,10 @@
       document.body.appendChild(hud);
     }
 
+    // Clean up standalone user bar if present in match mode
+    const oldBar = document.getElementById('gt-user-status-bar');
+    if (oldBar) oldBar.remove();
+
     const raw = originalGetItem('gdm-11e-tracker-state');
     let stateObj = {};
     try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
@@ -1633,36 +1634,57 @@
     const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
 
     hud.innerHTML = `
-      <div style="position:fixed; top:10px; right:10px; z-index:99999; display:flex; align-items:center; gap:6px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.35); box-shadow:0 8px 30px rgba(0,0,0,0.65); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; max-width:calc(100vw - 20px); flex-wrap:wrap;">
-        <span style="display:flex; align-items:center; gap:5px; font-weight:800; font-family:'JetBrains Mono',monospace;">
-          <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}"></span>
-          <span style="color:#38bdf8;">${p1Display}</span>
-          <span style="color:#64748b; font-size:10px;">vs</span>
-          <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
-        </span>
-        <b style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:10px; background:#070b14; padding:2px 6px; border-radius:4px; border:1px solid #334155;">#${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}</b>
+      <div style="position:fixed; top:8px; left:12px; right:12px; z-index:99999; display:flex; align-items:center; justify-content:space-between; gap:10px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.3); box-shadow:0 8px 30px rgba(0,0,0,0.75); backdrop-filter:blur(16px); padding:5px 12px; border-radius:12px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; overflow-x:auto; scrollbar-width:none; white-space:nowrap;">
         
-        <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Open Chess Clock & Match Timer">
-          ⏱️ Clock
-        </button>
+        <!-- Left: Hub & Lobby Navigation & Match Tag -->
+        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+          <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
+            🏠 My Hub
+          </a>
+          <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
+            🎲 Lobby
+          </a>
+          <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:3px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
+            #${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}
+          </span>
+        </div>
 
-        ${tournamentId ? `
-          <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="Call Tournament Director / Floor Judge to this Table">
-            🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
+        <!-- Center: Connected Players Matchup -->
+        <div style="display:flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 8px; overflow:hidden; text-overflow:ellipsis;">
+          <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}; flex-shrink:0;"></span>
+          <span style="color:#38bdf8; max-width:140px; overflow:hidden; text-overflow:ellipsis;">${p1Display}</span>
+          <span style="color:#64748b; font-size:10px;">vs</span>
+          <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'} max-width:140px; overflow:hidden; text-overflow:ellipsis;">${p2Display}</span>
+        </div>
+
+        <!-- Right: Action Buttons -->
+        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+          <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Chess Clock">
+            ⏱️ Clock
           </button>
-        ` : ''}
-
-        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View Opponent's Army List">
-          📜 Opponent List ${hasOppList ? '🟢' : ''}
-        </button>
-
-        <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;" title="View or Attach Your Army List">
-          📋 My List ${hasMyList ? '🟢' : ''}
-        </button>
-
-        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:4px; font-size:10px; font-weight:700; cursor:pointer;">
-          🔗 Share
-        </button>
+          ${tournamentId ? `
+            <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
+              🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
+            </button>
+          ` : ''}
+          <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's Army List">
+            📜 Opponent List ${hasOppList ? '🟢' : ''}
+          </button>
+          <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your Army List">
+            📋 My List ${hasMyList ? '🟢' : ''}
+          </button>
+          ${isPlay ? `
+            <button onclick="window.__openScorecardModal()" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
+              📄 Scorecard
+            </button>
+            <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:3px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
+              🏁 Complete Game
+            </button>
+          ` : ''}
+          <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
+            🔗 Share
+          </button>
+        </div>
       </div>
     `;
   }
