@@ -1233,7 +1233,7 @@ class PostgresDatabase:
                 if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
                     user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-                where_clauses = ["e.event_date >= CURRENT_DATE", "e.is_ended = FALSE"]
+                where_clauses = ["e.event_date >= CURRENT_DATE"]
                 params = []
 
                 if query and query.strip():
@@ -1437,11 +1437,6 @@ class PostgresDatabase:
                     where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
                     params.extend([f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
 
-                if status == "completed":
-                    where_clauses.append("e.is_ended = TRUE")
-                elif status == "in_progress":
-                    where_clauses.append("e.is_ended = FALSE")
-
                 where_sql = " AND ".join(where_clauses)
                 dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
 
@@ -1455,8 +1450,7 @@ class PostgresDatabase:
                     "location": "e.city",
                     "total_players": "e.total_players",
                     "num_rounds": "e.num_rounds",
-                    "match_count": "e.total_players",
-                    "is_ended": "e.is_ended"
+                    "match_count": "e.total_players"
                 }
                 col = allowed_cols.get(sort_by, "e.event_date")
                 pe_col = col.replace("e.", "pe.")

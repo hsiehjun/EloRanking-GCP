@@ -30,17 +30,15 @@ function setEventsPageSize(newSize) {
 async function loadEvents() {
   const queryInput = document.getElementById('event-search-input');
   const query = queryInput ? queryInput.value.trim() : '';
-  const statusSelect = document.getElementById('event-status-filter');
-  const status = statusSelect ? statusSelect.value : 'all';
   const tbody = document.getElementById('events-body');
 
   if (tbody) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading tournaments...</div></td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading tournaments...</div></td></tr>';
   }
 
   try {
     const res = await window.api.getTournaments(
-      query, status, eventsSortState.field, eventsSortState.asc ? 'ASC' : 'DESC',
+      query, 'all', eventsSortState.field, eventsSortState.asc ? 'ASC' : 'DESC',
       eventsPagination.page, eventsPagination.pageSize
     );
     if (res && res.items) {
@@ -58,7 +56,7 @@ async function loadEvents() {
     renderEventsRows();
     renderPaginationBar('events-pagination', eventsPagination, 'setEventsPage', 'setEventsPageSize');
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading tournaments: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournaments: ${err.message}</td></tr>`;
   }
 }
 
@@ -68,7 +66,7 @@ function renderEventsRows() {
   tbody.innerHTML = '';
 
   if (!eventsData || eventsData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No tournaments found.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No tournaments found.</td></tr>';
     return;
   }
 
@@ -78,9 +76,6 @@ function renderEventsRows() {
 
     const location = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Unspecified';
     const dateStr = (ev.event_date || '').slice(0, 10) || '-';
-    const statusBadge = ev.is_ended 
-      ? '<span class="badge badge-win">COMPLETED</span>' 
-      : '<span class="badge badge-draw">IN PROGRESS</span>';
 
     tr.innerHTML = `
       <td>
@@ -93,7 +88,6 @@ function renderEventsRows() {
       <td style="font-family:var(--font-mono); font-weight:600;">${ev.total_players || 0}</td>
       <td style="font-family:var(--font-mono);">${ev.num_rounds || 0}</td>
       <td style="font-family:var(--font-mono); color:var(--accent); font-weight:600;">${ev.match_count || 0}</td>
-      <td>${statusBadge}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -154,7 +148,6 @@ async function openEventModal(eventId, forceSync = false) {
     document.getElementById('event-modal-players').innerText = ev.total_players || eventPlayersCache.length || 0;
     document.getElementById('event-modal-rounds').innerText = ev.num_rounds || 0;
     document.getElementById('event-modal-matches').innerText = eventMatchesCache.length;
-    document.getElementById('event-modal-status').innerHTML = `<span class="badge ${ev.is_ended ? 'badge-win' : 'badge-draw'}">${ev.is_ended ? 'COMPLETED' : 'IN PROGRESS'}</span>`;
 
     const tabResultsCount = document.getElementById('event-tab-results-count');
     const tabEloCount = document.getElementById('event-tab-elo-count');

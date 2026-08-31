@@ -856,7 +856,7 @@ function renderHubEventCard(ev) {
         <!-- Meta Row: Date & Location & Proximity Distance -->
         <div class="hub-card-meta-row" style="margin-top: 0.5rem;">
           <span class="hub-meta-item">
-            <span style="color:var(--accent);">📅</span> <b>${evDate}</b> <span style="color:var(--text-muted);">(${timeLabel})</span>
+            <span style="color:var(--accent);">📅</span> <b>${evDate}</b>${(timeLabel && timeLabel !== 'Upcoming') ? ` <span style="color:var(--text-muted);">(${timeLabel})</span>` : ''}
           </span>
           <span>•</span>
           <span class="hub-meta-item">

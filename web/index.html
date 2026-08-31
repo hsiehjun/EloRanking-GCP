@@ -471,17 +471,9 @@
     <!-- TAB 4: TOURNAMENTS SEARCH -->
     <section id="tab-events" class="tab-panel">
       <div class="controls-bar">
-        <div class="search-input-group">
+        <div class="search-input-group" style="width: 100%; max-width: 480px;">
           <span class="search-icon">🔍</span>
           <input type="text" id="event-search-input" class="search-input" placeholder="Search tournament by name, city, state, or country..." oninput="debounceEventSearch()">
-        </div>
-
-        <div class="filter-group">
-          <select id="event-status-filter" onchange="loadEvents()">
-            <option value="all">All Tournaments</option>
-            <option value="completed">Completed Only</option>
-            <option value="in_progress">In Progress Only</option>
-          </select>
         </div>
       </div>
 
@@ -495,11 +487,10 @@
               <th class="sortable" onclick="sortTable('events', 'total_players')">Players</th>
               <th class="sortable" onclick="sortTable('events', 'num_rounds')">Rounds</th>
               <th class="sortable" onclick="sortTable('events', 'match_count')">Matches Stored</th>
-              <th class="sortable" onclick="sortTable('events', 'is_ended')">Status</th>
             </tr>
           </thead>
           <tbody id="events-body">
-            <tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading tournaments...</div></td></tr>
+            <tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top: 0.5rem;">Loading tournaments...</div></td></tr>
           </tbody>
         </table>
       </div>
@@ -1070,9 +1061,6 @@
           <div class="stat-pill">
             <span class="pill-label">⚔️ Matches:</span>
             <span class="pill-val" id="event-modal-matches" style="color: var(--accent);">-</span>
-          </div>
-          <div class="stat-pill" style="margin-left: auto;">
-            <div id="event-modal-status">-</div>
           </div>
         </div>
 
