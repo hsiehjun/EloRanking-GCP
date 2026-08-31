@@ -257,25 +257,25 @@ function renderMyHub(data) {
       <div class="hub-card">
         <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🛡️ Faction Mastery & Win Rates</h3>
         ${factionMastery.length > 0 ? `
-          <div class="table-container" style="max-height: 220px; overflow-y: auto;">
-            <table id="hub-faction-table" class="table-compact" style="width: 100%;">
+          <div class="hub-table-wrapper">
+            <table id="hub-faction-table" class="hub-table">
               <thead>
                 <tr>
-                  <th>Army Played</th>
-                  <th>Games</th>
-                  <th>Record</th>
-                  <th>Win Rate</th>
-                  <th>Avg Pts</th>
+                  <th style="width: 36%;">Army Played</th>
+                  <th style="width: 16%; text-align: center;">Games</th>
+                  <th style="width: 20%;">Record</th>
+                  <th style="width: 16%; text-align: center;">Win Rate</th>
+                  <th style="width: 12%; text-align: right;">Avg</th>
                 </tr>
               </thead>
               <tbody>
                 ${factionMastery.map(fm => `
                   <tr>
-                    <td><b style="color: #fff;">${escapeHtml(fm.faction)}</b></td>
-                    <td>${fm.games}</td>
-                    <td style="font-size: 0.8rem;"><span style="color:var(--win);">${fm.wins}W</span> - <span style="color:var(--loss);">${fm.losses}L</span></td>
-                    <td><b style="color: ${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'};">${Number(fm.win_rate).toFixed(1)}%</b></td>
-                    <td>${fm.avg_score || '-'}</td>
+                    <td class="cell-ellipsis" title="${escapeHtml(fm.faction)}"><b style="color: #fff;">${escapeHtml(fm.faction)}</b></td>
+                    <td style="text-align: center; font-family: var(--font-mono);">${fm.games}</td>
+                    <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${fm.losses}L</span></td>
+                    <td style="text-align: center;"><b style="color: ${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono);">${Number(fm.win_rate).toFixed(1)}%</b></td>
+                    <td style="text-align: right; font-family: var(--font-mono);">${fm.avg_score || '-'}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -288,28 +288,28 @@ function renderMyHub(data) {
       <div class="hub-card">
         <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
         ${matchups.length > 0 ? `
-          <div class="table-container" style="max-height: 220px; overflow-y: auto;">
-            <table id="hub-matchup-table" class="table-compact" style="width: 100%;">
+          <div class="hub-table-wrapper">
+            <table id="hub-matchup-table" class="hub-table">
               <thead>
                 <tr>
-                  <th>Enemy Army</th>
-                  <th>Played</th>
-                  <th>Score</th>
-                  <th>Win Rate vs Army</th>
+                  <th style="width: 35%;">Enemy Army</th>
+                  <th style="width: 15%; text-align: center;">Played</th>
+                  <th style="width: 20%;">Record</th>
+                  <th style="width: 30%;">Win Rate vs Army</th>
                 </tr>
               </thead>
               <tbody>
                 ${matchups.map(m => `
                   <tr>
-                    <td><b style="color: #fff;">${escapeHtml(m.enemy_faction)}</b></td>
-                    <td>${m.total_encounters}</td>
-                    <td style="font-size: 0.8rem;"><span style="color:var(--win);">${m.wins}W</span> - <span style="color:var(--loss);">${m.losses}L</span>${m.draws ? ` - <span style="color:var(--draw);">${m.draws}D</span>` : ''}</td>
+                    <td class="cell-ellipsis" title="${escapeHtml(m.enemy_faction)}"><b style="color: #fff;">${escapeHtml(m.enemy_faction)}</b></td>
+                    <td style="text-align: center; font-family: var(--font-mono);">${m.total_encounters}</td>
+                    <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${m.losses}L</span>${m.draws ? ` - <span style="color:var(--draw);">${m.draws}D</span>` : ''}</td>
                     <td>
                       <div style="display:flex; align-items:center; gap:0.5rem;">
                         <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
                           <div style="width:${Math.min(100, Number(m.win_rate))}%; background:${Number(m.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
                         </div>
-                        <b style="font-size:0.8rem; font-family:var(--font-mono);">${Number(m.win_rate).toFixed(1)}%</b>
+                        <b style="font-size:0.78rem; font-family:var(--font-mono);">${Number(m.win_rate).toFixed(1)}%</b>
                       </div>
                     </td>
                   </tr>
@@ -332,15 +332,15 @@ function renderMyHub(data) {
           <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} matches</span>
         </div>
         ${history.length > 0 ? `
-          <div class="table-container" style="max-height: 260px; overflow-y: auto;">
-            <table id="hub-history-table" class="table-compact" style="width: 100%;">
+          <div class="hub-table-wrapper">
+            <table id="hub-history-table" class="hub-table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Tournament</th>
-                  <th>Opponent</th>
-                  <th>Result</th>
-                  <th>Elo</th>
+                  <th style="width: 52px;">Date</th>
+                  <th style="width: 38%;">Tournament</th>
+                  <th style="width: 32%;">Opponent</th>
+                  <th style="width: 50px; text-align: center;">Result</th>
+                  <th style="width: 54px; text-align: right;">Elo</th>
                 </tr>
               </thead>
               <tbody>
@@ -350,11 +350,15 @@ function renderMyHub(data) {
                   const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
                   return `
                     <tr>
-                      <td style="color: var(--text-muted); font-size: 0.75rem;">${h.match_date ? h.match_date.substring(5, 10) : '-'}</td>
-                      <td><span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}')">${escapeHtml(h.event_name || 'Event')}</span></td>
-                      <td style="font-size:0.78rem;"><b>${escapeHtml(h.opponent_name || 'Opponent')}</b></td>
-                      <td>${res}</td>
-                      <td>
+                      <td style="color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</td>
+                      <td class="cell-ellipsis" title="${escapeHtml(h.event_name || 'Event')}">
+                        <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}')">${escapeHtml(h.event_name || 'Event')}</span>
+                      </td>
+                      <td class="cell-ellipsis" title="${escapeHtml(h.opponent_name || 'Opponent')}">
+                        <b style="font-size:0.78rem; color:#e2e8f0;">${escapeHtml(h.opponent_name || 'Opponent')}</b>
+                      </td>
+                      <td style="text-align: center;">${res}</td>
+                      <td style="text-align: right;">
                         <span style="color: ${isPos ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
                           ${isPos ? '+' : ''}${delta.toFixed(1)}
                         </span>
@@ -429,14 +433,14 @@ function renderMyHub(data) {
 
         <!-- 3. Verified Match History / Completed Scorecards -->
         ${(data.completed_history && data.completed_history.length > 0) ? `
-          <div class="table-container" style="max-height: 260px; overflow-y: auto;">
-            <table id="hub-tracker-history-table" class="table-compact" style="width: 100%;">
+          <div class="hub-table-wrapper" style="margin-top: 10px;">
+            <table id="hub-tracker-history-table" class="hub-table">
               <thead>
                 <tr>
-                  <th>Match</th>
-                  <th>Players / Armies</th>
-                  <th>Score</th>
-                  <th>Scorecard</th>
+                  <th style="width: 75px;">Match</th>
+                  <th style="width: 48%;">Players / Armies</th>
+                  <th style="width: 65px; text-align: center;">Score</th>
+                  <th style="width: 80px; text-align: right;">Scorecard</th>
                 </tr>
               </thead>
               <tbody>
@@ -457,14 +461,18 @@ function renderMyHub(data) {
                         </a>
                         <div style="font-size:0.7rem; color:var(--text-muted);">${dateStr}</div>
                       </td>
-                      <td>
-                        <b style="color:#fff; font-size:0.8rem;">${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
-                        <div style="font-size:0.7rem; color:var(--text-secondary);">${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}</div>
+                      <td class="cell-ellipsis">
+                        <div style="color:#fff; font-size:0.8rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                          ${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}
+                        </div>
+                        <div style="font-size:0.7rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                          ${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}
+                        </div>
                       </td>
-                      <td>
+                      <td style="text-align: center;">
                         <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
                       </td>
-                      <td>
+                      <td style="text-align: right;">
                         <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="display:inline-flex; align-items:center; gap:3px; background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:6px; text-decoration:none; border:1px solid rgba(16,185,129,0.3);">
                           📄 Scorecard ↗
                         </a>
