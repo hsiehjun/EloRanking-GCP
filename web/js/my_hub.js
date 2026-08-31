@@ -1062,7 +1062,7 @@ function openImportArmyListModal() {
           <span style="font-size:22px;">📋</span>
           <div>
             <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army Roster</h3>
-            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Paste text from NewRecruit, BattleScribe, 40k App, or BCP</div>
+            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Paste text from NewRecruit or Official 40k App for full Wahapedia enrichment</div>
           </div>
         </div>
         <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
@@ -1073,11 +1073,13 @@ function openImportArmyListModal() {
         <!-- Recommended Exporter Options Guide -->
         <div style="background:rgba(2,132,199,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:11.5px; color:#cbd5e1; line-height:1.45;">
           <div style="font-weight:700; color:#38bdf8; margin-bottom:4px; display:flex; align-items:center; gap:5px;">
-            <span>💡</span> Recommended Export Settings:
+            <span>💡</span> Supported & Recommended Exporters:
           </div>
-          <div style="color:#94a3b8;">• <b>NewRecruit Text Export:</b> Format: <code>Tournament, GW</code> &bull; Checked: <code>[✓] Constant selections</code> &bull; <code>[✓] Header</code></div>
-          <div style="color:#94a3b8; margin-top:2px;">• <b>Official 40k App:</b> Share / Export text list directly</div>
-          <div style="color:#94a3b8; margin-top:2px;">• <b>BattleScribe / JSON / BCP:</b> Plain text or JSON export</div>
+          <div style="color:#e2e8f0;">• <b>NewRecruit Text Export:</b> Options <code>Tournament, GW</code> &bull; Checked: <code>[✓] Constant selections</code> &bull; <code>[✓] Header</code></div>
+          <div style="color:#e2e8f0; margin-top:2px;">• <b>Official Warhammer 40k App:</b> Share / Export text list directly</div>
+          <div style="color:#94a3b8; font-size:11px; margin-top:5px; border-top:1px dashed rgba(255,255,255,0.1); padding-top:4px;">
+            ⚠️ <i>Note: Other formats (BattleScribe, raw JSON, or BCP plain text) might not have full Wahapedia stats/rules enrichment.</i>
+          </div>
         </div>
 
         <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">
