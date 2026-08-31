@@ -174,7 +174,15 @@ class BestCoastPairingsScraper:
         return players
 
     def sync_event_roster(self, event_id: str) -> int:
-        """Quickly updates the participant roster and podNum in ~0.5s without re-fetching all round matches."""
+        """Quickly updates the participant roster, podNum, and event placing metrics without re-fetching all round matches."""
+        try:
+            ev_data = self.fetch_event_details(event_id)
+            if ev_data and isinstance(ev_data, dict):
+                ev_data["id"] = ev_data.get("id") or event_id
+                self.db.upsert_event(ev_data)
+        except Exception as e:
+            logger.debug(f"Could not update event metadata in sync_event_roster for {event_id}: {e}")
+
         enrolled_players = self.fetch_event_players(event_id)
         count = 0
         for p in enrolled_players:

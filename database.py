@@ -1026,12 +1026,16 @@ class PostgresDatabase:
                     opp_bps = [(player_stats[opp]["event_battle_points"] / max(1, player_stats[opp]["event_matches_count"])) for opp in ps["opponents"] if opp in player_stats]
                     ps["bp_sos"] = sum(opp_bps) / max(1, len(opp_bps)) if opp_bps else 0.0
 
-                # Compute Extended Opponent Game Win % and Swiss SoS
+                # Compute Extended Opponent Game Win %, Swiss SoS, Wins Ext SoS, and Battle Points Ext SoS
                 for p_id, ps in player_stats.items():
                     opp_sos = [player_stats[opp]["sos"] for opp in ps["opponents"] if opp in player_stats]
                     ps["ext_sos"] = sum(opp_sos) / max(1, len(opp_sos)) if opp_sos else 0.0
                     opp_swiss = [player_stats[opp]["swiss_points"] for opp in ps["opponents"] if opp in player_stats]
                     ps["swiss_sos"] = sum(opp_swiss) / max(1, len(opp_swiss)) if opp_swiss else 0.0
+                    opp_wins_sos = [player_stats[opp]["wins_sos"] for opp in ps["opponents"] if opp in player_stats]
+                    ps["ext_wins_sos"] = sum(opp_wins_sos) / max(1, len(opp_wins_sos)) if opp_wins_sos else 0.0
+                    opp_bp_sos = [player_stats[opp]["bp_sos"] for opp in ps["opponents"] if opp in player_stats]
+                    ps["ext_bp_sos"] = sum(opp_bp_sos) / max(1, len(opp_bp_sos)) if opp_bp_sos else 0.0
 
                 # Parse tournament specific placingMetrics from raw_json
                 raw_meta = {}
@@ -1088,6 +1092,10 @@ class PostgresDatabase:
                             val = round(p["wins_sos"], 4)
                         elif k in ("FFGBattlePointsSoS", "Battle Points SoS"):
                             val = round(p["bp_sos"], 4)
+                        elif k in ("extendedNumWinsSoS", "Wins Extended SoS", "extended_wins_sos"):
+                            val = round(p["ext_wins_sos"], 4)
+                        elif k in ("extendedFFGBattlePointsSoS", "Battle Points Extended SoS", "extended_bp_sos"):
+                            val = round(p["ext_bp_sos"], 4)
                         elif k in ("mfSwissPoints", "Swiss Points"):
                             val = p["swiss_points"]
                         elif k in ("mfStrengthOfSchedule", "Swiss SoS"):
