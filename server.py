@@ -1128,6 +1128,10 @@ if FASTAPI_AVAILABLE:
                         "state": saved["state"]
                     }
                     TRACKER_ROOMS[match_id] = room
+                    try:
+                        fs_engine.create_room(match_id, room)
+                    except Exception:
+                        pass
                 else:
                     return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
                 
@@ -1182,6 +1186,10 @@ if FASTAPI_AVAILABLE:
                         "state": saved["state"],
                         "updated_at": saved.get("updated_at")
                     }
+                    try:
+                        fs_engine.create_room(match_id, TRACKER_ROOMS[match_id])
+                    except Exception:
+                        pass
                 else:
                     raise HTTPException(status_code=404, detail="Match room not found")
                 
