@@ -216,7 +216,7 @@ class ArmyListParser:
                 data=payload,
                 headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
             )
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
+            with urllib.request.urlopen(req, timeout=12.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     if isinstance(data, dict) and data.get("army"):
