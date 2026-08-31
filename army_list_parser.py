@@ -211,11 +211,14 @@ class ArmyListParser:
         try:
             rpc_url = "https://www.newrecruit.eu/api/rpc"
             payload = json.dumps({"method": "open_share_link", "params": [list_id]}).encode("utf-8")
-            req = urllib.request.Request(
-                rpc_url,
-                data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-            )
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/plain, */*",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Origin": "https://www.newrecruit.eu",
+                "Referer": f"https://www.newrecruit.eu/app/list/{list_id}"
+            }
+            req = urllib.request.Request(rpc_url, data=payload, headers=headers)
             with urllib.request.urlopen(req, timeout=12.0) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
