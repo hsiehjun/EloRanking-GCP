@@ -419,31 +419,3 @@ body:has(#gt-sync-hud) {
 #gt-sync-hud::-webkit-scrollbar {
   display: none !important;
 }
-
-/* 7. Read-Only Match Archive Styling */
-body.gt-readonly-mode button:has(svg.lucide-plus),
-body.gt-readonly-mode button:has(svg.lucide-minus),
-body.gt-readonly-mode button:has(svg.lucide-trash),
-body.gt-readonly-mode button:has(svg.lucide-trash-2),
-body.gt-readonly-mode [data-action="increment"],
-body.gt-readonly-mode [data-action="decrement"],
-body.gt-readonly-mode .gtk-counter-btn,
-body.gt-readonly-mode input[type="number"],
-body.gt-readonly-mode input[type="checkbox"],
-body.gt-readonly-mode #gt-btn-submit-bcp,
-body.gt-readonly-mode #gt-btn-conclude {
-  pointer-events: none !important;
-  opacity: 0.65 !important;
-  cursor: not-allowed !important;
-}
-
-body.gt-readonly-mode #gt-sync-hud button,
-body.gt-readonly-mode #gt-sync-hud a,
-body.gt-readonly-mode .gt-modal-dialog button,
-body.gt-readonly-mode [role="tab"],
-body.gt-readonly-mode [aria-selected],
-body.gt-readonly-mode nav button {
-  pointer-events: auto !important;
-  opacity: 1 !important;
-  cursor: pointer !important;
-}

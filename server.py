@@ -1195,7 +1195,7 @@ if FASTAPI_AVAILABLE:
             "is_full": bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2)),
             "is_open_for_p2": bool(not is_finished and p2_id is None and not is_p1),
             "is_finished": is_finished,
-            "readonly": is_finished
+            "scorecard_url": f"/scorecard/{match_id}"
         }
 
     @app.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
@@ -1233,7 +1233,7 @@ if FASTAPI_AVAILABLE:
                             "match_id": match_id,
                             "role": "spectator",
                             "is_finished": True,
-                            "readonly": True,
+                            "scorecard_url": f"/scorecard/{match_id}",
                             "state": saved["state"]
                         }
                     TRACKER_ROOMS[match_id] = {
@@ -2237,8 +2237,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=36.0">
-  <script src="/tracker/tracker_sync.js?v=36.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=37.0">
+  <script src="/tracker/tracker_sync.js?v=37.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
