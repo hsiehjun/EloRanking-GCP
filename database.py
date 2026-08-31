@@ -2307,9 +2307,9 @@ class PostgresDatabase:
                 # If roster is empty or null, populate from event_participants + player_ratings
                 if not ev.get("roster") or ev.get("roster") == []:
                     cursor.execute("""
-                    SELECT ep.player_id as id, COALESCE(p.name, ep.player_id) as name, 
+                    SELECT ep.player_id as id, COALESCE(ep.full_name, p.full_name, ep.player_id) as name, 
                            COALESCE(ep.faction, 'Unassigned') as faction, 
-                           COALESCE(ep.army_list, '') as detachment,
+                           COALESCE(ep.team, 'Standard') as detachment,
                            COALESCE(ep.checked_in, true) as checked_in,
                            COALESCE(pr.current_elo, 1500.0) as current_elo
                     FROM event_participants ep
@@ -2336,34 +2336,34 @@ class PostgresDatabase:
                 # If pairings is empty or null, populate from matches
                 if not ev.get("pairings") or ev.get("pairings") == {}:
                     cursor.execute("""
-                    SELECT m.round_num, m.table_num, m.player1_id, m.player2_id,
-                           p1.name as p1_name, p2.name as p2_name,
-                           m.player1_faction as p1_faction, m.player2_faction as p2_faction,
-                           m.player1_score as p1_score, m.player2_score as p2_score
+                    SELECT m.round, m.table_number, m.player1_id, m.player2_id,
+                           COALESCE(m.player1_name, 'Player 1') as p1_name, 
+                           COALESCE(m.player2_name, 'Player 2') as p2_name,
+                           COALESCE(m.player1_faction, '') as p1_faction, 
+                           COALESCE(m.player2_faction, '') as p2_faction,
+                           m.player1_score, m.player2_score
                     FROM matches m
-                    LEFT JOIN players p1 ON m.player1_id = p1.id
-                    LEFT JOIN players p2 ON m.player2_id = p2.id
                     WHERE m.event_id = %s
-                    ORDER BY m.round_num ASC, m.table_num ASC;
+                    ORDER BY m.round ASC, m.table_number ASC;
                     """, (event_id,))
                     m_rows = cursor.fetchall()
                     if m_rows:
                         pairings_dict = {}
                         for mr in m_rows:
-                            r_str = str(mr["round_num"] or 1)
+                            r_str = str(mr["round"] or 1)
                             if r_str not in pairings_dict:
                                 pairings_dict[r_str] = []
-                            is_done = mr["p1_score"] is not None and mr["p2_score"] is not None
+                            is_done = mr["player1_score"] is not None and mr["player2_score"] is not None
                             pairings_dict[r_str].append({
-                                "table": mr["table_num"] or len(pairings_dict[r_str]) + 1,
+                                "table": mr["table_number"] or len(pairings_dict[r_str]) + 1,
                                 "p1": str(mr["player1_id"] or ""),
                                 "p2": str(mr["player2_id"] or ""),
-                                "p1_name": mr["p1_name"] or "Player 1",
-                                "p2_name": mr["p2_name"] or "Player 2",
-                                "p1_faction": mr["p1_faction"] or "",
-                                "p2_faction": mr["p2_faction"] or "",
-                                "p1Score": mr["p1_score"],
-                                "p2Score": mr["p2_score"],
+                                "p1_name": mr["p1_name"],
+                                "p2_name": mr["p2_name"],
+                                "p1_faction": mr["p1_faction"],
+                                "p2_faction": mr["p2_faction"],
+                                "p1Score": mr["player1_score"],
+                                "p2Score": mr["player2_score"],
                                 "status": "completed" if is_done else "pending"
                             })
                         ev["pairings"] = pairings_dict
