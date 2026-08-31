@@ -1301,10 +1301,10 @@
     window.__broadcastHistoryUpdate = function() {};
   }
 
-  // Soft Delete: Hide tracker game for current user (Instant Optimistic UI)
+  // Discard & Delete Active/Unfinished Match Session (Instant Optimistic UI & Firestore Deletion)
   window.__gdmHideTrackerGame = async function(matchId, cardEl) {
     if (!matchId) return;
-    if (!confirm(`Hide match #${matchId} from your personal history?\n\n(Note: This will only hide it from your view. The match remains safely preserved in the database for the other player.)`)) {
+    if (!confirm(`Discard & delete match #${matchId.replace('WH40K-', '')}?\n\n(This will remove it from active sessions with zero Elo penalty.)`)) {
       return;
     }
 
@@ -1316,7 +1316,15 @@
       originalSetItem('gt-hidden-matches', JSON.stringify(locallyHidden));
     }
 
-    // 2. Instant Optimistic UI Update (0ms)
+    // 2. Instant Optimistic UI Update across all 3 tiers
+    if (window.gtPrimaryActive && (window.gtPrimaryActive.match_id === matchId || window.gtPrimaryActive.id === matchId)) {
+      window.gtPrimaryActive = null;
+      if (window.gtUnfinishedSessions && window.gtUnfinishedSessions.length > 0) {
+        window.gtPrimaryActive = window.gtUnfinishedSessions.shift();
+      }
+    }
+    window.gtUnfinishedSessions = (window.gtUnfinishedSessions || []).filter(item => (item.match_id || item.id) !== matchId);
+    window.gtCompletedHistory = (window.gtCompletedHistory || []).filter(item => (item.match_id || item.id) !== matchId);
     dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
     originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
 
@@ -1333,10 +1341,18 @@
 
     window.__broadcastHistoryUpdate();
 
-    // 3. Persist to PostgreSQL backend
+    // 3. Delete directly from Firestore Web SDK if loaded in browser
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(matchId).delete();
+      } catch(e) {}
+    }
+
+    // 4. Send Discard to Server
     try {
       const token = getAuthToken();
-      await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/hide`, {
+      await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1344,8 +1360,9 @@
         },
         body: JSON.stringify({ token: token, match_id: matchId })
       });
+      syncHistoryFromDatabase();
     } catch (err) {
-      console.error('[GDM Sync] Error hiding game:', err);
+      console.error('[GDM Sync] Error discarding game:', err);
     }
   };
 

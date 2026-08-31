@@ -1589,12 +1589,24 @@ if FASTAPI_AVAILABLE:
         auth_header = request.headers.get("Authorization", "")
         session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
-        if not user:
-            raise HTTPException(status_code=401, detail="Authentication required to hide game")
         
+        # 1. Update Firestore Native
+        fs_engine = get_firestore_engine()
+        fs_engine.discard_room(match_id)
+        
+        # 2. Update memory cache
+        if match_id in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id]["status"] = "abandoned"
+            TRACKER_ROOMS[match_id]["is_abandoned"] = True
+            
         db = get_database()
-        success = db.hide_tracker_game_for_user(match_id, user["id"])
-        return {"success": success, "match_id": match_id, "hidden_for_user": user["id"]}
+        success = True
+        if user:
+            try:
+                success = db.hide_tracker_game_for_user(match_id, user["id"])
+            except Exception:
+                pass
+        return {"success": success, "match_id": match_id}
 
     @app.post("/api/tracker/room/{match_id}/unhide", summary="Unhide a game in the user's personal history")
     async def api_tracker_unhide_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
