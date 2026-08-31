@@ -503,11 +503,18 @@
     const statusEl = document.getElementById('gt-complete-submit-status');
     if (btn) { btn.disabled = true; btn.textContent = 'SAVING MATCH...'; }
 
+    clientState.isFinalizing = true;
+    clearTimeout(clientState.debounceTimer);
+    if (fsDocUnsub) {
+      try { fsDocUnsub(); fsDocUnsub = null; } catch(e) {}
+    }
+
     const matchId = getActiveMatchId();
     const raw = originalGetItem('gdm-11e-tracker-state');
     let st = {};
     try { st = JSON.parse(raw) || {}; } catch(e) {}
     st.is_finished = true;
+    st.started = true;
     st.round = 5;
 
     const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
@@ -516,7 +523,6 @@
     }
 
     saveLocalState(st);
-    notifyStateChanged();
 
     // 1. Direct Firestore SDK delete if loaded
     if (typeof firebase !== 'undefined' && firebase.firestore) {
@@ -550,22 +556,24 @@
           btn.style.background = '#10b981';
           btn.textContent = '✓ MATCH CONCLUDED';
         }
+        try { originalRemoveItem('gdm-11e-tracker-state'); } catch(e) {}
         setTimeout(() => {
           const m = document.getElementById('gt-complete-modal');
           if (m) m.remove();
           window.location.href = '/11th/tracker';
-        }, 800);
+        }, 700);
         return;
       }
     } catch (e) {}
 
     // Fallback if offline or network error
     if (btn) { btn.textContent = '✓ SAVED LOCALLY'; }
+    try { originalRemoveItem('gdm-11e-tracker-state'); } catch(e) {}
     setTimeout(() => {
       const m = document.getElementById('gt-complete-modal');
       if (m) m.remove();
       window.location.href = '/11th/tracker';
-    }, 700);
+    }, 600);
   };
 
   window.__submitMatchToBcp = async function () {
@@ -1681,12 +1689,13 @@
   }
 
   async function broadcastState() {
-    if (!clientState.matchId) return;
+    if (!clientState.matchId || clientState.isFinalizing) return;
     const raw = originalGetItem('gdm-11e-tracker-state');
     if (!raw) return;
 
     let parsedState = {};
     try { parsedState = JSON.parse(raw); } catch (e) { return; }
+    if (parsedState.is_finished) return;
 
     // Embed unified chess_clock directly into game state payload
     parsedState.chess_clock = {
