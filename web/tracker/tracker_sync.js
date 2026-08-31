@@ -1824,7 +1824,22 @@
   };
 
   function renderTrackerNativeRoster(list) {
-    const units = list.units || [];
+    let units = list.units || [];
+    let armyRules = list.army_rules || [];
+    let detachmentRules = list.detachment_rules || [];
+
+    if ((!units || units.length === 0) && list.list_data) {
+      let ld = list.list_data;
+      if (typeof ld === 'string') {
+        try { ld = JSON.parse(ld); } catch(e) {}
+      }
+      if (ld && typeof ld === 'object') {
+        if (ld.units && ld.units.length > 0) units = ld.units;
+        if (ld.army_rules && ld.army_rules.length > 0) armyRules = ld.army_rules;
+        if (ld.detachment_rules && ld.detachment_rules.length > 0) detachmentRules = ld.detachment_rules;
+      }
+    }
+
     const name = list.name || 'Army Roster';
     const faction = list.faction || 'Warhammer 40,000';
     const detachment = list.detachment || 'Core Detachment';
@@ -1861,9 +1876,6 @@
     });
 
     let contentHtml = '';
-
-    const armyRules = list.army_rules || [];
-    const detachmentRules = list.detachment_rules || [];
 
     if (units.length > 0) {
       contentHtml += `

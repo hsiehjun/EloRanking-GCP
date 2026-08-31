@@ -2675,9 +2675,15 @@ class PostgresDatabase:
                 res = []
                 for r in rows:
                     item = dict(r)
-                    if isinstance(item.get("list_data"), dict):
-                        for k, v in item["list_data"].items():
-                            if k not in item:
+                    ld = item.get("list_data")
+                    if isinstance(ld, str):
+                        try:
+                            ld = json.loads(ld)
+                        except Exception:
+                            ld = None
+                    if isinstance(ld, dict):
+                        for k, v in ld.items():
+                            if k not in item or not item[k]:
                                 item[k] = v
                     res.append(item)
                 return res
@@ -2696,9 +2702,15 @@ class PostgresDatabase:
                 if not row:
                     return None
                 item = dict(row)
-                if isinstance(item.get("list_data"), dict):
-                    for k, v in item["list_data"].items():
-                        if k not in item:
+                ld = item.get("list_data")
+                if isinstance(ld, str):
+                    try:
+                        ld = json.loads(ld)
+                    except Exception:
+                        ld = None
+                if isinstance(ld, dict):
+                    for k, v in ld.items():
+                        if k not in item or not item[k]:
                             item[k] = v
                 return item
 

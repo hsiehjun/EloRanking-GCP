@@ -1166,14 +1166,27 @@ function closeImportArmyListModal() {
 }
 
 function renderNativeRosterViewer(list, options = {}) {
-  const units = list.units || [];
+  let units = list.units || [];
+  let armyRules = list.army_rules || [];
+  let detachmentRules = list.detachment_rules || [];
+
+  if ((!units || units.length === 0) && list.list_data) {
+    let ld = list.list_data;
+    if (typeof ld === 'string') {
+      try { ld = JSON.parse(ld); } catch(e) {}
+    }
+    if (ld && typeof ld === 'object') {
+      if (ld.units && ld.units.length > 0) units = ld.units;
+      if (ld.army_rules && ld.army_rules.length > 0) armyRules = ld.army_rules;
+      if (ld.detachment_rules && ld.detachment_rules.length > 0) detachmentRules = ld.detachment_rules;
+    }
+  }
+
   const name = list.name || 'Army Roster';
   const faction = list.faction || 'Warhammer 40,000';
   const detachment = list.detachment || 'Core Detachment';
   const points = list.points || 2000;
   const warlord = list.warlord || '';
-  const armyRules = list.army_rules || [];
-  const detachmentRules = list.detachment_rules || [];
 
   let contentHtml = `<div style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14;">`;
 
@@ -1358,8 +1371,52 @@ function renderNativeRosterViewer(list, options = {}) {
       </div>
     `;
   } else {
-    contentHtml += `<div style="padding:3rem 1rem; text-align:center; color:#94a3b8;">No roster content found.</div>`;
+    contentHtml += `
+      <div style="padding:3rem 1rem; text-align:center; color:#94a3b8;">
+        <div style="font-size:1.8rem; margin-bottom:0.5rem;">📋</div>
+        <div style="font-weight:700; color:#fff; font-size:1.05rem; margin-bottom:0.35rem;">No unit datasheets found</div>
+        <div style="font-size:0.82rem; color:#64748b; margin-bottom:1rem;">Click below to re-fetch and extract datasheets.</div>
+        ${(list.source_url || list.raw_text || list.id) ? `
+          <button onclick="window.gtRefreshRoster('${list.id}')" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:8px 16px; border-radius:8px; cursor:pointer;">
+            🔄 Refresh / Re-parse Roster
+          </button>
+        ` : ''}
+      </div>
+    `;
   }
+
+  contentHtml += `</div>`;
+  return contentHtml;
+}
+
+window.gtRefreshRoster = async function(listId) {
+  let list = hubSavedLists.find(l => l.id === listId);
+  if (!list) {
+    try {
+      const res = await window.api.getArmyList(listId);
+      if (res && res.army_list) list = res.army_list;
+    } catch(e) {}
+  }
+  if (!list) return;
+
+  const parseSource = list.source_url || list.raw_text;
+  if (!parseSource) {
+    alert('No source URL or text available to re-parse.');
+    return;
+  }
+
+  try {
+    const parseRes = await window.api.parseArmyList(parseSource);
+    if (parseRes && parseRes.army_list) {
+      const updated = { ...list, ...parseRes.army_list, id: list.id };
+      await window.api.saveArmyList(updated);
+      await loadHubArmyLists();
+      openViewArmyListModal(listId);
+    }
+  } catch(e) {
+    alert('Error re-parsing list: ' + e.message);
+  }
+};
 
   contentHtml += `</div>`;
   return contentHtml;
@@ -1402,15 +1459,30 @@ window.gtToggleSlain = function(unitIdx, forceSlain = null) {
 
 async function openViewArmyListModal(listId) {
   let list = hubSavedLists.find(l => l.id === listId);
-  if (!list) {
+  if (!list || !list.units || list.units.length === 0) {
     try {
       const res = await window.api.getArmyList(listId);
-      list = res.army_list;
+      if (res && res.army_list) list = res.army_list;
     } catch(e) {}
   }
   if (!list) {
     alert('List not found');
     return;
+  }
+
+  // Auto-heal if list is missing units and has a source_url or raw_text
+  if ((!list.units || list.units.length === 0) && (list.source_url || list.raw_text)) {
+    try {
+      const parseSource = list.source_url || list.raw_text;
+      const parseRes = await window.api.parseArmyList(parseSource);
+      if (parseRes && parseRes.army_list && parseRes.army_list.units && parseRes.army_list.units.length > 0) {
+        list = { ...list, ...parseRes.army_list, id: list.id };
+        await window.api.saveArmyList(list);
+        await loadHubArmyLists();
+      }
+    } catch(err) {
+      console.warn('Auto re-parsing on view:', err);
+    }
   }
 
   let modal = document.getElementById('hub-view-armylist-modal');
