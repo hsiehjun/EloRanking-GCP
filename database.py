@@ -91,22 +91,27 @@ class PostgresDatabase:
         else:
             self.dsn = raw_dsn
 
+        try:
+            self._ensure_pool()
+            if not PostgresDatabase._db_initialized:
+                self.init_db()
+                self.ensure_tracker_table()
+                PostgresDatabase._db_initialized = True
+        except Exception as e:
+            logger.warning(f"Initial DB connect notice (will retry on query): {e}")
+
+    def _ensure_pool(self):
         if PostgresDatabase._pool is None:
             try:
                 PostgresDatabase._pool = pool.ThreadedConnectionPool(
-                    minconn=2,
-                    maxconn=60,
+                    minconn=1,
+                    maxconn=40,
                     dsn=self.dsn
                 )
                 logger.info(f"PostgreSQL connection pool initialized with DSN: {self._sanitize_dsn(self.dsn)}")
             except Exception as e:
                 logger.error(f"Failed to connect to PostgreSQL pool ({self._sanitize_dsn(self.dsn)}): {e}")
                 raise
-
-        if not PostgresDatabase._db_initialized:
-            self.init_db()
-            self.ensure_tracker_table()
-            PostgresDatabase._db_initialized = True
 
     @property
     def db_path(self) -> str:
@@ -119,6 +124,7 @@ class PostgresDatabase:
 
     def get_connection(self):
         """Context manager yielding a pooled PostgreSQL connection."""
+        self._ensure_pool()
         conn = PostgresDatabase._pool.getconn()
         return PostgresConnectionContext(PostgresDatabase._pool, conn)
 
