@@ -1100,12 +1100,30 @@ class PostgresDatabase:
 
                 sorted_roster = sorted(player_stats.values(), key=get_standings_sort_key, reverse=True)
 
-                for rank_idx, p in enumerate(sorted_roster, 1):
+                # Filter out 0-match phantom alias records if the player already played matches
+                final_players = []
+                seen_names = set()
+                # 1. First keep all players who played matches
+                for p in sorted_roster:
+                    norm_name = (p.get("full_name") or "").strip().lower()
+                    if p.get("event_matches_count", 0) > 0:
+                        final_players.append(p)
+                        if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
+                            seen_names.add(norm_name)
+                # 2. Then keep genuine registered players who have not played a round yet
+                for p in sorted_roster:
+                    norm_name = (p.get("full_name") or "").strip().lower()
+                    if p.get("event_matches_count", 0) == 0 and norm_name not in seen_names:
+                        final_players.append(p)
+                        if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
+                            seen_names.add(norm_name)
+
+                for rank_idx, p in enumerate(final_players, 1):
                     p["placement"] = rank_idx
 
-                res["players"] = sorted_roster
+                res["players"] = final_players
                 res["matches"] = matches
-                res["total_players"] = res.get("total_players") or len(sorted_roster)
+                res["total_players"] = res.get("total_players") or len(final_players)
                 res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
                 return res
 
