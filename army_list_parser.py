@@ -21,7 +21,7 @@ class ArmyListParser:
     """Parses army list links, JSON, and text exports into structured match rosters."""
 
     def _enrich_with_wahapedia(self, roster: Dict[str, Any]) -> Dict[str, Any]:
-        """Auto-enriches parsed roster with full datasheets, stats, weapons, abilities, and stratagems from PostgreSQL."""
+        """Auto-enriches parsed roster with full datasheets, stats, weapons, abilities, stratagems, enhancements, and detachment rules from PostgreSQL."""
         if not roster or not isinstance(roster, dict):
             return roster
 
@@ -34,35 +34,40 @@ class ArmyListParser:
 
         faction = roster.get("faction") or ""
         detachment = roster.get("detachment") or ""
+        
+        clean_det = re.sub(r'\(.*?\)', '', detachment or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip() if detachment else ""
+        lookup_det = clean_det or detachment
 
         # 1. Enrich Stratagems if missing
-        if detachment and not roster.get("stratagems"):
+        if lookup_det and not roster.get("stratagems"):
             try:
-                strats = db.waha_get_stratagems(detachment)
+                strats = db.waha_get_stratagems(lookup_det)
                 if strats:
                     roster["stratagems"] = strats
             except Exception as e:
                 logger.debug(f"Error enriching stratagems: {e}")
 
         # 2. Enrich Detachment Enhancements if missing
-        if detachment and not roster.get("available_enhancements"):
+        available_enhancements = roster.get("available_enhancements") or []
+        if lookup_det and not available_enhancements:
             try:
-                enhancements = db.waha_get_enhancements(detachment)
+                enhancements = db.waha_get_enhancements(lookup_det)
                 if enhancements:
                     roster["available_enhancements"] = enhancements
+                    available_enhancements = enhancements
             except Exception as e:
                 logger.debug(f"Error enriching enhancements: {e}")
 
         # 3. Enrich Detachment Rules if missing
-        if detachment and not roster.get("detachment_rules"):
+        if lookup_det and not roster.get("detachment_rules"):
             try:
-                det_rules = db.waha_get_detachment_rules(detachment)
+                det_rules = db.waha_get_detachment_rules(lookup_det)
                 if det_rules:
                     roster["detachment_rules"] = det_rules
             except Exception as e:
                 logger.debug(f"Error enriching detachment rules: {e}")
 
-        # 4. Enrich each unit
+        # 4. Enrich each unit & match enhancements
         units = roster.get("units") or []
         for u in units:
             u_name = u.get("name") or ""
@@ -84,6 +89,37 @@ class ArmyListParser:
                         u["role"] = w_unit["role"]
             except Exception as e:
                 logger.debug(f"Error enriching unit {u_name}: {e}")
+
+            # Match unit's enhancement with available_enhancements or database
+            u_enh = u.get("enhancement")
+            if u_enh:
+                enh_name_clean = re.sub(r'\(.*?\)', '', str(u_enh)).strip().lower()
+                matched_enh = None
+                for enh in available_enhancements:
+                    if enh.get("name") and enh.get("name").strip().lower() == enh_name_clean:
+                        matched_enh = enh
+                        break
+                    elif enh.get("name") and (enh_name_clean in enh.get("name").strip().lower() or enh.get("name").strip().lower() in enh_name_clean):
+                        matched_enh = enh
+                        break
+
+                if not matched_enh and lookup_det:
+                    try:
+                        matched_enh_list = db.waha_get_enhancements(lookup_det)
+                        for enh in matched_enh_list:
+                            if enh.get("name") and enh.get("name").strip().lower() in enh_name_clean:
+                                matched_enh = enh
+                                break
+                    except Exception:
+                        pass
+
+                if matched_enh:
+                    u["enhancement_detail"] = {
+                        "name": matched_enh.get("name") or u_enh,
+                        "description": matched_enh.get("description") or "",
+                        "cost": matched_enh.get("cost") or matched_enh.get("points") or "",
+                        "legend": matched_enh.get("legend") or ""
+                    }
 
         return roster
 
@@ -803,14 +839,19 @@ class ArmyListParser:
         detachment = "Core Detachment"
         points = 2000
         warlord = ""
+        det_rule_inline = ""
 
         fac_match = re.search(r"FACTION KEYWORD:\s*(?:Xenos|Imperium|Chaos)?\s*-?\s*([^\n\r\+]+)", text, re.IGNORECASE)
         if fac_match:
-            faction = fac_match.group(1).strip()
+            faction = fac_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
 
         det_match = re.search(r"DETACHMENT:\s*([^\n\r\+]+)", text, re.IGNORECASE)
         if det_match:
-            detachment = det_match.group(1).strip()
+            raw_det = det_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+            paren_m = re.search(r'\((.*?)\)', raw_det)
+            if paren_m:
+                det_rule_inline = paren_m.group(1).strip()
+            detachment = re.sub(r'\(.*?\)', '', raw_det).strip() or raw_det
 
         pts_match = re.search(r"TOTAL ARMY POINTS:\s*(\d+)", text, re.IGNORECASE)
         if pts_match:
@@ -821,7 +862,14 @@ class ArmyListParser:
 
         wl_match = re.search(r"WARLORD:\s*(?:Char\d+:\s*)?([^\n\r\+]+)", text, re.IGNORECASE)
         if wl_match:
-            warlord = wl_match.group(1).strip()
+            warlord = wl_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+
+        header_enh_map = {}
+        for enh_line in re.finditer(r"ENHANCEMENT:\s*([^(\n\r\+]+)(?:\s*\((?:on\s*)?(?:Char\d+:\s*)?([^\)]+)\))?", text, re.IGNORECASE):
+            enh_name = enh_line.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
+            target_unit = (enh_line.group(2) or "").replace('\u00a0', ' ').replace('&nbsp;', ' ').strip().lower()
+            if enh_name:
+                header_enh_map[target_unit] = enh_name
 
         parsed_units = []
         current_unit = None
@@ -837,14 +885,19 @@ class ArmyListParser:
 
             enh_m = enh_regex.match(line)
             if enh_m and current_unit:
-                current_unit["enhancement"] = enh_m.group(1).strip()
+                current_unit["enhancement"] = enh_m.group(1).replace('\u00a0', ' ').strip()
+                if enh_m.group(2):
+                    try:
+                        current_unit["enhancement_pts"] = int(enh_m.group(2))
+                    except Exception:
+                        pass
                 continue
 
             u_m = unit_regex.match(line)
             if u_m:
                 char_tag = u_m.group(1)
                 count = int(u_m.group(2) or 1)
-                raw_uname = u_m.group(3).strip()
+                raw_uname = u_m.group(3).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
                 pts = int(u_m.group(4) or u_m.group(5) or 0)
                 wargear_str = u_m.group(6) or ""
 
@@ -872,9 +925,24 @@ class ArmyListParser:
                 }
                 parsed_units.append(current_unit)
 
+        # Match enhancements from header if not parsed in unit body
+        for u in parsed_units:
+            if not u.get("enhancement"):
+                u_name_low = u["name"].lower()
+                for t_name, enh_val in header_enh_map.items():
+                    if t_name and (t_name in u_name_low or u_name_low in t_name):
+                        u["enhancement"] = enh_val
+                        break
+                if not u.get("enhancement") and "" in header_enh_map and u.get("is_warlord"):
+                    u["enhancement"] = header_enh_map[""]
+
         calculated_pts = sum(u["points"] for u in parsed_units)
         if calculated_pts > 0:
             points = calculated_pts
+
+        detachment_rules = []
+        if det_rule_inline:
+            detachment_rules.append({"name": det_rule_inline, "description": f"Detachment Rule for {detachment}"})
 
         return {
             "id": f"list_{uuid.uuid4().hex[:10]}",
@@ -886,6 +954,7 @@ class ArmyListParser:
             "warlord": warlord or (parsed_units[0]["name"] if parsed_units else ""),
             "source_format": "NewRecruit",
             "source_url": None,
+            "detachment_rules": detachment_rules,
             "units": parsed_units,
             "enhancements": [u["enhancement"] for u in parsed_units if u.get("enhancement")],
             "stratagems": [],

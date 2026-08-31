@@ -3372,45 +3372,54 @@ class PostgresDatabase:
 
     def waha_get_stratagems(self, detachment_name: str, faction_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns all stratagems associated with a specific detachment (plus core stratagems) from PostgreSQL."""
-        det_clean = detachment_name.strip()
+        if not detachment_name:
+            return []
+        import re
+        det_clean = re.sub(r'\(.*?\)', '', detachment_name or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_stratagems 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
+                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = 'core' OR LOWER(detachment) = 'core stratagems')
                       AND name IS NOT NULL AND TRIM(name) != ''
                       AND cp_cost IS NOT NULL AND TRIM(cp_cost) != ''
                     ORDER BY CASE WHEN LOWER(detachment) = 'core' THEN 2 ELSE 1 END, name ASC;
-                """, (det_clean, f"%{det_clean}%"))
+                """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
     def waha_get_enhancements(self, detachment_name: str) -> List[Dict[str, Any]]:
         """Returns all enhancements associated with a specific detachment from PostgreSQL."""
-        det_clean = detachment_name.strip()
+        if not detachment_name:
+            return []
+        import re
+        det_clean = re.sub(r'\(.*?\)', '', detachment_name or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_enhancements 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
+                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
                       AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
-                """, (det_clean, f"%{det_clean}%"))
+                """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
     def waha_get_detachment_rules(self, detachment_name: str) -> List[Dict[str, Any]]:
         """Returns all detachment rules associated with a specific detachment from PostgreSQL."""
-        det_clean = detachment_name.strip()
+        if not detachment_name:
+            return []
+        import re
+        det_clean = re.sub(r'\(.*?\)', '', detachment_name or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
         from psycopg2 import extras
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
                     SELECT * FROM waha_detachment_abilities 
-                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
+                    WHERE (LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s OR LOWER(detachment) = LOWER(%s) OR detachment ILIKE %s)
                       AND name IS NOT NULL AND name != ''
                     ORDER BY name ASC;
-                """, (det_clean, f"%{det_clean}%"))
+                """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
 
