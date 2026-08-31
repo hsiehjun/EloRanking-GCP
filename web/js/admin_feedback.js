@@ -39,24 +39,47 @@ function formatDate(dateStr) {
   }
 }
 
+function getCookieToken() {
+  const match = document.cookie.match(/(?:^|;\s*)session_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 function getAuthToken() {
-  return localStorage.getItem('elo_session_token') || 
-         localStorage.getItem('native_session_token') || 
-         localStorage.getItem('elo_auth_token') || '';
+  return localStorage.getItem('native_session_token') || 
+         localStorage.getItem('elo_auth_token') || 
+         localStorage.getItem('elo_session_token') || 
+         localStorage.getItem('bcp_session_token') || 
+         getCookieToken() || '';
 }
 
 async function checkAdminAuth() {
   const token = getAuthToken();
-  if (!token) return null;
+  if (!token) {
+    try {
+      const cached = localStorage.getItem('native_user_profile');
+      if (cached) return JSON.parse(cached);
+    } catch(e) {}
+    return null;
+  }
+
   try {
     const resp = await fetch(`/api/auth/me?token=${encodeURIComponent(token)}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (resp.ok) {
-      const user = await resp.json();
+      const data = await resp.json();
+      const user = (data && data.user) ? data.user : data;
+      if (user && user.role) {
+        localStorage.setItem('native_user_profile', JSON.stringify(user));
+      }
       return user;
     }
   } catch (e) {}
+
+  try {
+    const cached = localStorage.getItem('native_user_profile');
+    if (cached) return JSON.parse(cached);
+  } catch(e) {}
   return null;
 }
 

