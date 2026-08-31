@@ -157,10 +157,8 @@ class ArmyListParser:
                 enh_name_clean = re.sub(r'\(.*?\)', '', str(u_enh)).strip().lower()
                 matched_enh = None
                 for enh in available_enhancements:
-                    if enh.get("name") and enh.get("name").strip().lower() == enh_name_clean:
-                        matched_enh = enh
-                        break
-                    elif enh.get("name") and (enh_name_clean in enh.get("name").strip().lower() or enh.get("name").strip().lower() in enh_name_clean):
+                    e_name = (enh.get("name") or "").strip().lower()
+                    if e_name and (e_name == enh_name_clean or enh_name_clean in e_name or e_name in enh_name_clean):
                         matched_enh = enh
                         break
 
@@ -168,9 +166,16 @@ class ArmyListParser:
                     try:
                         matched_enh_list = db.waha_get_enhancements(lookup_det)
                         for enh in matched_enh_list:
-                            if enh.get("name") and enh.get("name").strip().lower() in enh_name_clean:
+                            e_name = (enh.get("name") or "").strip().lower()
+                            if e_name and (e_name == enh_name_clean or enh_name_clean in e_name or e_name in enh_name_clean):
                                 matched_enh = enh
                                 break
+                    except Exception:
+                        pass
+
+                if not matched_enh:
+                    try:
+                        matched_enh = db.waha_find_enhancement(u_enh, faction_name=faction)
                     except Exception:
                         pass
 
@@ -181,6 +186,12 @@ class ArmyListParser:
                         "cost": matched_enh.get("cost") or matched_enh.get("points") or "",
                         "legend": matched_enh.get("legend") or ""
                     }
+                    u["enhancement_data"] = u["enhancement_detail"]
+                    if matched_enh not in available_enhancements:
+                        available_enhancements.append(matched_enh)
+
+        if available_enhancements:
+            roster["available_enhancements"] = available_enhancements
 
         return roster
 

@@ -3389,8 +3389,18 @@ class PostgresDatabase:
         import re
         raw = detachment_name.replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
         
-        # 1. Extract parenthetical expressions as candidate rule names
-        rule_hints = [r.strip() for r in re.findall(r'\((.*?)\)', raw) if r.strip()]
+        # 1. Extract parenthetical expressions as candidate rule names (ignoring points/upgrades)
+        raw_parens = re.findall(r'\((.*?)\)', raw)
+        rule_hints = []
+        for r in raw_parens:
+            r_clean = r.strip()
+            if not r_clean:
+                continue
+            if re.search(r'\d+\s*(?:detachment\s*points?|pts?|points?)', r_clean, re.IGNORECASE):
+                continue
+            if r_clean.lower() in ('upgrade', 'enhancement', 'warlord'):
+                continue
+            rule_hints.append(r_clean)
         
         # 2. Strip parentheses for the base detachment string
         no_parens = re.sub(r'\(.*?\)', '', raw).strip()
@@ -3402,11 +3412,14 @@ class PostgresDatabase:
             parts = no_parens.split(' - ')
             no_parens = parts[-1].strip()
             
-        # 4. Split by comma, semicolon, slash, or ampersand
-        sub_parts = [p.strip() for p in re.split(r'[,;/&]+', no_parens) if p.strip()]
+        # 4. Split by comma, semicolon, slash, ampersand, or " and " (e.g. "Cursed Legion and Skyshroud Spearhead")
+        sub_parts = [p.strip() for p in re.split(r'[,;/&]+|\s+and\s+', no_parens, flags=re.IGNORECASE) if p.strip()]
         
         candidate_dets = []
         for sp in sub_parts:
+            clean_sp = re.sub(r'\s+detachment$', '', sp, flags=re.IGNORECASE).strip()
+            if clean_sp and clean_sp not in candidate_dets:
+                candidate_dets.append(clean_sp)
             if sp and sp not in candidate_dets:
                 candidate_dets.append(sp)
         if no_parens and no_parens not in candidate_dets:
@@ -3415,6 +3428,37 @@ class PostgresDatabase:
             candidate_dets.append(raw)
             
         return candidate_dets, rule_hints
+
+    def waha_find_enhancement(self, enhancement_name: str, faction_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Finds a specific enhancement by name from PostgreSQL."""
+        if not enhancement_name:
+            return None
+        import re
+        clean_name = re.sub(r'\(.*?\)', '', str(enhancement_name)).strip()
+        clean_name = re.sub(r'^[•\-\*\s]+', '', clean_name).strip()
+        if not clean_name:
+            return None
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT * FROM waha_enhancements
+                    WHERE LOWER(name) = LOWER(%s)
+                    LIMIT 1;
+                """, (clean_name,))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+                
+                cursor.execute("""
+                    SELECT * FROM waha_enhancements
+                    WHERE name ILIKE %s OR %s ILIKE ('%%' || name || '%%')
+                    LIMIT 1;
+                """, (f"%{clean_name}%", clean_name))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+                return None
 
     def waha_get_stratagems(self, detachment_name: str, faction_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns all stratagems associated with a specific detachment (plus core stratagems) from PostgreSQL."""
