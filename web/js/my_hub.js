@@ -1111,6 +1111,9 @@ async function openViewArmyListModal(listId) {
           <button onclick="launchTrackerWithList('${list.id}')" style="background:#10b981; color:#0f172a; font-weight:800; font-size:11px; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">
             ⚔️ Play in Tracker
           </button>
+          <button onclick="deleteHubArmyList('${list.id}', true)" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-weight:800; font-size:11px; padding:6px 12px; border-radius:6px; cursor:pointer;">
+            🗑️ Delete
+          </button>
           <button onclick="closeViewArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer; padding:4px 8px;">✕</button>
         </div>
       </div>
@@ -1271,10 +1274,20 @@ function exportArmyListToBcp(listId) {
   });
 }
 
-async function deleteHubArmyList(listId) {
-  if (!confirm('Are you sure you want to delete this army list?')) return;
+async function deleteHubArmyList(listId, fromModal = false) {
+  if (!confirm('Are you sure you want to permanently delete this army list?')) return;
   try {
-    await window.api.deleteArmyList(listId);
+    const res = await window.api.deleteArmyList(listId);
+    if (res && res.error) {
+      alert('Error deleting list: ' + res.error);
+      return;
+    }
+    if (fromModal) {
+      closeViewArmyListModal();
+    }
+    // Optimistically update list in state
+    hubSavedLists = (hubSavedLists || []).filter(l => l.id !== listId);
+    renderHubArmyLists(hubSavedLists);
     await loadHubArmyLists();
   } catch(e) {
     alert('Error deleting list: ' + e.message);

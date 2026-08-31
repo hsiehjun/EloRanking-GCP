@@ -2601,13 +2601,10 @@ class PostgresDatabase:
                 return item
 
     def delete_user_army_list(self, list_id: str, user_id: Optional[str] = None) -> bool:
-        """Deletes an army list by ID."""
+        """Deletes an army list by ID from user_army_lists table."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                if user_id:
-                    cursor.execute("DELETE FROM user_army_lists WHERE id = %s AND (user_id = %s OR user_id IS NULL);", (list_id, user_id))
-                else:
-                    cursor.execute("DELETE FROM user_army_lists WHERE id = %s;", (list_id,))
+                cursor.execute("DELETE FROM user_army_lists WHERE id = %s;", (list_id,))
             conn.commit()
         return True
 
