@@ -95,7 +95,7 @@ function updateStudioAuthBadge() {
 async function loadStudioEvents() {
   const listContainer = document.getElementById('es-events-list');
   if (listContainer) {
-    listContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem; padding: 2rem; text-align: center;"><div class="spinner" style="margin: 0 auto 0.5rem;"></div>Loading managed tournaments...</div>';
+    listContainer.innerHTML = '<div style="padding: 2.5rem; text-align: center;"><div class="spinner" style="margin: 0 auto; width: 22px; height: 22px;"></div></div>';
   }
 
   try {
