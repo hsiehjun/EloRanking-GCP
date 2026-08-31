@@ -19,6 +19,7 @@ logger = logging.getLogger("elo.job.tournament_sync")
 def run_tournament_sync():
     logger.info("🚀 Starting Cloud Run Job: BCP Tournament Scraper & Elo Recalculation")
     db = get_database()
+    logger.info(f"💾 Database target: {db.db_path}")
     scraper = BestCoastPairingsScraper(db=db)
     
     end_dt = datetime.now(timezone.utc)

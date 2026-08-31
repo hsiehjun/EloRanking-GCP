@@ -62,34 +62,7 @@ class PostgresDatabase:
             raise ImportError("psycopg2 is not installed. Run 'pip install psycopg2-binary' or 'sudo apt install python3-psycopg2'.")
 
         raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:Jung@1475369@localhost:5432/elo_ranking"
-        
-        # Strip erroneous 'postgresql://' prefix if followed by keyword syntax (e.g. 'postgresql://elo_user password=...' or 'postgresql://dbname=...')
-        if raw_dsn.startswith("postgresql://") and (" " in raw_dsn or "password=" in raw_dsn or "host=" in raw_dsn):
-            cleaned = raw_dsn.replace("postgresql://", "").strip()
-            if "dbname=" not in cleaned:
-                cleaned = "dbname=elo_ranking " + cleaned
-            if "user=" not in cleaned and "elo_user" in cleaned:
-                cleaned = cleaned.replace("elo_user", "user=elo_user")
-            raw_dsn = cleaned
-
-        # If already in keyword DSN format (e.g. dbname=... user=... password=... host=...)
-        if raw_dsn.startswith("dbname=") or ("user=" in raw_dsn and "password=" in raw_dsn):
-            self.dsn = raw_dsn
-        elif "/cloudsql/" in raw_dsn:
-            try:
-                import urllib.parse
-                parsed = urllib.parse.urlparse(raw_dsn)
-                qs = urllib.parse.parse_qs(parsed.query)
-                host = qs.get("host", [""])[0] or (f"/cloudsql/{parsed.hostname}" if parsed.hostname else "")
-                dbname = parsed.path.lstrip("/") or "elo_ranking"
-                user = urllib.parse.unquote(parsed.username or "elo_user")
-                password = urllib.parse.unquote(parsed.password or "")
-                self.dsn = f"dbname={dbname} user={user} password={password} host={host}"
-            except Exception as e:
-                logger.warning(f"Error normalizing Cloud SQL DSN: {e}")
-                self.dsn = raw_dsn
-        else:
-            self.dsn = raw_dsn
+        self.dsn = self._normalize_dsn(raw_dsn)
 
         try:
             self._ensure_pool()
@@ -116,6 +89,51 @@ class PostgresDatabase:
     @property
     def db_path(self) -> str:
         return self._sanitize_dsn(self.dsn)
+
+    def _normalize_dsn(self, raw_dsn: str) -> str:
+        """Parses and converts any PostgreSQL URL or Cloud SQL DSN into standard libpq keyword format."""
+        if not raw_dsn:
+            return "dbname=elo_ranking"
+        raw_dsn = raw_dsn.strip()
+        
+        # If pure keyword DSN (e.g. 'dbname=... user=... host=...')
+        if not raw_dsn.startswith(("postgresql://", "postgres://")) and ("=" in raw_dsn):
+            return raw_dsn
+
+        try:
+            import urllib.parse
+            import re
+            parsed = urllib.parse.urlparse(raw_dsn)
+            qs = urllib.parse.parse_qs(parsed.query)
+            
+            host = qs.get("host", [""])[0]
+            if not host and parsed.hostname:
+                host = parsed.hostname
+            if not host and "/cloudsql/" in raw_dsn:
+                m = re.search(r'/cloudsql/([^\s&/?]+)', raw_dsn)
+                if m:
+                    host = f"/cloudsql/{m.group(1)}"
+                    
+            port = qs.get("port", [""])[0] or (str(parsed.port) if parsed.port else "")
+            dbname = parsed.path.lstrip("/").split("?")[0] or "elo_ranking"
+            user = urllib.parse.unquote(parsed.username or "")
+            password = urllib.parse.unquote(parsed.password or "")
+            
+            parts = []
+            if dbname:
+                parts.append(f"dbname={dbname}")
+            if user:
+                parts.append(f"user={user}")
+            if password:
+                parts.append(f"password={password}")
+            if host:
+                parts.append(f"host={host}")
+            if port:
+                parts.append(f"port={port}")
+            return " ".join(parts)
+        except Exception as e:
+            logger.warning(f"DSN normalization notice: {e}")
+            return raw_dsn
 
     def _sanitize_dsn(self, dsn: str) -> str:
         if "@" in dsn:
