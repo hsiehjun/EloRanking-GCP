@@ -1412,20 +1412,75 @@ if FASTAPI_AVAILABLE:
 
         return {"match_id": match_id, "version": 0, "online_count": online_count, "state": {}, "chess_clock": None}
 
+    def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
+        st = doc.get("state", {}) if isinstance(doc.get("state"), dict) else {}
+        game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
+        p1 = st.get("p1", {}) if isinstance(st.get("p1"), dict) else {}
+        p2 = st.get("p2", {}) if isinstance(st.get("p2"), dict) else {}
+        
+        match_id = doc.get("roomKey") or doc.get("matchId") or st.get("match_id") or ""
+        p1_name = doc.get("p1_name") or game.get("p1Name") or "Player 1"
+        p2_name = doc.get("p2_name") or game.get("p2Name") or "Player 2"
+        p1_score = p1.get("score", 0) if isinstance(p1, dict) else 0
+        p2_score = p2.get("score", 0) if isinstance(p2, dict) else 0
+        p1_faction = game.get("p1Faction")
+        p2_faction = game.get("p2Faction")
+        primary_mission = game.get("p1Primary") or game.get("primary")
+        current_round = st.get("round", 1) if isinstance(st, dict) else 1
+        
+        updated_ts = doc.get("updatedAt") or doc.get("updated_at") or int(datetime.now(timezone.utc).timestamp() * 1000)
+        created_ts = doc.get("createdAt") or doc.get("created_at") or updated_ts
+        expires_ts = doc.get("expiresAt") or (created_ts + (14 * 24 * 60 * 60 * 1000))
+        
+        date_str = datetime.fromtimestamp(updated_ts / 1000, tz=timezone.utc).strftime("%b %d, %Y %H:%M")
+        
+        return {
+            "id": match_id,
+            "match_id": match_id,
+            "p1_name": p1_name,
+            "p2_name": p2_name,
+            "p1_score": p1_score,
+            "p2_score": p2_score,
+            "p1Score": p1_score,
+            "p2Score": p2_score,
+            "p1_faction": p1_faction,
+            "p2_faction": p2_faction,
+            "primary_mission": primary_mission,
+            "current_round": current_round,
+            "round": current_round,
+            "is_finished": False,
+            "isFinished": False,
+            "is_abandoned": bool(doc.get("status") == "abandoned" or doc.get("is_abandoned")),
+            "created_at": created_ts,
+            "updated_at": updated_ts,
+            "expires_at": expires_ts,
+            "date": date_str,
+            "state": st,
+            "game": game,
+            "version": doc.get("version", 1)
+        }
+
     @app.get("/api/tracker/history", summary="Get persistent history of tracker games")
     async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None)):
         try:
-            db = get_database()
             auth_mgr = get_auth_manager()
-            
             auth_header = request.headers.get("Authorization", "")
             session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
             user = auth_mgr.get_session(session_token) if session_token else None
             user_id = user["id"] if user else None
             user_name = user["display_name"] if user else None
             
-            history = db.get_tracker_history(limit=limit, search=search, user_id=user_id, user_name=user_name)
-            return {"success": True, "history": history}
+            fs_engine = get_firestore_engine()
+            active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name, limit=limit)
+            active_sessions = [_format_firestore_session_item(d) for d in active_docs if not d.get("is_abandoned")]
+            
+            db = get_database()
+            completed = db.get_tracker_history(limit=limit, search=search, user_id=user_id, user_name=user_name)
+            seen = {a["match_id"] for a in active_sessions}
+            filtered_completed = [c for c in completed if c.get("match_id") not in seen]
+            
+            all_history = active_sessions + filtered_completed
+            return {"success": True, "history": all_history}
         except Exception as err:
             logger.error(f"Error fetching tracker history: {err}")
             return {"success": False, "history": []}
@@ -1443,13 +1498,37 @@ if FASTAPI_AVAILABLE:
         user_id = user["id"] if user else None
         user_name = user.get("display_name") if user else None
         
+        fs_engine = get_firestore_engine()
+        active_docs = fs_engine.list_active_rooms_for_user(user_id=user_id, user_name=user_name)
+        
+        seen_matches = set()
+        active_sessions = []
+        for doc in active_docs:
+            mid = doc.get("roomKey") or doc.get("matchId")
+            if mid and mid not in seen_matches:
+                seen_matches.add(mid)
+                formatted = _format_firestore_session_item(doc)
+                if not formatted["is_abandoned"]:
+                    active_sessions.append(formatted)
+                    
+        primary_active = active_sessions[0] if active_sessions else None
+        unfinished_sessions = active_sessions[1:] if len(active_sessions) > 1 else []
+        
         db = get_database()
+        completed_history = []
         try:
-            sessions = db.get_user_tracker_sessions(user_id=user_id, user_name=user_name)
-            return {"success": True, **sessions}
+            completed_history = db.get_tracker_history(limit=50, user_id=user_id, user_name=user_name)
+            completed_history = [g for g in completed_history if g.get("is_finished", True) and g.get("match_id") not in seen_matches]
         except Exception as err:
-            logger.error(f"Error fetching user tracker sessions: {err}")
-            return {"success": False, "primary_active": None, "unfinished_sessions": [], "completed_history": []}
+            logger.debug(f"History fetch notice: {err}")
+            
+        return {
+            "success": True,
+            "primary_active": primary_active,
+            "unfinished_sessions": unfinished_sessions,
+            "completed_history": completed_history,
+            "total_games": len(completed_history) + len(active_sessions)
+        }
 
     @app.post("/api/tracker/room/{match_id}/discard", summary="Discard / abandon a casual test session with zero Elo penalty")
     async def api_tracker_discard_game(match_id: str, request: Request, payload: Optional[TrackerActionPayload] = None):
@@ -1459,16 +1538,22 @@ if FASTAPI_AVAILABLE:
         session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
         user = auth_mgr.get_session(session_token) if session_token else None
         
-        db = get_database()
-        if user:
-            db.hide_tracker_game_for_user(match_id, user["id"])
-            
+        # 1. Update Firestore Native
+        fs_engine = get_firestore_engine()
+        fs_engine.discard_room(match_id)
+        
+        # 2. Update memory cache
         if match_id in TRACKER_ROOMS:
             TRACKER_ROOMS[match_id]["status"] = "abandoned"
-            state = TRACKER_ROOMS[match_id].get("state", {})
-            if isinstance(state, dict):
-                state["status"] = "abandoned"
-                state["is_abandoned"] = True
+            TRACKER_ROOMS[match_id]["is_abandoned"] = True
+            
+        # 3. If in PostgreSQL, hide it
+        db = get_database()
+        if user:
+            try:
+                db.hide_tracker_game_for_user(match_id, user["id"])
+            except Exception:
+                pass
                 
         return {"success": True, "match_id": match_id, "status": "abandoned"}
 

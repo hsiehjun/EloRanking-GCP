@@ -124,38 +124,68 @@ class FirestoreRoomEngine:
             "is_finished": True
         })
 
-    def list_active_rooms_for_user(self, user_id: str, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Queries Firestore for active rooms involving this user."""
-        if not user_id and not user_name:
-            return []
-        
+    def list_active_rooms_for_user(self, user_id: Optional[str] = None, user_name: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Queries Firestore for active in_progress rooms involving this user."""
         rooms = []
+        seen_keys = set()
+        
         if self._client:
             try:
                 col = self._client.collection("rooms")
-                query = col.where("status", "==", "in_progress").limit(20)
+                query = col.where("status", "==", "in_progress").limit(limit)
                 for doc in query.stream():
                     d = doc.to_dict()
+                    rkey = d.get("roomKey") or d.get("matchId") or doc.id
+                    if not rkey or rkey in seen_keys:
+                        continue
+                    
+                    if d.get("status") == "abandoned" or d.get("is_abandoned") or d.get("is_finished"):
+                        continue
+
                     p1_id = d.get("user_id_p1") or d.get("participants", {}).get("player1", {}).get("uid")
                     p2_id = d.get("user_id_p2") or d.get("participants", {}).get("player2", {}).get("uid")
-                    p1_name = d.get("p1_name") or d.get("state", {}).get("game", {}).get("p1Name")
-                    p2_name = d.get("p2_name") or d.get("state", {}).get("game", {}).get("p2Name")
+                    p1_name = (d.get("p1_name") or d.get("state", {}).get("game", {}).get("p1Name") or "").strip().lower()
+                    p2_name = (d.get("p2_name") or d.get("state", {}).get("game", {}).get("p2Name") or "").strip().lower()
                     
                     match = False
-                    if user_id and (p1_id == user_id or p2_id == user_id):
+                    if not user_id and not user_name:
                         match = True
-                    elif user_name and ((p1_name and user_name.lower() in p1_name.lower()) or (p2_name and user_name.lower() in p2_name.lower())):
+                    elif user_id and (p1_id == user_id or p2_id == user_id):
                         match = True
-                        
+                    elif user_name:
+                        u_lower = user_name.strip().lower()
+                        if (p1_name and (u_lower in p1_name or p1_name in u_lower)) or (p2_name and (u_lower in p2_name or p2_name in u_lower)):
+                            match = True
+                            
                     if match:
+                        seen_keys.add(rkey)
                         rooms.append(d)
-                return rooms
             except Exception as e:
                 logger.warning(f"Notice listing Firestore user rooms: {e}")
 
         for mid, d in self._fallback_rooms.items():
-            if d.get("status") == "in_progress":
-                rooms.append(d)
+            rkey = d.get("roomKey") or d.get("matchId") or mid
+            if rkey not in seen_keys and d.get("status") == "in_progress" and not d.get("is_abandoned") and not d.get("is_finished"):
+                p1_id = d.get("user_id_p1") or d.get("participants", {}).get("player1", {}).get("uid")
+                p2_id = d.get("user_id_p2") or d.get("participants", {}).get("player2", {}).get("uid")
+                p1_name = (d.get("p1_name") or d.get("state", {}).get("game", {}).get("p1Name") or "").strip().lower()
+                p2_name = (d.get("p2_name") or d.get("state", {}).get("game", {}).get("p2Name") or "").strip().lower()
+                
+                match = False
+                if not user_id and not user_name:
+                    match = True
+                elif user_id and (p1_id == user_id or p2_id == user_id):
+                    match = True
+                elif user_name:
+                    u_lower = user_name.strip().lower()
+                    if (p1_name and (u_lower in p1_name or p1_name in u_lower)) or (p2_name and (u_lower in p2_name or p2_name in u_lower)):
+                        match = True
+                if match:
+                    seen_keys.add(rkey)
+                    rooms.append(d)
+
+        # Sort rooms by updatedAt descending
+        rooms.sort(key=lambda r: r.get("updatedAt") or r.get("updated_at") or 0, reverse=True)
         return rooms
 
 # Singleton instance
