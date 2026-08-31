@@ -361,14 +361,14 @@ class PostgresDatabase:
             );""",
             "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);",
             """CREATE TABLE IF NOT EXISTS waha_factions (
-                id VARCHAR(64) PRIMARY KEY,
-                name TEXT NOT NULL,
+                id TEXT,
+                name TEXT,
                 link TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_factions_name ON waha_factions(LOWER(name));",
             """CREATE TABLE IF NOT EXISTS waha_sources (
-                id VARCHAR(64) PRIMARY KEY,
-                name TEXT NOT NULL,
+                id TEXT,
+                name TEXT,
                 type TEXT,
                 edition TEXT,
                 version TEXT,
@@ -376,10 +376,10 @@ class PostgresDatabase:
                 errata_link TEXT
             );""",
             """CREATE TABLE IF NOT EXISTS waha_datasheets (
-                id VARCHAR(64) PRIMARY KEY,
-                name TEXT NOT NULL,
-                faction_id VARCHAR(64),
-                source_id VARCHAR(64),
+                id TEXT,
+                name TEXT,
+                faction_id TEXT,
+                source_id TEXT,
                 legend TEXT,
                 role TEXT,
                 loadout TEXT,
@@ -395,8 +395,8 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_waha_datasheets_name ON waha_datasheets(LOWER(name));",
             "CREATE INDEX IF NOT EXISTS idx_waha_datasheets_faction ON waha_datasheets(faction_id);",
             """CREATE TABLE IF NOT EXISTS waha_datasheet_models (
-                datasheet_id VARCHAR(64),
-                line INT,
+                datasheet_id TEXT,
+                line TEXT,
                 name TEXT,
                 M TEXT,
                 T TEXT,
@@ -407,16 +407,15 @@ class PostgresDatabase:
                 Ld TEXT,
                 OC TEXT,
                 base_size TEXT,
-                base_size_descr TEXT,
-                PRIMARY KEY (datasheet_id, line)
+                base_size_descr TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_models_ds ON waha_datasheet_models(datasheet_id);",
             """CREATE TABLE IF NOT EXISTS waha_datasheet_wargear (
-                datasheet_id VARCHAR(64),
-                line INT,
-                line_in_wargear INT,
+                datasheet_id TEXT,
+                line TEXT,
+                line_in_wargear TEXT,
                 dice TEXT,
-                name TEXT NOT NULL,
+                name TEXT,
                 description TEXT,
                 range TEXT,
                 type TEXT,
@@ -424,67 +423,64 @@ class PostgresDatabase:
                 BS_WS TEXT,
                 S TEXT,
                 AP TEXT,
-                D TEXT,
-                PRIMARY KEY (datasheet_id, line, line_in_wargear)
+                D TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_wargear_ds ON waha_datasheet_wargear(datasheet_id);",
             "CREATE INDEX IF NOT EXISTS idx_waha_wargear_name ON waha_datasheet_wargear(LOWER(name));",
             """CREATE TABLE IF NOT EXISTS waha_datasheet_abilities (
-                datasheet_id VARCHAR(64),
-                line INT,
-                ability_id VARCHAR(64),
+                datasheet_id TEXT,
+                line TEXT,
+                ability_id TEXT,
                 model TEXT,
-                name TEXT NOT NULL,
+                name TEXT,
                 description TEXT,
                 type TEXT,
-                parameter TEXT,
-                PRIMARY KEY (datasheet_id, line)
+                parameter TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_abilities_ds ON waha_datasheet_abilities(datasheet_id);",
             "CREATE INDEX IF NOT EXISTS idx_waha_abilities_name ON waha_datasheet_abilities(LOWER(name));",
             """CREATE TABLE IF NOT EXISTS waha_datasheet_keywords (
-                datasheet_id VARCHAR(64),
+                datasheet_id TEXT,
                 keyword TEXT,
                 model TEXT,
                 is_faction_keyword TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_keywords_ds ON waha_datasheet_keywords(datasheet_id);",
             """CREATE TABLE IF NOT EXISTS waha_datasheet_costs (
-                datasheet_id VARCHAR(64),
-                line INT,
+                datasheet_id TEXT,
+                line TEXT,
                 description TEXT,
-                cost INT,
-                PRIMARY KEY (datasheet_id, line)
+                cost TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_costs_ds ON waha_datasheet_costs(datasheet_id);",
             """CREATE TABLE IF NOT EXISTS waha_datasheet_leaders (
-                leader_id VARCHAR(64),
-                attached_id VARCHAR(64)
+                leader_id TEXT,
+                attached_id TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_leaders_lead ON waha_datasheet_leaders(leader_id);",
             "CREATE INDEX IF NOT EXISTS idx_waha_leaders_att ON waha_datasheet_leaders(attached_id);",
             """CREATE TABLE IF NOT EXISTS waha_stratagems (
-                faction_id VARCHAR(64),
-                name TEXT NOT NULL,
-                id VARCHAR(64) PRIMARY KEY,
+                faction_id TEXT,
+                name TEXT,
+                id TEXT,
                 type TEXT,
                 cp_cost TEXT,
                 legend TEXT,
                 turn TEXT,
                 phase TEXT,
                 detachment TEXT,
-                detachment_id VARCHAR(64),
+                detachment_id TEXT,
                 description TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_stratagems_det ON waha_stratagems(LOWER(detachment));",
             "CREATE INDEX IF NOT EXISTS idx_waha_stratagems_fac ON waha_stratagems(faction_id);",
             """CREATE TABLE IF NOT EXISTS waha_enhancements (
-                faction_id VARCHAR(64),
-                id VARCHAR(64) PRIMARY KEY,
-                name TEXT NOT NULL,
+                faction_id TEXT,
+                name TEXT,
+                id TEXT,
                 cost TEXT,
                 detachment TEXT,
-                detachment_id VARCHAR(64),
+                detachment_id TEXT,
                 upgrade TEXT,
                 legend TEXT,
                 description TEXT,
@@ -492,30 +488,34 @@ class PostgresDatabase:
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_enhancements_det ON waha_enhancements(LOWER(detachment));",
             """CREATE TABLE IF NOT EXISTS waha_army_abilities (
-                id VARCHAR(64) PRIMARY KEY,
-                name TEXT NOT NULL,
+                id TEXT,
+                name TEXT,
                 legend TEXT,
-                faction_id VARCHAR(64),
+                faction_id TEXT,
                 description TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_army_ab_fac ON waha_army_abilities(faction_id);",
             """CREATE TABLE IF NOT EXISTS waha_detachment_abilities (
-                id VARCHAR(64) PRIMARY KEY,
-                faction_id VARCHAR(64),
-                name TEXT NOT NULL,
+                id TEXT,
+                faction_id TEXT,
+                name TEXT,
                 legend TEXT,
                 description TEXT,
                 detachment TEXT,
-                detachment_id VARCHAR(64)
+                detachment_id TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_waha_det_ab_det ON waha_detachment_abilities(LOWER(detachment));",
             """CREATE TABLE IF NOT EXISTS waha_detachments (
-                id VARCHAR(64) PRIMARY KEY,
-                faction_id VARCHAR(64),
-                name TEXT NOT NULL,
+                id TEXT,
+                faction_id TEXT,
+                name TEXT,
                 legend TEXT,
-                type TEXT
+                type TEXT,
+                dp TEXT,
+                force_disposition TEXT
             );""",
+            "ALTER TABLE waha_detachments ADD COLUMN IF NOT EXISTS dp TEXT;",
+            "ALTER TABLE waha_detachments ADD COLUMN IF NOT EXISTS force_disposition TEXT;",
             "CREATE INDEX IF NOT EXISTS idx_waha_detachments_name ON waha_detachments(LOWER(name));",
             """CREATE TABLE IF NOT EXISTS waha_sync_metadata (
                 key VARCHAR(64) PRIMARY KEY,

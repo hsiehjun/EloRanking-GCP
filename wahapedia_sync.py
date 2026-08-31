@@ -108,7 +108,7 @@ class WahapediaSync:
                             results[filename] = 0
                             continue
 
-                        header = rows[0]
+                        header = [c.strip().lower() for c in rows[0]]
                         data_rows = rows[1:]
 
                         # Truncate table in PostgreSQL
@@ -117,6 +117,7 @@ class WahapediaSync:
                         if data_rows:
                             num_cols = len(header)
                             placeholders = ",".join(["%s"] * num_cols)
+                            cols_str = ",".join(header)
 
                             # Normalize data row widths
                             normalized_data = []
@@ -127,8 +128,8 @@ class WahapediaSync:
                                     r = r[:num_cols]
                                 normalized_data.append(r)
 
-                            insert_sql = f"INSERT INTO {table_name} VALUES ({placeholders});"
-                            extras.execute_batch(cursor, insert_sql, normalized_data, page_size=2000)
+                            insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders});"
+                            extras.execute_batch(cursor, insert_sql, normalized_data, page_size=1000)
 
                         results[filename] = len(data_rows)
                         logger.info(f"Ingested {len(data_rows)} rows into {table_name}")
