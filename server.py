@@ -63,7 +63,6 @@ except ImportError:
         from scraper import BestCoastPairingsScraper
         from elo import EloEngine
         from auth import get_auth_manager
-        from wahapedia_service import get_wahapedia
         from army_list_parser import get_parser as get_army_parser
         from scorecard_importer import get_scorecard_importer
 
@@ -137,24 +136,9 @@ if FASTAPI_AVAILABLE:
     if (web_dir / "js").exists():
         app.mount("/js", StaticFiles(directory=str(web_dir / "js")), name="js")
 
-    # Periodic Wahapedia Database Updater
-    async def run_periodic_wahapedia_sync():
-        """Periodic background job: syncs official Wahapedia rules into PostgreSQL every 24 hours."""
-        await asyncio.sleep(45)  # Initial grace boot delay for Cloud Run health checks
-        while True:
-            try:
-                waha = get_wahapedia()
-                db = get_database()
-                res = await asyncio.to_thread(waha.sync_to_database, db)
-                logger.info(f"Periodic Wahapedia DB sync: {res}")
-            except Exception as e:
-                logger.debug(f"Periodic Wahapedia sync notice: {e}")
-            await asyncio.sleep(86400)  # Re-sync every 24 hours
-
     @app.on_event("startup")
     async def on_server_startup():
-        logger.info("Warhammer 40,000 Elo Backend online. Starting background services...")
-        asyncio.create_task(run_periodic_wahapedia_sync())
+        logger.info("Warhammer 40,000 Elo Backend online and ready.")
 
 
     # =========================================================================
@@ -1656,27 +1640,6 @@ if FASTAPI_AVAILABLE:
         db = get_database()
         success = db.delete_user_army_list(list_id, user_id=user_id)
         return {"success": success, "deleted_id": list_id}
-
-    @app.get("/api/wahapedia/datasheet", summary="Lookup Wahapedia datasheet profile")
-    async def api_wahapedia_datasheet(name: str = Query(..., description="Unit name"), faction: Optional[str] = Query(None)):
-        waha = get_wahapedia()
-        profile = waha.lookup_unit(name, faction=faction)
-        if not profile:
-            raise HTTPException(status_code=404, detail=f"Datasheet not found for {name}")
-        return {"success": True, "datasheet": profile}
-
-    @app.get("/api/wahapedia/stratagems", summary="Get Stratagems for faction and detachment")
-    async def api_wahapedia_stratagems(faction: str = Query("Space Marines"), detachment: Optional[str] = Query(None)):
-        waha = get_wahapedia()
-        strats = waha.get_stratagems_for_detachment(faction, detachment)
-        return {"success": True, "stratagems": strats}
-
-    @app.post("/api/wahapedia/sync", summary="Trigger manual Wahapedia database table sync")
-    async def api_wahapedia_sync_trigger(background_tasks: BackgroundTasks):
-        waha = get_wahapedia()
-        db = get_database()
-        background_tasks.add_task(waha.sync_to_database, db)
-        return {"success": True, "message": "Wahapedia database sync triggered in background"}
 
     @app.post("/api/tracker/room/{match_id}/armylist", summary="Attach player army list to live match room")
     async def api_tracker_attach_armylist(match_id: str, request: Request):

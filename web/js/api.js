@@ -437,19 +437,5 @@ window.api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: rawText, format: formatHint })
     });
-  },
-
-  // Wahapedia: Lookup Datasheet
-  async getWahapediaDatasheet(unitName, faction = null) {
-    let url = `/api/wahapedia/datasheet?name=${encodeURIComponent(unitName)}`;
-    if (faction) url += `&faction=${encodeURIComponent(faction)}`;
-    return this._fetchJson(url);
-  },
-
-  // Wahapedia: Get Stratagems
-  async getWahapediaStratagems(faction = 'Space Marines', detachment = null) {
-    let url = `/api/wahapedia/stratagems?faction=${encodeURIComponent(faction)}`;
-    if (detachment) url += `&detachment=${encodeURIComponent(detachment)}`;
-    return this._fetchJson(url);
   }
 };
