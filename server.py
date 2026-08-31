@@ -959,7 +959,8 @@ if FASTAPI_AVAILABLE:
                     "user_id_p1": existing.get("user_id_p1"),
                     "p1_name": existing.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
                     "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
-                    "state": existing.get("state", {})
+                    "state": existing.get("state", {}),
+                    "chess_clock": existing.get("chess_clock")
                 }
             saved_game = db.get_tracker_game(match_id)
             if saved_game and saved_game.get("state"):
@@ -970,6 +971,7 @@ if FASTAPI_AVAILABLE:
                     "referee_ids": saved_game.get("referee_ids", []),
                     "version": saved_game.get("version", 1),
                     "state": saved_game["state"],
+                    "chess_clock": saved_game.get("chess_clock"),
                     "updated_at": saved_game.get("updated_at")
                 }
                 return {
@@ -979,7 +981,8 @@ if FASTAPI_AVAILABLE:
                     "user_id_p1": saved_game.get("user_id_p1"),
                     "p1_name": saved_game.get("p1_name") or "Player 1",
                     "p2_name": saved_game.get("p2_name") or "Player 2",
-                    "state": saved_game["state"]
+                    "state": saved_game["state"],
+                    "chess_clock": saved_game.get("chess_clock")
                 }
         else:
             match_id = generate_unique_match_id(db)
@@ -1215,7 +1218,8 @@ if FASTAPI_AVAILABLE:
             "user_name": user_name,
             "user_id_p1": room.get("user_id_p1"),
             "user_id_p2": room.get("user_id_p2"),
-            "state": st
+            "state": st,
+            "chess_clock": room.get("chess_clock")
         }
 
     @app.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")
@@ -1239,6 +1243,7 @@ if FASTAPI_AVAILABLE:
                     "referee_ids": saved.get("referee_ids", []),
                     "version": saved.get("version", 1),
                     "state": saved["state"],
+                    "chess_clock": saved.get("chess_clock"),
                     "updated_at": saved.get("updated_at")
                 }
             else:
@@ -1249,6 +1254,7 @@ if FASTAPI_AVAILABLE:
                     "referee_ids": [],
                     "version": 0,
                     "state": {},
+                    "chess_clock": None,
                     "created_at": datetime.now(timezone.utc).isoformat()
                 }
         
@@ -1325,18 +1331,21 @@ if FASTAPI_AVAILABLE:
                     "referee_ids": saved.get("referee_ids", []),
                     "version": saved.get("version", 1),
                     "state": saved["state"],
+                    "chess_clock": saved.get("chess_clock"),
                     "updated_at": saved.get("updated_at")
                 }
             res = dict(TRACKER_ROOMS[match_id])
             res["online_count"] = online_count
+            res["chess_clock"] = TRACKER_ROOMS[match_id].get("chess_clock")
             return res
 
         if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
             res = dict(TRACKER_ROOMS[match_id])
             res["online_count"] = online_count
+            res["chess_clock"] = TRACKER_ROOMS[match_id].get("chess_clock")
             return res
 
-        return {"match_id": match_id, "version": 0, "online_count": online_count, "state": {}}
+        return {"match_id": match_id, "version": 0, "online_count": online_count, "state": {}, "chess_clock": None}
 
     @app.get("/api/tracker/history", summary="Get persistent history of tracker games")
     async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None)):
@@ -1729,6 +1738,56 @@ if FASTAPI_AVAILABLE:
             "p2_army_list": p2_list
         }
 
+    @app.post("/api/tracker/room/{match_id}/clock", summary="Synchronize tournament dual chess clock state")
+    async def api_tracker_update_clock(match_id: str, request: Request):
+        match_id = normalize_tracker_match_id(match_id)
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        if match_id not in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id] = {
+                "match_id": match_id,
+                "state": {},
+                "version": 1
+            }
+
+        room = TRACKER_ROOMS[match_id]
+        clock_data = {
+            "visible": bool(body.get("visible", True)),
+            "running": bool(body.get("running", False)),
+            "active_player": int(body.get("active_player", 1)),
+            "p1_remaining": int(body.get("p1_remaining", 4500)),
+            "p2_remaining": int(body.get("p2_remaining", 4500)),
+            "round_remaining": int(body.get("round_remaining", 9000)),
+            "last_start_time": body.get("last_start_time"),
+            "updated_at": int(time.time() * 1000)
+        }
+        room["chess_clock"] = clock_data
+
+        # Persist in DB
+        try:
+            db = get_database()
+            db.save_tracker_clock(match_id, clock_data)
+        except Exception:
+            pass
+
+        # Broadcast to all SSE clients in this room
+        listeners = TRACKER_LISTENERS.get(match_id, [])
+        msg = {
+            "type": "clock_update",
+            "sender": body.get("client_id", "anon"),
+            "chess_clock": clock_data
+        }
+        for l_q in list(listeners):
+            try:
+                await l_q.put(msg)
+            except Exception:
+                pass
+
+        return {"success": True, "chess_clock": clock_data}
+
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
     async def api_tracker_stream(match_id: str, client_id: str = "anon"):
         match_id = normalize_tracker_match_id(match_id)
@@ -1749,9 +1808,12 @@ if FASTAPI_AVAILABLE:
         async def event_generator():
             try:
                 # Send current room state on initial connection
-                if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
+                if match_id in TRACKER_ROOMS:
                     r = TRACKER_ROOMS[match_id]
-                    yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': r['version'], 'state': r['state']})}\n\n"
+                    if r.get("state"):
+                        yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': r.get('version', 1), 'state': r['state']})}\n\n"
+                    if r.get("chess_clock"):
+                        yield f"data: {json.dumps({'type': 'clock_update', 'sender': 'server', 'chess_clock': r['chess_clock']})}\n\n"
 
                 while True:
                     msg = await q.get()

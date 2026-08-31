@@ -1481,6 +1481,9 @@
             clientState.onlineCount = data.online_count;
             injectMultiplayerHUD();
           }
+          if (data.chess_clock) {
+            applyRemoteChessClock(data.chess_clock);
+          }
           if (data.version && data.version > clientState.version && data.state) {
             clientState.version = data.version;
             applyRemoteState(data.state);
@@ -1508,6 +1511,10 @@
                 clientState.version = msg.version;
                 applyRemoteState(msg.state);
               }
+            }
+          } else if (msg.type === 'clock_update') {
+            if (msg.sender !== clientState.clientId && msg.chess_clock) {
+              applyRemoteChessClock(msg.chess_clock);
             }
           } else if (msg.type === 'presence') {
             clientState.onlineCount = msg.count || 1;
@@ -2054,16 +2061,34 @@
     `;
   }
 
-  // 10. Tournament Dual Chess Clock Manager
+  // 10. Tournament Dual Chess Clock Manager (Synchronized Multi-Device Live Clock)
   const chessClock = {
     visible: false,
     running: false,
-    activePlayer: 1, // 1 or 2
-    p1Seconds: 75 * 60,
-    p2Seconds: 75 * 60,
-    roundSeconds: 150 * 60,
-    timerInterval: null
+    activePlayer: 1, // 1 (P1) or 2 (P2)
+    p1Remaining: 75 * 60,
+    p2Remaining: 75 * 60,
+    roundRemaining: 150 * 60,
+    lastStartTime: null,
+    updatedAt: Date.now()
   };
+
+  let clockUiTicker = null;
+
+  function getEffectiveClockTimes() {
+    if (!chessClock.running || !chessClock.lastStartTime) {
+      return {
+        p1: Math.max(0, chessClock.p1Remaining),
+        p2: Math.max(0, chessClock.p2Remaining),
+        round: Math.max(0, chessClock.roundRemaining)
+      };
+    }
+    const elapsed = Math.floor((Date.now() - chessClock.lastStartTime) / 1000);
+    const p1 = chessClock.activePlayer === 1 ? Math.max(0, chessClock.p1Remaining - elapsed) : chessClock.p1Remaining;
+    const p2 = chessClock.activePlayer === 2 ? Math.max(0, chessClock.p2Remaining - elapsed) : chessClock.p2Remaining;
+    const round = Math.max(0, chessClock.roundRemaining - elapsed);
+    return { p1, p2, round };
+  }
 
   function formatTime(secs) {
     const isNeg = secs < 0;
@@ -2071,6 +2096,76 @@
     const m = Math.floor(abs / 60);
     const s = abs % 60;
     return `${isNeg ? '-' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  function applyRemoteChessClock(remote) {
+    if (!remote || typeof remote !== 'object') return;
+
+    if (remote.updated_at && chessClock.updatedAt && remote.updated_at < chessClock.updatedAt) {
+      return;
+    }
+
+    chessClock.visible = !!remote.visible;
+    chessClock.running = !!remote.running;
+    chessClock.activePlayer = remote.active_player === 2 ? 2 : 1;
+    chessClock.p1Remaining = typeof remote.p1_remaining === 'number' ? remote.p1_remaining : (75 * 60);
+    chessClock.p2Remaining = typeof remote.p2_remaining === 'number' ? remote.p2_remaining : (75 * 60);
+    chessClock.roundRemaining = typeof remote.round_remaining === 'number' ? remote.round_remaining : (150 * 60);
+    chessClock.lastStartTime = remote.last_start_time || null;
+    chessClock.updatedAt = remote.updated_at || Date.now();
+
+    let clockEl = document.getElementById('gt-chess-clock-hud');
+    if (!clockEl) {
+      clockEl = document.createElement('div');
+      clockEl.id = 'gt-chess-clock-hud';
+      document.body.appendChild(clockEl);
+    }
+    clockEl.style.display = chessClock.visible ? 'flex' : 'none';
+
+    ensureClockTicker();
+    renderChessClock();
+  }
+
+  async function broadcastChessClock() {
+    chessClock.updatedAt = Date.now();
+    ensureClockTicker();
+    renderChessClock();
+
+    if (!clientState.matchId) return;
+
+    try {
+      await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/clock`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({
+          client_id: clientState.clientId,
+          visible: chessClock.visible,
+          running: chessClock.running,
+          active_player: chessClock.activePlayer,
+          p1_remaining: chessClock.p1Remaining,
+          p2_remaining: chessClock.p2Remaining,
+          round_remaining: chessClock.roundRemaining,
+          last_start_time: chessClock.lastStartTime,
+          updated_at: chessClock.updatedAt
+        })
+      });
+    } catch (err) {
+      console.debug('[GDM Clock Sync] Error broadcasting clock:', err);
+    }
+  }
+
+  function ensureClockTicker() {
+    if (chessClock.running && !clockUiTicker) {
+      clockUiTicker = setInterval(() => {
+        if (chessClock.visible) renderChessClock();
+      }, 500);
+    } else if (!chessClock.running && clockUiTicker) {
+      clearInterval(clockUiTicker);
+      clockUiTicker = null;
+    }
   }
 
   window.gtToggleChessClock = function() {
@@ -2082,50 +2177,42 @@
       document.body.appendChild(clockEl);
     }
     clockEl.style.display = chessClock.visible ? 'flex' : 'none';
-    renderChessClock();
+    broadcastChessClock();
   };
 
   window.gtToggleClockPlayPause = function() {
-    chessClock.running = !chessClock.running;
     if (chessClock.running) {
-      if (chessClock.timerInterval) clearInterval(chessClock.timerInterval);
-      chessClock.timerInterval = setInterval(() => {
-        if (chessClock.activePlayer === 1) {
-          chessClock.p1Seconds--;
-        } else {
-          chessClock.p2Seconds--;
-        }
-        if (chessClock.roundSeconds > 0) chessClock.roundSeconds--;
-        renderChessClock();
-      }, 1000);
+      const times = getEffectiveClockTimes();
+      chessClock.p1Remaining = times.p1;
+      chessClock.p2Remaining = times.p2;
+      chessClock.roundRemaining = times.round;
+      chessClock.running = false;
+      chessClock.lastStartTime = null;
     } else {
-      if (chessClock.timerInterval) {
-        clearInterval(chessClock.timerInterval);
-        chessClock.timerInterval = null;
-      }
+      chessClock.running = true;
+      chessClock.lastStartTime = Date.now();
     }
-    renderChessClock();
+    broadcastChessClock();
   };
 
   window.gtSwitchClockTurn = function() {
+    const times = getEffectiveClockTimes();
+    chessClock.p1Remaining = times.p1;
+    chessClock.p2Remaining = times.p2;
+    chessClock.roundRemaining = times.round;
     chessClock.activePlayer = chessClock.activePlayer === 1 ? 2 : 1;
-    if (!chessClock.running) {
-      window.gtToggleClockPlayPause();
-    } else {
-      renderChessClock();
-    }
+    chessClock.running = true;
+    chessClock.lastStartTime = Date.now();
+    broadcastChessClock();
   };
 
   window.gtResetChessClock = function(minutes = 75) {
-    if (chessClock.timerInterval) {
-      clearInterval(chessClock.timerInterval);
-      chessClock.timerInterval = null;
-    }
     chessClock.running = false;
-    chessClock.p1Seconds = minutes * 60;
-    chessClock.p2Seconds = minutes * 60;
-    chessClock.roundSeconds = (minutes * 2) * 60;
-    renderChessClock();
+    chessClock.lastStartTime = null;
+    chessClock.p1Remaining = minutes * 60;
+    chessClock.p2Remaining = minutes * 60;
+    chessClock.roundRemaining = (minutes * 2) * 60;
+    broadcastChessClock();
   };
 
   function renderChessClock() {
@@ -2140,8 +2227,9 @@
     const p1Name = game.p1Name || 'Player 1';
     const p2Name = game.p2Name || 'Player 2';
 
-    const p1Low = chessClock.p1Seconds <= 300;
-    const p2Low = chessClock.p2Seconds <= 300;
+    const times = getEffectiveClockTimes();
+    const p1Low = times.p1 <= 300;
+    const p2Low = times.p2 <= 300;
 
     clockEl.innerHTML = `
       <div class="gt-clock-player-box ${chessClock.activePlayer === 1 ? 'active-turn' : ''} ${p1Low ? 'low-time' : ''}">
@@ -2149,13 +2237,13 @@
           ${p1Name} ${chessClock.activePlayer === 1 ? '▶' : ''}
         </span>
         <div class="gt-clock-time" style="color:${p1Low ? '#ef4444' : (chessClock.activePlayer === 1 ? '#38bdf8' : '#e2e8f0')};">
-          ${formatTime(chessClock.p1Seconds)}
+          ${formatTime(times.p1)}
         </div>
       </div>
 
       <button onclick="window.gtSwitchClockTurn()" class="gt-clock-switch-btn" title="Tap to switch active clock turn">
         <span>🔄 PASS TURN</span>
-        <span style="font-size:9px; opacity:0.8; font-weight:600;">(Round: ${formatTime(chessClock.roundSeconds)})</span>
+        <span style="font-size:9px; opacity:0.8; font-weight:600;">(Round: ${formatTime(times.round)})</span>
       </button>
 
       <div class="gt-clock-player-box ${chessClock.activePlayer === 2 ? 'active-turn' : ''} ${p2Low ? 'low-time' : ''}">
@@ -2163,7 +2251,7 @@
           ${p2Name} ${chessClock.activePlayer === 2 ? '▶' : ''}
         </span>
         <div class="gt-clock-time" style="color:${p2Low ? '#ef4444' : (chessClock.activePlayer === 2 ? '#38bdf8' : '#e2e8f0')};">
-          ${formatTime(chessClock.p2Seconds)}
+          ${formatTime(times.p2)}
         </div>
       </div>
 

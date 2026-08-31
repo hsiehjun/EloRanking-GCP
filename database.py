@@ -447,6 +447,7 @@ class PostgresDatabase:
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list_id VARCHAR(64);",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS chess_clock JSONB;",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_updated ON tracker_games(updated_at DESC);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p1 ON tracker_games(p1_name);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_p2 ON tracker_games(p2_name);",
@@ -2247,6 +2248,11 @@ class PostgresDatabase:
                                 d["state"] = {}
                         elif isinstance(d.get("state_json"), dict):
                             d["state"] = d["state_json"]
+                        if isinstance(d.get("chess_clock"), str):
+                            try:
+                                d["chess_clock"] = json.loads(d["chess_clock"])
+                            except Exception:
+                                d["chess_clock"] = None
                         return d
                     return None
 
@@ -2259,6 +2265,25 @@ class PostgresDatabase:
                 return do_select()
             except Exception:
                 return None
+
+    def save_tracker_clock(self, match_id: str, clock_data: Dict[str, Any]) -> bool:
+        """Persists live tournament chess clock state in PostgreSQL."""
+        if not match_id or not clock_data:
+            return False
+        match_id = match_id.strip().upper()
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    UPDATE tracker_games
+                    SET chess_clock = %s::jsonb, updated_at = NOW()
+                    WHERE match_id = %s;
+                    """, (json.dumps(clock_data), match_id))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.debug(f"Notice saving tracker clock: {e}")
+            return False
 
     def get_tracker_history(self, limit: int = 50, search: Optional[str] = None, user_id: Optional[str] = None, user_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns recent persistent tracker games, optionally filtered by player user_id/name and excluding soft-deleted games."""
