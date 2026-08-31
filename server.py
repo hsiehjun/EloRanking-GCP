@@ -1492,13 +1492,27 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/armylists/upload", summary="Upload and parse army list file (.json, .ros, .rosz, .txt)")
     async def api_upload_armylist(request: Request):
-        form = await request.form()
-        file_obj = form.get("file")
-        if not file_obj:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        
-        file_bytes = await file_obj.read()
-        filename = getattr(file_obj, "filename", "") or ""
+        content_type = request.headers.get("content-type", "")
+        filename = request.headers.get("x-filename", "")
+        file_bytes = b""
+
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            try:
+                form = await request.form()
+                file_obj = form.get("file")
+                if file_obj and hasattr(file_obj, "read"):
+                    file_bytes = await file_obj.read()
+                    filename = getattr(file_obj, "filename", "") or filename
+                elif file_obj:
+                    file_bytes = file_obj.encode("utf-8") if isinstance(file_obj, str) else bytes(file_obj)
+            except Exception as e:
+                logger.warning(f"Form parse error: {e}")
+                file_bytes = await request.body()
+        else:
+            file_bytes = await request.body()
+            
+        if not file_bytes:
+            raise HTTPException(status_code=400, detail="Empty file payload")
         
         parser = get_army_parser()
         parsed = parser.parse_file(file_bytes, filename=filename)
@@ -1805,8 +1819,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=26.0">
-  <script src="/tracker/tracker_sync.js?v=26.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=27.0">
+  <script src="/tracker/tracker_sync.js?v=27.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

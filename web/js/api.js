@@ -428,6 +428,7 @@ window.api = {
     formData.append('file', file);
     return this._fetchJson('/api/armylists/upload', {
       method: 'POST',
+      headers: { 'X-Filename': encodeURIComponent(file.name || '') },
       body: formData
     });
   }
