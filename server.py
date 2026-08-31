@@ -3422,6 +3422,23 @@ if FASTAPI_AVAILABLE:
         db = get_database()
         return db.get_feedbacks(limit=limit)
 
+    ADMIN_FEEDBACK_EMAILS = {"swimgeek751@gmail.com", "hsiehjun@google.com", "hsiehjun@gmail.com"}
+
+    def _is_admin_feedback_request(request: Request, token: Optional[str] = None) -> bool:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+        if not session_token:
+            return False
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            return False
+        user_email = (session.get("email") or "").strip().lower()
+        user_role = (session.get("role") or "").strip().lower()
+        if user_email in ADMIN_FEEDBACK_EMAILS or user_role in ("admin", "superuser", "developer", "owner"):
+            return True
+        return False
+
     class FeedbackUpdatePayload(BaseModel):
         status: Optional[str] = None
         admin_notes: Optional[str] = None
@@ -3430,13 +3447,17 @@ if FASTAPI_AVAILABLE:
         token: Optional[str] = None
 
     @app.get("/api/admin/feedback", summary="Get filtered user feedbacks (Admin)")
-    async def api_admin_get_feedbacks(request: Request, limit: int = Query(100), status: Optional[str] = Query(None), feedback_type: Optional[str] = Query(None)):
+    async def api_admin_get_feedbacks(request: Request, limit: int = Query(100), status: Optional[str] = Query(None), feedback_type: Optional[str] = Query(None), token: Optional[str] = Query(None)):
+        if not _is_admin_feedback_request(request, token=token):
+            raise HTTPException(status_code=403, detail="Admin access restricted to swimgeek751@gmail.com")
         db = get_database()
         feedbacks = db.get_feedbacks(limit=limit, status=status, feedback_type=feedback_type)
         return {"success": True, "feedbacks": feedbacks}
 
     @app.post("/api/admin/feedback/{feedback_id}/update", summary="Update feedback status, admin notes, or message")
-    async def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePayload, request: Request):
+    async def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePayload, request: Request, token: Optional[str] = Query(None)):
+        if not _is_admin_feedback_request(request, token=payload.token or token):
+            raise HTTPException(status_code=403, detail="Admin access restricted to swimgeek751@gmail.com")
         db = get_database()
         ok = db.update_feedback(
             feedback_id=feedback_id,
@@ -3450,7 +3471,9 @@ if FASTAPI_AVAILABLE:
         return {"success": True, "message": "Feedback updated successfully"}
 
     @app.delete("/api/admin/feedback/{feedback_id}", summary="Delete feedback entry from database")
-    async def api_admin_delete_feedback(feedback_id: str, request: Request):
+    async def api_admin_delete_feedback(feedback_id: str, request: Request, token: Optional[str] = Query(None)):
+        if not _is_admin_feedback_request(request, token=token):
+            raise HTTPException(status_code=403, detail="Admin access restricted to swimgeek751@gmail.com")
         db = get_database()
         ok = db.delete_feedback(feedback_id)
         if not ok:
