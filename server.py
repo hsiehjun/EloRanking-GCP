@@ -1638,20 +1638,43 @@ if FASTAPI_AVAILABLE:
         session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
         user = auth_mgr.get_session(session_token) if session_token else None
         
+        fs_engine = get_firestore_engine()
         db = get_database()
-        room = TRACKER_ROOMS.get(match_id)
+        room = TRACKER_ROOMS.get(match_id) or fs_engine.get_room(match_id)
         state = (payload.state if payload and payload.state else None) or (room.get("state") if room else None) or {}
         
         if isinstance(state, dict):
             state["is_finished"] = True
             
-        db.save_tracker_game(match_id, state)
+        p1_id = room.get("user_id_p1") if room else (user["id"] if user else None)
+        p2_id = room.get("user_id_p2") if room else None
+
+        # 1. Update PostgreSQL
+        try:
+            db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
+        except Exception as e:
+            logger.warning(f"Notice saving finalized game to DB: {e}")
+
+        # 2. Update Firestore Native
+        try:
+            fs_engine.update_room(match_id, {
+                "status": "completed",
+                "is_finished": True,
+                "state": state
+            })
+        except Exception as e:
+            logger.warning(f"Notice updating Firestore room status: {e}")
+
+        # 3. Update Memory Cache
         if match_id in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id]["status"] = "completed"
             TRACKER_ROOMS[match_id]["is_finished"] = True
+            TRACKER_ROOMS[match_id]["state"] = state
             
         return {
             "success": True,
             "match_id": match_id,
+            "status": "completed",
             "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}"
         }
 
@@ -2182,8 +2205,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=30.0">
-  <script src="/tracker/tracker_sync.js?v=30.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=31.0">
+  <script src="/tracker/tracker_sync.js?v=31.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

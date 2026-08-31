@@ -400,6 +400,8 @@
     let existingModal = document.getElementById('gt-complete-modal');
     if (existingModal) existingModal.remove();
 
+    const isBcpTournament = !!eventId && eventId !== 'Casual' && eventId !== 'casual';
+
     const modal = document.createElement('div');
     modal.id = 'gt-complete-modal';
     modal.innerHTML = `
@@ -409,10 +411,10 @@
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #1e293b; padding-bottom:10px;">
             <div style="text-align:left;">
               <h2 style="font-size:17px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; margin:0; display:flex; align-items:center; gap:6px;">
-                🏁 COMPLETE & VERIFY MATCH
+                🏁 CONCLUDE & VERIFY MATCH
               </h2>
               <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
-                ${eventId ? `Tournament: ${escapeHtml(eventId)} • ` : ''}Round ${roundNum} ${tableNum ? '• Table ' + escapeHtml(tableNum) : ''}
+                ${isBcpTournament ? `Tournament: ${escapeHtml(eventId)} • ` : 'Casual Battle • '}Round ${roundNum} ${tableNum ? '• Table ' + escapeHtml(tableNum) : ''}
               </div>
             </div>
             <button onclick="document.getElementById('gt-complete-modal').remove()" style="background:transparent; border:none; color:#94a3b8; font-size:18px; cursor:pointer;">✕</button>
@@ -442,7 +444,7 @@
           <!-- Who Went First Selection -->
           <div style="background:#090f1e; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:16px; text-align:left;">
             <label style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; display:block; margin-bottom:6px;">
-              🎲 Who Took First Turn? (Required for BCP)
+              🎲 Who Took First Turn?
             </label>
             <div style="display:flex; gap:16px;">
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#f8fafc; cursor:pointer;">
@@ -460,9 +462,17 @@
 
           <!-- Action Buttons -->
           <div style="display:flex; flex-direction:column; gap:8px;">
-            <button id="gt-btn-submit-bcp" onclick="window.__submitMatchToBcp()" style="width:100%; background:#0284c7; color:#fff; font-weight:800; font-size:13px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em; transition:all 0.15s;">
-              🏁 SUBMIT SCORE TO BEST COAST PAIRINGS
+            <!-- Primary Action: Conclude & Save Match (For ALL matches) -->
+            <button id="gt-btn-conclude" onclick="window.__finalizeAndLockMatch()" style="width:100%; background:#059669; color:#fff; font-weight:800; font-size:13px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em; transition:all 0.15s;">
+              🏁 CONCLUDE & SAVE MATCH
             </button>
+
+            ${isBcpTournament ? `
+              <!-- Optional BCP Sync if event is registered -->
+              <button id="gt-btn-submit-bcp" onclick="window.__submitMatchToBcp()" style="width:100%; background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.03em; transition:all 0.15s;">
+                🏆 SUBMIT SCORE TO BEST COAST PAIRINGS
+              </button>
+            ` : ''}
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
               <button onclick="window.__copyMatchScorecardSummary()" style="background:#1e293b; border:1px solid #334155; color:#f8fafc; font-weight:700; font-size:11px; padding:10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">
@@ -472,16 +482,83 @@
                 📄 VIEW SCORECARD ↗
               </button>
             </div>
-
-            <button onclick="window.__finalizeAndLockMatch()" style="background:transparent; border:1px dashed #334155; color:#94a3b8; font-size:11px; padding:8px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; margin-top:4px;">
-              🔒 Finalize & Lock Battle Record
-            </button>
           </div>
 
         </div>
       </div>
     `;
     document.body.appendChild(modal);
+  };
+
+  window.__finalizeAndLockMatch = async function () {
+    const btn = document.getElementById('gt-btn-conclude');
+    const statusEl = document.getElementById('gt-complete-submit-status');
+    if (btn) { btn.disabled = true; btn.textContent = 'SAVING MATCH...'; }
+
+    const matchId = getActiveMatchId();
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let st = {};
+    try { st = JSON.parse(raw) || {}; } catch(e) {}
+    st.is_finished = true;
+    st.round = 5;
+
+    const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
+    if (firstTurnRadio) {
+      st.who_went_first = firstTurnRadio.value;
+    }
+
+    saveLocalState(st);
+    notifyStateChanged();
+
+    // 1. Direct Firestore SDK update if loaded
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(matchId).set({
+          status: 'completed',
+          is_finished: true,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch(e) {}
+    }
+
+    // 2. Server-side finalize
+    try {
+      const token = getAuthToken();
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/finalize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({ token: token, match_id: matchId, state: st })
+      });
+      if (resp.ok) {
+        if (statusEl) {
+          statusEl.style.display = 'block';
+          statusEl.style.color = '#10b981';
+          statusEl.innerHTML = `✅ Battle record archived and finalized! Redirecting to lobby...`;
+        }
+        if (btn) {
+          btn.style.background = '#10b981';
+          btn.textContent = '✓ MATCH CONCLUDED';
+        }
+        setTimeout(() => {
+          const m = document.getElementById('gt-complete-modal');
+          if (m) m.remove();
+          window.location.href = '/11th/tracker';
+        }, 800);
+        return;
+      }
+    } catch (e) {}
+
+    // Fallback if offline or network error
+    if (btn) { btn.textContent = '✓ SAVED LOCALLY'; }
+    setTimeout(() => {
+      const m = document.getElementById('gt-complete-modal');
+      if (m) m.remove();
+      window.location.href = '/11th/tracker';
+    }, 700);
   };
 
   window.__submitMatchToBcp = async function () {
@@ -1845,30 +1922,37 @@
     } catch(e) {}
   }
 
+  let stateDebounceTimer = null;
+  function scheduleNotifyStateChanged() {
+    if (stateDebounceTimer) clearTimeout(stateDebounceTimer);
+    stateDebounceTimer = setTimeout(() => {
+      notifyStateChanged();
+    }, 150);
+  }
+
   function attachDomActionInterceptors() {
     // Continuous CP Counter auto-enable
     autoToggleCpInDom();
-    setInterval(autoToggleCpInDom, 300);
+    setInterval(autoToggleCpInDom, 500);
 
     const cpObs = new MutationObserver(autoToggleCpInDom);
     cpObs.observe(document.body, { childList: true, subtree: true, characterData: true });
 
-    document.addEventListener('input', () => {
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 40);
-    }, true);
+    document.addEventListener('input', (e) => {
+      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
+      scheduleNotifyStateChanged();
+    });
 
-    document.addEventListener('change', () => {
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); }, 40);
-    }, true);
+    document.addEventListener('change', (e) => {
+      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
+      scheduleNotifyStateChanged();
+    });
 
-    document.addEventListener('click', () => {
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); autoToggleCpInDom(); }, 50);
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); autoToggleCpInDom(); }, 200);
-    }, true);
-
-    document.addEventListener('pointerup', () => {
-      setTimeout(() => { notifyStateChanged(); injectMultiplayerHUD(); autoToggleCpInDom(); }, 60);
-    }, true);
+    document.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
+      scheduleNotifyStateChanged();
+      autoToggleCpInDom();
+    });
   }
 
   // 8. Floating Multiplayer Status HUD with Connected Player Names & Army Lists
@@ -1916,13 +2000,20 @@
     const tournamentId = urlParams.get('event_id') || urlParams.get('tournament_id') || game.tournament_id || game.eventId || '';
     const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
 
+    // Signature memoization to prevent clobbering DOM on active user clicks
+    const sig = `${clientState.matchId}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${clientState.activeJudgeCall}`;
+    if (hud.dataset.sig === sig) {
+      return;
+    }
+    hud.dataset.sig = sig;
+
     hud.innerHTML = `
       <!-- Left: Hub & Lobby Navigation & Match Tag -->
       <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
-        <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace;">
+        <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🏠 Hub
         </a>
-        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace;">
+        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
           🎲 Lobby
         </a>
         <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
