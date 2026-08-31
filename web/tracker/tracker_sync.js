@@ -1896,35 +1896,7 @@
           ` : ''}
         </div>
       `;
-    } else if (activeList.source_url) {
-      // Direct Embedded NewRecruit View
-      contentHtml = `
-        <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
-          <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-            <div>
-              <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(activeList.name || 'NewRecruit Roster')}</span>
-              <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(activeList.faction || '40k')} • ${activeList.points || 2000} PTS</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <a href="${escapeHtml(activeList.source_url)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;" title="Open and enable Play Mode in NewRecruit">
-                🎮 Open / Play in NewRecruit ↗
-              </a>
-            </div>
-          </div>
-          <!-- Play Mode Pro-Tip Banner -->
-          <div style="background:rgba(168,85,247,0.12); border-bottom:1px solid rgba(168,85,247,0.25); padding:6px 14px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:#e2e8f0; flex-wrap:wrap; gap:6px;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span>💡</span>
-              <span><b>Interactive Play Mode</b>: Click <b>"Import"</b> on NewRecruit below ➔ top-right menu ➔ select <b>"🎮 Play Mode"</b> to lock roster & track unit wounds!</span>
-            </div>
-            <a href="${escapeHtml(activeList.source_url)}" target="_blank" style="color:#c084fc; font-weight:800; text-decoration:underline; font-size:11px;">Full Screen ↗</a>
-          </div>
-          <div style="flex:1; width:100%; height:100%; position:relative;">
-            <iframe src="${escapeHtml(activeList.source_url)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
-          </div>
-        </div>
-      `;
-    } else {
+    } else if (activeList.units && activeList.units.length > 0) {
       const filter = clientState.activeListFilter || 'all';
       const search = clientState.listSearchQuery || '';
 
@@ -1936,7 +1908,7 @@
           if (filter === 'character') return r.includes('char') || k.includes('character');
           if (filter === 'battleline') return r.includes('battleline') || k.includes('battleline');
           if (filter === 'infantry') return r.includes('infantry') || k.includes('infantry');
-          if (filter === 'monster_vehicle') return r.includes('monster') || r.includes('vehicle') || k.includes('monster') || k.includes('vehicle');
+          if (filter === 'monster_vehicle') return r.includes('monster') || r.includes('vehicle') || k.includes('monster') || k.includes('vehicle') || r.includes('mounted');
           if (filter === 'transport') return r.includes('transport') || k.includes('transport');
           return true;
         });
@@ -2118,6 +2090,25 @@
             </div>
           </div>
         ` : ''}
+      `;
+    } else if (activeList.source_url) {
+      contentHtml = `
+        <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
+          <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+            <div>
+              <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(activeList.name || 'NewRecruit Roster')}</span>
+              <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(activeList.faction || '40k')} • ${activeList.points || 2000} PTS</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <a href="${escapeHtml(activeList.source_url)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+                🌐 Open in NewRecruit ↗
+              </a>
+            </div>
+          </div>
+          <div style="flex:1; width:100%; height:100%; position:relative;">
+            <iframe src="${escapeHtml(activeList.source_url)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
+          </div>
+        </div>
       `;
     }
 

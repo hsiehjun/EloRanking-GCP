@@ -1082,7 +1082,7 @@ async function openViewArmyListModal(listId) {
         <div>
           <div style="font-size:18px; font-weight:900; color:#fff; font-family:var(--font-mono);">${escapeHtml(list.name || 'Army Roster')}</div>
           <div style="font-size:12px; color:#38bdf8; font-weight:700; margin-top:2px;">
-            ${escapeHtml(list.faction || '40k')} • <span style="color:#c084fc;">${list.points || 2000} PTS</span>
+            ${escapeHtml(list.faction || '40k')} • <span style="color:#a855f7;">${escapeHtml(list.detachment || 'Core Detachment')}</span> • <span style="color:#f59e0b;">${list.points || 2000} PTS</span>
           </div>
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -1101,34 +1101,49 @@ async function openViewArmyListModal(listId) {
         </div>
       </div>
 
-      <!-- Body: Embedded View if sourceUrl available, otherwise clean cards -->
-      ${sourceUrl ? `
-        <!-- Play Mode Pro-Tip Banner -->
-        <div style="background:rgba(168,85,247,0.12); border-bottom:1px solid rgba(168,85,247,0.25); padding:8px 16px; display:flex; align-items:center; justify-content:space-between; font-size:12px; color:#e2e8f0; flex-wrap:wrap; gap:8px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span>💡</span>
-            <span><b>Enable Interactive Play Mode</b>: Click <b>"Import"</b> on NewRecruit below ➔ open top-right menu ➔ select <b>"🎮 Play Mode"</b> to lock the roster and track wounds!</span>
-          </div>
-          <a href="${escapeHtml(sourceUrl)}" target="_blank" style="color:#c084fc; font-weight:800; text-decoration:underline; font-size:12px;">Open Full Screen ↗</a>
-        </div>
-        <div style="flex:1; width:100%; height:100%; position:relative; background:#070b14;">
-          <iframe src="${escapeHtml(sourceUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
-        </div>
-      ` : `
+      <!-- Body -->
+      ${units.length > 0 ? `
         <div style="padding:20px; overflow-y:auto; flex:1;">
-          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:12px;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:14px;">
             ${units.map(u => `
-              <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:10px; padding:14px;">
-                <div style="font-size:15px; font-weight:800; color:#fff;">${escapeHtml(u.name)}</div>
-                <div style="font-size:12px; color:#38bdf8; margin-top:2px;">${u.points || 0} PTS</div>
+              <div style="background:#131d33; border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:16px;">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px; gap:8px;">
+                  <div>
+                    <span style="font-size:15px; font-weight:800; color:#fff; font-family:var(--font-mono);">${escapeHtml(u.name)}</span>
+                    <span style="background:#1e293b; color:#94a3b8; font-size:10px; font-weight:700; padding:2px 6px; border-radius:4px; margin-left:6px; text-transform:uppercase;">${escapeHtml(u.role || 'Infantry')}</span>
+                    ${u.is_warlord ? `<span style="background:rgba(234,179,8,0.2); color:#facc15; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">👑 WARLORD</span>` : ''}
+                    ${u.enhancement ? `<span style="background:rgba(168,85,247,0.2); color:#c084fc; font-size:10px; font-weight:800; padding:2px 6px; border-radius:4px; margin-left:4px;">✨ ${escapeHtml(u.enhancement)}</span>` : ''}
+                  </div>
+                  ${u.points ? `<div style="font-size:13px; color:#f59e0b; font-weight:800; font-family:var(--font-mono);">${u.points} PTS</div>` : ''}
+                </div>
+                ${u.stats ? `
+                  <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; background:#070b14; padding:6px; border-radius:8px; margin-bottom:10px; text-align:center;">
+                    <div><span style="color:#64748b; font-size:9px; font-weight:800;">M</span><div style="font-weight:900; font-size:11px;">${u.stats.M || '6"'}</div></div>
+                    <div><span style="color:#64748b; font-size:9px; font-weight:800;">T</span><div style="font-weight:900; font-size:11px;">${u.stats.T || 4}</div></div>
+                    <div><span style="color:#64748b; font-size:9px; font-weight:800;">SV</span><div style="font-weight:900; font-size:11px;">${u.stats.SV || '3+'}</div></div>
+                    <div><span style="color:#a855f7; font-size:9px; font-weight:800;">INV</span><div style="font-weight:900; font-size:11px; color:#a855f7;">${u.stats.INV || '-'}</div></div>
+                    <div><span style="color:#64748b; font-size:9px; font-weight:800;">W</span><div style="font-weight:900; font-size:11px;">${u.stats.W || 2}</div></div>
+                    <div><span style="color:#64748b; font-size:9px; font-weight:800;">LD</span><div style="font-weight:900; font-size:11px;">${u.stats.LD || '6+'}</div></div>
+                    <div><span style="color:#64748b; font-size:9px; font-weight:800;">OC</span><div style="font-weight:900; font-size:11px;">${u.stats.OC || 1}</div></div>
+                  </div>
+                ` : ''}
                 ${(u.wargear || []).length > 0 ? `
-                  <div style="font-size:11px; color:#94a3b8; margin-top:6px;">${u.wargear.join(', ')}</div>
+                  <div style="font-size:11px; color:#94a3b8;">
+                    <b style="color:#64748b; text-transform:uppercase; font-size:10px;">Wargear: </b>
+                    ${u.wargear.map(w => `<span style="background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px; display:inline-block; margin:2px 2px 0 0;">${escapeHtml(w)}</span>`).join('')}
+                  </div>
                 ` : ''}
               </div>
             `).join('')}
           </div>
         </div>
-      `}
+      ` : (sourceUrl ? `
+        <div style="flex:1; width:100%; height:100%; position:relative; background:#070b14;">
+          <iframe src="${escapeHtml(sourceUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
+        </div>
+      ` : `
+        <div style="padding:40px; text-align:center; color:#94a3b8;">No units found in this roster.</div>
+      `)}
     </div>
   `;
   modal.style.display = 'flex';

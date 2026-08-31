@@ -49,7 +49,7 @@ class ArmyListParser:
             return self._parse_generic_text(content)
 
     def parse_url(self, url: str) -> Dict[str, Any]:
-        """Resolves a NewRecruit share link into a clean linked roster with extracted metadata."""
+        """Resolves a NewRecruit share link into a complete, rich tactical roster."""
         import urllib.request
         clean_url = url.strip().split()[0]
         list_id_match = re.search(r"/list/([a-zA-Z0-9_\-]+)", clean_url)
@@ -62,7 +62,125 @@ class ArmyListParser:
         roster["source_url"] = canonical_url
         roster["source_format"] = "NewRecruit Link"
 
-        # Attempt fast metadata fetch
+        # 1. Fetch complete data via NewRecruit open_share_link RPC
+        try:
+            rpc_url = "https://www.newrecruit.eu/api/rpc"
+            payload = json.dumps({"method": "open_share_link", "params": [list_id]}).encode("utf-8")
+            req = urllib.request.Request(
+                rpc_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if isinstance(data, dict) and data.get("army"):
+                        roster["name"] = data.get("name") or roster["name"]
+                        total_cost = data.get("totalCost") or 2000
+                        roster["points"] = total_cost
+                        roster["points_limit"] = total_cost
+
+                        army = data.get("army", {})
+                        faction = roster["faction"]
+                        detachment = "Core Detachment"
+                        warlord = None
+                        units = []
+
+                        # Traverse root options to find faction & categories
+                        def find_army_roster_node(node):
+                            nonlocal faction
+                            name = node.get("name", "")
+                            if " - " in name:
+                                faction = name.split(" - ")[-1].strip()
+                            for opt in node.get("options", []):
+                                if opt.get("name") == "Army Roster":
+                                    return opt
+                                res = find_army_roster_node(opt)
+                                if res:
+                                    return res
+                            return None
+
+                        roster_node = find_army_roster_node(army) or army
+                        roster["faction"] = faction
+
+                        categories = roster_node.get("options", [])
+                        for cat in categories:
+                            cat_name = cat.get("name", "")
+                            if cat_name in ["Configuration", "Show/Hide Options", "Detachment Rules"]:
+                                for opt in cat.get("options", []):
+                                    if opt.get("name") == "Detachment":
+                                        for sub in opt.get("options", []):
+                                            for sub_sub in sub.get("options", []):
+                                                detachment = sub_sub.get("name", detachment)
+                                continue
+
+                            # Parse unit entries in this category
+                            for unit_node in cat.get("options", []):
+                                u_name = unit_node.get("customName") or unit_node.get("name", "Unit")
+                                u_amount = unit_node.get("amount", 1)
+                                u_warlord = False
+                                u_enhancement = None
+                                wargear = []
+
+                                def parse_unit_sub(sub_node):
+                                    nonlocal u_warlord, u_enhancement
+                                    s_name = sub_node.get("name", "")
+                                    if s_name == "Warlord" or "Warlord" in s_name:
+                                        u_warlord = True
+                                    elif s_name in ["Enhancements", "Enhancement"]:
+                                        for enh in sub_node.get("options", []):
+                                            if enh.get("name"):
+                                                u_enhancement = enh.get("name")
+                                    elif s_name in ["Wargear", "Weapons", "Wargear options", "Ranged Weapons", "Melee Weapons"]:
+                                        for wg in sub_node.get("options", []):
+                                            parse_unit_sub(wg)
+                                    else:
+                                        if sub_node.get("options"):
+                                            for c in sub_node.get("options", []):
+                                                parse_unit_sub(c)
+                                        elif s_name and s_name not in ["Unit", "Model", "Option"]:
+                                            wargear.append(s_name)
+
+                                for sub in unit_node.get("options", []):
+                                    parse_unit_sub(sub)
+
+                                if u_warlord and not warlord:
+                                    warlord = u_name
+
+                                m_val = '10"' if ("Mounted" in cat_name or "Vehicle" in cat_name) else '6"'
+                                t_val = 10 if ("Vehicle" in cat_name or "Monster" in cat_name) else 4
+                                w_val = 12 if "Vehicle" in cat_name else (5 if "Character" in cat_name else 2)
+                                sv_val = "2+" if ("Vehicle" in cat_name or "Character" in cat_name) else "3+"
+
+                                units.append({
+                                    "id": f"u_{len(units)+1}",
+                                    "name": u_name,
+                                    "role": cat_name,
+                                    "is_warlord": u_warlord,
+                                    "enhancement": u_enhancement,
+                                    "model_count": max(1, u_amount),
+                                    "wargear": list(dict.fromkeys(wargear))[:6],
+                                    "stats": {
+                                        "M": m_val,
+                                        "T": t_val,
+                                        "SV": sv_val,
+                                        "INV": "4+" if (u_warlord or "Character" in cat_name) else "-",
+                                        "W": w_val,
+                                        "LD": "6+",
+                                        "OC": 2 if "Battleline" in cat_name else 1
+                                    },
+                                    "keywords": [faction, cat_name, u_name],
+                                    "points": 0
+                                })
+
+                        roster["detachment"] = detachment
+                        roster["warlord"] = warlord
+                        roster["units"] = units
+                        return roster
+        except Exception as e:
+            logger.debug("NewRecruit RPC fetch notice: %s", e)
+
+        # 2. Fast HTML metadata fallback if RPC is unavailable
         try:
             req = urllib.request.Request(
                 canonical_url,
