@@ -38,6 +38,28 @@ function switchTab(tabName) {
   }
 }
 
+function switchStudioTab(tabName) {
+  switchTab('event-studio');
+  if (typeof studioState !== 'undefined') {
+    studioState.activeTab = tabName;
+  }
+  const tabs = ['events', 'dashboard', 'pairings', 'wtc', 'pods', 'roster', 'standings', 'create'];
+  tabs.forEach(t => {
+    const btn = document.getElementById(`tab-btn-${t}`);
+    const view = document.getElementById(`es-view-${t}`);
+    if (btn && view) {
+      if (t === tabName) {
+        btn.classList.add('active');
+        view.style.display = 'block';
+      } else {
+        btn.classList.remove('active');
+        view.style.display = 'none';
+      }
+    }
+  });
+}
+window.switchStudioTab = switchStudioTab;
+
 function switchSearchSubtab(subtab) {
   const btnPlayers = document.getElementById('search-subtab-players');
   const btnTeams = document.getElementById('search-subtab-teams');
