@@ -16,7 +16,11 @@
       .replace(/'/g, '&#39;');
   }
 
-  function getDirectNewRecruitUrl(url) {
+  function getDirectNewRecruitUrl(url, list) {
+    if (list && list.id && typeof list.id === 'string' && list.id.startsWith('nr_')) {
+      const shareId = list.id.replace('nr_', '');
+      return `https://www.newrecruit.eu/app/list/${shareId}`;
+    }
     if (!url) return '';
     const match = url.match(/newrecruit\.eu\/app\/list\/([a-zA-Z0-9_\-]+)/i);
     if (match) {
@@ -1907,7 +1911,7 @@
         </div>
       `;
     } else if (activeList.source_url) {
-      const nrUrl = (typeof getDirectNewRecruitUrl === 'function') ? getDirectNewRecruitUrl(activeList.source_url) : activeList.source_url;
+      const nrUrl = (typeof getDirectNewRecruitUrl === 'function') ? getDirectNewRecruitUrl(activeList.source_url, activeList) : activeList.source_url;
       contentHtml = `
         <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
           <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">

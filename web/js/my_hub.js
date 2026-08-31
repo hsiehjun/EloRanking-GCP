@@ -1053,7 +1053,11 @@ async function handleHubParseAndSaveList() {
   }
 }
 
-function getDirectNewRecruitUrl(url) {
+function getDirectNewRecruitUrl(url, list) {
+  if (list && list.id && list.id.startsWith('nr_')) {
+    const shareId = list.id.replace('nr_', '');
+    return `https://www.newrecruit.eu/app/list/${shareId}`;
+  }
   if (!url) return '';
   const match = url.match(/newrecruit\.eu\/app\/list\/([a-zA-Z0-9_\-]+)/i);
   if (match) {
@@ -1084,9 +1088,7 @@ async function openViewArmyListModal(listId) {
     document.body.appendChild(modal);
   }
 
-  const units = list.units || [];
-  const rawSourceUrl = list.source_url || (list.raw_text && list.raw_text.startsWith('http') ? list.raw_text.trim() : null);
-  const sourceUrl = getDirectNewRecruitUrl(rawSourceUrl);
+  const sourceUrl = getDirectNewRecruitUrl(rawSourceUrl, list);
 
   modal.innerHTML = `
     <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:1100px; height:88vh; display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc; box-shadow:0 30px 80px rgba(0,0,0,0.9);">
