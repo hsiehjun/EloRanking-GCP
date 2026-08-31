@@ -1874,8 +1874,25 @@ if FASTAPI_AVAILABLE:
             if radius_miles and dist_val is not None and dist_val > radius_miles:
                 continue
 
-            enrolled = int(ev.get("totalPlayers") or ev.get("total_players") or 0)
-            cap = int(ev.get("numTickets") or ev.get("queryNumPlayers") or enrolled)
+            # Extract raw_json if present
+            raw_meta = {}
+            if ev.get("raw_json"):
+                try:
+                    raw_meta = ev["raw_json"] if isinstance(ev["raw_json"], dict) else json.loads(ev["raw_json"])
+                except Exception:
+                    raw_meta = {}
+
+            enrolled = int(ev.get("totalPlayers") or ev.get("total_players") or raw_meta.get("totalPlayers") or raw_meta.get("checkedInPlayers") or 0)
+            
+            raw_cap = (
+                ev.get("numTickets") or raw_meta.get("numTickets") or 
+                ev.get("queryNumPlayers") or raw_meta.get("queryNumPlayers") or 
+                ev.get("maxPlayers") or raw_meta.get("maxPlayers") or 
+                ev.get("capacity") or raw_meta.get("capacity") or
+                ev.get("num_tickets") or raw_meta.get("num_tickets")
+            )
+            has_ticket_cap = raw_cap is not None and str(raw_cap).isdigit() and int(raw_cap) > 0
+            cap = int(raw_cap) if has_ticket_cap else enrolled
             
             # Format time label
             time_label = "Upcoming"
@@ -1952,6 +1969,7 @@ if FASTAPI_AVAILABLE:
                 "enrolled_count": enrolled,
                 "max_capacity": cap,
                 "capacity_cap": cap,
+                "has_ticket_cap": has_ticket_cap,
                 "time_label": time_label,
                 "tier": tier,
                 "tier_badge": tier_badge,

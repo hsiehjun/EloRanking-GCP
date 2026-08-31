@@ -800,13 +800,14 @@ function renderHubEventCard(ev) {
   const timeLabel = ev.time_label || 'Upcoming';
   const isNearby = ev.is_nearby;
   const enrolled = ev.enrolled_count !== undefined ? ev.enrolled_count : (ev.total_players || 0);
-  const capacity = ev.capacity_cap !== undefined ? ev.capacity_cap : enrolled;
+  const capacity = ev.capacity_cap !== undefined ? ev.capacity_cap : (ev.max_capacity !== undefined ? ev.max_capacity : enrolled);
+  const hasTicketCap = ev.has_ticket_cap !== undefined ? ev.has_ticket_cap : (capacity > enrolled);
   const spotsOpen = capacity > enrolled ? (capacity - enrolled) : 0;
   
   let capacityText = `👥 <b>${enrolled}</b> Enrolled`;
-  if (capacity > 0 && capacity > enrolled) {
+  if (capacity > 0 && capacity > enrolled && hasTicketCap) {
     capacityText = `👥 <b>${enrolled} / ${capacity}</b> Spots <span style="color:#10b981; font-size:0.75rem;">(${spotsOpen} open)</span>`;
-  } else if (capacity > 0 && capacity === enrolled) {
+  } else if (capacity > 0 && capacity <= enrolled && hasTicketCap) {
     capacityText = `👥 <b>${enrolled} / ${capacity}</b> <span style="color:#f59e0b; font-size:0.75rem;">(Sold Out)</span>`;
   }
 

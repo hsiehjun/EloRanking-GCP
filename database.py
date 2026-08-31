@@ -1225,7 +1225,8 @@ class PostgresDatabase:
                     COALESCE(e.raw_json->>'locationName', e.raw_json->>'gameStoreName', '') as venue_name,
                     COALESCE(e.raw_json->>'formatted_address', '') as full_address,
                     e.raw_json->'coordinate' as coordinate,
-                    COALESCE(NULLIF(e.raw_json->>'numTickets', '')::int, NULLIF(e.raw_json->>'queryNumPlayers', '')::int, e.total_players) as max_capacity,
+                    COALESCE(NULLIF(e.raw_json->>'numTickets', '')::int, NULLIF(e.raw_json->>'queryNumPlayers', '')::int, NULLIF(e.raw_json->>'maxPlayers', '')::int, NULLIF(e.raw_json->>'capacity', '')::int, e.total_players) as max_capacity,
+                    (NULLIF(e.raw_json->>'numTickets', '') IS NOT NULL OR NULLIF(e.raw_json->>'queryNumPlayers', '') IS NOT NULL OR NULLIF(e.raw_json->>'maxPlayers', '') IS NOT NULL OR NULLIF(e.raw_json->>'capacity', '') IS NOT NULL) as has_ticket_cap,
                     COALESCE(NULLIF(e.raw_json->>'checkedInPlayers', '')::int, 0) as checked_in_players,
                     ROUND(AVG(pr.current_elo)::numeric, 1) as avg_field_elo,
                     MAX(pr.current_elo) as top_seed_elo,
@@ -1268,9 +1269,11 @@ class PostgresDatabase:
                         r["time_label"] = "Upcoming"
 
                     enrolled = int(r.get("total_players") or 0)
+                    has_ticket_cap = bool(r.get("has_ticket_cap"))
                     cap = int(r.get("max_capacity") or enrolled)
                     r["enrolled_count"] = enrolled
                     r["capacity_cap"] = cap
+                    r["has_ticket_cap"] = has_ticket_cap
 
                     # Calculate Distance in Miles
                     dist_val = None
