@@ -2363,39 +2363,38 @@ class PostgresDatabase:
     def get_studio_events(self, organizer_id: Optional[str] = None, organizer_bcp_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetches all events organized by or linked to a specific user/TO."""
         from psycopg2 import extras
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                params = []
-                query = """
-                SELECT id, name, event_date, end_date, city, state, country, venue,
-                       tier, total_players, num_rounds, current_round, is_ended,
-                       points, capacity, mission_pack, organizer_id, organizer_bcp_id,
-                       roster, pairings, raw_json, scraped_at
-                FROM events
-                WHERE 1=1
-                """
-                if organizer_id and organizer_bcp_id:
-                    query += " AND (organizer_id = %s OR organizer_bcp_id = %s OR id LIKE 'ES-%' OR (roster IS NOT NULL AND roster::text != '[]'))"
-                    params.extend([organizer_id, organizer_bcp_id])
-                elif organizer_id:
-                    query += " AND (organizer_id = %s OR id LIKE 'ES-%' OR (roster IS NOT NULL AND roster::text != '[]'))"
-                    params.append(organizer_id)
-                elif organizer_bcp_id:
-                    query += " AND (organizer_bcp_id = %s OR id LIKE 'ES-%' OR (roster IS NOT NULL AND roster::text != '[]'))"
-                    params.append(organizer_bcp_id)
-                else:
-                    query += " AND (id LIKE 'ES-%' OR organizer_id IS NOT NULL OR (roster IS NOT NULL AND roster::text != '[]') OR (pairings IS NOT NULL AND pairings::text != '{}') OR 1=1)"
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    params = []
+                    query = "SELECT * FROM events WHERE 1=1"
+                    if organizer_id and organizer_bcp_id:
+                        query += " AND (organizer_id = %s OR organizer_bcp_id = %s OR id LIKE 'ES-%')"
+                        params.extend([organizer_id, organizer_bcp_id])
+                    elif organizer_id:
+                        query += " AND (organizer_id = %s OR id LIKE 'ES-%')"
+                        params.append(organizer_id)
+                    elif organizer_bcp_id:
+                        query += " AND (organizer_bcp_id = %s OR id LIKE 'ES-%')"
+                        params.append(organizer_bcp_id)
 
-                query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
-                cursor.execute(query, tuple(params))
-                rows = cursor.fetchall()
-                results = []
-                for r in rows:
-                    item = dict(r)
-                    roster = item.get("roster") or []
-                    item["roster_count"] = len(roster) if isinstance(roster, list) else 0
-                    results.append(item)
-                return results
+                    query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
+                    cursor.execute(query, tuple(params))
+                    rows = cursor.fetchall()
+                    results = []
+                    for r in rows:
+                        item = dict(r)
+                        roster = item.get("roster") or []
+                        item["roster_count"] = len(roster) if isinstance(roster, list) else 0
+                        results.append(item)
+                    return results
+        except Exception as e:
+            logger.warning(f"get_studio_events notice: {e}")
+            try:
+                events_obj = self.get_events_list(limit=50)
+                return events_obj.get("items", []) if isinstance(events_obj, dict) else []
+            except Exception:
+                return []
 
     def get_studio_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves full tournament details, roster, and round pairings for Event Studio."""

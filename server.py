@@ -2677,8 +2677,17 @@ if FASTAPI_AVAILABLE:
 
     # API: Match Win Probability Predictor
     @app.get("/api/predict", summary="Calculate win odds and simulated Elo changes")
-    async def api_predict(p1: str = Query(...), p2: str = Query(...)):
-        return get_elo_engine().predict_match_outcome(p1.strip(), p2.strip())
+    async def api_predict(
+        p1: Optional[str] = Query(None),
+        p2: Optional[str] = Query(None),
+        player1: Optional[str] = Query(None),
+        player2: Optional[str] = Query(None)
+    ):
+        p1_name = p1 or player1 or ""
+        p2_name = p2 or player2 or ""
+        if not p1_name or not p2_name:
+            raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
+        return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip())
 
 
 
