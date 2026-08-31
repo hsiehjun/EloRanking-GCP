@@ -100,7 +100,7 @@ class ArmyListParser:
                     for wg in u_wargear:
                         c = re.sub(r'^\s*\d+x?\s+(?:with\s+)?', '', str(wg), flags=re.IGNORECASE).strip()
                         c = re.sub(r'\s*\(\+?\d+\s*pts?\)', '', c, flags=re.IGNORECASE).strip()
-                        if c and c.lower() not in ('warlord', 'resurrection orb', 'leading', 'attached to') and not c.lower().startswith('char'):
+                        if c and c.lower() not in ('warlord', 'leading', 'attached to') and not c.lower().startswith('char'):
                             cleaned_wargear.append(c)
 
                     # 1. Filter weapons if unit explicitly specified wargear
@@ -926,7 +926,7 @@ class ArmyListParser:
             warlord = wl_match.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
 
         header_enh_map = {}
-        for enh_line in re.finditer(r"ENHANCEMENT:\s*([^(\n\r\+]+)(?:\s*\((?:on\s*)?(?:Char\d+:\s*)?([^\)]+)\))?", text, re.IGNORECASE):
+        for enh_line in re.finditer(r"(?:ENHANCEMENT:|\&)\s*([^(\n\r\+]+)(?:\s*\((?:on\s*)?(?:[A-Za-z]+\d+:\s*)?([^\)]+)\))?", text, re.IGNORECASE):
             enh_name = enh_line.group(1).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
             target_unit = (enh_line.group(2) or "").replace('\u00a0', ' ').replace('&nbsp;', ' ').strip().lower()
             if enh_name:
@@ -935,13 +935,13 @@ class ArmyListParser:
         parsed_units = []
         current_unit = None
         unit_regex = re.compile(
-            r"^(?:(Char\d+):\s*)?(?:(\d+)x\s+)?([^\(\:]+?)\s*\((?:(\d+)\s*pts?|(\d+)\s*points?)\)(?:\s*:\s*(.*))?",
+            r"^(?:([A-Za-z]+\d+):\s*)?(?:(\d+)x\s+)?([^\(\:]+?)\s*\((?:(\d+)\s*pts?|(\d+)\s*points?)\)(?:\s*:\s*(.*))?",
             re.IGNORECASE,
         )
         enh_regex = re.compile(r"^Enhancements?:\s*(.+?)(?:\s*\(\s*\+?(\d+)\s*pts?\))?$", re.IGNORECASE)
 
         for line in lines:
-            if line.startswith("+") or "Created with newrecruit" in line.lower() or "TOTAL ARMY POINTS" in line:
+            if line.startswith("+") or "created with newrecruit" in line.lower() or "total army points" in line.lower() or line.startswith("&"):
                 continue
 
             enh_m = enh_regex.match(line)
@@ -956,16 +956,16 @@ class ArmyListParser:
 
             u_m = unit_regex.match(line)
             if u_m:
-                char_tag = u_m.group(1)
+                role_tag = u_m.group(1) or ""
                 count = int(u_m.group(2) or 1)
                 raw_uname = u_m.group(3).replace('\u00a0', ' ').replace('&nbsp;', ' ').strip()
                 pts = int(u_m.group(4) or u_m.group(5) or 0)
                 wargear_str = u_m.group(6) or ""
 
-                if raw_uname.lower().startswith(("warlord", "enhancement", "total", "secondary", "number of units")):
+                if raw_uname.lower().startswith(("warlord", "enhancement", "total", "secondary", "number of units", "force disposition")):
                     continue
 
-                is_wl = bool(char_tag and "warlord" in wargear_str.lower()) or (
+                is_wl = bool(role_tag.lower().startswith("char") and "warlord" in wargear_str.lower()) or (
                     raw_uname.lower() in warlord.lower() if warlord else False
                 )
                 if is_wl and not warlord:
@@ -976,18 +976,21 @@ class ArmyListParser:
                 current_unit = {
                     "id": f"u_{len(parsed_units)+1}_{uuid.uuid4().hex[:6]}",
                     "name": raw_uname,
-                    "role": "Character" if char_tag else "Infantry",
+                    "role": "Character" if role_tag.lower().startswith("char") else "Infantry",
                     "model_count": count,
                     "points": pts,
                     "is_warlord": is_wl,
                     "enhancement": None,
                     "wargear": wargear_list,
-                    "keywords": ["Character" if char_tag else "Infantry", faction],
+                    "keywords": ["Character" if role_tag.lower().startswith("char") else "Infantry", faction],
                 }
                 parsed_units.append(current_unit)
-            elif current_unit and (line.startswith(('•', '-', '*', '·')) or ':' in line):
-                # Sub-model or bullet wargear line (e.g. • 1x Sergeant: Power Weapon, Bolt Pistol)
+            elif current_unit:
+                # Any sub-model, equipment, bullet, or indented line under the current unit
                 sub_content = line.lstrip('•-*· ').strip()
+                if sub_content.lower().startswith(('leading ', 'attached to ')):
+                    current_unit['attached_to'] = sub_content
+                    continue
                 if ':' in sub_content:
                     items_str = sub_content.split(':', 1)[1].strip()
                 else:
