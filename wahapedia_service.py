@@ -256,7 +256,160 @@ class WahapediaService:
                 "keywords": ["Infantry", "Exo-armour", "Deep Strike", "Einhyr Hearthguard"]
             },
 
+            # =========================================================================
             # NECRONS
+            # =========================================================================
+            {
+                "id": "NEC-OVERLORD",
+                "name": "Overlord",
+                "faction": "Necrons",
+                "role": "Character",
+                "stats": {"M": "5\"", "T": 5, "SV": "2+", "INV": "4++", "W": 6, "LD": "6+", "OC": 1},
+                "weapons": [
+                    {"name": "Voidscythe", "type": "Melee", "range": "Melee", "attacks": "3", "bs_ws": "3+", "strength": "8", "ap": "-3", "damage": "3", "abilities": "[DEVASTATING WOUNDS]"},
+                    {"name": "Overlord's Blade", "type": "Melee", "range": "Melee", "attacks": "4", "bs_ws": "2+", "strength": "5", "ap": "-2", "damage": "2", "abilities": "[DEVASTATING WOUNDS]"},
+                    {"name": "Hyperphase Glaive", "type": "Melee", "range": "Melee", "attacks": "4", "bs_ws": "2+", "strength": "7", "ap": "-2", "damage": "2", "abilities": "-"},
+                    {"name": "Tachyon Arrow", "type": "Ranged", "range": "72\"", "attacks": "1", "bs_ws": "2+", "strength": "16", "ap": "-5", "damage": "D6+2", "abilities": "[ONE SHOT]"},
+                    {"name": "Resurrection Orb", "type": "Wargear", "range": "-", "attacks": "-", "bs_ws": "-", "strength": "-", "ap": "-", "damage": "-", "abilities": "Trigger extra Reanimation Protocols"}
+                ],
+                "abilities": [
+                    {"name": "My Will Be Done", "description": "Once per battle round, one unit from your army with this ability can be targeted with a Stratagem for 0CP."},
+                    {"name": "Resurrection Orb", "description": "In the Command phase or after an enemy unit attacks, you can trigger this model's unit's Reanimation Protocols, reanimating an extra D3 wounds/models."}
+                ],
+                "keywords": ["Infantry", "Character", "Noble", "Overlord", "Necrons"]
+            },
+            {
+                "id": "NEC-DOOMSDAY-ARK",
+                "name": "Doomsday Ark",
+                "faction": "Necrons",
+                "role": "Vehicle",
+                "stats": {"M": "10\"", "T": 9, "SV": "3+", "INV": "4++", "W": 14, "LD": "7+", "OC": 5},
+                "weapons": [
+                    {"name": "Doomsday Cannon - Stationary", "type": "Ranged", "range": "72\"", "attacks": "D6+1", "bs_ws": "3+", "strength": "18", "ap": "-4", "damage": "4", "abilities": "[BLAST, DEVASTATING WOUNDS, HEAVY]"},
+                    {"name": "Doomsday Cannon - Normal", "type": "Ranged", "range": "72\"", "attacks": "D6+1", "bs_ws": "3+", "strength": "15", "ap": "-4", "damage": "4", "abilities": "[BLAST]"},
+                    {"name": "2x Gauss Flayer Array", "type": "Ranged", "range": "24\"", "attacks": "10", "bs_ws": "3+", "strength": "4", "ap": "0", "damage": "1", "abilities": "[LETHAL HITS, RAPID FIRE 5]"},
+                    {"name": "Armoured Bulk", "type": "Melee", "range": "Melee", "attacks": "3", "bs_ws": "4+", "strength": "6", "ap": "0", "damage": "1", "abilities": "-"}
+                ],
+                "abilities": [
+                    {"name": "Overwhelming Firepower", "description": "If this model remained stationary this turn, its Doomsday Cannon gains [DEVASTATING WOUNDS] and Strength 18."},
+                    {"name": "Quantum Shielding", "description": "This model has a 4+ invulnerable save and cannot be wounded on a roll of 1-3 regardless of attacker Strength."}
+                ],
+                "keywords": ["Vehicle", "Fly", "Quantum Shielding", "Doomsday Ark", "Necrons"]
+            },
+            {
+                "id": "NEC-FLAYED-ONES",
+                "name": "Flayed Ones",
+                "faction": "Necrons",
+                "role": "Infantry",
+                "stats": {"M": "5\"", "T": 4, "SV": "4+", "INV": "-", "W": 1, "LD": "7+", "OC": 1},
+                "weapons": [
+                    {"name": "Flayer Claws", "type": "Melee", "range": "Melee", "attacks": "4", "bs_ws": "3+", "strength": "4", "ap": "0", "damage": "1", "abilities": "[TWIN-LINKED, SUSTAINED HITS 1]"}
+                ],
+                "abilities": [
+                    {"name": "Infiltrators", "description": "Can be set up anywhere that is more than 9\" away from enemy deployment zone and enemy models."},
+                    {"name": "Stealth", "description": "Subtract 1 from Hit rolls for ranged attacks targeting this unit."},
+                    {"name": "Flesh Hunger", "description": "Each time an attack made by this unit targets an enemy unit below Half-strength, critical hits are scored on an unmodified roll of 5+."}
+                ],
+                "keywords": ["Infantry", "Infiltrators", "Stealth", "Destroyer Cult", "Flayed Ones", "Necrons"]
+            },
+            {
+                "id": "NEC-LOKHUST-HEAVY",
+                "name": "Lokhust Heavy Destroyers",
+                "faction": "Necrons",
+                "role": "Mounted",
+                "stats": {"M": "7\"", "T": 6, "SV": "3+", "INV": "-", "W": 4, "LD": "7+", "OC": 2},
+                "weapons": [
+                    {"name": "Enmitic Exterminator", "type": "Ranged", "range": "36\"", "attacks": "6", "bs_ws": "3+", "strength": "6", "ap": "-1", "damage": "1", "abilities": "[HEAVY, BLAST, SUSTAINED HITS 1]"},
+                    {"name": "Gauss Destructor", "type": "Ranged", "range": "48\"", "attacks": "1", "bs_ws": "3+", "strength": "14", "ap": "-4", "damage": "6", "abilities": "[HEAVY, LETHAL HITS]"},
+                    {"name": "Close Combat Weapon", "type": "Melee", "range": "Melee", "attacks": "2", "bs_ws": "3+", "strength": "4", "ap": "0", "damage": "1", "abilities": "-"}
+                ],
+                "abilities": [
+                    {"name": "Heavy Firepower", "description": "Re-roll a Wound roll of 1 for attacks made by this unit (or re-roll all Wound rolls if targeting Monster or Vehicle)."}
+                ],
+                "keywords": ["Mounted", "Fly", "Destroyer Cult", "Lokhust Heavy Destroyers", "Necrons"]
+            },
+            {
+                "id": "NEC-LYCHGUARD",
+                "name": "Lychguard",
+                "faction": "Necrons",
+                "role": "Infantry",
+                "stats": {"M": "5\"", "T": 5, "SV": "3+", "INV": "4++", "W": 2, "LD": "6+", "OC": 1},
+                "weapons": [
+                    {"name": "Hyperphase Sword", "type": "Melee", "range": "Melee", "attacks": "3", "bs_ws": "3+", "strength": "6", "ap": "-2", "damage": "1", "abilities": "-"},
+                    {"name": "Dispersion Shield", "type": "Wargear", "range": "-", "attacks": "-", "bs_ws": "-", "strength": "-", "ap": "-", "damage": "-", "abilities": "Grants 4+ Invulnerable save"},
+                    {"name": "Warscythe", "type": "Melee", "range": "Melee", "attacks": "3", "bs_ws": "3+", "strength": "8", "ap": "-3", "damage": "2", "abilities": "-"}
+                ],
+                "abilities": [
+                    {"name": "Guardian Protocols", "description": "While a Noble or Character model is leading this unit, subtract 1 from Wound rolls made against this unit."}
+                ],
+                "keywords": ["Infantry", "Lychguard", "Noble Bodyguard", "Necrons"]
+            },
+            {
+                "id": "NEC-OPHYDIAN-DESTROYERS",
+                "name": "Ophydian Destroyers",
+                "faction": "Necrons",
+                "role": "Mounted",
+                "stats": {"M": "9\"", "T": 4, "SV": "3+", "INV": "-", "W": 3, "LD": "7+", "OC": 1},
+                "weapons": [
+                    {"name": "Ophydian Hyperphase Weapons", "type": "Melee", "range": "Melee", "attacks": "5", "bs_ws": "3+", "strength": "4", "ap": "-2", "damage": "2", "abilities": "-"},
+                    {"name": "Plasmacyte", "type": "Wargear", "range": "-", "attacks": "-", "bs_ws": "-", "strength": "-", "ap": "-", "damage": "-", "abilities": "Grants [DEVASTATING WOUNDS] once per battle"}
+                ],
+                "abilities": [
+                    {"name": "Deep Strike", "description": "Can be set up anywhere that is more than 9\" horizontally away from all enemy models."},
+                    {"name": "Tunnelling Horrors", "description": "At the end of your opponent's turn, if this unit is not in Engagement Range, remove it and place into Strategic Reserves."}
+                ],
+                "keywords": ["Mounted", "Deep Strike", "Destroyer Cult", "Ophydian Destroyers", "Necrons"]
+            },
+            {
+                "id": "NEC-SKORPEKH-DESTROYERS",
+                "name": "Skorpekh Destroyers",
+                "faction": "Necrons",
+                "role": "Infantry",
+                "stats": {"M": "7\"", "T": 5, "SV": "3+", "INV": "-", "W": 3, "LD": "7+", "OC": 1},
+                "weapons": [
+                    {"name": "Skorpekh Hyperphase Weapons", "type": "Melee", "range": "Melee", "attacks": "4", "bs_ws": "3+", "strength": "7", "ap": "-2", "damage": "2", "abilities": "-"},
+                    {"name": "Plasmacyte", "type": "Wargear", "range": "-", "attacks": "-", "bs_ws": "-", "strength": "-", "ap": "-", "damage": "-", "abilities": "Grants [LETHAL HITS] or [DEVASTATING WOUNDS]"}
+                ],
+                "abilities": [
+                    {"name": "Whirling Onslaught", "description": "In the Fight phase, if this unit made a Charge move, subtract 1 from Wound rolls for attacks targeting this unit."},
+                    {"name": "Lethal Precision", "description": "Critical hits in melee automatically wound the target."}
+                ],
+                "keywords": ["Infantry", "Destroyer Cult", "Skorpekh Destroyers", "Necrons"]
+            },
+            {
+                "id": "NEC-TRIARCH-PRAETORIANS",
+                "name": "Triarch Praetorians",
+                "faction": "Necrons",
+                "role": "Infantry",
+                "stats": {"M": "10\"", "T": 5, "SV": "3+", "INV": "-", "W": 2, "LD": "6+", "OC": 2},
+                "weapons": [
+                    {"name": "Rod of Covenant - Ranged", "type": "Ranged", "range": "12\"", "attacks": "1", "bs_ws": "3+", "strength": "5", "ap": "-2", "damage": "2", "abilities": "[PISTOL]"},
+                    {"name": "Rod of Covenant - Melee", "type": "Melee", "range": "Melee", "attacks": "4", "bs_ws": "3+", "strength": "5", "ap": "-2", "damage": "2", "abilities": "-"},
+                    {"name": "Particle Caster", "type": "Ranged", "range": "12\"", "attacks": "3", "bs_ws": "3+", "strength": "6", "ap": "0", "damage": "1", "abilities": "[PISTOL, DEVASTATING WOUNDS]"},
+                    {"name": "Voidblade", "type": "Melee", "range": "Melee", "attacks": "5", "bs_ws": "3+", "strength": "5", "ap": "-3", "damage": "1", "abilities": "-"}
+                ],
+                "abilities": [
+                    {"name": "Deep Strike & Fly", "description": "Can deploy via Deep Strike and move over models and terrain seamlessly."},
+                    {"name": "Judgement of the Triarch", "description": "Can re-roll Charge rolls and ignore all modifiers to Move, Advance, and Charge characteristics."}
+                ],
+                "keywords": ["Infantry", "Fly", "Deep Strike", "Triarch", "Triarch Praetorians", "Necrons"]
+            },
+            {
+                "id": "NEC-IMMORTALS",
+                "name": "Immortals",
+                "faction": "Necrons",
+                "role": "Battleline",
+                "stats": {"M": "5\"", "T": 5, "SV": "3+", "INV": "-", "W": 1, "LD": "7+", "OC": 2},
+                "weapons": [
+                    {"name": "Tesla Carbine", "type": "Ranged", "range": "18\"", "attacks": "2", "bs_ws": "3+", "strength": "5", "ap": "0", "damage": "1", "abilities": "[ASSAULT, SUSTAINED HITS 2]"},
+                    {"name": "Gauss Blaster", "type": "Ranged", "range": "24\"", "attacks": "2", "bs_ws": "3+", "strength": "5", "ap": "-1", "damage": "1", "abilities": "[LETHAL HITS]"},
+                    {"name": "Close Combat Weapon", "type": "Melee", "range": "Melee", "attacks": "2", "bs_ws": "3+", "strength": "4", "ap": "0", "damage": "1", "abilities": "-"}
+                ],
+                "abilities": [
+                    {"name": "Implacable Eradication", "description": "Re-roll Wound rolls of 1 (or all Wound rolls if target is on an objective marker)."}
+                ],
+                "keywords": ["Infantry", "Battleline", "Immortals", "Necrons"]
+            },
             {
                 "id": "NEC-NIGHTBRINGER",
                 "name": "C'tan Shard of the Nightbringer",
@@ -270,9 +423,9 @@ class WahapediaService:
                 ],
                 "abilities": [
                     {"name": "Drain Life", "description": "Roll D6 for enemy units within 6\" in Fight phase for mortal wounds."},
-                    {"name": "Necrodermis", "description": "Halve all incoming damage."}
+                    {"name": "Necrodermis", "description": "Halve all incoming damage (round up) and gain 5+ Feel No Pain."}
                 ],
-                "keywords": ["Monster", "Character", "Epic Hero", "Fly", "C'tan Shard", "Nightbringer"]
+                "keywords": ["Monster", "Character", "Epic Hero", "Fly", "C'tan Shard", "Nightbringer", "Necrons"]
             },
             {
                 "id": "NEC-VOID-DRAGON",
@@ -285,10 +438,10 @@ class WahapediaService:
                     {"name": "Spear of the Void Dragon - Strike", "type": "Melee", "range": "Melee", "attacks": "6", "bs_ws": "2+", "strength": "12", "ap": "-4", "damage": "D6+2", "abilities": "[ANTI-VEHICLE 2+, DEVASTATING WOUNDS]"}
                 ],
                 "abilities": [
-                    {"name": "Matter Absorption", "description": "Regain D3+3 wounds when destroying a Vehicle."},
-                    {"name": "Necrodermis", "description": "Halve all incoming damage."}
+                    {"name": "Matter Absorption", "description": "Regain D3+3 wounds when destroying an enemy Vehicle model."},
+                    {"name": "Necrodermis", "description": "Halve all incoming damage (round up) and gain 5+ Feel No Pain."}
                 ],
-                "keywords": ["Monster", "Character", "Epic Hero", "Fly", "C'tan Shard", "Void Dragon"]
+                "keywords": ["Monster", "Character", "Epic Hero", "Fly", "C'tan Shard", "Void Dragon", "Necrons"]
             },
             {
                 "id": "NEC-WARRIORS",
@@ -301,9 +454,9 @@ class WahapediaService:
                     {"name": "Gauss Reaper", "type": "Ranged", "range": "12\"", "attacks": "2", "bs_ws": "4+", "strength": "5", "ap": "-1", "damage": "1", "abilities": "[LETHAL HITS]"}
                 ],
                 "abilities": [
-                    {"name": "Their Number is Legion", "description": "Re-roll Reanimation rolls of 1 (or all when near objective)."}
+                    {"name": "Their Number is Legion", "description": "Re-roll Reanimation rolls of 1 (or all when near objective marker)."}
                 ],
-                "keywords": ["Infantry", "Battleline", "Necron Warriors"]
+                "keywords": ["Infantry", "Battleline", "Necron Warriors", "Necrons"]
             },
             {
                 "id": "NEC-WRAITHS",
@@ -318,7 +471,7 @@ class WahapediaService:
                 "abilities": [
                     {"name": "Wraithflight", "description": "Move through enemy models and terrain features seamlessly."}
                 ],
-                "keywords": ["Beasts", "Fly", "Canoptek", "Wraiths"]
+                "keywords": ["Beasts", "Fly", "Canoptek", "Wraiths", "Necrons"]
             }
         ]
 
@@ -443,7 +596,11 @@ class WahapediaService:
         if not unit_name:
             return None
 
-        norm_name = self._normalize_name(unit_name)
+        # Clean unit name of quantity/char prefixes e.g. "10x Flayed Ones" -> "Flayed Ones", "Char1: 1x Overlord" -> "Overlord"
+        cleaned_name = re.sub(r'^(?:char\d+:\s*)?(?:\d+x\s+)?', '', unit_name, flags=re.IGNORECASE).strip()
+        cleaned_name = re.sub(r'\s*\(\d+\s*pts?\).*$', '', cleaned_name, flags=re.IGNORECASE).strip()
+        
+        norm_name = self._normalize_name(cleaned_name)
         
         # 1. Direct normalized hit
         if norm_name in self._normalized_index:
@@ -460,13 +617,13 @@ class WahapediaService:
 
         # 3. Substring match
         for k, pid in self._normalized_index.items():
-            if norm_name in k or k in norm_name:
+            if norm_name and (norm_name in k or k in norm_name):
                 return self.datasheets.get(pid)
 
         # 4. Synthesize intelligent default if not found
         return {
             "id": f"GEN-{norm_name[:8].upper()}",
-            "name": unit_name,
+            "name": cleaned_name or unit_name,
             "faction": faction or "Warhammer 40,000",
             "role": "Infantry",
             "stats": {"M": "6\"", "T": 4, "SV": "3+", "INV": "-", "W": 2, "LD": "6+", "OC": 1},
@@ -481,7 +638,61 @@ class WahapediaService:
         }
 
     def get_stratagems_for_detachment(self, faction: str, detachment: Optional[str] = None) -> List[Dict[str, Any]]:
-        """Returns standard and detachment stratagems."""
+        """Returns detachment-specific and core stratagems."""
+        det_upper = (detachment or "").upper()
+        fac_upper = (faction or "").upper()
+
+        det_strats: List[Dict[str, Any]] = []
+
+        # 1. NECRONS: Starshatter Arsenal / Relentless Onslaught
+        if "STARSHATTER" in det_upper or "RELENTLESS" in det_upper:
+            det_strats = [
+                {"name": "Relentless Destruction", "type": "Detachment (Starshatter)", "cp": 1, "phase": "Shooting Phase", "description": "Target friendly Necrons unit. Ranged attacks gain [SUSTAINED HITS 1] (or [SUSTAINED HITS 2] against enemy units at Starting Strength)."},
+                {"name": "Entropic Disintegration", "type": "Detachment (Starshatter)", "cp": 1, "phase": "Shooting Phase", "description": "Select one enemy unit hit by a friendly Vehicle or Destroyer Cult model. That enemy unit suffers -1 Toughness and -1 to save rolls until the end of the phase."},
+                {"name": "Quantum Phalanx", "type": "Detachment (Starshatter)", "cp": 1, "phase": "Opponent's Shooting/Fight Phase", "description": "Target friendly Necrons unit; subtract 1 from Damage of allocated attacks (min 1) and models gain a 4+ invulnerable save."},
+                {"name": "Dimensional Breach", "type": "Detachment (Starshatter)", "cp": 1, "phase": "Movement Phase", "description": "Select one Necrons unit arriving from Strategic Reserves or Deep Strike; it can be set up anywhere more than 6\" horizontally away from enemy models."},
+                {"name": "Undying Protocols", "type": "Detachment (Starshatter)", "cp": 1, "phase": "Any Phase", "description": "When a Necrons unit is targeted by attacks, immediately trigger its Reanimation Protocols and re-roll any Reanimation dice of 1."},
+                {"name": "Annihilation Protocols", "type": "Detachment (Starshatter)", "cp": 1, "phase": "Fight Phase", "description": "When a Destroyer Cult or Flayed Ones unit charges, its melee attacks gain [LETHAL HITS] and [LANCE] (+1 to wound)."}
+            ]
+        # 2. NECRONS: Canoptek Court
+        elif "CANOPTEK" in det_upper:
+            det_strats = [
+                {"name": "Cynical Targeting", "type": "Detachment (Canoptek Court)", "cp": 1, "phase": "Shooting Phase", "description": "Re-roll Hit rolls for Canoptek and Cryptek units within the Power Matrix."},
+                {"name": "Reactive Subroutines", "type": "Detachment (Canoptek Court)", "cp": 1, "phase": "Opponent's Movement Phase", "description": "Target Canoptek unit; move up to 6\" when an enemy ends a Normal, Advance or Fall Back move within 9\"."},
+                {"name": "Solar Pulse", "type": "Detachment (Canoptek Court)", "cp": 1, "phase": "Shooting Phase", "description": "Target enemy unit loses the Benefit of Cover against attacks from friendly Necrons units."},
+                {"name": "Immortal Protocol", "type": "Detachment (Canoptek Court)", "cp": 1, "phase": "Any Phase", "description": "When a Cryptek or Character model is destroyed, return it to life on a 2+ with D3 wounds at the end of the phase."},
+                {"name": "Curse of the Cryptek", "type": "Detachment (Canoptek Court)", "cp": 1, "phase": "Fight/Shooting Phase", "description": "Inflict mortal wounds on enemy units attacking Cryptek bodyguard units."},
+                {"name": "Dimensional Translocation", "type": "Detachment (Canoptek Court)", "cp": 1, "phase": "Movement Phase", "description": "Place a Canoptek unit into Strategic Reserves."}
+            ]
+        # 3. NECRONS: Awakened Dynasty
+        elif "AWAKENED" in det_upper or ("NECRON" in fac_upper and not det_upper):
+            det_strats = [
+                {"name": "Protocol of the Undying Legions", "type": "Detachment (Awakened Dynasty)", "cp": 1, "phase": "Any Phase", "description": "Reanimate D3+1 wounds/models for target Necrons unit (or 2D3 if led by Character)."},
+                {"name": "Protocol of the Sudden Storm", "type": "Detachment (Awakened Dynasty)", "cp": 1, "phase": "Movement Phase", "description": "Ranged weapons gain [ASSAULT], and eligible to shoot after advancing."},
+                {"name": "Protocol of the Hungry Void", "type": "Detachment (Awakened Dynasty)", "cp": 1, "phase": "Fight Phase", "description": "Melee weapons gain +1 Strength and +1 AP."},
+                {"name": "Protocol of the Conquering Tyrant", "type": "Detachment (Awakened Dynasty)", "cp": 1, "phase": "Shooting/Fight Phase", "description": "Re-roll Hit rolls of 1 (re-roll all Hit rolls if within range of an objective marker)."},
+                {"name": "Protocol of the Vengeful Stars", "type": "Detachment (Awakened Dynasty)", "cp": 1, "phase": "Opponent's Shooting Phase", "description": "Shoot back when a friendly Character unit is targeted."},
+                {"name": "Protocol of the Cryptothrall", "type": "Detachment (Awakened Dynasty)", "cp": 1, "phase": "Any Phase", "description": "Grant Feel No Pain 5+ to target Necrons unit."}
+            ]
+        # 4. NECRONS: Hypercrypt Legion
+        elif "HYPERCRYPT" in det_upper:
+            det_strats = [
+                {"name": "Cosmic Precision", "type": "Detachment (Hypercrypt)", "cp": 1, "phase": "Movement Phase", "description": "Set up a Hyperphased unit anywhere more than 3\" horizontally from enemy models (cannot charge)."},
+                {"name": "Hyperphasic Recall", "type": "Detachment (Hypercrypt)", "cp": 1, "phase": "End of Opponent's Turn", "description": "Place up to two friendly units into Hyperphasing reserves."},
+                {"name": "Dimensional Corridor", "type": "Detachment (Hypercrypt)", "cp": 1, "phase": "Movement Phase", "description": "Arrive through a Monolith's Eternity Gate and make a charge this turn."},
+                {"name": "Quantum Entanglement", "type": "Detachment (Hypercrypt)", "cp": 1, "phase": "Opponent's Shooting Phase", "description": "Target Necrons unit gains 4+ Invulnerable save."}
+            ]
+        # 5. SPACE MARINES: Gladius Task Force
+        elif "GLADIUS" in det_upper or ("SPACE MARINE" in fac_upper and not det_upper):
+            det_strats = [
+                {"name": "Adaptive Strategy", "type": "Detachment (Gladius)", "cp": 1, "phase": "Command Phase", "description": "Select one Combat Doctrine (Devastator, Tactical, or Assault) for target Adeptus Astartes unit."},
+                {"name": "Armour of Contempt", "type": "Detachment (Gladius)", "cp": 1, "phase": "Opponent's Shooting/Fight Phase", "description": "Worsen the Armour Penetration characteristic of incoming attacks by 1."},
+                {"name": "Honour the Chapter", "type": "Detachment (Gladius)", "cp": 1, "phase": "Fight Phase", "description": "Melee weapons gain [LANCE] (+1 to wound on charge) and +1 AP in Assault Doctrine."},
+                {"name": "Only in Death Does Duty End", "type": "Detachment (Gladius)", "cp": 2, "phase": "Fight Phase", "description": "Fight on death on a 4+ when destroyed in melee before fighting."},
+                {"name": "Squad Tactics", "type": "Detachment (Gladius)", "cp": 1, "phase": "Opponent's Movement Phase", "description": "Make a Normal move of up to D6\" (or 6\" for Phobos) when enemy ends move within 9\"."},
+                {"name": "Storm of Fire", "type": "Detachment (Gladius)", "cp": 1, "phase": "Shooting Phase", "description": "Ranged attacks gain [IGNORES COVER] and [LETHAL HITS] in Devastator Doctrine."}
+            ]
+
         core_strats = [
             {"name": "Command Re-roll", "type": "Core", "cp": 1, "phase": "Any Phase", "description": "Re-roll one Hit roll, Wound roll, Damage roll, saving throw, Advance roll, Charge roll, or Battle-shock test."},
             {"name": "Counter-Offensive", "type": "Core", "cp": 2, "phase": "Fight Phase", "description": "Select one eligible friendly unit that has not fought this phase. That unit fights next."},
@@ -492,8 +703,10 @@ class WahapediaService:
             {"name": "Tank Shock", "type": "Core", "cp": 1, "phase": "Charge Phase", "description": "Roll D6s equal to Toughness of your charging Vehicle (+2 if weapon S > T); each 5+ causes a mortal wound (max 6)."},
             {"name": "Rapid Ingress", "type": "Core", "cp": 1, "phase": "End of Opponent's Movement Phase", "description": "One friendly unit in Reserves with Deep Strike or Strategic Reserves arrives on the battlefield."}
         ]
-        return core_strats
+
+        return det_strats + core_strats
 
 
 def get_wahapedia() -> WahapediaService:
     return WahapediaService()
+
