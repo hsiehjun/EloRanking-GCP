@@ -1739,14 +1739,22 @@ if FASTAPI_AVAILABLE:
         end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
 
         bcp_live_events = []
+        next_key = None
         try:
-            bcp_url = f"{BCP_API_BASE}/events?limit=80&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
-            if query and query.strip():
-                bcp_url += f"&name={urllib.parse.quote(query.strip())}"
-            req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
-            with urllib.request.urlopen(req, timeout=4) as resp:
-                bcp_json = json.loads(resp.read().decode("utf-8"))
-                bcp_live_events = bcp_json.get("data", [])
+            for _ in range(5):
+                bcp_url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
+                if query and query.strip():
+                    bcp_url += f"&name={urllib.parse.quote(query.strip())}"
+                if next_key:
+                    bcp_url += f"&nextKey={urllib.parse.quote(next_key)}"
+                req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    bcp_json = json.loads(resp.read().decode("utf-8"))
+                    page_items = bcp_json.get("data", [])
+                    bcp_live_events.extend(page_items)
+                    next_key = bcp_json.get("nextKey")
+                    if not next_key or not page_items:
+                        break
         except Exception as e:
             logger.warning(f"Live BCP recommended events fetch notice: {e}")
 

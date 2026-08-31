@@ -187,8 +187,8 @@ function renderMyHub(data) {
                   <option value="RTT / Local">RTT</option>
                 </select>
                 <select id="hub-rec-radius-select" class="hub-state-select" style="font-size:0.75rem; padding:0.25rem 0.4rem;" onchange="loadHubRecommendedEvents()">
-                  <option value="50" selected>50 mi</option>
-                  <option value="100">100 mi</option>
+                  <option value="50">50 mi</option>
+                  <option value="100" selected>100 mi</option>
                   <option value="250">250 mi</option>
                   <option value="">Any</option>
                 </select>
@@ -684,7 +684,7 @@ async function loadHubRecommendedEvents() {
   const query = searchInput ? searchInput.value.trim() : '';
   const playerId = (currentUser && currentUser.player_id) ? currentUser.player_id : '';
   const selectedTier = tierSelect ? tierSelect.value : '';
-  const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 50;
+  const selectedRadius = radiusSelect && radiusSelect.value ? Number(radiusSelect.value) : 100;
 
   // Determine coordinates: Custom chosen location > Live device GPS > Competitor Home fallback
   let userLat = null;
