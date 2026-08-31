@@ -196,7 +196,7 @@ if FASTAPI_AVAILABLE:
             if bcp_token:
                 try:
                     import urllib.request, json
-                    bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events?userId={bcp_user_id}&limit=50"
+                    bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events?eventOrganizerId={bcp_user_id}&limit=25"
                     req = urllib.request.Request(
                         bcp_url,
                         headers={
@@ -205,32 +205,33 @@ if FASTAPI_AVAILABLE:
                             "Content-Type": "application/json"
                         }
                     )
-                    with urllib.request.urlopen(req, timeout=8) as resp:
-                        bcp_data = json.loads(resp.read().decode("utf-8"))
-                        bcp_list = bcp_data if isinstance(bcp_data, list) else bcp_data.get("data", [])
-                        
-                        existing_ids = {e["id"] for e in events}
-                        for be in bcp_list:
-                            be_id = be.get("id") or be.get("_id")
-                            if be_id and be_id not in existing_ids:
-                                synced_ev = db.save_studio_event({
-                                    "id": be_id,
-                                    "name": be.get("name") or "BCP Tournament",
-                                    "tier": be.get("eventType") or "Grand Tournament",
-                                    "event_date": be.get("eventDate") or be.get("startDate"),
-                                    "end_date": be.get("endDate"),
-                                    "city": be.get("city") or "",
-                                    "state": be.get("state") or "",
-                                    "country": be.get("country") or "USA",
-                                    "venue": be.get("venueName") or "",
-                                    "total_players": int(be.get("totalPlayers") or be.get("numPlayers") or 0),
-                                    "num_rounds": int(be.get("numberOfRounds") or be.get("numRounds") or 5),
-                                    "organizer_id": user_id,
-                                    "organizer_bcp_id": bcp_user_id,
-                                    "raw_json": be
-                                })
-                                events.append(synced_ev)
-                                existing_ids.add(be_id)
+                    with urllib.request.urlopen(req, timeout=2.0) as resp:
+                        if resp.status == 200:
+                            bcp_data = json.loads(resp.read().decode("utf-8"))
+                            bcp_list = bcp_data if isinstance(bcp_data, list) else bcp_data.get("data", [])
+                            
+                            existing_ids = {e["id"] for e in events}
+                            for be in bcp_list:
+                                be_id = be.get("id") or be.get("_id")
+                                if be_id and be_id not in existing_ids:
+                                    synced_ev = db.save_studio_event({
+                                        "id": be_id,
+                                        "name": be.get("name") or "BCP Tournament",
+                                        "tier": be.get("eventType") or "Grand Tournament",
+                                        "event_date": be.get("eventDate") or be.get("startDate"),
+                                        "end_date": be.get("endDate"),
+                                        "city": be.get("city") or "",
+                                        "state": be.get("state") or "",
+                                        "country": be.get("country") or "USA",
+                                        "venue": be.get("venueName") or "",
+                                        "total_players": int(be.get("totalPlayers") or be.get("numPlayers") or 0),
+                                        "num_rounds": int(be.get("numberOfRounds") or be.get("numRounds") or 5),
+                                        "organizer_id": user_id,
+                                        "organizer_bcp_id": bcp_user_id,
+                                        "raw_json": be
+                                    })
+                                    events.append(synced_ev)
+                                    existing_ids.add(be_id)
                 except Exception as bcp_err:
                     logger.debug(f"BCP organizer events fetch notice: {bcp_err}")
 

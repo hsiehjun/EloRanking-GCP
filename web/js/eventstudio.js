@@ -1784,3 +1784,53 @@ async function triggerGeneratePods() {
     alert('Notice generating Day 2 brackets: ' + err.message);
   }
 }
+
+// Global window bindings for Event Studio
+window.initStudio = initStudio;
+window.loadStudioEvents = loadStudioEvents;
+window.switchStudioTab = switchStudioTab;
+window.renderEventsDirectory = renderEventsDirectory;
+window.selectStudioTournament = selectStudioTournament;
+window.deleteStudioTournament = deleteStudioTournament;
+window.openImportBcpModal = openImportBcpModal;
+window.closeImportBcpModal = closeImportBcpModal;
+window.submitImportBcpTournament = submitImportBcpTournament;
+window.submitCreateTournament = submitCreateTournament;
+window.updateDefaultRounds = updateDefaultRounds;
+window.openEditTournamentModal = openEditTournamentModal;
+window.openEditTournamentModalById = openEditTournamentModalById;
+window.closeModal = closeModal;
+window.submitEditTournament = submitEditTournament;
+window.deleteCurrentTournament = deleteCurrentTournament;
+window.syncEventWithBcp = syncEventWithBcp;
+window.renderDashboard = renderDashboard;
+window.refreshDashboardCalls = refreshDashboardCalls;
+window.markJudgeCallEnRoute = markJudgeCallEnRoute;
+window.resolveJudgeCall = resolveJudgeCall;
+window.switchPairingsRound = switchPairingsRound;
+window.generateSwissPairings = generateSwissPairings;
+window.saveCurrentPairings = saveCurrentPairings;
+window.openQuickScoreModal = openQuickScoreModal;
+window.closeQuickScoreModal = closeQuickScoreModal;
+window.submitQuickScore = submitQuickScore;
+window.launchTournamentTracker = launchTournamentTracker;
+window.openMatchPredictorModal = openMatchPredictorModal;
+window.closeMatchPredictorModal = closeMatchPredictorModal;
+window.renderWtcDraftMatrix = renderWtcDraftMatrix;
+window.selectWtcSlot = selectWtcSlot;
+window.advanceWtcDraftStep = advanceWtcDraftStep;
+window.autoSolveWtcDraft = autoSolveWtcDraft;
+window.resetWtcDraft = resetWtcDraft;
+window.commitWtcDraftToPairings = commitWtcDraftToPairings;
+window.triggerGeneratePods = triggerGeneratePods;
+window.previewPodBreakdown = previewPodBreakdown;
+window.openAddPlayerModal = openAddPlayerModal;
+window.submitAddPlayer = submitAddPlayer;
+window.dropPlayer = dropPlayer;
+window.toggleCheckIn = toggleCheckIn;
+window.exportRosterCsv = exportRosterCsv;
+window.renderStandings = renderStandings;
+window.copyStandingsText = copyStandingsText;
+window.toggleRoundTimer = toggleRoundTimer;
+window.resetRoundTimer = resetRoundTimer;
+
