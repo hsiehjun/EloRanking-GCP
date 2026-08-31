@@ -1235,6 +1235,17 @@ function renderNativeRosterViewer(list, options = {}) {
   const points = list.points || 2000;
   const warlord = list.warlord || '';
 
+  function formatWahaText(text) {
+    if (!text) return '';
+    if (typeof text !== 'string') text = String(text);
+    let formatted = text
+      .replace(/<span class=["']?kwb["']?>\s*([^<]+?)\s*<\/span>/gi, '<span class="kwb-badge">$1</span>')
+      .replace(/<span class=["']?tooltip[^"']*["']?>\s*([^<]+?)\s*<\/span>/gi, '$1')
+      .replace(/<a [^>]*>([^<]+)<\/a>/gi, '$1');
+    formatted = formatted.replace(/<\/?(script|iframe|object|embed|style|form|input|button)[^>]*>/gi, '');
+    return formatted;
+  }
+
   let contentHtml = `<div style="display:flex; flex-direction:column; gap:1.25rem; padding:1.25rem; overflow-y:auto; flex:1; background:#070b14;">`;
 
   // 1. Army & Detachment Rules Banner
@@ -1248,13 +1259,13 @@ function renderNativeRosterViewer(list, options = {}) {
           ${armyRules.map(ar => `
             <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">
               <div style="font-weight:800; font-size:13px; color:#f8fafc; margin-bottom:4px;">🛡️ ${escapeHtml(ar.name)}</div>
-              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(ar.description || '')}</div>
+              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${formatWahaText(ar.description || '')}</div>
             </div>
           `).join('')}
           ${detachmentRules.map(dr => `
             <div style="background:#070b14; border:1px solid rgba(192,132,252,0.25); border-radius:8px; padding:10px;">
               <div style="font-weight:800; font-size:13px; color:#c084fc; margin-bottom:4px;">⚡ ${escapeHtml(dr.name)}</div>
-              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${escapeHtml(dr.description || '')}</div>
+              <div style="font-size:11px; color:#94a3b8; line-height:1.5; white-space:pre-wrap;">${formatWahaText(dr.description || '')}</div>
             </div>
           `).join('')}
         </div>
@@ -1281,37 +1292,7 @@ function renderNativeRosterViewer(list, options = {}) {
                 ${st.phase ? `<span style="color:#facc15; background:rgba(250,204,21,0.1); padding:1px 4px; border-radius:3px;">🕒 ${escapeHtml(st.phase)}</span>` : ''}
                 ${st.turn ? `<span style="color:#a855f7; background:rgba(168,85,247,0.1); padding:1px 4px; border-radius:3px;">${escapeHtml(st.turn)}</span>` : ''}
               </div>
-              <div style="font-size:11px; color:#94a3b8; line-height:1.4; white-space:pre-wrap;">${escapeHtml(st.description || '')}</div>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `;
-  }
-
-  // 3. Detachment Enhancements Banner
-  let availableEnhancements = list.available_enhancements || list.enhancements_data || [];
-  if (availableEnhancements.length === 0 && list.list_data) {
-    try {
-      const ld = typeof list.list_data === 'string' ? JSON.parse(list.list_data) : list.list_data;
-      if (ld && ld.available_enhancements) availableEnhancements = ld.available_enhancements;
-    } catch(e) {}
-  }
-  if (availableEnhancements.length > 0) {
-    contentHtml += `
-      <div style="background:rgba(15, 23, 42, 0.7); border:1px solid rgba(192, 132, 252, 0.35); border-radius:12px; padding:12px 16px;">
-        <div style="font-size:13px; font-weight:800; color:#c084fc; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
-          <span>✨</span> Detachment Enhancements <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${availableEnhancements.length})</span>
-        </div>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:10px;">
-          ${availableEnhancements.map(enh => `
-            <div style="background:#070b14; border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; display:flex; flex-direction:column; gap:6px;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <b style="font-size:12px; color:#fff; font-family:var(--font-mono);">✨ ${escapeHtml(enh.name || '')}</b>
-                ${(enh.cost || enh.points) ? `<span class="badge" style="background:rgba(192,132,252,0.2); color:#c084fc; font-size:10px; font-weight:800; border:1px solid rgba(192,132,252,0.4); padding:1px 5px;">+${escapeHtml(String(enh.cost || enh.points))} PTS</span>` : ''}
-              </div>
-              ${enh.legend ? `<div style="font-size:9.5px; color:#94a3b8; font-style:italic;">${escapeHtml(enh.legend)}</div>` : ''}
-              <div style="font-size:11px; color:#cbd5e1; line-height:1.4; white-space:pre-wrap;">${escapeHtml(enh.description || '')}</div>
+              <div style="font-size:11px; color:#94a3b8; line-height:1.4; white-space:pre-wrap;">${formatWahaText(st.description || '')}</div>
             </div>
           `).join('')}
         </div>
@@ -1405,7 +1386,7 @@ function renderNativeRosterViewer(list, options = {}) {
               const rules = u.rules || [];
 
               const enhName = (u.enhancement_detail && u.enhancement_detail.name) || u.enhancement || '';
-              const enhDetail = u.enhancement_detail || availableEnhancements.find(e => e.name && e.name.toLowerCase() === enhName.toLowerCase()) || {};
+              const enhDetail = u.enhancement_detail || (list.available_enhancements || []).find(e => e.name && e.name.toLowerCase() === enhName.toLowerCase()) || {};
               const enhDesc = enhDetail.description || '';
               const enhCost = enhDetail.cost || enhDetail.points || (u.enhancement_pts ? `+${u.enhancement_pts} pts` : '');
 
@@ -1488,13 +1469,13 @@ function renderNativeRosterViewer(list, options = {}) {
                       ${enhName ? `
                         <div style="background:rgba(192,132,252,0.12); border:1px solid rgba(192,132,252,0.3); border-radius:6px; padding:6px 8px; font-size:0.7rem;">
                           <b style="color:#c084fc; font-size:0.72rem;">✨ Enhancement: ${escapeHtml(enhName)} ${enhCost ? `(${escapeHtml(String(enhCost))})` : ''}:</b>
-                          ${enhDesc ? `<span style="color:#e2e8f0; line-height:1.35;"> ${escapeHtml(enhDesc)}</span>` : '<span style="color:#94a3b8; font-style:italic;"> Detachment enhancement assigned to this character</span>'}
+                          ${enhDesc ? `<div style="color:#e2e8f0; line-height:1.35; margin-top:2px;">${formatWahaText(enhDesc)}</div>` : '<div style="color:#94a3b8; font-style:italic; margin-top:2px;">Detachment enhancement assigned to this character</div>'}
                         </div>
                       ` : ''}
                       ${abilities.map(ab => `
                         <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:6px; padding:5px 7px; font-size:0.7rem;">
                           <b style="color:#facc15; font-size:0.72rem;">${escapeHtml(ab.name)}:</b>
-                          <span style="color:#94a3b8; line-height:1.35;"> ${escapeHtml(ab.description)}</span>
+                          <div style="color:#cbd5e1; line-height:1.35; margin-top:2px;">${formatWahaText(ab.description)}</div>
                         </div>
                       `).join('')}
                     </div>

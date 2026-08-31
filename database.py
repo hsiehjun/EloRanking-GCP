@@ -3422,6 +3422,31 @@ class PostgresDatabase:
                 """, (det_clean, f"%{det_clean}%", detachment_name.strip(), f"%{detachment_name.strip()}%"))
                 return [dict(r) for r in cursor.fetchall()]
 
+    def waha_get_army_rules(self, faction_name: str) -> List[Dict[str, Any]]:
+        """Returns all army rules (e.g. Reanimation Protocols, Oath of Moment) for a faction."""
+        if not faction_name:
+            return []
+        fac_clean = faction_name.replace('\u00a0', ' ').strip()
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT ab.* FROM waha_army_abilities ab
+                    LEFT JOIN waha_factions f ON ab.faction_id = f.id
+                    WHERE LOWER(f.name) = LOWER(%s) OR f.name ILIKE %s
+                       OR LOWER(ab.faction_id) = LOWER(%s) OR ab.faction_id ILIKE %s
+                    ORDER BY ab.name ASC;
+                """, (fac_clean, f"%{fac_clean}%", fac_clean, f"%{fac_clean}%"))
+                res = [dict(r) for r in cursor.fetchall()]
+                if not res:
+                    cursor.execute("""
+                        SELECT * FROM waha_army_abilities
+                        WHERE LOWER(faction_id) = LOWER(%s) OR faction_id ILIKE %s
+                        ORDER BY name ASC;
+                    """, (fac_clean, f"%{fac_clean}%"))
+                    res = [dict(r) for r in cursor.fetchall()]
+                return res
+
 
 
 class PostgresConnectionContext:

@@ -38,7 +38,16 @@ class ArmyListParser:
         clean_det = re.sub(r'\(.*?\)', '', detachment or '').replace('\u00a0', ' ').replace('&nbsp;', ' ').strip() if detachment else ""
         lookup_det = clean_det or detachment
 
-        # 1. Enrich Stratagems if missing
+        # 1. Enrich Army Rules if missing
+        if faction and not roster.get("army_rules"):
+            try:
+                army_rules = db.waha_get_army_rules(faction)
+                if army_rules:
+                    roster["army_rules"] = army_rules
+            except Exception as e:
+                logger.debug(f"Error enriching army rules: {e}")
+
+        # 2. Enrich Stratagems if missing
         if lookup_det and not roster.get("stratagems"):
             try:
                 strats = db.waha_get_stratagems(lookup_det)
@@ -47,7 +56,7 @@ class ArmyListParser:
             except Exception as e:
                 logger.debug(f"Error enriching stratagems: {e}")
 
-        # 2. Enrich Detachment Enhancements if missing
+        # 3. Enrich Detachment Enhancements if missing
         available_enhancements = roster.get("available_enhancements") or []
         if lookup_det and not available_enhancements:
             try:
@@ -58,8 +67,8 @@ class ArmyListParser:
             except Exception as e:
                 logger.debug(f"Error enriching enhancements: {e}")
 
-        # 3. Enrich Detachment Rules if missing
-        if lookup_det and not roster.get("detachment_rules"):
+        # 4. Enrich Detachment Rules from Wahapedia
+        if lookup_det:
             try:
                 det_rules = db.waha_get_detachment_rules(lookup_det)
                 if det_rules:
