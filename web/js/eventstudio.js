@@ -537,35 +537,170 @@ function openQuickScoreModal(tableNum) {
   const pair = pairings.find(p => p.table === tableNum);
   if (!pair) return;
 
-  const p1Name = pair.p1_name || 'Player 1';
-  const p2Name = pair.p2_name || 'Player 2';
-  const currentP1 = pair.p1Score !== null && pair.p1Score !== undefined ? pair.p1Score : 75;
-  const currentP2 = pair.p2Score !== null && pair.p2Score !== undefined ? pair.p2Score : 60;
+  studioState.activeScoringTable = tableNum;
+  studioState.parsedScorecardData = null;
 
-  const p1Val = prompt(`Enter final Battle Points for ${p1Name} (0-100):`, currentP1);
-  if (p1Val === null) return;
-  const p2Val = prompt(`Enter final Battle Points for ${p2Name} (0-100):`, currentP2);
-  if (p2Val === null) return;
+  const modal = document.getElementById('score-entry-modal');
+  if (!modal) return;
 
-  pair.p1Score = parseInt(p1Val, 10) || 0;
-  pair.p2Score = parseInt(p2Val, 10) || 0;
+  const tableLabel = document.getElementById('score-table-num');
+  if (tableLabel) tableLabel.textContent = tableNum;
+
+  const p1NameEl = document.getElementById('score-p1-name');
+  const p1FacEl = document.getElementById('score-p1-faction');
+  const p1VpEl = document.getElementById('input-p1-vp');
+
+  const p2NameEl = document.getElementById('score-p2-name');
+  const p2FacEl = document.getElementById('score-p2-faction');
+  const p2VpEl = document.getElementById('input-p2-vp');
+
+  if (p1NameEl) p1NameEl.textContent = pair.p1_name || 'Player 1';
+  if (p1FacEl) p1FacEl.textContent = pair.p1_faction || 'Army 1';
+  if (p1VpEl) p1VpEl.value = pair.p1Score !== null && pair.p1Score !== undefined ? pair.p1Score : 75;
+
+  if (p2NameEl) p2NameEl.textContent = pair.p2_name || 'Player 2';
+  if (p2FacEl) p2FacEl.textContent = pair.p2_faction || 'Army 2';
+  if (p2VpEl) p2VpEl.value = pair.p2Score !== null && pair.p2Score !== undefined ? pair.p2Score : 60;
+
+  const prevBox = document.getElementById('scorecard-preview-box');
+  if (prevBox) prevBox.style.display = 'none';
+
+  switchScoreMethod('quick');
+  modal.classList.add('active');
+}
+
+function closeScoreEntryModal() {
+  const modal = document.getElementById('score-entry-modal');
+  if (modal) modal.classList.remove('active');
+  studioState.activeScoringTable = null;
+  studioState.parsedScorecardData = null;
+}
+
+function switchScoreMethod(method) {
+  studioState.selectedScoreMethod = method;
+
+  ['quick', 'ttb', 'gdm', 'gw'].forEach(m => {
+    const tabBtn = document.getElementById(`sm-tab-${m}`);
+    if (tabBtn) tabBtn.classList.toggle('active', m === method);
+  });
+
+  const viewQuick = document.getElementById('sm-view-quick');
+  const viewImport = document.getElementById('sm-view-import');
+
+  if (method === 'quick') {
+    if (viewQuick) viewQuick.style.display = 'block';
+    if (viewImport) viewImport.style.display = 'none';
+  } else {
+    if (viewQuick) viewQuick.style.display = 'none';
+    if (viewImport) viewImport.style.display = 'block';
+
+    const titleEl = document.getElementById('import-instructions-title');
+    const descEl = document.getElementById('import-instructions-desc');
+
+    if (method === 'ttb') {
+      if (titleEl) titleEl.textContent = '⚔️ Paste Tabletop Battles Export (JSON or Text)';
+      if (descEl) descEl.textContent = 'Paste the text or JSON export from Tabletop Battles. The parser extracts Primary VP, Secondaries, and Paint bonuses.';
+    } else if (method === 'gdm') {
+      if (titleEl) titleEl.textContent = '🎴 Paste GDM App / Scorecard';
+      if (descEl) descEl.textContent = 'Paste the scorecard text or JSON from the GDM game tracker.';
+    } else {
+      if (titleEl) titleEl.textContent = '🛡️ Paste Official Warhammer 40k App / Match Text';
+      if (descEl) descEl.textContent = 'Paste match results from the official app or summary text (e.g. "Alice 85 vs Bob 72").';
+    }
+  }
+}
+
+async function parseImportedScorecard() {
+  const txt = document.getElementById('app-import-textarea');
+  if (!txt || !txt.value.trim()) {
+    alert('Please paste the scorecard text or JSON export.');
+    return;
+  }
+
+  try {
+    const res = await window.api.parseScorecard(txt.value.trim());
+    if (res.scorecard) {
+      const sc = res.scorecard;
+      studioState.parsedScorecardData = sc;
+
+      const p1VpEl = document.getElementById('input-p1-vp');
+      const p2VpEl = document.getElementById('input-p2-vp');
+
+      if (p1VpEl) p1VpEl.value = sc.player1.total_score;
+      if (p2VpEl) p2VpEl.value = sc.player2.total_score;
+
+      const prevBox = document.getElementById('scorecard-preview-box');
+      const prevSummary = document.getElementById('scorecard-parsed-summary');
+      if (prevBox && prevSummary) {
+        prevSummary.innerHTML = `
+          <div style="font-weight:700; color:#fff;">${sc.player1.name} (${sc.player1.total_score} VP) vs ${sc.player2.name} (${sc.player2.total_score} VP)</div>
+          <div style="font-size:0.75rem; color:#94a3b8; margin-top:2px;">Mission: ${sc.mission} • Winner: <b style="color:#10b981;">${sc.winner_name}</b></div>
+        `;
+        prevBox.style.display = 'block';
+      }
+
+      // Switch back to quick view so TO can see populated VP
+      const viewQuick = document.getElementById('sm-view-quick');
+      if (viewQuick) viewQuick.style.display = 'block';
+      alert('✅ Scorecard parsed and Battle Points populated!');
+    }
+  } catch(e) {
+    alert('Error parsing scorecard: ' + e.message);
+  }
+}
+
+async function saveMatchScoreAndSync() {
+  const tableNum = studioState.activeScoringTable;
+  const t = studioState.activeTournament;
+  if (!t || !tableNum) return;
+
+  const r = studioState.currentRound;
+  const pairings = (t.pairings || {})[String(r)] || [];
+  const pair = pairings.find(p => p.table === tableNum);
+  if (!pair) return;
+
+  const p1VpEl = document.getElementById('input-p1-vp');
+  const p2VpEl = document.getElementById('input-p2-vp');
+
+  pair.p1Score = parseInt(p1VpEl ? p1VpEl.value : '0', 10) || 0;
+  pair.p2Score = parseInt(p2VpEl ? p2VpEl.value : '0', 10) || 0;
   pair.status = 'completed';
 
   renderPairings();
   renderStandings();
+  closeScoreEntryModal();
 
-  window.api.submitScoreToBcp({
+  // Save to database & BCP
+  const payload = {
     event_id: t.id,
     table: tableNum,
     round_num: r,
     p1_score: pair.p1Score,
     p2_score: pair.p2Score,
-    p1_name: p1Name,
-    p2_name: p2Name,
-    source_app: 'EventStudio Direct'
-  }).catch(e => console.warn('Score submission notice:', e));
+    p1_name: pair.p1_name,
+    p2_name: pair.p2_name,
+    source_app: studioState.selectedScoreMethod || 'EventStudio'
+  };
+
+  try {
+    await window.api.submitScoreToBcp(payload);
+  } catch(e) {
+    console.warn('Score submission notice:', e);
+  }
+
+  // Also import as verified scorecard if parsed data exists
+  if (studioState.parsedScorecardData) {
+    try {
+      const scData = studioState.parsedScorecardData;
+      scData.event_id = t.id;
+      scData.round_num = r;
+      scData.table_num = tableNum;
+      await window.api.importScorecard(scData);
+    } catch(e) {}
+  }
 
   saveCurrentPairings();
+  alert(`✅ Table ${tableNum} score saved: ${pair.p1_name} (${pair.p1Score}) - ${pair.p2_name} (${pair.p2Score})`);
 }
 
 function renderRoster() {

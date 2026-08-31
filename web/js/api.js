@@ -239,6 +239,24 @@ window.api = {
     return this._fetchJson(`/api/scorecard/${encodeURIComponent(matchId)}`);
   },
 
+  // Parse External Scorecard (Tabletop Battles / 40k App)
+  async parseScorecard(rawText) {
+    return this._fetchJson('/api/scorecard/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: rawText })
+    });
+  },
+
+  // Import External Scorecard into Verified Database & User Match History
+  async importScorecard(payload) {
+    return this._fetchJson('/api/scorecard/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify(payload)
+    });
+  },
+
   // Create Tournament Tracker Room
   async createTournamentTrackerRoom(payload) {
     return this._fetchJson('/api/tracker/room/create', {

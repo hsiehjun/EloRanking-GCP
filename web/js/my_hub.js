@@ -334,12 +334,17 @@ function renderMyHub(data) {
 
       <!-- Card 6: Half-Sized 11th Edition Live Game Tracker History -->
       <div class="hub-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Live Game Tracker History</h3>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Match History & Scorecards</h3>
             <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
           </div>
-          <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button onclick="openImportScorecardModalHub()" class="subtab-btn" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);" title="Import from Tabletop Battles, 40k App, or manual entry">
+              📥 Import Scorecard
+            </button>
+            <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Tracker ➔</a>
+          </div>
         </div>
         ${(data.tracker_history && data.tracker_history.length > 0) ? `
           <div class="table-container" style="max-height: 260px; overflow-y: auto;">
@@ -1291,3 +1296,320 @@ window.closeViewArmyListModal = closeViewArmyListModal;
 window.exportArmyListToBcp = exportArmyListToBcp;
 window.deleteHubArmyList = deleteHubArmyList;
 window.launchTrackerWithList = launchTrackerWithList;
+
+/* ==========================================================================
+   EXTERNAL SCORECARD IMPORTER (Tabletop Battles / 40k App / Manual)
+   ========================================================================== */
+
+let hubScorecardImportTab = 'paste';
+let hubParsedScorecardObj = null;
+
+function openImportScorecardModalHub(tab = 'paste') {
+  hubScorecardImportTab = tab;
+  hubParsedScorecardObj = null;
+
+  let modal = document.getElementById('hub-import-scorecard-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'hub-import-scorecard-modal';
+    modal.style.cssText = 'position:fixed; inset:0; z-index:100000; display:flex; align-items:center; justify-content:center; background:rgba(3,7,18,0.85); backdrop-filter:blur(8px); padding:16px;';
+    document.body.appendChild(modal);
+  }
+
+  renderScorecardImportModalContent();
+  modal.style.display = 'flex';
+}
+
+function closeImportScorecardModalHub() {
+  const modal = document.getElementById('hub-import-scorecard-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function switchScorecardImportTab(tab) {
+  hubScorecardImportTab = tab;
+  renderScorecardImportModalContent();
+}
+
+function renderScorecardImportModalContent() {
+  const modal = document.getElementById('hub-import-scorecard-modal');
+  if (!modal) return;
+
+  const isPaste = hubScorecardImportTab === 'paste';
+
+  modal.innerHTML = `
+    <div style="background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; width:100%; max-width:680px; box-shadow:0 25px 60px rgba(0,0,0,0.85); display:flex; flex-direction:column; overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <!-- Header -->
+      <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:18px;">📥</span>
+          <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Match Scorecard</h3>
+        </div>
+        <button onclick="closeImportScorecardModalHub()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
+      </div>
+
+      <!-- Tab Switcher -->
+      <div style="display:flex; border-bottom:1px solid rgba(255,255,255,0.08); background:#070b14; padding:0 20px;">
+        <button onclick="switchScorecardImportTab('paste')" style="padding:10px 16px; font-size:12px; font-weight:800; background:transparent; border:none; border-bottom:2px solid ${isPaste ? '#38bdf8' : 'transparent'}; color:${isPaste ? '#38bdf8' : '#94a3b8'}; cursor:pointer;">
+          ⚡ Paste Text / JSON (Tabletop Battles / 40k App)
+        </button>
+        <button onclick="switchScorecardImportTab('manual')" style="padding:10px 16px; font-size:12px; font-weight:800; background:transparent; border:none; border-bottom:2px solid ${!isPaste ? '#38bdf8' : 'transparent'}; color:${!isPaste ? '#38bdf8' : '#94a3b8'}; cursor:pointer;">
+          ✏️ Quick Manual Entry
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:20px; overflow-y:auto; max-height:75vh;">
+        ${isPaste ? `
+          <p style="font-size:12px; color:#94a3b8; margin:0 0 12px;">
+            Paste match results from <b>Tabletop Battles (by Goonhammer)</b>, the <b>Official Warhammer 40k App</b>, <b>ITC Battles</b>, or a casual summary text. A verified digital scorecard and match history entry will be generated automatically.
+          </p>
+
+          <textarea id="hub-sc-paste-input" placeholder="Paste match summary text or JSON export here..." oninput="handleHubParseScorecardPreview()" style="width:100%; height:170px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:11px; color:#e2e8f0; outline:none; resize:vertical;"></textarea>
+
+          <div id="hub-sc-preview-box" style="display:none; margin-top:14px; background:#131d33; border:1px solid rgba(56,189,248,0.3); border-radius:10px; padding:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:13px; font-weight:800; color:#38bdf8;">Parsed Scorecard Preview</span>
+              <span id="hub-sc-prev-source" style="font-size:10px; background:#1e293b; color:#94a3b8; padding:2px 6px; border-radius:4px;">Tabletop Battles</span>
+            </div>
+            
+            <div style="display:grid; grid-template-columns:1fr auto 1fr; align-items:center; background:#090e1a; padding:12px; border-radius:8px; gap:12px; text-align:center;">
+              <div style="text-align:left;">
+                <div id="hub-sc-prev-p1-name" style="font-weight:800; font-size:14px; color:#fff;">Player 1</div>
+                <div id="hub-sc-prev-p1-faction" style="font-size:11px; color:#38bdf8;">Space Marines</div>
+                <div id="hub-sc-prev-p1-breakdown" style="font-size:10px; color:#94a3b8; margin-top:2px;">Pri: 45 | Sec: 35 | Paint: 10</div>
+              </div>
+              <div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:22px; font-weight:900; color:#f59e0b;">
+                  <span id="hub-sc-prev-p1-score">90</span> - <span id="hub-sc-prev-p2-score">75</span>
+                </div>
+                <div id="hub-sc-prev-winner" style="font-size:10px; color:#10b981; font-weight:800; margin-top:2px;">Winner: Player 1</div>
+              </div>
+              <div style="text-align:right;">
+                <div id="hub-sc-prev-p2-name" style="font-weight:800; font-size:14px; color:#fff;">Player 2</div>
+                <div id="hub-sc-prev-p2-faction" style="font-size:11px; color:#f43f5e;">Necrons</div>
+                <div id="hub-sc-prev-p2-breakdown" style="font-size:10px; color:#94a3b8; margin-top:2px;">Pri: 35 | Sec: 30 | Paint: 10</div>
+              </div>
+            </div>
+
+            <div id="hub-sc-prev-meta" style="margin-top:8px; font-size:11px; color:#94a3b8; text-align:center;">
+              🎯 Mission: Take and Hold • 📍 Crucible of Battle
+            </div>
+          </div>
+
+          <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
+            <button onclick="closeImportScorecardModalHub()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer;">
+              Cancel
+            </button>
+            <button id="hub-btn-submit-import-sc" onclick="handleHubImportScorecardSubmit()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
+              📥 Import & Generate Scorecard
+            </button>
+          </div>
+        ` : `
+          <!-- Manual Form -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+            <!-- Player 1 -->
+            <div style="background:#131d33; border:1px solid rgba(56,189,248,0.25); border-radius:10px; padding:14px;">
+              <h4 style="font-size:13px; font-weight:800; color:#38bdf8; margin:0 0 10px;">🟦 Player 1 (You or Opponent)</h4>
+              <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:4px;">Player Name</label>
+              <input type="text" id="hub-man-p1-name" value="${currentUser ? currentUser.display_name : 'Player 1'}" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px;" />
+              
+              <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:4px;">Faction</label>
+              <input type="text" id="hub-man-p1-faction" value="Space Marines" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px;" />
+
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+                <div>
+                  <label style="font-size:10px; color:#94a3b8;">Primary VP</label>
+                  <input type="number" id="hub-man-p1-pri" value="45" max="50" min="0" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px; color:#fff; font-size:12px;" />
+                </div>
+                <div>
+                  <label style="font-size:10px; color:#94a3b8;">Secondary VP</label>
+                  <input type="number" id="hub-man-p1-sec" value="35" max="40" min="0" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px; color:#fff; font-size:12px;" />
+                </div>
+                <div>
+                  <label style="font-size:10px; color:#94a3b8;">Painted (+10)</label>
+                  <input type="number" id="hub-man-p1-paint" value="10" max="10" min="0" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px; color:#fff; font-size:12px;" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Player 2 -->
+            <div style="background:#131d33; border:1px solid rgba(244,63,94,0.25); border-radius:10px; padding:14px;">
+              <h4 style="font-size:13px; font-weight:800; color:#f43f5e; margin:0 0 10px;">🟥 Player 2 (Opponent)</h4>
+              <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:4px;">Player Name</label>
+              <input type="text" id="hub-man-p2-name" value="Opponent" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px;" />
+              
+              <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:4px;">Faction</label>
+              <input type="text" id="hub-man-p2-faction" value="Necrons" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px; margin-bottom:8px;" />
+
+              <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;">
+                <div>
+                  <label style="font-size:10px; color:#94a3b8;">Primary VP</label>
+                  <input type="number" id="hub-man-p2-pri" value="35" max="50" min="0" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px; color:#fff; font-size:12px;" />
+                </div>
+                <div>
+                  <label style="font-size:10px; color:#94a3b8;">Secondary VP</label>
+                  <input type="number" id="hub-man-p2-sec" value="28" max="40" min="0" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px; color:#fff; font-size:12px;" />
+                </div>
+                <div>
+                  <label style="font-size:10px; color:#94a3b8;">Painted (+10)</label>
+                  <input type="number" id="hub-man-p2-paint" value="10" max="10" min="0" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px; color:#fff; font-size:12px;" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mission Meta -->
+          <div style="margin-top:14px; background:#090e1a; border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px; display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+            <div>
+              <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:4px;">Primary Mission</label>
+              <input type="text" id="hub-man-mission" value="Take and Hold" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:11px; color:#94a3b8; margin-bottom:4px;">Deployment</label>
+              <input type="text" id="hub-man-deployment" value="Crucible of Battle" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:6px; padding:6px 10px; color:#fff; font-size:12px;" />
+            </div>
+          </div>
+
+          <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
+            <button onclick="closeImportScorecardModalHub()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer;">
+              Cancel
+            </button>
+            <button onclick="handleHubManualScorecardSubmit()" style="background:#10b981; color:#0f172a; font-weight:800; font-size:12px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
+              💾 Save & View Scorecard
+            </button>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+let hubParseTimer = null;
+function handleHubParseScorecardPreview() {
+  clearTimeout(hubParseTimer);
+  hubParseTimer = setTimeout(async () => {
+    const txt = document.getElementById('hub-sc-paste-input');
+    const prevBox = document.getElementById('hub-sc-preview-box');
+    if (!txt || !txt.value.trim()) {
+      if (prevBox) prevBox.style.display = 'none';
+      return;
+    }
+
+    try {
+      const res = await window.api.parseScorecard(txt.value.trim());
+      if (res.scorecard) {
+        const sc = res.scorecard;
+        hubParsedScorecardObj = sc;
+
+        document.getElementById('hub-sc-prev-source').textContent = sc.source || 'External Scorecard';
+        document.getElementById('hub-sc-prev-p1-name').textContent = sc.player1.name;
+        document.getElementById('hub-sc-prev-p1-faction').textContent = sc.player1.faction;
+        document.getElementById('hub-sc-prev-p1-breakdown').textContent = `Pri: ${sc.player1.primary_score} | Sec: ${sc.player1.secondary_score} | Paint: ${sc.player1.paint_score}`;
+        document.getElementById('hub-sc-prev-p1-score').textContent = sc.player1.total_score;
+
+        document.getElementById('hub-sc-prev-p2-name').textContent = sc.player2.name;
+        document.getElementById('hub-sc-prev-p2-faction').textContent = sc.player2.faction;
+        document.getElementById('hub-sc-prev-p2-breakdown').textContent = `Pri: ${sc.player2.primary_score} | Sec: ${sc.player2.secondary_score} | Paint: ${sc.player2.paint_score}`;
+        document.getElementById('hub-sc-prev-p2-score').textContent = sc.player2.total_score;
+
+        document.getElementById('hub-sc-prev-winner').textContent = `Winner: ${sc.winner_name}`;
+        document.getElementById('hub-sc-prev-meta').textContent = `🎯 Mission: ${sc.mission} • 📍 ${sc.deployment}`;
+
+        prevBox.style.display = 'block';
+      }
+    } catch(e) {}
+  }, 250);
+}
+
+async function handleHubImportScorecardSubmit() {
+  const txt = document.getElementById('hub-sc-paste-input');
+  const btn = document.getElementById('hub-btn-submit-import-sc');
+  if (!txt || !txt.value.trim()) {
+    alert('Please paste your match text or JSON.');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Importing...';
+
+  try {
+    const payload = hubParsedScorecardObj || { text: txt.value.trim() };
+    const res = await window.api.importScorecard(payload);
+    if (res.error) throw new Error(res.error);
+
+    closeImportScorecardModalHub();
+    alert(`🎉 Successfully imported match #${res.match_id}!`);
+    await loadMyHubDashboard();
+    window.open(res.scorecard_url, '_blank');
+  } catch(e) {
+    alert('Import failed: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📥 Import & Generate Scorecard';
+  }
+}
+
+async function handleHubManualScorecardSubmit() {
+  const p1Name = document.getElementById('hub-man-p1-name').value.trim() || 'Player 1';
+  const p1Faction = document.getElementById('hub-man-p1-faction').value.trim() || 'Space Marines';
+  const p1Pri = parseInt(document.getElementById('hub-man-p1-pri').value) || 0;
+  const p1Sec = parseInt(document.getElementById('hub-man-p1-sec').value) || 0;
+  const p1Paint = parseInt(document.getElementById('hub-man-p1-paint').value) || 0;
+  const p1Tot = p1Pri + p1Sec + p1Paint;
+
+  const p2Name = document.getElementById('hub-man-p2-name').value.trim() || 'Player 2';
+  const p2Faction = document.getElementById('hub-man-p2-faction').value.trim() || 'Necrons';
+  const p2Pri = parseInt(document.getElementById('hub-man-p2-pri').value) || 0;
+  const p2Sec = parseInt(document.getElementById('hub-man-p2-sec').value) || 0;
+  const p2Paint = parseInt(document.getElementById('hub-man-p2-paint').value) || 0;
+  const p2Tot = p2Pri + p2Sec + p2Paint;
+
+  const mission = document.getElementById('hub-man-mission').value.trim() || 'Take and Hold';
+  const deployment = document.getElementById('hub-man-deployment').value.trim() || 'Crucible of Battle';
+
+  const winner = p1Tot > p2Tot ? p1Name : (p2Tot > p1Tot ? p2Name : 'Draw');
+
+  const payload = {
+    source: 'Manual Scorecard',
+    mission: mission,
+    deployment: deployment,
+    mission_rule: 'Standard',
+    player1: {
+      name: p1Name,
+      faction: p1Faction,
+      primary_score: p1Pri,
+      secondary_score: p1Sec,
+      paint_score: p1Paint,
+      total_score: p1Tot
+    },
+    player2: {
+      name: p2Name,
+      faction: p2Faction,
+      primary_score: p2Pri,
+      secondary_score: p2Sec,
+      paint_score: p2Paint,
+      total_score: p2Tot
+    },
+    winner_name: winner
+  };
+
+  try {
+    const res = await window.api.importScorecard(payload);
+    if (res.error) throw new Error(res.error);
+
+    closeImportScorecardModalHub();
+    alert(`🎉 Successfully saved scorecard #${res.match_id}!`);
+    await loadMyHubDashboard();
+    window.open(res.scorecard_url, '_blank');
+  } catch(e) {
+    alert('Failed to save scorecard: ' + e.message);
+  }
+}
+
+window.openImportScorecardModalHub = openImportScorecardModalHub;
+window.closeImportScorecardModalHub = closeImportScorecardModalHub;
+window.switchScorecardImportTab = switchScorecardImportTab;
+window.handleHubParseScorecardPreview = handleHubParseScorecardPreview;
+window.handleHubImportScorecardSubmit = handleHubImportScorecardSubmit;
+window.handleHubManualScorecardSubmit = handleHubManualScorecardSubmit;
+

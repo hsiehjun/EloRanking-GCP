@@ -12,7 +12,11 @@ import urllib.parse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from pydantic import BaseModel
+try:
+    from pydantic import BaseModel
+except ImportError:
+    class BaseModel:
+        pass
 
 try:
     from psycopg2 import extras
@@ -58,6 +62,7 @@ except ImportError:
         from auth import get_auth_manager
         from wahapedia_service import get_wahapedia
         from army_list_parser import get_parser as get_army_parser
+        from scorecard_importer import get_scorecard_importer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("EloAPI")
@@ -1175,6 +1180,94 @@ if FASTAPI_AVAILABLE:
         if scorecard_file.exists():
             return FileResponse(scorecard_file)
         return RedirectResponse(f"/?scorecard={match_id}")
+
+    @app.post("/api/scorecard/parse", summary="Parse external scorecard text or JSON without saving")
+    async def api_parse_external_scorecard(payload: Dict[str, Any]):
+        raw_text = payload.get("text") or payload.get("raw_text") or payload.get("raw") or ""
+        importer = get_scorecard_importer()
+        parsed = importer.parse(raw_text)
+        return {"success": True, "scorecard": parsed}
+
+    @app.post("/api/scorecard/import", summary="Import external scorecard into verified Digital Scorecard and user match history")
+    async def api_import_external_scorecard(request: Request, payload: Dict[str, Any]):
+        auth_mgr = get_auth_manager()
+        user = auth_mgr.get_current_user_from_request(request)
+        user_id = user["id"] if user else None
+
+        importer = get_scorecard_importer()
+        raw_text = payload.get("text") or payload.get("raw_text") or ""
+        
+        # If payload already contains structured player data
+        if "player1" in payload and "player2" in payload:
+            match_id = payload.get("match_id") or f"WH40K-EXT-{secrets.token_hex(4).upper()}"
+            p1_name = payload["player1"].get("name", "Player 1")
+            p1_faction = payload["player1"].get("faction", "Space Marines")
+            p1_detachment = payload["player1"].get("detachment", "")
+            p1_tot = int(payload["player1"].get("total_score") or payload["player1"].get("score") or 0)
+            p1_pri = int(payload["player1"].get("primary_score") or 0)
+            p1_sec = int(payload["player1"].get("secondary_score") or 0)
+            p1_paint = int(payload["player1"].get("paint_score") or 10)
+
+            p2_name = payload["player2"].get("name", "Player 2")
+            p2_faction = payload["player2"].get("faction", "Necrons")
+            p2_detachment = payload["player2"].get("detachment", "")
+            p2_tot = int(payload["player2"].get("total_score") or payload["player2"].get("score") or 0)
+            p2_pri = int(payload["player2"].get("primary_score") or 0)
+            p2_sec = int(payload["player2"].get("secondary_score") or 0)
+            p2_paint = int(payload["player2"].get("paint_score") or 10)
+
+            winner = payload.get("winner_name") or (p1_name if p1_tot > p2_tot else (p2_name if p2_tot > p1_tot else "Draw"))
+            mission = payload.get("mission") or "Take and Hold"
+            deployment = payload.get("deployment") or "Crucible of Battle"
+            rule = payload.get("mission_rule") or "Standard"
+
+            state_json = payload.get("state_json") or {
+                "id": match_id,
+                "match_id": match_id,
+                "source": payload.get("source", "External Scorecard"),
+                "game": {
+                    "p1Name": p1_name, "p1Army": p1_faction, "p1Detachment": p1_detachment,
+                    "p2Name": p2_name, "p2Army": p2_faction, "p2Detachment": p2_detachment,
+                    "primaryMission": mission, "deployment": deployment, "missionRule": rule
+                },
+                "p1": {"score": p1_tot, "primaryScore": p1_pri, "secondaryScore": p1_sec, "battleReady": p1_paint > 0},
+                "p2": {"score": p2_tot, "primaryScore": p2_pri, "secondaryScore": p2_sec, "battleReady": p2_paint > 0},
+                "round": 5,
+                "is_finished": True,
+                "winner": winner
+            }
+            record = {
+                "match_id": match_id,
+                "source": payload.get("source", "External Scorecard"),
+                "event_name": payload.get("event_name", "Imported Match"),
+                "mission": mission, "deployment": deployment, "mission_rule": rule,
+                "round_count": 5, "date": payload.get("date", datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+                "player1": payload["player1"], "player2": payload["player2"],
+                "winner_name": winner, "is_finished": True, "state_json": state_json
+            }
+        else:
+            record = importer.parse(raw_text)
+
+        match_id = record["match_id"]
+        state = record["state_json"]
+
+        db = get_database()
+        db.save_tracker_state(
+            match_id=match_id,
+            state=state,
+            user_id=user_id,
+            event_id=payload.get("event_id"),
+            round_num=payload.get("round_num"),
+            table_num=payload.get("table_num")
+        )
+
+        return {
+            "success": True,
+            "match_id": match_id,
+            "scorecard_url": f"/scorecard/{match_id}",
+            "tracker_url": f"/11th/tracker/play?match_id={match_id}",
+            "scorecard": record
+        }
 
     @app.get("/api/tracker/debug/test_save", summary="Diagnostics endpoint to test DB writes to tracker_games")
     async def api_tracker_debug_test_save():
