@@ -21,20 +21,21 @@
           <span class="es-brand-title">EVENT STUDIO</span>
         </div>
       </div>
-      <div class="es-header-right">
+      <div class="es-header-right" style="display: flex; gap: 0.5rem; align-items: center;">
         <div class="es-auth-badge" id="es-auth-status">
           <span class="status-dot"></span>
           <span id="es-auth-label">Checking BCP Status...</span>
         </div>
+        <button class="btn btn-outline" style="font-size: 0.82rem; padding: 0.4rem 0.85rem;" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
         <button class="es-btn-primary" onclick="switchStudioTab('create')">➕ Create Event</button>
       </div>
     </header>
 
     <!-- Studio Navigation Tabs -->
     <div class="es-nav-bar">
-      <button class="es-nav-tab active" id="tab-btn-events" onclick="switchStudioTab('events')">⚔️ My Events (<span id="es-events-count">1</span>)</button>
-      <button class="es-nav-tab" id="tab-btn-roster" onclick="switchStudioTab('roster')">👥 Player Roster (<span id="es-roster-count">8</span>)</button>
-      <button class="es-nav-tab" id="tab-btn-pairings" onclick="switchStudioTab('pairings')">🎲 Swiss Pairings & Match Results</button>
+      <button class="es-nav-tab active" id="tab-btn-events" onclick="switchStudioTab('events')">⚔️ Managed Tournaments (<span id="es-events-count">0</span>)</button>
+      <button class="es-nav-tab" id="tab-btn-roster" onclick="switchStudioTab('roster')">👥 Player Roster (<span id="es-roster-count">0</span>)</button>
+      <button class="es-nav-tab" id="tab-btn-pairings" onclick="switchStudioTab('pairings')">🎲 Swiss Pairings & Live Tables</button>
       <button class="es-nav-tab" id="tab-btn-standings" onclick="switchStudioTab('standings')">🏆 Live Standings & SoS</button>
       <button class="es-nav-tab" id="tab-btn-create" onclick="switchStudioTab('create')">➕ Create Tournament</button>
     </div>
@@ -43,19 +44,20 @@
     <div class="es-current-event-banner">
       <div class="es-ce-info">
         <div class="es-ce-tag" id="current-event-tier">GRAND TOURNAMENT • 5 ROUNDS</div>
-        <h2 class="es-ce-title" id="current-event-name">San Diego 40K Autumn Grand Tournament</h2>
+        <h2 class="es-ce-title" id="current-event-name">Select or Create a Tournament</h2>
         <div class="es-ce-meta">
-          <span>📅 2026-09-26 to 2026-09-27</span>
+          <span id="ce-dates">📅 -</span>
           <span>•</span>
-          <span>📍 San Diego, CA</span>
+          <span id="ce-location">📍 -</span>
           <span>•</span>
-          <span>👥 <b id="current-event-registered">8</b> / 32 Spots Filled</span>
+          <span>👥 <b id="current-event-registered">0</b> Spots Filled</span>
           <span>•</span>
-          <span class="es-status-chip">Round 1 Active</span>
+          <span class="es-status-chip" id="ce-round-status">Round 1 Ready</span>
         </div>
       </div>
-      <div class="es-ce-actions">
-        <button class="es-btn-accent" onclick="syncEventWithBcp()">🔄 Sync All to BCP</button>
+      <div class="es-ce-actions" style="display: flex; gap: 0.5rem;">
+        <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.8rem;" onclick="openEditTournamentModal()">✏️ Edit</button>
+        <button class="es-btn-accent" onclick="syncEventWithBcp()">🔄 Sync to BCP</button>
       </div>
     </div>
 
@@ -322,6 +324,32 @@
     </div>
   </div>
 
-  <script src="/js/eventstudio.js?v=2.2"></script>
+  <!-- MODAL: IMPORT BCP TOURNAMENT -->
+  <div id="import-bcp-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-window" style="max-width: 520px;">
+      <div class="modal-header">
+        <h3 style="margin: 0; font-size: 1.25rem; color: #fff;">🔗 Link / Import BCP Tournament</h3>
+        <button class="modal-close" onclick="closeModal('import-bcp-modal')">✕</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem;">
+        <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 1rem;">
+          Import any live, upcoming, or completed tournament directly from Best Coast Pairings to manage pairings, enter scores, and view live standings in Event Studio.
+        </p>
+        <div class="form-group" style="margin-bottom: 1.25rem;">
+          <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">BCP Event ID or URL *</label>
+          <input type="text" id="import-bcp-input" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. geGckT9a4pB2 or https://www.bestcoastpairings.com/event/geGckT9a4pB2">
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">Paste the BCP tournament link or event ID.</div>
+        </div>
+        <div id="import-bcp-status" style="display: none; padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; margin-bottom: 1rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8;"></div>
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+          <button class="btn btn-outline" onclick="closeModal('import-bcp-modal')">Cancel</button>
+          <button class="btn btn-primary" id="btn-submit-import-bcp" onclick="submitImportBcpTournament()">🔗 Import & Direct</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/eventstudio.js?v=3.0"></script>
 </body>
 </html>

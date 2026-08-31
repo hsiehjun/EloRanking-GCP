@@ -2269,7 +2269,6 @@ class PostgresDatabase:
                 FROM events
                 WHERE 1=1
                 """
-                params = []
                 if organizer_id and organizer_bcp_id:
                     query += " AND (organizer_id = %s OR organizer_bcp_id = %s)"
                     params.extend([organizer_id, organizer_bcp_id])
@@ -2279,6 +2278,8 @@ class PostgresDatabase:
                 elif organizer_bcp_id:
                     query += " AND organizer_bcp_id = %s"
                     params.append(organizer_bcp_id)
+                else:
+                    query += " AND (id LIKE 'ES-%' OR organizer_id IS NOT NULL OR (roster IS NOT NULL AND roster::text != '[]') OR (pairings IS NOT NULL AND pairings::text != '{}'))"
 
                 query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
                 cursor.execute(query, tuple(params))
@@ -2299,7 +2300,75 @@ class PostgresDatabase:
                 WHERE id = %s;
                 """, (event_id,))
                 row = cursor.fetchone()
-                return dict(row) if row else None
+                if not row:
+                    return None
+                ev = dict(row)
+
+                # If roster is empty or null, populate from event_participants + player_ratings
+                if not ev.get("roster") or ev.get("roster") == []:
+                    cursor.execute("""
+                    SELECT ep.player_id as id, COALESCE(p.name, ep.player_id) as name, 
+                           COALESCE(ep.faction, 'Unassigned') as faction, 
+                           COALESCE(ep.army_list, '') as detachment,
+                           COALESCE(ep.checked_in, true) as checked_in,
+                           COALESCE(pr.current_elo, 1500.0) as current_elo
+                    FROM event_participants ep
+                    LEFT JOIN players p ON ep.player_id = p.id
+                    LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                    WHERE ep.event_id = %s
+                    ORDER BY ep.placement ASC NULLS LAST;
+                    """, (event_id,))
+                    p_rows = cursor.fetchall()
+                    if p_rows:
+                        ev["roster"] = [
+                            {
+                                "id": str(pr["id"]),
+                                "name": pr["name"],
+                                "faction": pr["faction"],
+                                "detachment": pr["detachment"],
+                                "checkedIn": pr["checked_in"],
+                                "currentElo": round(float(pr["current_elo"] or 1500.0), 1),
+                                "listSubmitted": bool(pr["detachment"])
+                            }
+                            for pr in p_rows
+                        ]
+
+                # If pairings is empty or null, populate from matches
+                if not ev.get("pairings") or ev.get("pairings") == {}:
+                    cursor.execute("""
+                    SELECT m.round_num, m.table_num, m.player1_id, m.player2_id,
+                           p1.name as p1_name, p2.name as p2_name,
+                           m.player1_faction as p1_faction, m.player2_faction as p2_faction,
+                           m.player1_score as p1_score, m.player2_score as p2_score
+                    FROM matches m
+                    LEFT JOIN players p1 ON m.player1_id = p1.id
+                    LEFT JOIN players p2 ON m.player2_id = p2.id
+                    WHERE m.event_id = %s
+                    ORDER BY m.round_num ASC, m.table_num ASC;
+                    """, (event_id,))
+                    m_rows = cursor.fetchall()
+                    if m_rows:
+                        pairings_dict = {}
+                        for mr in m_rows:
+                            r_str = str(mr["round_num"] or 1)
+                            if r_str not in pairings_dict:
+                                pairings_dict[r_str] = []
+                            is_done = mr["p1_score"] is not None and mr["p2_score"] is not None
+                            pairings_dict[r_str].append({
+                                "table": mr["table_num"] or len(pairings_dict[r_str]) + 1,
+                                "p1": str(mr["player1_id"] or ""),
+                                "p2": str(mr["player2_id"] or ""),
+                                "p1_name": mr["p1_name"] or "Player 1",
+                                "p2_name": mr["p2_name"] or "Player 2",
+                                "p1_faction": mr["p1_faction"] or "",
+                                "p2_faction": mr["p2_faction"] or "",
+                                "p1Score": mr["p1_score"],
+                                "p2Score": mr["p2_score"],
+                                "status": "completed" if is_done else "pending"
+                            })
+                        ev["pairings"] = pairings_dict
+
+                return ev
 
     def save_studio_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """Creates or updates a tournament in the database."""

@@ -332,6 +332,74 @@ if FASTAPI_AVAILABLE:
             "event": saved
         }
 
+    @app.post("/api/eventstudio/import", summary="Import any tournament from BCP into Event Studio")
+    async def api_eventstudio_import_bcp(payload: Dict[str, Any], request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+        bcp_user_id = user.get("bcp_user_id") if user else None
+
+        raw_id_or_url = payload.get("event_id") or payload.get("url") or ""
+        event_id = raw_id_or_url.strip()
+        if "/event/" in event_id:
+            event_id = event_id.split("/event/")[1].split("?")[0].split("/")[0]
+
+        if not event_id:
+            raise HTTPException(status_code=400, detail="Invalid BCP Event ID or URL")
+
+        # Sync roster & pairings from BCP
+        from scraper import BestCoastPairingsScraper
+        scraper = BestCoastPairingsScraper(db)
+        try:
+            scraper.sync_event_roster(event_id)
+        except Exception as e:
+            logger.debug(f"Sync event notice for {event_id}: {e}")
+
+        # Hydrate full studio event
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            ev_details = db.get_event_details(event_id)
+            if not ev_details:
+                raise HTTPException(status_code=404, detail=f"Could not load event '{event_id}' from BCP")
+            ev = {
+                "id": event_id,
+                "name": ev_details.get("name") or "BCP Tournament",
+                "tier": ev_details.get("tier") or "Grand Tournament",
+                "event_date": ev_details.get("event_date"),
+                "end_date": ev_details.get("end_date") or ev_details.get("event_date"),
+                "city": ev_details.get("city") or "",
+                "state": ev_details.get("state") or "",
+                "country": ev_details.get("country") or "USA",
+                "venue": ev_details.get("venue") or "",
+                "total_players": int(ev_details.get("total_players") or 0),
+                "num_rounds": int(ev_details.get("num_rounds") or 5),
+                "current_round": int(ev_details.get("current_round") or 1),
+                "points": int(ev_details.get("points") or 2000),
+                "capacity": int(ev_details.get("capacity") or ev_details.get("max_capacity") or 32),
+                "organizer_id": user_id,
+                "organizer_bcp_id": bcp_user_id,
+                "roster": [],
+                "pairings": {},
+                "raw_json": ev_details.get("raw_json") or {}
+            }
+            ev = db.save_studio_event(ev)
+
+        # Mark with current organizer
+        if user_id or bcp_user_id:
+            ev["organizer_id"] = user_id
+            ev["organizer_bcp_id"] = bcp_user_id
+            ev = db.save_studio_event(ev)
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "event": ev,
+            "message": f"Successfully imported '{ev.get('name')}'!"
+        }
+
     @app.put("/api/eventstudio/event/{event_id}", summary="Modify tournament details and push to BCP")
     async def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request: Request):
         db = get_database()

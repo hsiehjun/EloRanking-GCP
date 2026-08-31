@@ -1,6 +1,7 @@
 /**
- * Event Studio | Tournament Director & BCP Organizer Suite (v11.8)
- * Full Two-Way BCP Tournament Management, Swiss Pairings, 1-Click Trackers & Live Scorekeeping.
+ * Event Studio | Tournament Director & BCP Organizer Suite (v12.0)
+ * Full Two-Way BCP Tournament Management, Real Event Importer, Swiss Pairings, 
+ * 1-Click Table Trackers, Roster Management & Live Swiss Standings.
  */
 
 let studioState = {
@@ -57,7 +58,7 @@ function updateStudioAuthBadge() {
       badge.style.color = '#38bdf8';
       if (dot) dot.style.background = '#38bdf8';
     } else {
-      badge.textContent = '⚪ Local Studio Sandbox (Sign in to Sync)';
+      badge.textContent = '⚪ Tournament Director Suite';
       badge.style.color = 'var(--text-muted)';
       if (dot) dot.style.background = '#94a3b8';
     }
@@ -78,30 +79,23 @@ async function loadStudioEvents() {
     if (countEl) countEl.textContent = studioState.eventsList.length;
 
     if (studioState.eventsList.length > 0) {
-      if (!studioState.activeTournament || !studioState.eventsList.some(e => e.id === studioState.activeTournament.id)) {
-        studioState.activeTournament = studioState.eventsList[0];
-      }
-      renderTournamentBanner();
-      renderEventsDirectory();
-      renderRoster();
-      renderRoundButtons();
-      renderPairings();
-      renderStandings();
+      const savedId = localStorage.getItem('es_active_event_id');
+      const savedMatch = studioState.eventsList.find(e => e.id === savedId);
+      studioState.activeTournament = savedMatch || studioState.eventsList[0];
     } else {
-      // Seed initial sample tournament if empty
-      studioState.activeTournament = getSampleTournament();
-      renderTournamentBanner();
-      renderEventsDirectory();
-      renderRoster();
-      renderRoundButtons();
-      renderPairings();
-      renderStandings();
+      studioState.activeTournament = null;
     }
+    
+    renderTournamentBanner();
+    renderEventsDirectory();
+    renderRoster();
+    renderRoundButtons();
+    renderPairings();
+    renderStandings();
   } catch (err) {
-    console.warn('Error loading studio events:', err);
-    if (!studioState.activeTournament) {
-      studioState.activeTournament = getSampleTournament();
-    }
+    console.warn('Notice loading studio events:', err);
+    studioState.eventsList = [];
+    studioState.activeTournament = null;
     renderTournamentBanner();
     renderEventsDirectory();
     renderRoster();
@@ -109,49 +103,6 @@ async function loadStudioEvents() {
     renderPairings();
     renderStandings();
   }
-}
-
-function getSampleTournament() {
-  return {
-    id: 'DEMO-AUTUMN-GT',
-    name: 'San Diego 40K Autumn Grand Tournament',
-    tier: 'Grand Tournament',
-    num_rounds: 5,
-    event_date: '2026-09-26',
-    end_date: '2026-09-27',
-    capacity: 32,
-    venue: 'Game Empire San Diego',
-    city: 'San Diego',
-    state: 'CA',
-    points: 2000,
-    roster: [
-      { id: 'p1', name: 'John "Warlord" Hsieh', faction: 'Necrons', detachment: 'Awakened Dynasty', email: 'john@example.com', checkedIn: true, listSubmitted: true },
-      { id: 'p2', name: 'Folger Pyles', faction: 'Blood Angels', detachment: 'Sons of Sanguinius', email: 'folger@artofwar.com', checkedIn: true, listSubmitted: true },
-      { id: 'p3', name: 'Cody Jiru', faction: 'Aeldari', detachment: 'Battle Host', email: 'cody@monstars.com', checkedIn: true, listSubmitted: true },
-      { id: 'p4', name: 'Lyle Dixon', faction: 'Death Guard', detachment: 'Plague Company', email: 'lyle@example.com', checkedIn: true, listSubmitted: true },
-      { id: 'p5', name: 'Frasier Parry', faction: 'Chaos Space Marines', detachment: 'Slaves to Darkness', email: 'frasier@example.com', checkedIn: true, listSubmitted: true },
-      { id: 'p6', name: 'Liam Vsl', faction: 'Thousand Sons', detachment: 'Cult of Magic', email: 'liam@ignite.com', checkedIn: true, listSubmitted: true },
-      { id: 'p7', name: 'Durante Boz', faction: 'Adeptus Custodes', detachment: 'Shield Host', email: 'durante@zugzwang.com', checkedIn: true, listSubmitted: true },
-      { id: 'p8', name: 'Walter Langendorf', faction: 'World Eaters', detachment: 'Berzerker Warband', email: 'walter@protabletop.com', checkedIn: true, listSubmitted: true }
-    ],
-    pairings: {
-      "1": [
-        { 
-          table: 1, p1: 'p1', p2: 'p2', p1_name: 'John "Warlord" Hsieh', p2_name: 'Folger Pyles',
-          p1_faction: 'Necrons', p2_faction: 'Blood Angels', p1Score: 88, p2Score: 65, status: 'completed',
-          sourceApp: 'Tabletop Battles',
-          details: {
-            primaryMission: 'Take & Hold',
-            p1Primary: 45, p1Secondary: 33, p1Paint: 10,
-            p2Primary: 30, p2Secondary: 25, p2Paint: 10
-          }
-        },
-        { table: 2, p1: 'p3', p2: 'p4', p1_name: 'Cody Jiru', p2_name: 'Lyle Dixon', p1_faction: 'Aeldari', p2_faction: 'Death Guard', p1Score: null, p2Score: null, status: 'pending' },
-        { table: 3, p1: 'p5', p2: 'p6', p1_name: 'Frasier Parry', p2_name: 'Liam Vsl', p1_faction: 'Chaos Space Marines', p2_faction: 'Thousand Sons', p1Score: null, p2Score: null, status: 'pending' },
-        { table: 4, p1: 'p7', p2: 'p8', p1_name: 'Durante Boz', p2_name: 'Walter Langendorf', p1_faction: 'Adeptus Custodes', p2_faction: 'World Eaters', p1Score: null, p2Score: null, status: 'pending' }
-      ]
-    }
-  };
 }
 
 function switchStudioTab(tabName) {
@@ -183,7 +134,6 @@ function switchStudioTab(tabName) {
 
 function renderTournamentBanner() {
   const t = studioState.activeTournament;
-  if (!t) return;
 
   const tierEl = document.getElementById('current-event-tier');
   const nameEl = document.getElementById('current-event-name');
@@ -192,6 +142,17 @@ function renderTournamentBanner() {
   const locEl = document.getElementById('ce-location');
   const rosterCountEl = document.getElementById('es-roster-count');
   const roundStatusEl = document.getElementById('ce-round-status');
+
+  if (!t) {
+    if (tierEl) tierEl.textContent = 'TOURNAMENT DIRECTOR';
+    if (nameEl) nameEl.textContent = 'No Tournament Selected';
+    if (regEl) regEl.textContent = '0';
+    if (rosterCountEl) rosterCountEl.textContent = '0';
+    if (datesEl) datesEl.textContent = '📅 No Date';
+    if (locEl) locEl.textContent = '📍 Click Create or Import Below';
+    if (roundStatusEl) roundStatusEl.textContent = 'Ready';
+    return;
+  }
 
   const rounds = t.num_rounds || t.rounds || 5;
   const tier = t.tier || 'Grand Tournament';
@@ -212,17 +173,20 @@ function renderEventsDirectory() {
   const container = document.getElementById('es-events-list');
   if (!container) return;
 
-  const events = studioState.eventsList.length > 0 ? studioState.eventsList : (studioState.activeTournament ? [studioState.activeTournament] : []);
+  const events = studioState.eventsList;
 
-  if (events.length === 0) {
+  if (!events || events.length === 0) {
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3rem 1.5rem; text-align: center;">
-        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">⚔️</div>
-        <h3 style="color: #fff; margin: 0 0 0.5rem;">No Tournaments Created Yet</h3>
-        <p style="color: var(--text-secondary); font-size: 0.88rem; max-width: 480px; margin: 0 auto 1.5rem;">
-          Create a new Warhammer 40k tournament in Event Studio or link your Best Coast Pairings account to sync your existing tournaments.
+      <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3.5rem 1.5rem; text-align: center;">
+        <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">⚔️</div>
+        <h3 style="color: #fff; margin: 0 0 0.5rem; font-size: 1.3rem;">No Tournaments Directing Yet</h3>
+        <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 520px; margin: 0 auto 1.5rem; line-height: 1.6;">
+          Create a new tournament from scratch, or import any live/upcoming tournament directly from Best Coast Pairings to manage Swiss pairings, rosters, and live table trackers.
         </p>
-        <button class="btn btn-primary" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+        <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+          <button class="btn btn-outline" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
+        </div>
       </div>
     `;
     return;
@@ -284,6 +248,10 @@ async function selectStudioTournament(eventId, targetTab = 'pairings') {
     if (match) studioState.activeTournament = match;
   }
 
+  if (studioState.activeTournament) {
+    localStorage.setItem('es_active_event_id', studioState.activeTournament.id);
+  }
+
   renderTournamentBanner();
   renderEventsDirectory();
   renderRoster();
@@ -291,6 +259,64 @@ async function selectStudioTournament(eventId, targetTab = 'pairings') {
   renderPairings();
   renderStandings();
   switchStudioTab(targetTab);
+}
+
+function openImportBcpModal() {
+  const modal = document.getElementById('import-bcp-modal');
+  if (modal) {
+    modal.classList.add('active');
+    const input = document.getElementById('import-bcp-input');
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    const status = document.getElementById('import-bcp-status');
+    if (status) status.style.display = 'none';
+  }
+}
+
+async function submitImportBcpTournament() {
+  const input = document.getElementById('import-bcp-input');
+  const btn = document.getElementById('btn-submit-import-bcp');
+  const status = document.getElementById('import-bcp-status');
+
+  const val = input ? input.value.trim() : '';
+  if (!val) {
+    alert('Please enter a BCP Event ID or URL.');
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Importing from BCP...';
+  }
+  if (status) {
+    status.style.display = 'block';
+    status.textContent = 'Fetching event details, competitor roster, and pairings from Best Coast Pairings...';
+  }
+
+  try {
+    const res = await window.api.importStudioEvent({ event_id: val });
+    if (res && res.success && res.event) {
+      alert(`🎉 Successfully imported "${res.event.name}" into Event Studio!`);
+      closeModal('import-bcp-modal');
+      studioState.activeTournament = res.event;
+      localStorage.setItem('es_active_event_id', res.event.id);
+      await loadStudioEvents();
+      switchStudioTab('pairings');
+    } else {
+      alert(res.message || 'Could not import event. Please verify the BCP ID or URL.');
+    }
+  } catch (err) {
+    console.error('Import error:', err);
+    alert(`Import failed: ${err.message || err}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🔗 Import & Direct';
+    }
+    if (status) status.style.display = 'none';
+  }
 }
 
 function renderRoundButtons() {
@@ -333,7 +359,17 @@ function renderPairings() {
 
   const t = studioState.activeTournament;
   if (!t) {
-    container.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 2rem;">Please select or create a tournament first.</div>';
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 3.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg);">
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🎲</div>
+        <h4 style="color: #fff; margin: 0 0 0.4rem; font-size: 1.15rem;">No Tournament Selected</h4>
+        <div style="font-size: 0.85rem; margin-bottom: 1.25rem;">Select or create a tournament to view and direct Swiss pairings.</div>
+        <div style="display: flex; gap: 0.5rem; justify-content: center;">
+          <button class="btn btn-primary" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+          <button class="btn btn-outline" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
+        </div>
+      </div>
+    `;
     return;
   }
 
@@ -390,9 +426,6 @@ function renderPairings() {
             <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.65rem;" onclick="launchTournamentTracker('${t.id}', ${r}, ${pair.table}, '${escapeHtml(p1.name)}', '${escapeHtml(p2.name)}', '${pair.p1}', '${pair.p2}')">
               🎲 Track Table
             </button>
-            <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.65rem;" onclick="openScorecardModal('${matchId}')">
-              📄 Scorecard
-            </button>
             <button class="btn btn-primary" style="font-size: 0.75rem; padding: 0.3rem 0.65rem;" onclick="openQuickScoreModal(${pair.table})">
               ${isCompleted ? '✏️ Edit Score' : '⚔️ Enter Score'}
             </button>
@@ -401,6 +434,12 @@ function renderPairings() {
       </div>
     `;
   }).join('');
+}
+
+function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id) {
+  const gameId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
+  const url = `/tracker.html?game_id=${encodeURIComponent(gameId)}&event_id=${encodeURIComponent(eventId)}&p1=${encodeURIComponent(p1Name)}&p2=${encodeURIComponent(p2Name)}`;
+  window.open(url, '_blank');
 }
 
 function generateSwissPairings() {
@@ -420,12 +459,11 @@ function generateSwissPairings() {
   if (r > 1) {
     const standings = computeStandingsArray();
     sorted.sort((a, b) => {
-      const sa = standings.find(s => s.id === a.id) || { wins: 0, points: 0 };
-      const sb = standings.find(s => s.id === b.id) || { wins: 0, points: 0 };
+      const sa = standings.find(s => String(s.id) === String(a.id)) || { wins: 0, points: 0 };
+      const sb = standings.find(s => String(s.id) === String(b.id)) || { wins: 0, points: 0 };
       return (sb.wins - sa.wins) || (sb.points - sa.points);
     });
   } else {
-    // Random shuffle for Round 1
     sorted.sort(() => Math.random() - 0.5);
   }
 
@@ -483,12 +521,10 @@ async function saveCurrentPairings() {
     if (res && res.success) {
       if (res.bcp_pushed) {
         alert(`✅ Round ${r} Pairings Saved & Pushed to Best Coast Pairings!`);
-      } else {
-        alert(`✅ Round ${r} Pairings Saved Successfully!`);
       }
     }
   } catch (err) {
-    console.warn('Error saving pairings:', err);
+    console.warn('Notice saving pairings:', err);
   }
 }
 
@@ -518,7 +554,6 @@ function openQuickScoreModal(tableNum) {
   renderPairings();
   renderStandings();
 
-  // Push score to BCP & backend
   window.api.submitScoreToBcp({
     event_id: t.id,
     table: tableNum,
@@ -528,8 +563,6 @@ function openQuickScoreModal(tableNum) {
     p1_name: p1Name,
     p2_name: p2Name,
     source_app: 'EventStudio Direct'
-  }).then(res => {
-    console.log('Score submission result:', res);
   }).catch(e => console.warn('Score submission notice:', e));
 
   saveCurrentPairings();
@@ -545,8 +578,13 @@ function renderRoster() {
   const countEl = document.getElementById('es-roster-count');
   if (countEl) countEl.textContent = roster.length;
 
+  if (!t) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">Select or create a tournament above to view competitors.</td></tr>`;
+    return;
+  }
+
   if (roster.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No competitors registered yet. Click <b>+ Add Competitor</b> above to add players.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state">No competitors registered yet. Click <b>+ Add Competitor</b> above or <b>🔗 Import BCP Event</b> to load registered players.</td></tr>`;
     return;
   }
 
@@ -557,8 +595,8 @@ function renderRoster() {
       <td><span class="badge badge-faction" style="font-size:0.76rem;">${escapeHtml(p.faction || 'Unassigned')}</span></td>
       <td style="color:var(--text-secondary); font-size:0.8rem;">${escapeHtml(p.detachment || 'Core')}</td>
       <td>
-        <button class="badge ${p.checkedIn ? 'badge-match-prime' : ''}" style="cursor:pointer; border:none;" onclick="toggleCheckIn('${p.id}')">
-          ${p.checkedIn ? '✅ Checked In' : '⏳ Pending'}
+        <button class="badge ${p.checkedIn !== false ? 'badge-match-prime' : ''}" style="cursor:pointer; border:none;" onclick="toggleCheckIn('${p.id}')">
+          ${p.checkedIn !== false ? '✅ Checked In' : '⏳ Pending'}
         </button>
       </td>
       <td>${p.listSubmitted ? '<span style="color:#10b981; font-weight:700;">✓ Verified</span>' : '<span style="color:var(--text-muted);">Missing</span>'}</td>
@@ -572,7 +610,7 @@ function renderRoster() {
 function toggleCheckIn(pid) {
   const t = studioState.activeTournament;
   if (!t) return;
-  const p = (t.roster || []).find(r => r.id === pid);
+  const p = (t.roster || []).find(r => String(r.id) === String(pid));
   if (p) {
     p.checkedIn = !p.checkedIn;
     renderRoster();
@@ -584,7 +622,7 @@ function dropPlayer(pid) {
   const t = studioState.activeTournament;
   if (!t) return;
   if (confirm('Drop this competitor from the tournament roster?')) {
-    t.roster = (t.roster || []).filter(r => r.id !== pid);
+    t.roster = (t.roster || []).filter(r => String(r.id) !== String(pid));
     renderRoster();
     renderTournamentBanner();
     saveStudioRosterChanges();
@@ -597,16 +635,24 @@ async function saveStudioRosterChanges() {
   try {
     await window.api.saveStudioRoster(t.id, { roster: t.roster || [] });
   } catch (e) {
-    console.warn('Error saving roster:', e);
+    console.warn('Notice saving roster:', e);
   }
 }
 
 function openAddPlayerModal() {
+  const t = studioState.activeTournament;
+  if (!t) {
+    alert('Please select or create a tournament first.');
+    return;
+  }
   const modal = document.getElementById('add-player-modal');
   if (modal) {
     modal.classList.add('active');
     const nameInput = document.getElementById('new-player-name');
-    if (nameInput) nameInput.focus();
+    if (nameInput) {
+      nameInput.value = '';
+      nameInput.focus();
+    }
   }
 }
 
@@ -683,7 +729,7 @@ async function submitCreateTournament() {
   }
   if (statusEl) {
     statusEl.style.display = 'block';
-    statusEl.textContent = 'Registering tournament and synchronizing with Best Coast Pairings...';
+    statusEl.textContent = 'Registering tournament in Event Studio...';
   }
 
   try {
@@ -702,17 +748,16 @@ async function submitCreateTournament() {
 
     const res = await window.api.createStudioEvent(payload);
     if (res && res.success) {
-      if (res.bcp_registered) {
-        alert(`🎉 Tournament "${name}" successfully created and registered on Best Coast Pairings! (Event ID: ${res.event_id})`);
-      } else {
-        alert(`🎉 Tournament "${name}" successfully created in Event Studio!`);
-      }
-
-      await loadStudioEvents();
+      alert(`🎉 Tournament "${name}" successfully created in Event Studio!`);
+      if (nameEl) nameEl.value = '';
+      if (venueEl) venueEl.value = '';
+      if (cityEl) cityEl.value = '';
+      
+      studioState.activeTournament = res.event;
       if (res.event) {
-        studioState.activeTournament = res.event;
+        localStorage.setItem('es_active_event_id', res.event.id);
       }
-      renderTournamentBanner();
+      await loadStudioEvents();
       switchStudioTab('roster');
     }
   } catch (err) {
@@ -721,7 +766,7 @@ async function submitCreateTournament() {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = '🚀 Create & Register on BCP';
+      submitBtn.textContent = '🚀 Create & Register Tournament';
     }
     if (statusEl) statusEl.style.display = 'none';
   }
@@ -789,7 +834,7 @@ async function submitEditTournament() {
   try {
     const res = await window.api.updateStudioEvent(eventId, payload);
     if (res && res.success) {
-      alert('✅ Tournament details updated and synced with BCP!');
+      alert('✅ Tournament details updated!');
       closeModal('edit-tournament-modal');
       await loadStudioEvents();
     }
@@ -808,15 +853,18 @@ async function deleteStudioTournament(eventId) {
   const ev = studioState.eventsList.find(e => e.id === eventId) || studioState.activeTournament;
   const name = ev ? ev.name : 'this tournament';
 
-  if (!confirm(`Are you sure you want to delete "${name}"?\n\nThis will remove the event, competitor roster, and pairings from Event Studio and Best Coast Pairings.`)) {
+  if (!confirm(`Are you sure you want to delete "${name}"?
+
+This will remove the event, competitor roster, and pairings.`)) {
     return;
   }
 
   try {
     const res = await window.api.deleteStudioEvent(eventId);
     if (res && res.success) {
-      alert(`🗑️ Tournament "${name}" was deleted successfully.`);
+      alert(`🗑️ Tournament "${name}" was deleted.`);
       studioState.activeTournament = null;
+      localStorage.removeItem('es_active_event_id');
       await loadStudioEvents();
     }
   } catch (err) {
@@ -825,7 +873,9 @@ async function deleteStudioTournament(eventId) {
 }
 
 function syncEventWithBcp() {
-  alert('🔄 Synchronizing tournament roster and live match results with Best Coast Pairings API...');
+  const t = studioState.activeTournament;
+  if (!t) return;
+  alert(`🔄 Synchronizing "${t.name}" roster and live match scores...`);
   loadStudioEvents();
 }
 
@@ -837,8 +887,8 @@ function computeStandingsArray() {
   const stats = {};
 
   roster.forEach(p => {
-    stats[p.id] = {
-      id: p.id,
+    stats[String(p.id)] = {
+      id: String(p.id),
       name: p.name,
       faction: p.faction || 'Unassigned',
       wins: 0,
@@ -857,8 +907,8 @@ function computeStandingsArray() {
     const pairings = pairingsMap[String(r)] || pairingsMap[r] || [];
     pairings.forEach(pair => {
       if (pair.status === 'completed' || (pair.p1Score !== null && pair.p2Score !== null)) {
-        const s1 = stats[pair.p1];
-        const s2 = stats[pair.p2];
+        const s1 = stats[String(pair.p1)];
+        const s2 = stats[String(pair.p2)];
 
         const score1 = parseInt(pair.p1Score, 10) || 0;
         const score2 = parseInt(pair.p2Score, 10) || 0;
@@ -866,7 +916,7 @@ function computeStandingsArray() {
         if (s1) {
           s1.points += score1;
           s1.diff += (score1 - score2);
-          if (pair.p2) s1.opponents.push(pair.p2);
+          if (pair.p2) s1.opponents.push(String(pair.p2));
 
           if (score1 > score2) s1.wins++;
           else if (score2 > score1) s1.losses++;
@@ -876,7 +926,7 @@ function computeStandingsArray() {
         if (s2) {
           s2.points += score2;
           s2.diff += (score2 - score1);
-          if (pair.p1) s2.opponents.push(pair.p1);
+          if (pair.p1) s2.opponents.push(String(pair.p1));
 
           if (score2 > score1) s2.wins++;
           else if (score1 > score2) s2.losses++;
@@ -911,6 +961,12 @@ function computeStandingsArray() {
 function renderStandings() {
   const tbody = document.getElementById('es-standings-tbody');
   if (!tbody) return;
+
+  const t = studioState.activeTournament;
+  if (!t) {
+    tbody.innerHTML = `<tr><td colspan="8" class="empty-state">Select or create a tournament to view live standings.</td></tr>`;
+    return;
+  }
 
   const standings = computeStandingsArray();
 
@@ -976,9 +1032,12 @@ function updateTimerDisplay() {
 function copyStandingsText() {
   const standings = computeStandingsArray();
   const t = studioState.activeTournament;
-  let text = `🏆 ${t ? t.name : 'Tournament'} - Official Standings (Round ${studioState.currentRound}) 🏆\n\n`;
+  let text = `🏆 ${t ? t.name : 'Tournament'} - Official Standings (Round ${studioState.currentRound}) 🏆
+
+`;
   standings.forEach((s, idx) => {
-    text += `#${idx + 1} ${s.name} (${s.faction}) - ${s.wins}W-${s.losses}L (${s.points} Battle Points, SoS: ${s.sos}%)\n`;
+    text += `#${idx + 1} ${s.name} (${s.faction}) - ${s.wins}W-${s.losses}L (${s.points} Battle Points, SoS: ${s.sos}%)
+`;
   });
   navigator.clipboard.writeText(text).then(() => {
     alert('Standings copied to clipboard!');
@@ -988,9 +1047,11 @@ function copyStandingsText() {
 function exportRosterCsv() {
   const t = studioState.activeTournament;
   if (!t) return;
-  let csv = 'Name,Faction,Detachment,Email,CheckedIn,ListSubmitted\n';
+  let csv = 'Name,Faction,Detachment,Email,CheckedIn,ListSubmitted
+';
   (t.roster || []).forEach(p => {
-    csv += `"${p.name}","${p.faction || ''}","${p.detachment || ''}","${p.email || ''}",${p.checkedIn !== false},${p.listSubmitted !== false}\n`;
+    csv += `"${p.name}","${p.faction || ''}","${p.detachment || ''}","${p.email || ''}",${p.checkedIn !== false},${p.listSubmitted !== false}
+`;
   });
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);

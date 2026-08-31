@@ -276,6 +276,15 @@ window.api = {
     });
   },
 
+  // EventStudio: Import BCP Tournament
+  async importStudioEvent(payload) {
+    return this._fetchJson('/api/eventstudio/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
   // EventStudio: Update Tournament
   async updateStudioEvent(eventId, payload) {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
