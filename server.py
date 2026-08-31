@@ -1966,17 +1966,33 @@ if FASTAPI_AVAILABLE:
     async def api_event_details(event_id: str, force_sync: bool = False):
         db = get_database()
         event_id_str = event_id.strip()
-        # Only query BCP if user explicitly clicked the 'Refresh Live' button
-        if force_sync:
+
+        # Check existing data in DB
+        event_details = db.get_event_details(event_id_str)
+
+        # Auto-query BCP if:
+        # 1) User explicitly requested force_sync
+        # 2) Event is not yet in DB
+        # 3) Event is ongoing/in-progress (is_ended is False)
+        # 4) Event has 0 participants or matches scraped
+        should_sync_bcp = (
+            force_sync or
+            not event_details or
+            not event_details.get("is_ended", True) or
+            not event_details.get("players") or
+            (not event_details.get("matches") and (event_details.get("total_players") or 0) > 0)
+        )
+
+        if should_sync_bcp:
             try:
                 scraper = BestCoastPairingsScraper(db=db)
                 scraper.scrape_event(event_id_str)
+                event_details = db.get_event_details(event_id_str)
             except Exception as e:
-                logger.warning(f"Failed to live refresh BCP details for event {event_id_str}: {e}")
+                logger.warning(f"Failed to auto-sync BCP details for event {event_id_str}: {e}")
 
-        event_details = db.get_event_details(event_id_str)
         if not event_details:
-            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found in database")
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found in database or on BCP")
 
         return event_details
 
