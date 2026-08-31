@@ -125,7 +125,6 @@ class WahapediaSync:
 
                         if data_rows:
                             num_cols = len(header)
-                            placeholders = ",".join(["%s"] * num_cols)
                             cols_str = ", ".join([f'"{col}"' for col in header])
 
                             # Normalize data row widths
@@ -135,10 +134,10 @@ class WahapediaSync:
                                     r = r + [""] * (num_cols - len(r))
                                 elif len(r) > num_cols:
                                     r = r[:num_cols]
-                                normalized_data.append(r)
+                                normalized_data.append(tuple(r))
 
-                            insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders});"
-                            extras.execute_batch(cursor, insert_sql, normalized_data, page_size=1000)
+                            insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES %s;"
+                            extras.execute_values(cursor, insert_sql, normalized_data, page_size=2000)
 
                     conn.commit()
                     results[filename] = len(data_rows)
