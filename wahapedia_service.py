@@ -126,14 +126,28 @@ class WahapediaService:
                         inv = r.get("inv_sv") or "-"
                         if inv != "-" and not str(inv).endswith("++"):
                             inv = f"{inv}++"
+                        m_val = r.get("M", "6\"")
+                        t_val = int(r.get("T") or 4) if str(r.get("T", "")).isdigit() else r.get("T", 4)
+                        sv_val = r.get("Sv", "3+")
+                        w_val = int(r.get("W") or 1) if str(r.get("W", "")).isdigit() else r.get("W", 1)
+                        ld_val = r.get("Ld", "7+")
+                        oc_val = int(r.get("OC") or 1) if str(r.get("OC", "")).isdigit() else r.get("OC", 1)
+
                         models_map[ds_id] = {
-                            "M": r.get("M", "6\""),
-                            "T": int(r.get("T") or 4) if str(r.get("T", "")).isdigit() else r.get("T", 4),
-                            "SV": r.get("Sv", "3+"),
+                            "M": m_val,
+                            "T": t_val,
+                            "SV": sv_val,
                             "INV": inv,
-                            "W": int(r.get("W") or 1) if str(r.get("W", "")).isdigit() else r.get("W", 1),
-                            "LD": r.get("Ld", "7+"),
-                            "OC": int(r.get("OC") or 1) if str(r.get("OC", "")).isdigit() else r.get("OC", 1)
+                            "W": w_val,
+                            "LD": ld_val,
+                            "OC": oc_val,
+                            "m": m_val,
+                            "t": t_val,
+                            "sv": sv_val,
+                            "inv_sv": inv,
+                            "w": w_val,
+                            "ld": ld_val,
+                            "oc": oc_val
                         }
 
         # 3. Wargear (Weapons)
