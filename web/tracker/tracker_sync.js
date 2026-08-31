@@ -251,7 +251,10 @@
       return;
     }
     let bar = document.getElementById('gt-user-status-bar');
-    if (!bar) {
+    if (!bar || !document.body.contains(bar)) {
+      if (bar && bar.parentNode) {
+        try { bar.parentNode.removeChild(bar); } catch(e) {}
+      }
       bar = document.createElement('div');
       bar.id = 'gt-user-status-bar';
       bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
@@ -788,8 +791,10 @@
     }
 
     tryInject();
+    renderUserBar();
     const observer = new MutationObserver(() => {
       hideNativeGdmEmptyState();
+      renderUserBar();
       if (!document.getElementById('gt-lobby-wrapper') || !document.body.contains(document.getElementById('gt-lobby-wrapper'))) {
         tryInject();
       }
@@ -1597,6 +1602,16 @@
       </div>
     `;
   }
+
+  // Persistent periodic check so React reconciler never drops user status bar
+  setInterval(() => {
+    if (currentUser && document.body) {
+      const bar = document.getElementById('gt-user-status-bar');
+      if (!bar || !document.body.contains(bar)) {
+        renderUserBar();
+      }
+    }
+  }, 400);
 
   // Auto-init on load
   if (document.readyState === 'loading') {
