@@ -66,9 +66,9 @@
       border-radius: 6px;
       font-size: 0.75rem;
       font-weight: 800;
-      background: rgba(56, 189, 248, 0.12);
-      color: #38bdf8;
-      border: 1px solid rgba(56, 189, 248, 0.3);
+      background: rgba(16, 185, 129, 0.12);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
@@ -152,10 +152,6 @@
     /* Section Styles */
     .sc-section {
       padding: 1.5rem 1.75rem;
-      border-bottom: 1px solid #1e293b;
-    }
-    .sc-section:last-child {
-      border-bottom: none;
     }
     .sc-section-title {
       font-size: 0.85rem;
@@ -225,82 +221,6 @@
       border-bottom: 1px dashed #334155;
     }
 
-    /* Accordion Round Cards */
-    .sc-round-card {
-      background: #090f1e;
-      border: 1px solid #1e293b;
-      border-radius: 12px;
-      margin-bottom: 10px;
-      overflow: hidden;
-      transition: border-color 0.2s;
-    }
-    .sc-round-card:hover {
-      border-color: #38bdf8;
-    }
-    .sc-round-header {
-      padding: 12px 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      user-select: none;
-      background: rgba(30, 41, 59, 0.4);
-    }
-    .sc-round-header:hover {
-      background: rgba(30, 41, 59, 0.7);
-    }
-    .sc-round-title {
-      font-weight: 800;
-      font-size: 0.9rem;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .sc-round-summary {
-      font-size: 0.8rem;
-      color: #94a3b8;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .sc-round-body {
-      padding: 14px 16px;
-      border-top: 1px solid #1e293b;
-      display: none;
-    }
-    .sc-round-body.open {
-      display: block;
-    }
-    .sc-round-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
-    .sc-sec-card-box {
-      background: #0f172a;
-      border: 1px solid #334155;
-      border-radius: 8px;
-      padding: 9px 12px;
-      margin-top: 6px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .sc-sec-card-name {
-      font-weight: 700;
-      font-size: 0.84rem;
-      color: #f8fafc;
-    }
-    .sc-sec-card-badge {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-weight: 800;
-      font-size: 0.8rem;
-      padding: 2px 7px;
-      border-radius: 5px;
-    }
-
     .sc-footer {
       padding: 1.25rem 1.75rem;
       background: #0b1120;
@@ -344,9 +264,6 @@
       }
       .sc-p1, .sc-p2 { text-align: center; }
       .sc-score-box { justify-content: center; margin: 0.5rem 0; }
-      .sc-round-grid {
-        grid-template-columns: 1fr;
-      }
     }
   </style>
 </head>
@@ -375,7 +292,7 @@
           </div>
         </div>
         <div id="sc-status-badges" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-          <span class="sc-badge" style="background: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.3);">
+          <span class="sc-badge">
             ✓ Verified Scorecard
           </span>
         </div>
@@ -415,7 +332,7 @@
         </div>
       </div>
 
-      <!-- 1. Turn-by-Turn Matrix Table -->
+      <!-- Turn-by-Turn Matrix Table -->
       <div class="sc-section">
         <div class="sc-section-title">
           <span>📊 Turn-by-Turn Scoring Progression</span>
@@ -440,24 +357,6 @@
               <tr><td colspan="7" style="padding: 2rem; color: #64748b;">Loading match breakdown...</td></tr>
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <!-- 2. Detailed Interactive Round-by-Round Accordion -->
-      <div class="sc-section" id="sc-rounds-breakdown-section">
-        <div class="sc-section-title">
-          <span>📜 Interactive Round & Secondaries Breakdown</span>
-          <div style="display: flex; gap: 6px;">
-            <button class="btn-sc" style="padding: 3px 8px; font-size: 0.75rem;" onclick="setAllAccordions(true)">
-              Expand All
-            </button>
-            <button class="btn-sc" style="padding: 3px 8px; font-size: 0.75rem;" onclick="setAllAccordions(false)">
-              Collapse All
-            </button>
-          </div>
-        </div>
-        <div id="sc-accordion-container">
-          <div style="padding: 1rem; color: #64748b; text-align: center;">Loading round objectives...</div>
         </div>
       </div>
 
@@ -509,7 +408,6 @@
       if (CARD_NAMES[cId]) return CARD_NAMES[cId];
       if (card.name) return card.name;
       if (card.title) return card.title;
-      // Auto Title-Case hyphenated slugs
       return cId.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') || 'Secondary Mission';
     }
 
@@ -680,7 +578,7 @@
       document.getElementById('sc-mission-name').innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
       document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rec.updated_at || Date.now()).toLocaleDateString()}`;
 
-      // 1. Build Matrix Rows
+      // Build Matrix Rows: Grouped as P1 Primary, P1 Secondaries, P2 Primary, P2 Secondaries
       const tbody = document.getElementById('sc-matrix-body');
       tbody.innerHTML = '';
 
@@ -748,15 +646,17 @@
         return rowsHtml;
       }
 
+      // Group 1: Player 1 Primary & Secondaries
       tbody.innerHTML += buildPrimaryRow(`🟦 ${p1Name} Primary`, '#38bdf8', p1Rounds, 50, p1PriTot);
-      tbody.innerHTML += buildPrimaryRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, 50, p2PriTot);
-      
       tbody.innerHTML += buildSecondaryMatrixRow(`🟦 ${p1Name} Secondaries`, '#7dd3fc', p1Obj, 40, p1SecTot, 'p1-sec-sub');
       tbody.innerHTML += buildSecondaryBreakdownSubRows(p1Name, '#38bdf8', p1Obj, 'p1-sec-sub');
 
+      // Group 2: Player 2 Primary & Secondaries
+      tbody.innerHTML += buildPrimaryRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, 50, p2PriTot);
       tbody.innerHTML += buildSecondaryMatrixRow(`🟥 ${p2Name} Secondaries`, '#fda4af', p2Obj, 40, p2SecTot, 'p2-sec-sub');
       tbody.innerHTML += buildSecondaryBreakdownSubRows(p2Name, '#f43f5e', p2Obj, 'p2-sec-sub');
       
+      // Paint Bonus Row
       tbody.innerHTML += `
         <tr style="background: rgba(255,255,255,0.02);">
           <td style="color:#10b981; font-weight:700;">🎨 Battle Ready (+10)</td>
@@ -768,92 +668,6 @@
           </td>
         </tr>
       `;
-
-      // 2. Build Interactive Accordions for Rounds 1 - 5
-      const accContainer = document.getElementById('sc-accordion-container');
-      accContainer.innerHTML = '';
-
-      for (let rNum = 1; rNum <= 5; rNum++) {
-        const p1R = p1Rounds && p1Rounds.length >= rNum ? (p1Rounds.find(x => (x.round === rNum || x.battleRound === rNum)) || p1Rounds[rNum - 1] || {}) : {};
-        const p2R = p2Rounds && p2Rounds.length >= rNum ? (p2Rounds.find(x => (x.round === rNum || x.battleRound === rNum)) || p2Rounds[rNum - 1] || {}) : {};
-
-        const p1Pri = typeof p1R.primaryScore === 'number' ? p1R.primaryScore : 0;
-        const p2Pri = typeof p2R.primaryScore === 'number' ? p2R.primaryScore : 0;
-
-        const p1SecList = getPlayerRoundSecondaries(p1Obj, rNum);
-        const p2SecList = getPlayerRoundSecondaries(p2Obj, rNum);
-
-        const p1SecSum = p1SecList.reduce((acc, s) => acc + (s.score || 0), 0);
-        const p2SecSum = p2SecList.reduce((acc, s) => acc + (s.score || 0), 0);
-
-        const card = document.createElement('div');
-        card.className = 'sc-round-card';
-        card.innerHTML = `
-          <div class="sc-round-header" onclick="toggleAccordion('sc-round-${rNum}')">
-            <div class="sc-round-title">
-              <span>⚔️ Battle Round ${rNum}</span>
-            </div>
-            <div class="sc-round-summary">
-              <span>Primary: <b style="color:#38bdf8;">${p1Pri}</b> vs <b style="color:#f43f5e;">${p2Pri}</b></span>
-              <span>Secondaries: <b style="color:#7dd3fc;">${p1SecSum}</b> vs <b style="color:#fda4af;">${p2SecSum}</b></span>
-              <span>Round Total: <b style="color:#fff;">${p1Pri + p1SecSum}</b> vs <b style="color:#fff;">${p2Pri + p2SecSum}</b></span>
-              <span id="sc-arrow-${rNum}" style="font-size:0.75rem; color:#64748b;">▼</span>
-            </div>
-          </div>
-          <div class="sc-round-body ${rNum === 1 ? 'open' : ''}" id="sc-round-${rNum}">
-            <div class="sc-round-grid">
-              
-              <!-- Player 1 Side -->
-              <div style="background:#070b14; border:1px solid #1e293b; border-radius:10px; padding:12px 14px;">
-                <div style="font-weight:800; font-size:0.88rem; color:#38bdf8; margin-bottom:8px; display:flex; justify-content:space-between;">
-                  <span>${p1Name}</span>
-                  <span style="font-family:monospace; background:rgba(56,189,248,0.15); padding:2px 8px; border-radius:5px;">+${p1Pri + p1SecSum} VP</span>
-                </div>
-                
-                <div style="font-size:0.78rem; color:#94a3b8; margin-bottom:4px;">🎯 Primary Objective:</div>
-                <div style="font-weight:700; font-size:0.85rem; color:#f8fafc; font-family:monospace; margin-bottom:10px;">
-                  ${p1Pri > 0 ? `+${p1Pri} VP scored` : '0 VP'}
-                </div>
-
-                <div style="font-size:0.78rem; color:#94a3b8; margin-bottom:4px;">🃏 Secondary Objectives (${p1SecList.length}):</div>
-                ${p1SecList.length > 0 ? p1SecList.map(s => `
-                  <div class="sc-sec-card-box">
-                    <span class="sc-sec-card-name">🃏 ${s.name}</span>
-                    <span class="sc-sec-card-badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">
-                      +${s.score} VP
-                    </span>
-                  </div>
-                `).join('') : '<div style="font-size:0.78rem; color:#64748b; font-style:italic;">No secondaries recorded in this round</div>'}
-              </div>
-
-              <!-- Player 2 Side -->
-              <div style="background:#070b14; border:1px solid #1e293b; border-radius:10px; padding:12px 14px;">
-                <div style="font-weight:800; font-size:0.88rem; color:#f43f5e; margin-bottom:8px; display:flex; justify-content:space-between;">
-                  <span>${p2Name}</span>
-                  <span style="font-family:monospace; background:rgba(244,63,94,0.15); padding:2px 8px; border-radius:5px;">+${p2Pri + p2SecSum} VP</span>
-                </div>
-                
-                <div style="font-size:0.78rem; color:#94a3b8; margin-bottom:4px;">🎯 Primary Objective:</div>
-                <div style="font-weight:700; font-size:0.85rem; color:#f8fafc; font-family:monospace; margin-bottom:10px;">
-                  ${p2Pri > 0 ? `+${p2Pri} VP scored` : '0 VP'}
-                </div>
-
-                <div style="font-size:0.78rem; color:#94a3b8; margin-bottom:4px;">🃏 Secondary Objectives (${p2SecList.length}):</div>
-                ${p2SecList.length > 0 ? p2SecList.map(s => `
-                  <div class="sc-sec-card-box">
-                    <span class="sc-sec-card-name">🃏 ${s.name}</span>
-                    <span class="sc-sec-card-badge" style="background:rgba(244,63,94,0.15); color:#f43f5e; border:1px solid rgba(244,63,94,0.3);">
-                      +${s.score} VP
-                    </span>
-                  </div>
-                `).join('') : '<div style="font-size:0.78rem; color:#64748b; font-style:italic;">No secondaries recorded in this round</div>'}
-              </div>
-
-            </div>
-          </div>
-        `;
-        accContainer.appendChild(card);
-      }
     }
 
     function togglePlayerSecondaries(className) {
@@ -870,36 +684,6 @@
       const disp = areSecondariesExpanded ? 'table-row' : 'none';
       p1Rows.forEach(r => r.style.display = disp);
       p2Rows.forEach(r => r.style.display = disp);
-    }
-
-    function toggleAccordion(id) {
-      const body = document.getElementById(id);
-      const rNum = id.replace('sc-round-', '');
-      const arrow = document.getElementById('sc-arrow-' + rNum);
-      if (!body) return;
-      if (body.classList.contains('open')) {
-        body.classList.remove('open');
-        if (arrow) arrow.innerText = '▼';
-      } else {
-        body.classList.add('open');
-        if (arrow) arrow.innerText = '▲';
-      }
-    }
-
-    function setAllAccordions(open) {
-      for (let i = 1; i <= 5; i++) {
-        const body = document.getElementById('sc-round-' + i);
-        const arrow = document.getElementById('sc-arrow-' + i);
-        if (body) {
-          if (open) {
-            body.classList.add('open');
-            if (arrow) arrow.innerText = '▲';
-          } else {
-            body.classList.remove('open');
-            if (arrow) arrow.innerText = '▼';
-          }
-        }
-      }
     }
 
     document.addEventListener('DOMContentLoaded', loadScorecard);
