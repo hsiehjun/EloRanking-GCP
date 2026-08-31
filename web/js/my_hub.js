@@ -33,11 +33,16 @@ async function loadMyHubDashboard() {
       if (sessResp.ok) {
         const sessData = await sessResp.json();
         if (sessData && sessData.success) {
-          data.active_sessions = sessData.active_sessions || (sessData.primary_active ? [sessData.primary_active, ...(sessData.unfinished_sessions || [])] : []);
-          data.primary_active = sessData.primary_active;
-          data.unfinished_sessions = sessData.unfinished_sessions || [];
-          data.completed_history = sessData.completed_history || [];
-          data.tracker_history = sessData.completed_history || [];
+          let hidden = [];
+          try { hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]'); } catch(e) {}
+          const hiddenSet = new Set(hidden);
+
+          const rawActive = sessData.active_sessions || (sessData.primary_active ? [sessData.primary_active, ...(sessData.unfinished_sessions || [])] : []);
+          data.active_sessions = rawActive.filter(m => !hiddenSet.has(m.match_id || m.id));
+          data.primary_active = data.active_sessions[0] || null;
+          data.unfinished_sessions = data.active_sessions.slice(1);
+          data.completed_history = (sessData.completed_history || []).filter(m => !hiddenSet.has(m.match_id || m.id));
+          data.tracker_history = data.completed_history;
         }
       }
     } catch (e) {}
@@ -1708,23 +1713,48 @@ function launchTrackerWithList(listId) {
   window.open('/11th/tracker', '_blank');
 }
 
-async function discardTrackerSession(matchId) {
+function discardTrackerSession(matchId) {
   if (!matchId) return;
   if (!confirm('Are you sure you want to discard this unfinished session? (Will not count towards your Elo or battle record)')) return;
 
-  // 1. Instant 0ms Optimistic UI update on Hub
+  // 1. Instant 0ms Optimistic UI removal from DOM
   const cards = document.querySelectorAll(`[onclick*="${matchId}"]`);
   cards.forEach(c => {
-    const parentRow = c.closest('div, tr');
+    const parentRow = c.closest('div[style*="background"], tr');
     if (parentRow) {
-      parentRow.style.transition = 'opacity 0.15s, transform 0.15s';
-      parentRow.style.opacity = '0';
-      parentRow.style.transform = 'scale(0.95)';
-      setTimeout(() => parentRow.remove(), 150);
+      parentRow.remove();
     }
   });
 
-  // 2. Direct Firestore SDK deletion if loaded
+  // 2. In-memory data update (so re-renders or tabs will not bring it back)
+  if (window.myHubData) {
+    if (window.myHubData.active_sessions) {
+      window.myHubData.active_sessions = window.myHubData.active_sessions.filter(m => (m.match_id || m.id) !== matchId);
+    }
+    if (window.myHubData.primary_active && (window.myHubData.primary_active.match_id === matchId || window.myHubData.primary_active.id === matchId)) {
+      window.myHubData.primary_active = (window.myHubData.active_sessions && window.myHubData.active_sessions.length > 0) ? window.myHubData.active_sessions[0] : null;
+    }
+    if (window.myHubData.completed_history) {
+      window.myHubData.completed_history = window.myHubData.completed_history.filter(m => (m.match_id || m.id) !== matchId);
+    }
+    if (window.myHubData.tracker_history) {
+      window.myHubData.tracker_history = window.myHubData.tracker_history.filter(m => (m.match_id || m.id) !== matchId);
+    }
+  }
+
+  // 3. Cache hidden match ID immediately in localStorage
+  try {
+    let hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]');
+    if (!hidden.includes(matchId)) {
+      hidden.push(matchId);
+      localStorage.setItem('gt-hidden-matches', JSON.stringify(hidden));
+    }
+    let localCache = JSON.parse(localStorage.getItem('gdm-11e-tracker-history') || '[]');
+    localCache = localCache.filter(item => (item.match_id || item.id) !== matchId);
+    localStorage.setItem('gdm-11e-tracker-history', JSON.stringify(localCache));
+  } catch(e) {}
+
+  // 4. Direct Firestore SDK deletion if loaded
   if (typeof firebase !== 'undefined' && firebase.firestore) {
     try {
       const db = firebase.firestore();
@@ -1732,23 +1762,18 @@ async function discardTrackerSession(matchId) {
     } catch(e) {}
   }
 
-  // 3. Background server-side discard
+  // 5. Background server-side discard (non-blocking)
   try {
     const token = window.api ? window.api.getAuthToken() : null;
-    await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
+    fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': token ? `Bearer ${token}` : ''
       },
       body: JSON.stringify({ token: token, match_id: matchId })
-    });
-    if (typeof loadHubDashboard === 'function') {
-      loadHubDashboard();
-    }
-  } catch(e) {
-    console.warn('Notice discarding match:', e);
-  }
+    }).catch(() => {});
+  } catch(e) {}
 }
 
 window.loadHubArmyLists = loadHubArmyLists;

@@ -1095,6 +1095,14 @@
               const createdDate = m.created_at || m.date || m.timestamp;
               const dateLabel = createdDate ? new Date(createdDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
 
+              const uId = currentUser ? currentUser.id : null;
+              const uName = currentUser ? (currentUser.display_name || currentUser.name || '').trim().toLowerCase() : '';
+              const p1Uid = m.user_id_p1 || (m.participants && m.participants.player1 && m.participants.player1.uid);
+              const p2Uid = m.user_id_p2 || (m.participants && m.participants.player2 && m.participants.player2.uid);
+              const p1NameStr = (m.game?.p1Name || m.p1_name || '').trim().toLowerCase();
+              const p2NameStr = (m.game?.p2Name || m.p2_name || '').trim().toLowerCase();
+              const isRegisteredPlayer = !currentUser || (uId && (uId === p1Uid || uId === p2Uid)) || (uName && (uName === p1NameStr || uName === p2NameStr));
+
               return `
                 <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
@@ -1116,9 +1124,11 @@
                       <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
                         ▶️ Resume Match
                       </a>
-                      <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}')" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
-                        🗑️
-                      </button>
+                      ${isRegisteredPlayer ? `
+                        <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('div[style*=\\'background\\']'))" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
+                          🗑️
+                        </button>
+                      ` : ''}
                     </div>
                   </div>
                 </div>
@@ -1243,7 +1253,12 @@
           let locallyHidden = [];
           try { locallyHidden = JSON.parse(originalGetItem('gt-hidden-matches') || '[]'); } catch(e) {}
           if (locallyHidden.length > 0) {
-            dbHistoryCache = dbHistoryCache.filter(item => !locallyHidden.includes(item.match_id || item.id));
+            const hiddenSet = new Set(locallyHidden);
+            window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => !hiddenSet.has(item.match_id || item.id));
+            window.gtPrimaryActive = window.gtActiveMatches[0] || null;
+            window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
+            window.gtCompletedHistory = (window.gtCompletedHistory || []).filter(item => !hiddenSet.has(item.match_id || item.id));
+            dbHistoryCache = dbHistoryCache.filter(item => !hiddenSet.has(item.match_id || item.id));
           }
 
           originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
@@ -1310,7 +1325,7 @@
   }
 
   // Instant (0ms) Optimistic Discard & Deletion for Active/Unfinished Match Session
-  window.__gdmHideTrackerGame = async function(matchId, cardEl) {
+  window.__gdmHideTrackerGame = function(matchId, cardEl) {
     if (!matchId) return;
     if (!confirm(`Discard & delete match #${matchId.replace('WH40K-', '')}?\n\n(This will remove it from your active sessions with zero Elo penalty.)`)) {
       return;
@@ -1324,7 +1339,7 @@
       originalSetItem('gt-hidden-matches', JSON.stringify(locallyHidden));
     }
 
-    // 2. Instant 0ms Optimistic UI Update
+    // 2. Instant 0ms Optimistic UI Update in Memory
     window.gtActiveMatches = (window.gtActiveMatches || []).filter(item => (item.match_id || item.id) !== matchId);
     window.gtPrimaryActive = window.gtActiveMatches[0] || null;
     window.gtUnfinishedSessions = window.gtActiveMatches.slice(1);
@@ -1332,21 +1347,14 @@
     dbHistoryCache = dbHistoryCache.filter(item => (item.match_id || item.id) !== matchId);
     originalSetItem('gdm-11e-tracker-history', JSON.stringify(dbHistoryCache));
 
-    // Instant DOM re-render with smooth animation (0ms perceived latency)
+    // 3. Instant Synchronous DOM removal
     if (cardEl) {
-      cardEl.style.transition = 'opacity 0.15s, transform 0.15s';
-      cardEl.style.opacity = '0';
-      cardEl.style.transform = 'scale(0.95)';
-      setTimeout(() => {
-        renderHistoryList(dbHistoryCache);
-      }, 150);
-    } else {
-      renderHistoryList(dbHistoryCache);
+      cardEl.remove();
     }
-
+    renderHistoryList(dbHistoryCache);
     window.__broadcastHistoryUpdate();
 
-    // 3. Instant direct Firestore delete if Firebase client SDK is active
+    // 4. Instant direct Firestore delete if Firebase client SDK is active
     if (typeof firebase !== 'undefined' && firebase.firestore) {
       try {
         const db = firebase.firestore();
@@ -1354,7 +1362,7 @@
       } catch(e) {}
     }
 
-    // 4. Server-side deletion in background
+    // 5. Server-side deletion in background (non-blocking)
     try {
       const token = getAuthToken();
       fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/discard`, {

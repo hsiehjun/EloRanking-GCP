@@ -939,11 +939,38 @@ if FASTAPI_AVAILABLE:
         if match_id:
             if match_id in TRACKER_ROOMS:
                 existing = TRACKER_ROOMS[match_id]
+                u_id = user["id"] if user else None
+                p1_id = existing.get("user_id_p1")
+                p2_id = existing.get("user_id_p2")
+                
+                if u_id and p1_id == u_id:
+                    role = "player1"
+                elif u_id and p2_id == u_id:
+                    role = "player2"
+                elif not p2_id and u_id != p1_id:
+                    # 2nd user claims Player 2 slot
+                    existing["user_id_p2"] = u_id or f"p2_{secrets.token_hex(3)}"
+                    if user and user.get("display_name"):
+                        if isinstance(existing.get("state"), dict) and isinstance(existing["state"].get("game"), dict):
+                            existing["state"]["game"]["p2Name"] = user["display_name"]
+                    role = "player2"
+                    try:
+                        fs_engine = get_firestore_engine()
+                        fs_engine.update_room(match_id, {
+                            "user_id_p2": existing["user_id_p2"],
+                            "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or user.get("display_name") if user else "Player 2"
+                        })
+                    except Exception:
+                        pass
+                else:
+                    role = "spectator" if (p1_id and p2_id) else "player1"
+
                 return {
                     "success": True,
                     "match_id": match_id,
-                    "role": "player1" if (user and existing.get("user_id_p1") == user["id"]) else ("player2" if (user and existing.get("user_id_p2") == user["id"]) else "player1"),
+                    "role": role,
                     "user_id_p1": existing.get("user_id_p1"),
+                    "user_id_p2": existing.get("user_id_p2"),
                     "p1_name": existing.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
                     "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
                     "state": existing.get("state", {}),
@@ -951,6 +978,19 @@ if FASTAPI_AVAILABLE:
                 }
             saved_game = db.get_tracker_game(match_id)
             if saved_game and saved_game.get("state"):
+                u_id = user["id"] if user else None
+                p1_id = saved_game.get("user_id_p1")
+                p2_id = saved_game.get("user_id_p2")
+                if u_id and p1_id == u_id:
+                    role = "player1"
+                elif u_id and p2_id == u_id:
+                    role = "player2"
+                elif not p2_id and u_id != p1_id:
+                    role = "player2"
+                    saved_game["user_id_p2"] = u_id or f"p2_{secrets.token_hex(3)}"
+                else:
+                    role = "spectator" if (p1_id and p2_id) else "player1"
+
                 TRACKER_ROOMS[match_id] = {
                     "match_id": match_id,
                     "user_id_p1": saved_game.get("user_id_p1"),
@@ -964,8 +1004,9 @@ if FASTAPI_AVAILABLE:
                 return {
                     "success": True,
                     "match_id": match_id,
-                    "role": "player1" if (user and saved_game.get("user_id_p1") == user["id"]) else ("player2" if (user and saved_game.get("user_id_p2") == user["id"]) else "player1"),
+                    "role": role,
                     "user_id_p1": saved_game.get("user_id_p1"),
+                    "user_id_p2": saved_game.get("user_id_p2"),
                     "p1_name": saved_game.get("p1_name") or "Player 1",
                     "p2_name": saved_game.get("p2_name") or "Player 2",
                     "state": saved_game["state"],
@@ -1540,8 +1581,38 @@ if FASTAPI_AVAILABLE:
         session_token = (payload.token if payload else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
         user = auth_mgr.get_session(session_token) if session_token else None
         
-        # 1. Update Firestore Native
         fs_engine = get_firestore_engine()
+        room_doc = fs_engine.get_room(match_id) or TRACKER_ROOMS.get(match_id)
+        
+        # Verify authorization: ONLY the 2 registered players (Player 1 or Player 2) or admin can delete
+        if room_doc:
+            p1_id = room_doc.get("user_id_p1") or (room_doc.get("participants", {}).get("player1", {}).get("uid") if isinstance(room_doc.get("participants"), dict) else None)
+            p2_id = room_doc.get("user_id_p2") or (room_doc.get("participants", {}).get("player2", {}).get("uid") if isinstance(room_doc.get("participants"), dict) else None)
+            p1_name = (room_doc.get("p1_name") or (room_doc.get("state", {}).get("game", {}).get("p1Name") if isinstance(room_doc.get("state"), dict) else "") or "").strip().lower()
+            p2_name = (room_doc.get("p2_name") or (room_doc.get("state", {}).get("game", {}).get("p2Name") if isinstance(room_doc.get("state"), dict) else "") or "").strip().lower()
+            
+            is_authorized = False
+            if user:
+                uid = user.get("id")
+                uname = (user.get("display_name") or user.get("name") or "").strip().lower()
+                is_admin = user.get("role") in ("admin", "superuser", "to", "referee")
+                if is_admin:
+                    is_authorized = True
+                elif uid and (uid == p1_id or uid == p2_id):
+                    is_authorized = True
+                elif uname and (uname == p1_name or uname == p2_name):
+                    is_authorized = True
+            elif not p1_id and not p2_id:
+                # Anonymous unassigned session
+                is_authorized = True
+                
+            if not is_authorized:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Forbidden: Only registered players in this match can delete or discard this game."
+                )
+        
+        # 1. Update Firestore Native
         fs_engine.discard_room(match_id)
         
         # 2. Update memory cache
