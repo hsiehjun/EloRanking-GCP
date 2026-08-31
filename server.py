@@ -2107,15 +2107,12 @@ if FASTAPI_AVAILABLE:
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
     }
-    body.is-tracker-lobby main > :not(#gt-lobby-wrapper),
-    body:not(.is-tracker-play) main > div:not(:has(#gt-lobby-wrapper)):not(#gt-lobby-wrapper),
-    body:not(.is-tracker-play) main h2:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) main button:not(#gt-lobby-wrapper *):not(#gt-user-status-bar *),
-    body:not(.is-tracker-play) main h3:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) main p:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) div[class*="max-w-md"]:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) main > div > div:not(:has(#gt-lobby-wrapper)):not(#gt-lobby-wrapper) {
+    body.is-tracker-lobby main,
+    body:not(.is-tracker-play) main {
       display: none !important;
+    }
+    body.is-tracker-play main {
+      display: block !important;
     }
     #gt-lobby-wrapper {
       display: block !important;

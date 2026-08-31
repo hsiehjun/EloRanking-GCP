@@ -31,8 +31,22 @@ button:has(svg.lucide-trash-2),
 }
 
 /* 4. Landing Page Only: Hide all upstream native GDM elements outside our custom lobby wrapper */
-body:has(#gt-lobby-wrapper) main > :not(#gt-lobby-wrapper) {
+body.is-tracker-lobby main,
+body:not(.is-tracker-play) main {
   display: none !important;
+}
+
+body.is-tracker-play main {
+  display: block !important;
+}
+
+#gt-lobby-wrapper {
+  display: block !important;
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 12px;
+  box-sizing: border-box;
 }
 
 /* 5. Suppress all GDM native install popups, toasts, and banners */
