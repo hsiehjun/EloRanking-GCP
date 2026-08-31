@@ -523,6 +523,9 @@
       try {
         const db = firebase.firestore();
         db.collection('rooms').doc(matchId).delete();
+        if (matchId.includes('WH40K-')) {
+          db.collection('rooms').doc(matchId.replace('WH40K-', '')).delete();
+        }
       } catch(e) {}
     }
 

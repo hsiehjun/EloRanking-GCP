@@ -112,29 +112,32 @@ class FirestoreRoomEngine:
 
     def discard_room(self, match_id: str) -> bool:
         """Deletes / discards a match room from Firestore."""
-        match_id = match_id.strip().upper()
+        clean_id = match_id.strip().upper()
+        short_id = clean_id.replace("WH40K-", "")
         if self._client:
             try:
-                ref = self.get_room_doc_ref(match_id)
-                if ref:
-                    ref.delete()
-                    logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{match_id}")
+                ref1 = self.get_room_doc_ref(clean_id)
+                if ref1:
+                    ref1.delete()
+                if short_id != clean_id:
+                    ref2 = self.get_room_doc_ref(short_id)
+                    if ref2:
+                        ref2.delete()
+                logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{clean_id}")
             except Exception as e:
-                logger.error(f"Error discarding Firestore room {match_id}: {e}")
+                logger.error(f"Error discarding Firestore room {clean_id}: {e}")
 
-        if match_id in self._fallback_rooms:
-            try:
-                del self._fallback_rooms[match_id]
-            except KeyError:
-                pass
+        for key in (clean_id, short_id):
+            if key in self._fallback_rooms:
+                try:
+                    del self._fallback_rooms[key]
+                except KeyError:
+                    pass
         return True
 
     def finalize_room(self, match_id: str) -> bool:
-        """Marks a match room as completed in Firestore."""
-        return self.update_room(match_id, {
-            "status": "completed",
-            "is_finished": True
-        })
+        """Marks a match room as completed and removes it from active Firestore."""
+        return self.discard_room(match_id)
 
     def list_active_rooms_for_user(self, user_id: Optional[str] = None, user_name: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
         """Queries Firestore for active in_progress rooms involving this user."""
@@ -151,7 +154,7 @@ class FirestoreRoomEngine:
                     if not rkey or rkey in seen_keys:
                         continue
                     
-                    if d.get("status") == "abandoned" or d.get("is_abandoned") or d.get("is_finished"):
+                    if d.get("status") in ("abandoned", "completed") or d.get("is_abandoned") or d.get("is_finished"):
                         continue
 
                     p1_id = d.get("user_id_p1") or (d.get("participants", {}).get("player1", {}).get("uid") if isinstance(d.get("participants"), dict) else None)
