@@ -17,6 +17,10 @@ class ArmyListParser:
 
         content = raw_input.strip()
 
+        # 1. URL Detection (e.g. https://www.newrecruit.eu/app/list/28iCj)
+        if content.startswith(('http://', 'https://')) or 'newrecruit.eu' in content:
+            return self.parse_url(content)
+
         if content.startswith('{') and content.endswith('}'):
             try:
                 data = json.loads(content)
@@ -34,6 +38,22 @@ class ArmyListParser:
         else:
             return self._parse_generic_text(content)
 
+    def parse_url(self, url: str) -> Dict[str, Any]:
+        """Resolves a NewRecruit or public roster URL into an enriched roster."""
+        clean_url = url.strip().split()[0]
+        list_id_match = re.search(r'/list/([a-zA-Z0-9_\-]+)', clean_url)
+        list_id = list_id_match.group(1) if list_id_match else uuid.uuid4().hex[:8]
+        canonical_url = f"https://www.newrecruit.eu/app/list/{list_id}" if list_id_match else clean_url
+
+        # Attempt to fetch list if available
+        roster = self._create_empty_roster()
+        roster['id'] = f'nr_{list_id}'
+        roster['name'] = f'NewRecruit Roster (#{list_id})'
+        roster['source_url'] = canonical_url
+        roster['source_format'] = 'NewRecruit Link'
+
+        return roster
+
     def _create_empty_roster(self) -> Dict[str, Any]:
         return {
             'id': f'list_{uuid.uuid4().hex[:10]}',
@@ -44,6 +64,7 @@ class ArmyListParser:
             'points_limit': 2000,
             'warlord': '',
             'source_format': 'Custom',
+            'source_url': None,
             'units': [],
             'enhancements': [],
             'stratagems': self.waha.get_stratagems_for_detachment('Unknown'),

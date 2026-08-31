@@ -975,9 +975,15 @@ function renderHubArmyLists(lists) {
               <button onclick="launchTrackerWithList('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">
                 ⚔️ Play in Tracker
               </button>
-              <button onclick="exportArmyListToBcp('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);" title="Export clean list text for BCP">
-                📤 Export BCP
-              </button>
+              ${l.source_url ? `
+                <a href="${escapeHtml(l.source_url)}" target="_blank" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); text-decoration: none; display: inline-flex; align-items: center; gap: 3px;" title="Open live list on NewRecruit">
+                  🌐 NewRecruit ↗
+                </a>
+              ` : `
+                <button onclick="exportArmyListToBcp('${l.id}')" class="subtab-btn" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);" title="Export clean list text for BCP">
+                  📤 Export BCP
+                </button>
+              `}
               <button onclick="deleteHubArmyList('${l.id}')" style="background: transparent; border: none; color: #ef4444; font-size: 0.85rem; cursor: pointer; padding: 0.2rem 0.4rem;" title="Delete List">
                 🗑️
               </button>
@@ -1003,29 +1009,24 @@ function openImportArmyListModal() {
       <div style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:8px;">
           <span style="font-size:18px;">📋</span>
-          <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army List</h3>
+          <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Import Army List from NewRecruit</h3>
         </div>
         <button onclick="closeImportArmyListModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
       </div>
       
       <div style="padding:20px; overflow-y:auto; max-height:75vh;">
-        <p style="font-size:12px; color:#94a3b8; margin:0 0 14px;">
-          Paste list export text from <b>Warhammer 40k App</b>, <b>NewRecruit (Text or JSON)</b>, <b>Battlescribe</b>, or <b>BCP</b>. Our parser will auto-detect the format and enrich it with full Wahapedia statlines, weapon profiles, and abilities.
+        <p style="font-size:12px; color:#94a3b8; margin:0 0 14px; line-height:1.5;">
+          Paste a <b>NewRecruit Link</b> (e.g. <code style="color:#38bdf8; background:#1e293b; padding:1px 5px; border-radius:4px;">https://www.newrecruit.eu/app/list/28iCj</code>) or paste raw export text from <b>NewRecruit</b>, <b>Warhammer App</b>, <b>Battlescribe</b>, or <b>BCP</b>.
         </p>
 
-        <textarea id="hub-import-paste-area" placeholder="Paste export text here..." style="width:100%; height:200px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:11px; color:#e2e8f0; outline:none; resize:vertical;"></textarea>
-
-        <div id="hub-parse-preview" style="display:none; margin-top:14px; background:#131d33; border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:12px;">
-          <div style="font-weight:800; font-size:13px; color:#38bdf8;" id="hub-preview-title">Preview</div>
-          <div style="font-size:11px; color:#94a3b8; margin-top:4px;" id="hub-preview-meta"></div>
-        </div>
+        <textarea id="hub-import-paste-area" placeholder="Paste NewRecruit link (https://www.newrecruit.eu/app/list/...) or export text here..." style="width:100%; height:180px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:12px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#e2e8f0; outline:none; resize:vertical;"></textarea>
 
         <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:10px;">
           <button onclick="closeImportArmyListModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:10px 16px; border-radius:8px; cursor:pointer;">
             Cancel
           </button>
           <button id="hub-btn-do-import" onclick="handleHubParseAndSaveList()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
-            ⚡ Parse & Save to My Hub
+            ⚡ Import & Save to My Hub
           </button>
         </div>
       </div>
@@ -1043,12 +1044,12 @@ async function handleHubParseAndSaveList() {
   const textarea = document.getElementById('hub-import-paste-area');
   const btn = document.getElementById('hub-btn-do-import');
   if (!textarea || !textarea.value.trim()) {
-    alert('Please paste your army list export text.');
+    alert('Please paste your NewRecruit link or army list export text.');
     return;
   }
 
   btn.disabled = true;
-  btn.textContent = 'Parsing & Enriching...';
+  btn.textContent = 'Importing & Enriching...';
 
   try {
     const raw = textarea.value.trim();
@@ -1066,7 +1067,7 @@ async function handleHubParseAndSaveList() {
     alert('Error importing list: ' + e.message);
   } finally {
     btn.disabled = false;
-    btn.textContent = '⚡ Parse & Save to My Hub';
+    btn.textContent = '⚡ Import & Save to My Hub';
   }
 }
 
@@ -1104,7 +1105,12 @@ async function openViewArmyListModal(listId) {
             ${escapeHtml(list.faction || '40k')} • <span style="color:#c084fc;">${escapeHtml(list.detachment || 'Core Detachment')}</span>
           </div>
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
+        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          ${list.source_url ? `
+            <a href="${escapeHtml(list.source_url)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:6px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+              🌐 Open in NewRecruit ↗
+            </a>
+          ` : ''}
           <button onclick="exportArmyListToBcp('${list.id}')" style="background:#f59e0b; color:#0f172a; font-weight:800; font-size:11px; border:none; padding:6px 12px; border-radius:6px; cursor:pointer;">
             📤 Export BCP
           </button>

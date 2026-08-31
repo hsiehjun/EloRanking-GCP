@@ -1794,12 +1794,12 @@
       // Attach / Import View
       contentHtml = `
         <div style="margin-bottom: 20px;">
-          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import New Army List</h3>
-          <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Paste text from <b>Warhammer 40k App</b>, <b>NewRecruit</b>, <b>Battlescribe</b>, or <b>BCP</b>. Wahapedia rules, stats, and weapons will be automatically enriched.</p>
-          <textarea id="gt-import-raw-input" placeholder="Paste export text here..." style="width:100%; height:130px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:11px; outline:none; resize:vertical;"></textarea>
+          <h3 style="font-size:16px; font-weight:800; color:#38bdf8; margin-bottom:6px;">⚡ Import New Army List from NewRecruit</h3>
+          <p style="font-size:12px; color:#94a3b8; margin-bottom:12px;">Paste your <b>NewRecruit Link</b> (e.g. <code style="color:#38bdf8; background:#070b14; padding:1px 5px; border-radius:4px;">https://www.newrecruit.eu/app/list/28iCj</code>) or paste raw export text from <b>NewRecruit</b>, <b>Warhammer App</b>, <b>Battlescribe</b>, or <b>BCP</b>. Wahapedia rules, stats, and weapons will be automatically enriched.</p>
+          <textarea id="gt-import-raw-input" placeholder="Paste NewRecruit link (https://www.newrecruit.eu/app/list/...) or export text here..." style="width:100%; height:130px; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; color:#e2e8f0; font-family:'JetBrains Mono',monospace; font-size:11px; outline:none; resize:vertical;"></textarea>
           <div style="margin-top:10px; display:flex; justify-content:flex-end;">
             <button onclick="window.gtImportAndAttach()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:10px 18px; border-radius:8px; cursor:pointer;">
-              ⚡ Parse & Attach to Match
+              ⚡ Import & Attach to Match
             </button>
           </div>
         </div>
@@ -1851,7 +1851,7 @@
           <div style="font-size:42px; margin-bottom:12px;">${isOpp ? '📜' : '📋'}</div>
           <h3 style="font-size:18px; font-weight:800; color:#f8fafc; margin-bottom:6px;">${isOpp ? "Opponent hasn't attached a list yet" : "You haven't attached an army list to this match"}</h3>
           <p style="font-size:13px; color:#94a3b8; max-width:460px; margin:0 auto 20px;">
-            ${isOpp ? "When your opponent attaches their list, their full Wahapedia stats, weapons, and rules will appear here in real time." : "Attach an army list to view unit statlines, weapon profiles, and track wounds during play."}
+            ${isOpp ? "When your opponent attaches their list or NewRecruit link, their full Wahapedia stats, weapons, and rules will appear here in real time." : "Paste your NewRecruit link or attach an army list to view unit statlines, weapon profiles, and track wounds during play."}
           </p>
           ${!isOpp ? `
             <button onclick="window.gtSetListTab('attach')" style="background:#0284c7; color:#fff; font-weight:800; font-size:13px; border:none; padding:10px 20px; border-radius:8px; cursor:pointer;">
@@ -1900,6 +1900,11 @@
             </div>
           </div>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            ${activeList.source_url ? `
+              <a href="${activeList.source_url}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
+                🌐 Open in NewRecruit ↗
+              </a>
+            ` : ''}
             <span style="background:#070b14; border:1px solid #334155; padding:4px 10px; border-radius:6px; font-size:12px; font-weight:800; color:#f59e0b; font-family:'JetBrains Mono',monospace;">
               ${activeList.points || 2000} / ${activeList.points_limit || 2000} PTS
             </span>
