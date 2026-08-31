@@ -284,6 +284,38 @@ div[class*="fixed"]:has(a[href*="install"]) {
   transform: scale(0.96);
 }
 
+.gt-clock-nudge-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.gt-clock-nudge-btn:hover {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+}
+
+.gt-clock-select {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #38bdf8;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 6px;
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+}
+
 /* 8. Judge Call Modal */
 #gt-judge-modal {
   position: fixed;
@@ -341,11 +373,40 @@ div[class*="fixed"]:has(a[href*="install"]) {
   border-color: rgba(244, 63, 94, 0.4);
 }
 
-/* Unified Match Navigation Bar Top Spacing */
+/* Unified Match Navigation Bar Top Spacing & Horizontal Slide Scrolling */
 body:has(#gt-sync-hud) {
-  padding-top: 54px !important;
+  padding-top: 56px !important;
+}
+
+#gt-sync-hud {
+  position: fixed !important;
+  top: 8px !important;
+  left: 8px !important;
+  right: 8px !important;
+  z-index: 99999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 8px !important;
+  background: rgba(15, 23, 42, 0.97) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
+  padding: 6px 10px !important;
+  border-radius: 12px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  -webkit-overflow-scrolling: touch !important;
+  touch-action: pan-x !important;
+  white-space: nowrap !important;
+  scrollbar-width: none !important;
+}
+
+#gt-sync-hud > * {
+  flex-shrink: 0 !important;
 }
 
 #gt-sync-hud::-webkit-scrollbar {
-  display: none;
+  display: none !important;
 }

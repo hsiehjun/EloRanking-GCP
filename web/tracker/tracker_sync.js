@@ -1634,57 +1634,54 @@
     const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
 
     hud.innerHTML = `
-      <div style="position:fixed; top:8px; left:12px; right:12px; z-index:99999; display:flex; align-items:center; justify-content:space-between; gap:10px; background:rgba(15,23,42,0.96); border:1px solid rgba(56,189,248,0.3); box-shadow:0 8px 30px rgba(0,0,0,0.75); backdrop-filter:blur(16px); padding:5px 12px; border-radius:12px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; overflow-x:auto; scrollbar-width:none; white-space:nowrap;">
-        
-        <!-- Left: Hub & Lobby Navigation & Match Tag -->
-        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-          <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
-            🏠 My Hub
-          </a>
-          <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
-            🎲 Lobby
-          </a>
-          <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:3px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
-            #${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}
-          </span>
-        </div>
+      <!-- Left: Hub & Lobby Navigation & Match Tag -->
+      <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+        <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace;">
+          🏠 Hub
+        </a>
+        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace;">
+          🎲 Lobby
+        </a>
+        <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
+          #${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}
+        </span>
+      </div>
 
-        <!-- Center: Connected Players Matchup -->
-        <div style="display:flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 8px; overflow:hidden; text-overflow:ellipsis;">
-          <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}; flex-shrink:0;"></span>
-          <span style="color:#38bdf8; max-width:140px; overflow:hidden; text-overflow:ellipsis;">${p1Display}</span>
-          <span style="color:#64748b; font-size:10px;">vs</span>
-          <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'} max-width:140px; overflow:hidden; text-overflow:ellipsis;">${p2Display}</span>
-        </div>
+      <!-- Center: Connected Players Matchup -->
+      <div style="display:inline-flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 6px; flex-shrink:0;">
+        <span style="width:7px; height:7px; border-radius:50%; background:${statusDotColor}; ${statusDotPulse}; flex-shrink:0;"></span>
+        <span style="color:#38bdf8;">${p1Display}</span>
+        <span style="color:#64748b; font-size:10px;">vs</span>
+        <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
+      </div>
 
-        <!-- Right: Action Buttons -->
-        <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-          <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Chess Clock">
-            ⏱️ Clock
+      <!-- Right: Action Buttons -->
+      <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+        <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Chess Clock">
+          ⏱️ Clock
+        </button>
+        ${tournamentId ? `
+          <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
+            🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
           </button>
-          ${tournamentId ? `
-            <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
-              🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
-            </button>
-          ` : ''}
-          <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's Army List">
-            📜 Opponent List ${hasOppList ? '🟢' : ''}
+        ` : ''}
+        <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's Army List">
+          📜 Opponent List ${hasOppList ? '🟢' : ''}
+        </button>
+        <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your Army List">
+          📋 My List ${hasMyList ? '🟢' : ''}
+        </button>
+        ${isPlay ? `
+          <button onclick="window.__openScorecardModal()" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
+            📄 Scorecard
           </button>
-          <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your Army List">
-            📋 My List ${hasMyList ? '🟢' : ''}
+          <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
+            🏁 Finish
           </button>
-          ${isPlay ? `
-            <button onclick="window.__openScorecardModal()" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
-              📄 Scorecard
-            </button>
-            <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:3px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
-              🏁 Complete Game
-            </button>
-          ` : ''}
-          <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
-            🔗 Share
-          </button>
-        </div>
+        ` : ''}
+        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
+          🔗 Share
+        </button>
       </div>
     `;
   }
@@ -1905,12 +1902,22 @@
         <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
           <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
             <div>
-              <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${activeList.name || 'NewRecruit Roster'}</span>
-              <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${activeList.faction || '40k'} • ${activeList.points || 2000} PTS</span>
+              <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(activeList.name || 'NewRecruit Roster')}</span>
+              <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(activeList.faction || '40k')} • ${activeList.points || 2000} PTS</span>
             </div>
-            <a href="${activeList.source_url}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
-              🌐 Open in NewRecruit ↗
-            </a>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <a href="${escapeHtml(activeList.source_url)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;" title="Open and enable Play Mode in NewRecruit">
+                🎮 Open / Play in NewRecruit ↗
+              </a>
+            </div>
+          </div>
+          <!-- Play Mode Pro-Tip Banner -->
+          <div style="background:rgba(168,85,247,0.12); border-bottom:1px solid rgba(168,85,247,0.25); padding:6px 14px; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:#e2e8f0; flex-wrap:wrap; gap:6px;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span>💡</span>
+              <span><b>Interactive Play Mode</b>: Click <b>"Import"</b> on NewRecruit below ➔ top-right menu ➔ select <b>"🎮 Play Mode"</b> to lock roster & track unit wounds!</span>
+            </div>
+            <a href="${escapeHtml(activeList.source_url)}" target="_blank" style="color:#c084fc; font-weight:800; text-decoration:underline; font-size:11px;">Full Screen ↗</a>
           </div>
           <div style="flex:1; width:100%; height:100%; position:relative;">
             <iframe src="${escapeHtml(activeList.source_url)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
@@ -2222,30 +2229,47 @@
       clockEl.id = 'gt-chess-clock-hud';
       clockEl.innerHTML = `
         <div id="gt-clock-p1-box" class="gt-clock-player-box">
-          <span id="gt-clock-p1-name" style="font-size:10px; font-weight:800; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Player 1</span>
+          <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:2px; gap:4px;">
+            <span id="gt-clock-p1-name" style="font-size:10px; font-weight:800; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Player 1</span>
+            <div style="display:flex; gap:2px;">
+              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(1, -60)" title="Deduct 1 minute">-1m</button>
+              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(1, 60)" title="Add 1 minute">+1m</button>
+            </div>
+          </div>
           <div id="gt-clock-p1-time" class="gt-clock-time">75:00</div>
         </div>
 
         <button id="gt-clock-pass-btn" class="gt-clock-switch-btn" title="Tap to switch active clock turn">
           <span>🔄 PASS TURN</span>
-          <span id="gt-clock-round-time" style="font-size:9px; opacity:0.8; font-weight:600;">(Round: 150:00)</span>
+          <span id="gt-clock-round-time" style="font-size:9px; opacity:0.85; font-weight:600;">(Round: 150:00)</span>
         </button>
 
         <div id="gt-clock-p2-box" class="gt-clock-player-box">
-          <span id="gt-clock-p2-name" style="font-size:10px; font-weight:800; max-width:110px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Player 2</span>
+          <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:2px; gap:4px;">
+            <span id="gt-clock-p2-name" style="font-size:10px; font-weight:800; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Player 2</span>
+            <div style="display:flex; gap:2px;">
+              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(2, -60)" title="Deduct 1 minute">-1m</button>
+              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(2, 60)" title="Add 1 minute">+1m</button>
+            </div>
+          </div>
           <div id="gt-clock-p2-time" class="gt-clock-time">75:00</div>
         </div>
 
-        <div style="display:flex; flex-direction:column; gap:4px;">
-          <button id="gt-clock-play-pause-btn" style="background:#1e293b; color:#f8fafc; border:1px solid #334155; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">
+        <div style="display:flex; flex-direction:column; gap:4px; align-items:stretch;">
+          <button id="gt-clock-play-pause-btn" style="background:#1e293b; color:#f8fafc; border:1px solid #334155; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">
             ▶️ Start
           </button>
-          <button id="gt-clock-reset-btn" style="background:transparent; color:#64748b; border:none; font-size:9px; cursor:pointer; text-decoration:underline;">
-            Reset 75m
-          </button>
+          <select id="gt-clock-duration-select" class="gt-clock-select" onchange="window.gtHandleClockPresetChange(this.value)">
+            <option value="90">⏱️ 90m (Casual)</option>
+            <option value="75" selected>⏱️ 75m (Tournament)</option>
+            <option value="60">⏱️ 60m (Speed)</option>
+            <option value="45">⏱️ 45m (Incursion)</option>
+            <option value="30">⏱️ 30m (Patrol)</option>
+            <option value="custom">✏️ Custom...</option>
+          </select>
         </div>
 
-        <button id="gt-clock-close-btn" style="background:transparent; border:none; color:#64748b; font-size:16px; cursor:pointer; padding:0 4px;">
+        <button id="gt-clock-close-btn" style="background:transparent; border:none; color:#64748b; font-size:18px; cursor:pointer; padding:0 4px;" title="Hide Clock">
           ✕
         </button>
       `;
@@ -2265,9 +2289,6 @@
 
       const ppBtn = document.getElementById('gt-clock-play-pause-btn');
       if (ppBtn) ppBtn.addEventListener('click', () => window.gtToggleClockPlayPause());
-
-      const rstBtn = document.getElementById('gt-clock-reset-btn');
-      if (rstBtn) rstBtn.addEventListener('click', () => window.gtResetChessClock(75));
 
       const clsBtn = document.getElementById('gt-clock-close-btn');
       if (clsBtn) clsBtn.addEventListener('click', () => window.gtToggleChessClock());
@@ -2298,6 +2319,7 @@
     const p2TimeEl = document.getElementById('gt-clock-p2-time');
     const roundTimeEl = document.getElementById('gt-clock-round-time');
     const ppBtn = document.getElementById('gt-clock-play-pause-btn');
+    const sel = document.getElementById('gt-clock-duration-select');
 
     if (p1NameEl) p1NameEl.textContent = `${p1Name} ${chessClock.activePlayer === 1 ? '▶' : ''}`;
     if (p2NameEl) p2NameEl.textContent = `${p2Name} ${chessClock.activePlayer === 2 ? '▶' : ''}`;
@@ -2305,6 +2327,12 @@
     if (p2TimeEl) p2TimeEl.textContent = formatTime(times.p2);
     if (roundTimeEl) roundTimeEl.textContent = `(Round: ${formatTime(times.round)})`;
     if (ppBtn) ppBtn.textContent = chessClock.running ? '⏸️ Pause' : '▶️ Start';
+
+    if (sel && chessClock.durationMinutes) {
+      if (sel.querySelector(`option[value="${chessClock.durationMinutes}"]`)) {
+        sel.value = chessClock.durationMinutes;
+      }
+    }
 
     const p1Low = times.p1 <= 300;
     const p2Low = times.p2 <= 300;
@@ -2341,6 +2369,72 @@
     broadcastChessClockFast();
   };
 
+  window.gtAdjustPlayerTime = function(playerNum, deltaSeconds) {
+    const times = getEffectiveClockTimes();
+    if (playerNum === 1) {
+      chessClock.p1Remaining = Math.max(0, times.p1 + deltaSeconds);
+      chessClock.p2Remaining = times.p2;
+    } else {
+      chessClock.p1Remaining = times.p1;
+      chessClock.p2Remaining = Math.max(0, times.p2 + deltaSeconds);
+    }
+    chessClock.roundRemaining = Math.max(0, times.round + deltaSeconds);
+    if (chessClock.running) {
+      chessClock.lastStartTime = Date.now();
+    }
+    chessClock.updatedAt = Date.now();
+    ensureClockTicker();
+    updateClockDom();
+    broadcastChessClockFast();
+  };
+
+  window.gtHandleClockPresetChange = function(val) {
+    if (val === 'custom') {
+      window.gtPromptCustomClockDuration();
+      return;
+    }
+    const mins = parseInt(val, 10);
+    if (!isNaN(mins) && mins > 0) {
+      window.gtSetClockDuration(mins);
+    }
+  };
+
+  window.gtSetClockDuration = function(minutes) {
+    if (!minutes || isNaN(minutes) || minutes <= 0) return;
+    chessClock.durationMinutes = minutes;
+    chessClock.running = false;
+    chessClock.lastStartTime = null;
+    chessClock.p1Remaining = minutes * 60;
+    chessClock.p2Remaining = minutes * 60;
+    chessClock.roundRemaining = (minutes * 2) * 60;
+    chessClock.updatedAt = Date.now();
+    ensureClockTicker();
+    updateClockDom();
+    broadcastChessClockFast();
+  };
+
+  window.gtPromptCustomClockDuration = function() {
+    const current = chessClock.durationMinutes || 75;
+    const res = prompt('Enter custom clock time per player in minutes (e.g. 90, 60, 45):', current);
+    if (res !== null) {
+      const mins = parseInt(res, 10);
+      if (!isNaN(mins) && mins > 0) {
+        const sel = document.getElementById('gt-clock-duration-select');
+        if (sel) {
+          let opt = sel.querySelector(`option[value="${mins}"]`);
+          if (!opt) {
+            opt = document.createElement('option');
+            opt.value = mins;
+            opt.textContent = `⏱️ ${mins}m (Custom)`;
+            sel.insertBefore(opt, sel.lastElementChild);
+          }
+          sel.value = mins;
+        }
+        window.gtSetClockDuration(mins);
+      }
+    }
+  };
+
   window.gtSwitchClockTurn = function(e) {
     if (e && e.preventDefault) {
       e.preventDefault();
@@ -2363,16 +2457,9 @@
     broadcastChessClockFast();
   };
 
-  window.gtResetChessClock = function(minutes = 75) {
-    chessClock.running = false;
-    chessClock.lastStartTime = null;
-    chessClock.p1Remaining = minutes * 60;
-    chessClock.p2Remaining = minutes * 60;
-    chessClock.roundRemaining = (minutes * 2) * 60;
-    chessClock.updatedAt = Date.now();
-    ensureClockTicker();
-    updateClockDom();
-    broadcastChessClockFast();
+  window.gtResetChessClock = function(minutes = null) {
+    const mins = minutes || chessClock.durationMinutes || 75;
+    window.gtSetClockDuration(mins);
   };
 
   function applyRemoteChessClock(remote) {
@@ -2385,9 +2472,10 @@
     chessClock.visible = !!remote.visible;
     chessClock.running = !!remote.running;
     chessClock.activePlayer = remote.active_player === 2 ? 2 : 1;
-    chessClock.p1Remaining = typeof remote.p1_remaining === 'number' ? remote.p1_remaining : (75 * 60);
-    chessClock.p2Remaining = typeof remote.p2_remaining === 'number' ? remote.p2_remaining : (75 * 60);
-    chessClock.roundRemaining = typeof remote.round_remaining === 'number' ? remote.round_remaining : (150 * 60);
+    chessClock.durationMinutes = remote.duration_minutes || chessClock.durationMinutes || 75;
+    chessClock.p1Remaining = typeof remote.p1_remaining === 'number' ? remote.p1_remaining : (chessClock.durationMinutes * 60);
+    chessClock.p2Remaining = typeof remote.p2_remaining === 'number' ? remote.p2_remaining : (chessClock.durationMinutes * 60);
+    chessClock.roundRemaining = typeof remote.round_remaining === 'number' ? remote.round_remaining : (chessClock.durationMinutes * 2 * 60);
     chessClock.lastStartTime = remote.last_start_time || null;
     chessClock.updatedAt = remote.updated_at || Date.now();
 
@@ -2398,26 +2486,23 @@
 
   function broadcastChessClockFast() {
     if (!clientState.matchId) return;
-
-    // Fast asynchronous background broadcast
+    const times = getEffectiveClockTimes();
+    const payload = {
+      visible: chessClock.visible,
+      running: chessClock.running,
+      active_player: chessClock.activePlayer,
+      p1_remaining: times.p1,
+      p2_remaining: times.p2,
+      round_remaining: times.round,
+      duration_minutes: chessClock.durationMinutes || 75,
+      last_start_time: chessClock.running ? chessClock.lastStartTime : null,
+      updated_at: chessClock.updatedAt
+    };
     fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/clock`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${getAuthToken()}`
-      },
-      body: JSON.stringify({
-        client_id: clientState.clientId,
-        visible: chessClock.visible,
-        running: chessClock.running,
-        active_player: chessClock.activePlayer,
-        p1_remaining: chessClock.p1Remaining,
-        p2_remaining: chessClock.p2Remaining,
-        round_remaining: chessClock.roundRemaining,
-        last_start_time: chessClock.lastStartTime,
-        updated_at: chessClock.updatedAt
-      })
-    }).catch(err => console.debug('[GDM Clock Sync] Fast-path clock notice:', err));
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
   }
 
   function renderChessClock() {

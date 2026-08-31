@@ -1636,6 +1636,7 @@ if FASTAPI_AVAILABLE:
             "visible": bool(body.get("visible", True)),
             "running": bool(body.get("running", False)),
             "active_player": int(body.get("active_player", 1)),
+            "duration_minutes": int(body.get("duration_minutes", 75)),
             "p1_remaining": int(body.get("p1_remaining", 4500)),
             "p2_remaining": int(body.get("p2_remaining", 4500)),
             "round_remaining": int(body.get("round_remaining", 9000)),
@@ -1719,8 +1720,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=12.7">
-  <script src="/tracker/tracker_sync.js?v=12.7"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=17.0">
+  <script src="/tracker/tracker_sync.js?v=17.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

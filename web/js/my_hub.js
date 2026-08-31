@@ -1103,6 +1103,14 @@ async function openViewArmyListModal(listId) {
 
       <!-- Body: Embedded View if sourceUrl available, otherwise clean cards -->
       ${sourceUrl ? `
+        <!-- Play Mode Pro-Tip Banner -->
+        <div style="background:rgba(168,85,247,0.12); border-bottom:1px solid rgba(168,85,247,0.25); padding:8px 16px; display:flex; align-items:center; justify-content:space-between; font-size:12px; color:#e2e8f0; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span>💡</span>
+            <span><b>Enable Interactive Play Mode</b>: Click <b>"Import"</b> on NewRecruit below ➔ open top-right menu ➔ select <b>"🎮 Play Mode"</b> to lock the roster and track wounds!</span>
+          </div>
+          <a href="${escapeHtml(sourceUrl)}" target="_blank" style="color:#c084fc; font-weight:800; text-decoration:underline; font-size:12px;">Open Full Screen ↗</a>
+        </div>
         <div style="flex:1; width:100%; height:100%; position:relative; background:#070b14;">
           <iframe src="${escapeHtml(sourceUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
         </div>
