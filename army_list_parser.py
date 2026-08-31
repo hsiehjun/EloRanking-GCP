@@ -20,6 +20,48 @@ logger = logging.getLogger("ArmyListParser")
 class ArmyListParser:
     """Parses army list links, JSON, and text exports into structured match rosters."""
 
+    def parse_file(self, raw_bytes: bytes, filename: str = "") -> Dict[str, Any]:
+        """Parses an uploaded file (.rosz, .ros, .json, .txt) into a structured match roster."""
+        if not raw_bytes:
+            return self._create_empty_roster()
+
+        fname = filename.lower()
+        # 1. Zipped BattleScribe file (.rosz)
+        if fname.endswith(".rosz") or raw_bytes.startswith(b"PK\x03\x04"):
+            import zipfile, io
+            try:
+                with zipfile.ZipFile(io.BytesIO(raw_bytes)) as z:
+                    for name in z.namelist():
+                        if name.lower().endswith((".ros", ".xml")):
+                            xml_str = z.read(name).decode("utf-8", errors="ignore")
+                            return self._parse_battlescribe_xml(xml_str)
+            except Exception as e:
+                logger.warning(f"Failed to unzip .rosz file: {e}")
+
+        # 2. BattleScribe XML file (.ros / .xml)
+        if fname.endswith((".ros", ".xml")) or raw_bytes.startswith(b"<?xml") or b"<roster" in raw_bytes[:300]:
+            try:
+                xml_str = raw_bytes.decode("utf-8", errors="ignore")
+                return self._parse_battlescribe_xml(xml_str)
+            except Exception as e:
+                logger.warning(f"Failed to parse XML file: {e}")
+
+        # 3. JSON file (.json)
+        if fname.endswith(".json") or raw_bytes.startswith(b"{"):
+            try:
+                json_str = raw_bytes.decode("utf-8", errors="ignore")
+                data = json.loads(json_str)
+                return self._parse_json_roster(data)
+            except Exception as e:
+                logger.warning(f"Failed to parse JSON file: {e}")
+
+        # 4. Text fallback
+        try:
+            text_str = raw_bytes.decode("utf-8", errors="ignore")
+            return self.parse(text_str)
+        except Exception:
+            return self._create_empty_roster()
+
     def parse(self, raw_input: str, source_hint: Optional[str] = None) -> Dict[str, Any]:
         if not raw_input or not raw_input.strip():
             return self._create_empty_roster()
@@ -30,7 +72,11 @@ class ArmyListParser:
         if content.startswith(("http://", "https://")) or "newrecruit.eu" in content:
             return self.parse_url(content)
 
-        # 2. JSON Detection
+        # 2. XML Detection (.ros / BattleScribe)
+        if content.startswith("<?xml") or content.startswith("<roster") or "<roster" in content[:300]:
+            return self._parse_battlescribe_xml(content)
+
+        # 3. JSON Detection
         if content.startswith("{") and content.endswith("}"):
             try:
                 data = json.loads(content)
@@ -38,7 +84,7 @@ class ArmyListParser:
             except Exception as e:
                 logger.debug("JSON parse fallback: %s", e)
 
-        # 3. Text Format Detection
+        # 4. Text Format Detection
         if "FACTION KEYWORD:" in content or "newrecruit" in content.lower() or (content.startswith("++") and "TOTAL ARMY POINTS" in content):
             return self._parse_newrecruit_text(content)
         elif "++ Army Roster" in content or "+ Epic Hero +" in content or "+ Character +" in content:
@@ -47,6 +93,105 @@ class ArmyListParser:
             return self._parse_warhammer_app_text(content)
         else:
             return self._parse_generic_text(content)
+
+    def _parse_battlescribe_xml(self, xml_content: str) -> Dict[str, Any]:
+        """Parses BattleScribe .ros / .rosz XML content into a rich tactical roster."""
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(xml_content)
+        except Exception as e:
+            logger.warning(f"XML parse error: {e}")
+            return self._create_empty_roster()
+
+        # Strip XML namespaces for effortless tag traversal
+        for elem in root.iter():
+            if '}' in elem.tag:
+                elem.tag = elem.tag.split('}', 1)[1]
+
+        name = root.attrib.get('name', 'BattleScribe Roster')
+        pts = 2000
+        cost_pts = root.find('.//costs/cost[@name="pts"]')
+        if cost_pts is not None:
+            try: pts = int(float(cost_pts.attrib.get('value', 2000)))
+            except: pass
+
+        force = root.find('.//force')
+        faction = force.attrib.get('catalogueName', 'Warhammer 40,000') if force is not None else 'Warhammer 40,000'
+        detachment = 'Core Detachment'
+        warlord = ''
+        units = []
+
+        for sel in root.findall('.//force/selections/selection'):
+            uname = sel.attrib.get('name', 'Unit')
+            if uname.lower() in ('configuration', 'battle size', 'detachment'):
+                for sub in sel.findall('.//selection'):
+                    if 'detachment' in sub.attrib.get('name', '').lower() or sub.attrib.get('type') == 'upgrade':
+                        detachment = sub.attrib.get('name')
+                continue
+
+            pts_elem = sel.find('.//costs/cost[@name="pts"]')
+            unit_pts = int(float(pts_elem.attrib.get('value', 0))) if pts_elem is not None else 0
+            cat_elem = sel.find('.//categories/category[@primary="true"]')
+            role = cat_elem.attrib.get('name', 'Infantry') if cat_elem is not None else 'Infantry'
+            
+            is_wl = False
+            enhancement = None
+            wargear = []
+
+            for sub in sel.findall('.//selection'):
+                sname = sub.attrib.get('name', '')
+                if 'warlord' in sname.lower():
+                    is_wl = True
+                elif 'enhancement' in sname.lower() or (sub.attrib.get('type') == 'upgrade' and any(k in sname.lower() for k in ['veil', 'enhancement', 'relic', 'artefact'])):
+                    enhancement = sname
+                else:
+                    if sname and sname != uname and sname not in ['Unit', 'Model']:
+                        wargear.append(sname)
+
+            if is_wl and not warlord:
+                warlord = uname
+
+            w_val = 12 if ('Vehicle' in role or 'Monster' in role) else (6 if ('Character' in role or is_wl) else 2)
+            sv_val = '2+' if ('Character' in role or 'Vehicle' in role) else '3+'
+            t_val = 10 if ('Vehicle' in role or 'Monster' in role) else 4
+            m_val = '10"' if ('Mounted' in role or 'Vehicle' in role) else '6"'
+
+            units.append({
+                'id': f'u_{len(units)+1}_{uuid.uuid4().hex[:6]}',
+                'name': uname,
+                'points': unit_pts,
+                'role': role,
+                'is_warlord': is_wl,
+                'enhancement': enhancement,
+                'model_count': int(sel.attrib.get('number', 1)),
+                'wargear': list(dict.fromkeys(wargear))[:8],
+                'stats': {
+                    'M': m_val,
+                    'T': t_val,
+                    'SV': sv_val,
+                    'INV': '4+' if (is_wl or 'Character' in role) else '-',
+                    'W': w_val,
+                    'LD': '6+',
+                    'OC': 2 if 'Battleline' in role else 1
+                },
+                'keywords': [role, faction]
+            })
+
+        return {
+            'id': f'list_{uuid.uuid4().hex[:10]}',
+            'name': name,
+            'faction': faction,
+            'detachment': detachment,
+            'points': sum(u['points'] for u in units) or pts,
+            'points_limit': 2000,
+            'warlord': warlord or (units[0]['name'] if units else ''),
+            'source_format': 'BattleScribe XML (.ros / .rosz)',
+            'source_url': None,
+            'units': units,
+            'enhancements': [u['enhancement'] for u in units if u.get('enhancement')],
+            'stratagems': [],
+            'raw_text': xml_content[:500]
+        }
 
     def parse_url(self, url: str) -> Dict[str, Any]:
         """Resolves a NewRecruit share link into a complete, rich tactical roster."""

@@ -420,5 +420,15 @@ window.api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: rawText, format: formatHint })
     });
+  },
+
+  // Army Lists: Upload and parse .json, .ros, .rosz, .txt
+  async uploadArmyListFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this._fetchJson('/api/armylists/upload', {
+      method: 'POST',
+      body: formData
+    });
   }
 };

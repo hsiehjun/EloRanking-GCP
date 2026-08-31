@@ -1490,6 +1490,20 @@ if FASTAPI_AVAILABLE:
         parsed = parser.parse(raw_text, source_hint=source_format)
         return {"success": True, "army_list": parsed}
 
+    @app.post("/api/armylists/upload", summary="Upload and parse army list file (.json, .ros, .rosz, .txt)")
+    async def api_upload_armylist(request: Request):
+        form = await request.form()
+        file_obj = form.get("file")
+        if not file_obj:
+            raise HTTPException(status_code=400, detail="No file uploaded")
+        
+        file_bytes = await file_obj.read()
+        filename = getattr(file_obj, "filename", "") or ""
+        
+        parser = get_army_parser()
+        parsed = parser.parse_file(file_bytes, filename=filename)
+        return {"success": True, "army_list": parsed}
+
     @app.get("/api/armylists", summary="Get saved army lists for current user")
     async def api_get_armylists(request: Request):
         auth_mgr = get_auth_manager()
@@ -1791,8 +1805,8 @@ if FASTAPI_AVAILABLE:
 
     BRIDGE_INJECTION_HTML = """
   <!-- GDM REAL-TIME MULTIPLAYER & DATABASE OVERLAY -->
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=25.0">
-  <script src="/tracker/tracker_sync.js?v=25.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=26.0">
+  <script src="/tracker/tracker_sync.js?v=26.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

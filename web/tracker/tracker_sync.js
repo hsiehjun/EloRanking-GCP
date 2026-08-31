@@ -1823,6 +1823,175 @@
     }
   };
 
+  function renderTrackerNativeRoster(list) {
+    const units = list.units || [];
+    const name = list.name || 'Army Roster';
+    const faction = list.faction || 'Warhammer 40,000';
+    const detachment = list.detachment || 'Core Detachment';
+    const points = list.points || 2000;
+    const warlord = list.warlord || '';
+
+    const categories = {
+      'Epic Heroes & Characters': [],
+      'Battleline': [],
+      'Infantry & Elites': [],
+      'Mounted & Fast Attack': [],
+      'Vehicles & Monsters': [],
+      'Transports & Dedicated': [],
+      'Other Datasheets': []
+    };
+
+    units.forEach((u, idx) => {
+      const role = (u.role || '').toLowerCase();
+      if (u.is_warlord || role.includes('character') || role.includes('epic hero') || role.includes('leader')) {
+        categories['Epic Heroes & Characters'].push({ ...u, _idx: idx });
+      } else if (role.includes('battleline')) {
+        categories['Battleline'].push({ ...u, _idx: idx });
+      } else if (role.includes('mounted') || role.includes('biker') || role.includes('cavalry')) {
+        categories['Mounted & Fast Attack'].push({ ...u, _idx: idx });
+      } else if (role.includes('vehicle') || role.includes('monster') || role.includes('walker') || role.includes('dreadnought')) {
+        categories['Vehicles & Monsters'].push({ ...u, _idx: idx });
+      } else if (role.includes('transport')) {
+        categories['Transports & Dedicated'].push({ ...u, _idx: idx });
+      } else if (role.includes('infantry') || role.includes('elites')) {
+        categories['Infantry & Elites'].push({ ...u, _idx: idx });
+      } else {
+        categories['Other Datasheets'].push({ ...u, _idx: idx });
+      }
+    });
+
+    let contentHtml = '';
+
+    if (units.length > 0) {
+      contentHtml += `
+        <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <div>
+            <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(name)}</span>
+            <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(faction)} • ${escapeHtml(detachment)} • ${points} PTS</span>
+            ${warlord ? `<span style="font-size:12px; color:#facc15; font-weight:700; margin-left:8px;">👑 ${escapeHtml(warlord)}</span>` : ''}
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:16px; padding:16px; overflow-y:auto; max-height:75vh; background:#070b14;">
+      `;
+
+      for (const [catName, catUnits] of Object.entries(categories)) {
+        if (catUnits.length === 0) continue;
+        const catIcon = catName.includes('Character') ? '👑' : (catName.includes('Battleline') ? '🛡️' : (catName.includes('Vehicle') ? '🚜' : (catName.includes('Mounted') ? '🚀' : '⚔️')));
+        
+        contentHtml += `
+          <div>
+            <div style="font-size:12px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:#94a3b8; margin-bottom:8px; display:flex; align-items:center; gap:6px;">
+              <span>${catIcon}</span> ${catName} <span style="font-size:11px; color:#64748b; font-weight:normal;">(${catUnits.length})</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:10px;">
+              ${catUnits.map(u => {
+                const uName = u.name || 'Unit';
+                const uPts = u.points || 0;
+                const uCount = u.model_count || 1;
+                const stats = u.stats || { M: '6"', T: 4, SV: '3+', INV: '-', W: 2, LD: '6+', OC: 1 };
+                const maxW = stats.W || 2;
+                const curW = u._current_wounds !== undefined ? u._current_wounds : maxW;
+                const isSlain = u._is_slain || false;
+
+                return `
+                  <div class="gt-unit-card" id="gt-unit-card-${u._idx}" style="background:#0f172a; border:1px solid ${u.is_warlord ? 'rgba(245,158,11,0.4)' : 'rgba(255,255,255,0.08)'}; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:8px; opacity:${isSlain ? '0.45' : '1'}; transition:all 0.2s;">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:6px;">
+                      <div style="min-width:0; flex:1;">
+                        <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                          <span style="font-size:11px; font-weight:800; color:#38bdf8; font-family:'JetBrains Mono',monospace;">${uCount}x</span>
+                          <b style="font-size:13px; color:#fff; font-family:'JetBrains Mono',monospace; text-decoration:${isSlain ? 'line-through' : 'none'};">${escapeHtml(uName)}</b>
+                          ${u.is_warlord ? '<span class="badge" style="background:rgba(245,158,11,0.2); color:#f59e0b; font-size:10px; font-weight:800; border:1px solid rgba(245,158,11,0.4); padding:1px 5px;">👑 WARLORD</span>' : ''}
+                        </div>
+                        ${u.enhancement ? `<div style="font-size:11px; color:#c084fc; font-weight:700; margin-top:2px;">✨ ${escapeHtml(u.enhancement)}</div>` : ''}
+                      </div>
+                      ${uPts > 0 ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; font-size:11px; font-weight:800; font-family:'JetBrains Mono',monospace; flex-shrink:0;">${uPts} PTS</span>` : ''}
+                    </div>
+
+                    <!-- Statline Bar -->
+                    <div style="display:grid; grid-template-columns:repeat(7, 1fr); background:rgba(0,0,0,0.4); border:1px solid rgba(255,255,255,0.06); border-radius:6px; padding:4px 2px; text-align:center; font-family:'JetBrains Mono',monospace;">
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">M</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.M || '6"'}</div></div>
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">T</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.T || 4}</div></div>
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">SV</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.SV || '3+'}</div></div>
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">INV</div><div style="font-size:11px; color:#38bdf8; font-weight:800;">${stats.INV || '-'}</div></div>
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">W</div><div style="font-size:11px; color:#ef4444; font-weight:800;">${stats.W || 2}</div></div>
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">LD</div><div style="font-size:11px; color:#fff; font-weight:800;">${stats.LD || '6+'}</div></div>
+                      <div><div style="font-size:9px; color:#64748b; font-weight:700;">OC</div><div style="font-size:11px; color:#10b981; font-weight:800;">${stats.OC || 1}</div></div>
+                    </div>
+
+                    <!-- Wargear -->
+                    ${(u.wargear && u.wargear.length > 0) ? `
+                      <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                        ${u.wargear.map(w => `<span style="font-size:10px; background:rgba(255,255,255,0.05); color:#94a3b8; border:1px solid rgba(255,255,255,0.06); padding:1px 5px; border-radius:4px;">${escapeHtml(w)}</span>`).join('')}
+                      </div>
+                    ` : ''}
+
+                    <!-- Wound Tracking -->
+                    <div style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; display:flex; justify-content:space-between; align-items:center; gap:6px;">
+                      ${maxW > 1 ? `
+                        <div style="display:flex; align-items:center; gap:6px;">
+                          <span style="font-size:10px; color:#94a3b8; font-weight:700;">WOUNDS:</span>
+                          <div style="display:flex; align-items:center; gap:4px; background:rgba(0,0,0,0.5); border-radius:6px; padding:2px 6px; border:1px solid rgba(239,68,68,0.3);">
+                            <button onclick="window.gtTrackerAdjustWounds(${u._idx}, -1)" style="background:transparent; border:none; color:#ef4444; font-weight:900; font-size:14px; cursor:pointer; padding:0 3px;">-</button>
+                            <b id="gt-wound-val-${u._idx}" style="font-size:11px; font-family:'JetBrains Mono',monospace; color:#fff;">${curW} / ${maxW}</b>
+                            <button onclick="window.gtTrackerAdjustWounds(${u._idx}, 1)" style="background:transparent; border:none; color:#10b981; font-weight:900; font-size:14px; cursor:pointer; padding:0 3px;">+</button>
+                          </div>
+                        </div>
+                      ` : '<span style="font-size:10px; color:#64748b;">1 Wound Model</span>'}
+
+                      <button onclick="window.gtTrackerToggleSlain(${u._idx})" id="gt-slain-btn-${u._idx}" style="font-size:10px; font-weight:800; padding:3px 8px; border-radius:5px; border:1px solid ${isSlain ? 'rgba(239,68,68,0.5)' : 'rgba(255,255,255,0.1)'}; background:${isSlain ? 'rgba(239,68,68,0.2)' : 'rgba(255,255,255,0.04)'}; color:${isSlain ? '#ef4444' : '#94a3b8'}; cursor:pointer;">
+                        ${isSlain ? '💀 SLAIN' : '⚔️ ACTIVE'}
+                      </button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }
+      contentHtml += `</div>`;
+    } else if (list.raw_text) {
+      contentHtml = `<div style="padding:20px; background:#070b14; border-radius:12px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#cbd5e1; white-space:pre-wrap; overflow-y:auto; max-height:75vh; line-height:1.5;">${escapeHtml(list.raw_text)}</div>`;
+    } else {
+      contentHtml = `<div style="padding:40px; text-align:center; color:#94a3b8;">No roster content available.</div>`;
+    }
+
+    return contentHtml;
+  }
+
+  window.gtTrackerAdjustWounds = function(unitIdx, delta) {
+    const el = document.getElementById(`gt-wound-val-${unitIdx}`);
+    if (!el) return;
+    const parts = el.textContent.split('/');
+    if (parts.length === 2) {
+      let cur = parseInt(parts[0].trim(), 10) + delta;
+      const max = parseInt(parts[1].trim(), 10);
+      cur = Math.max(0, Math.min(max, cur));
+      el.textContent = `${cur} / ${max}`;
+      if (cur === 0) window.gtTrackerToggleSlain(unitIdx, true);
+    }
+  };
+
+  window.gtTrackerToggleSlain = function(unitIdx, forceSlain = null) {
+    const card = document.getElementById(`gt-unit-card-${unitIdx}`);
+    const btn = document.getElementById(`gt-slain-btn-${unitIdx}`);
+    if (!card || !btn) return;
+    const isSlain = forceSlain !== null ? forceSlain : !btn.textContent.includes('SLAIN');
+    if (isSlain) {
+      card.style.opacity = '0.45';
+      btn.textContent = '💀 SLAIN';
+      btn.style.background = 'rgba(239,68,68,0.2)';
+      btn.style.borderColor = 'rgba(239,68,68,0.5)';
+      btn.style.color = '#ef4444';
+    } else {
+      card.style.opacity = '1';
+      btn.textContent = '⚔️ ACTIVE';
+      btn.style.background = 'rgba(255,255,255,0.04)';
+      btn.style.borderColor = 'rgba(255,255,255,0.1)';
+      btn.style.color = '#94a3b8';
+    }
+  };
+
   async function renderArmyListModal() {
     const modal = document.getElementById('gt-army-list-modal');
     if (!modal) return;
@@ -1910,30 +2079,8 @@
           ` : ''}
         </div>
       `;
-    } else if (activeList.source_url) {
-      const nrUrl = (typeof getDirectNewRecruitUrl === 'function') ? getDirectNewRecruitUrl(activeList.source_url, activeList) : activeList.source_url;
-      contentHtml = `
-        <div style="display:flex; flex-direction:column; height:78vh; width:100%; border-radius:12px; overflow:hidden; border:1px solid rgba(255,255,255,0.08); background:#070b14;">
-          <div style="padding:10px 16px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-            <div>
-              <span style="font-size:15px; font-weight:900; color:#fff; font-family:'JetBrains Mono',monospace;">${escapeHtml(activeList.name || 'NewRecruit Roster')}</span>
-              <span style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:8px;">${escapeHtml(activeList.faction || '40k')} • ${activeList.points || 2000} PTS</span>
-            </div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <a href="${escapeHtml(nrUrl)}" target="_blank" style="background:#1e293b; color:#c084fc; border:1px solid rgba(192,132,252,0.4); text-decoration:none; font-weight:800; font-size:11px; padding:5px 12px; border-radius:6px; display:inline-flex; align-items:center; gap:4px;">
-                🎮 Open in NewRecruit ↗
-              </a>
-            </div>
-          </div>
-          <div style="flex:1; width:100%; height:100%; position:relative;">
-            <iframe src="${escapeHtml(nrUrl)}" style="width:100%; height:100%; border:none; background:#070b14;" allow="fullscreen"></iframe>
-          </div>
-        </div>
-      `;
-    } else if (activeList.raw_text) {
-      contentHtml = `
-        <div style="padding:20px; background:#070b14; border-radius:12px; font-family:'JetBrains Mono',monospace; font-size:12px; color:#cbd5e1; white-space:pre-wrap; overflow-y:auto; max-height:75vh; line-height:1.5; border:1px solid rgba(255,255,255,0.08);">${escapeHtml(activeList.raw_text)}</div>
-      `;
+    } else if (activeList) {
+      contentHtml = renderTrackerNativeRoster(activeList);
     }
 
     modal.innerHTML = `
