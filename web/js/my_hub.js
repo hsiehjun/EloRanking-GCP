@@ -1058,7 +1058,7 @@ function getDirectNewRecruitUrl(url) {
   const match = url.match(/newrecruit\.eu\/app\/list\/([a-zA-Z0-9_\-]+)/i);
   if (match) {
     const shareId = match[1];
-    return `/nr_proxy/${shareId}`;
+    return `https://www.newrecruit.eu/app/list/${shareId}`;
   }
   return url;
 }
