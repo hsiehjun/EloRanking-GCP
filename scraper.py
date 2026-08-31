@@ -133,7 +133,7 @@ class BestCoastPairingsScraper:
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
         """Fetches registered player roster and official placings for an event from BCP."""
         # 1. Try /events/{event_id}/placings first (contains official BCP tournament standings)
-        resp_placings = self._make_request(f"/events/{event_id}/placings", params={"limit": 300})
+        resp_placings = self._make_request(f"/events/{event_id}/placings", params={"limit": 1000})
         players = []
         if resp_placings:
             if isinstance(resp_placings, dict):
@@ -148,7 +148,7 @@ class BestCoastPairingsScraper:
 
         # 2. If empty, try /events/{event_id}/players
         if not players:
-            resp = self._make_request(f"/events/{event_id}/players", params={"limit": 300})
+            resp = self._make_request(f"/events/{event_id}/players", params={"limit": 1000})
             if resp:
                 if isinstance(resp, dict):
                     if "active" in resp and isinstance(resp["active"], list):
@@ -345,6 +345,14 @@ class BestCoastPairingsScraper:
                     except (ValueError, TypeError):
                         pass
 
+                raw_pod = p.get("podNum") or p.get("pod_num")
+                pod_num = None
+                if raw_pod is not None:
+                    try:
+                        pod_num = int(raw_pod)
+                    except (ValueError, TypeError):
+                        pass
+
                 self.db.upsert_player(user_id, first_name, last_name, full_name, team=team_name)
                 self.db.upsert_event_participant(
                     event_id=event_id,
@@ -357,7 +365,8 @@ class BestCoastPairingsScraper:
                     dropped=bool(p.get("dropped")),
                     checked_in=bool(p.get("checkedIn")),
                     placement=placing_num,
-                    battle_points=pts_num
+                    battle_points=pts_num,
+                    pod_num=pod_num
                 )
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")

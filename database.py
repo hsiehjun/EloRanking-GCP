@@ -287,6 +287,7 @@ class PostgresDatabase:
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;",
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS pod_num INT;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p1 VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p2 VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
@@ -452,15 +453,16 @@ class PostgresDatabase:
         dropped: bool = False,
         checked_in: bool = True,
         placement: Optional[int] = None,
-        battle_points: Optional[int] = None
+        battle_points: Optional[int] = None,
+        pod_num: Optional[int] = None
     ):
-        """Inserts or updates a tournament participant with team affiliation and official BCP placing."""
+        """Inserts or updates a tournament participant with team affiliation, bracket pod, and official BCP placing."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO event_participants (
-                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points, pod_num
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (event_id, player_id) DO UPDATE SET
                     first_name = EXCLUDED.first_name,
                     last_name = EXCLUDED.last_name,
@@ -470,8 +472,9 @@ class PostgresDatabase:
                     dropped = EXCLUDED.dropped,
                     checked_in = EXCLUDED.checked_in,
                     placement = COALESCE(EXCLUDED.placement, event_participants.placement),
-                    battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points);
-                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in, placement, battle_points))
+                    battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points),
+                    pod_num = COALESCE(EXCLUDED.pod_num, event_participants.pod_num);
+                """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in, placement, battle_points, pod_num))
             conn.commit()
 
     def upsert_match(self, match_data: Dict[str, Any]):
@@ -854,7 +857,7 @@ class PostgresDatabase:
                     COALESCE(ep.faction, pr.top_faction, 'Unknown') as faction,
                     COALESCE(ep.team, pr.team, '') as team,
                     ep.dropped, ep.checked_in,
-                    ep.placement,
+                    ep.placement, ep.pod_num,
                     COALESCE(pr.current_elo, 1500.0) as current_elo,
                     COALESCE(pr.peak_elo, 1500.0) as peak_elo,
                     COALESCE(pr.win_rate, 0.0) as global_win_rate
@@ -891,6 +894,7 @@ class PostgresDatabase:
                                 "team": p_info.get("team") or "",
                                 "dropped": p_info.get("dropped", False),
                                 "checked_in": p_info.get("checked_in", True),
+                                "pod_num": p_info.get("pod_num"),
                                 "current_elo": p_info.get("current_elo", 1500.0),
                                 "peak_elo": p_info.get("peak_elo", 1500.0),
                                 "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -929,6 +933,7 @@ class PostgresDatabase:
                                 "team": p_info.get("team") or "",
                                 "dropped": p_info.get("dropped", False),
                                 "checked_in": p_info.get("checked_in", True),
+                                "pod_num": p_info.get("pod_num"),
                                 "current_elo": p_info.get("current_elo", 1500.0),
                                 "peak_elo": p_info.get("peak_elo", 1500.0),
                                 "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -967,6 +972,7 @@ class PostgresDatabase:
                             "team": p_info.get("team") or "",
                             "dropped": p_info.get("dropped", False),
                             "checked_in": p_info.get("checked_in", True),
+                            "pod_num": p_info.get("pod_num"),
                             "current_elo": p_info.get("current_elo", 1500.0),
                             "peak_elo": p_info.get("peak_elo", 1500.0),
                             "global_win_rate": p_info.get("global_win_rate", 0.0),
@@ -1024,21 +1030,31 @@ class PostgresDatabase:
                 placing_metrics = raw_meta.get("placingMetrics") or []
                 active_metrics = [m for m in placing_metrics if isinstance(m, dict) and m.get("isOn")]
 
+                # Check if this tournament uses Pods / Brackets (e.g. GW Warhammer Open / NOVA brackets)
+                has_pods = any(p.get("pod_num") is not None and p.get("pod_num") > 0 for p in player_stats.values())
+
                 # Dynamically sort according to the tournament's specific placing configuration
                 def get_standings_sort_key(p):
+                    key_tuple = []
+                    if has_pods:
+                        pod = p.get("pod_num")
+                        pod_val = pod if (pod is not None and pod > 0) else 9999
+                        # Lower pod_num comes first (Pod 1 > Pod 2 > Pod 3), so with reverse=True we negate pod_val
+                        key_tuple.append(-pod_val)
+
                     if not active_metrics:
                         # Standard default ITC Swiss Tiebreakers:
                         # 1. Wins -> 2. PTV -> 3. SoS (Opp Win %) -> 4. Battle Points -> 5. Ext SoS -> 6. Current Elo
-                        return (
+                        key_tuple.extend([
                             p["event_wins"] + 0.5 * p["event_draws"],
                             p["ptv"],
                             round(p["sos"], 4),
                             p["event_battle_points"],
                             round(p["ext_sos"], 4),
                             p["current_elo"]
-                        )
+                        ])
+                        return tuple(key_tuple)
                     
-                    key_tuple = []
                     for m in active_metrics:
                         k = m.get("key") or m.get("name", "")
                         neg = bool(m.get("negative", False))
