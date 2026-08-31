@@ -1005,20 +1005,36 @@
   }
 
   function hideNativeGdmEmptyState() {
-    // On Landing page: Hide all native direct siblings inside main except #gt-lobby-wrapper
     if (!isPlay) {
+      // 1. Maintain body class
+      if (!document.body.classList.contains('is-tracker-lobby')) {
+        document.body.classList.add('is-tracker-lobby');
+      }
+      document.body.classList.remove('is-tracker-play');
+
+      // 2. Hide all elements that belong to GDM's native landing page
+      const gdmCandidates = document.querySelectorAll(
+        'main h2, main button, main h3, main p, div[class*="max-w-md"]'
+      );
+      gdmCandidates.forEach(el => {
+        if (!el.closest('#gt-lobby-wrapper') && !el.closest('#gt-user-status-bar') && !el.closest('#gt-sync-hud') && !el.closest('#gt-waiting-modal')) {
+          el.style.setProperty('display', 'none', 'important');
+        }
+      });
+
+      // 3. Hide any sibling container inside main that is not #gt-lobby-wrapper
       const main = document.querySelector('main');
       if (main) {
         Array.from(main.children).forEach(child => {
-          if (child.id !== 'gt-lobby-wrapper') {
-            child.style.display = 'none';
+          if (child.id !== 'gt-lobby-wrapper' && !child.contains(document.getElementById('gt-lobby-wrapper'))) {
+            child.style.setProperty('display', 'none', 'important');
           }
         });
       }
     }
 
-    document.querySelectorAll('footer, button:has(span.text-xs), a[href*="/news"]').forEach(el => {
-      el.style.display = 'none';
+    document.querySelectorAll('footer, .tac-footer, .tac-header, button:has(span.text-xs), a[href*="/news"]').forEach(el => {
+      el.style.setProperty('display', 'none', 'important');
     });
   }
 
@@ -1028,13 +1044,27 @@
     const countEl = document.getElementById('gt-history-count');
     if (!container) return;
 
-    if (countEl) {
-      countEl.textContent = list.length > 0 ? `(${list.length})` : '';
-    }
-
     const primary = window.gtPrimaryActive;
-    const unfinished = window.gtUnfinishedSessions || [];
-    const completed = window.gtCompletedHistory || list.filter(it => it.isFinished || it.is_finished);
+    const primaryId = (primary ? (primary.match_id || primary.id || '') : '').trim().toUpperCase();
+
+    // Strict deduplication: unfinished must NEVER contain primaryId
+    const unfinished = (window.gtUnfinishedSessions || []).filter(item => {
+      const mid = (item.match_id || item.id || '').trim().toUpperCase();
+      return mid && mid !== primaryId;
+    });
+
+    const unfinishedIds = new Set(unfinished.map(u => (u.match_id || u.id || '').trim().toUpperCase()));
+
+    // Strict deduplication: completed must NEVER contain primaryId or any unfinishedIds
+    const completed = (window.gtCompletedHistory || list.filter(it => it.isFinished || it.is_finished)).filter(item => {
+      const mid = (item.match_id || item.id || '').trim().toUpperCase();
+      return mid && mid !== primaryId && !unfinishedIds.has(mid);
+    });
+
+    const totalCount = (primary ? 1 : 0) + unfinished.length + completed.length;
+    if (countEl) {
+      countEl.textContent = totalCount > 0 ? `(${totalCount})` : '';
+    }
 
     if (!primary && unfinished.length === 0 && completed.length === 0) {
       container.innerHTML = `

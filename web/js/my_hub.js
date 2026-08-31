@@ -59,6 +59,13 @@ function renderMyHub(data) {
   const matchups = data.matchup_matrix || [];
   const upcoming = data.upcoming_events || [];
 
+  const primary = data.primary_active || null;
+  const primaryId = (primary ? (primary.match_id || primary.id || '') : '').trim().toUpperCase();
+  const unfinished = (data.unfinished_sessions || []).filter(u => {
+    const mid = (u.match_id || u.id || '').trim().toUpperCase();
+    return mid && mid !== primaryId;
+  });
+
   const currentElo = Number(p.current_elo || 1500.0).toFixed(1);
   const peakElo = Number(p.peak_elo || 1500.0).toFixed(1);
   const winRate = Number(p.win_rate || 0.0).toFixed(1);
@@ -371,28 +378,28 @@ function renderMyHub(data) {
         </div>
 
         <!-- 1. Primary Active Match Card (Pinned) -->
-        ${data.primary_active ? `
+        ${primary ? `
           <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
               <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 800; color: #10b981; text-transform: uppercase; font-family: var(--font-mono);">
                 <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
-                🟢 Primary Active Match (Round ${data.primary_active.current_round || 1})
+                🟢 Primary Active Match (Round ${primary.current_round || 1})
               </span>
-              <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">#${escapeHtml((data.primary_active.match_id || '').replace('WH40K-', ''))}</span>
+              <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">#${escapeHtml((primary.match_id || '').replace('WH40K-', ''))}</span>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
               <div>
-                <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(data.primary_active.p1_name || 'Player 1')} (${data.primary_active.p1_score || 0}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(data.primary_active.p2_name || 'Player 2')} (${data.primary_active.p2_score || 0})</b>
+                <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(primary.p1_name || 'Player 1')} (${primary.p1_score || 0}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(primary.p2_name || 'Player 2')} (${primary.p2_score || 0})</b>
                 <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
-                  ${escapeHtml(data.primary_active.p1_faction || 'Army 1')} vs ${escapeHtml(data.primary_active.p2_faction || 'Army 2')}
-                  ${data.primary_active.primary_mission ? ` • 🎯 ${escapeHtml(data.primary_active.primary_mission)}` : ''}
+                  ${escapeHtml(primary.p1_faction || 'Army 1')} vs ${escapeHtml(primary.p2_faction || 'Army 2')}
+                  ${primary.primary_mission ? ` • 🎯 ${escapeHtml(primary.primary_mission)}` : ''}
                 </div>
               </div>
               <div style="display: flex; gap: 6px; align-items: center;">
-                <a href="/11th/tracker/play?match_id=${encodeURIComponent(data.primary_active.match_id)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
+                <a href="/11th/tracker/play?match_id=${encodeURIComponent(primary.match_id)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
                   ▶️ Resume Match
                 </a>
-                <button onclick="discardTrackerSession('${data.primary_active.match_id}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Test Match">
+                <button onclick="discardTrackerSession('${primary.match_id}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Test Match">
                   🗑️
                 </button>
               </div>
@@ -401,14 +408,14 @@ function renderMyHub(data) {
         ` : ''}
 
         <!-- 2. Unfinished Casual Sessions Drawer (Collapsible) -->
-        ${(data.unfinished_sessions && data.unfinished_sessions.length > 0) ? `
+        ${(unfinished && unfinished.length > 0) ? `
           <details style="background: #090d18; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;">
             <summary style="cursor: pointer; font-size: 0.78rem; font-weight: 700; color: #f59e0b; display: flex; align-items: center; justify-content: space-between;">
-              <span>📁 Unfinished Sessions (${data.unfinished_sessions.length})</span>
+              <span>📁 Unfinished Sessions (${unfinished.length})</span>
               <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: normal;">Auto-purges after 14 days</span>
             </summary>
             <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
-              ${data.unfinished_sessions.map(us => `
+              ${unfinished.map(us => `
                 <div style="display: flex; justify-content: space-between; align-items: center; background: #070b14; border: 1px solid #1e293b; border-radius: 8px; padding: 8px 10px; flex-wrap: wrap; gap: 6px;">
                   <div>
                     <div style="font-size: 0.78rem; color: #fff; font-weight: 700;">

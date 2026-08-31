@@ -1504,7 +1504,7 @@ if FASTAPI_AVAILABLE:
         seen_matches = set()
         active_sessions = []
         for doc in active_docs:
-            mid = doc.get("roomKey") or doc.get("matchId")
+            mid = (doc.get("roomKey") or doc.get("matchId") or (doc.get("state", {}).get("match_id") if isinstance(doc.get("state"), dict) else "") or "").strip().upper()
             if mid and mid not in seen_matches:
                 seen_matches.add(mid)
                 formatted = _format_firestore_session_item(doc)
@@ -1512,13 +1512,14 @@ if FASTAPI_AVAILABLE:
                     active_sessions.append(formatted)
                     
         primary_active = active_sessions[0] if active_sessions else None
-        unfinished_sessions = active_sessions[1:] if len(active_sessions) > 1 else []
+        primary_mid = (primary_active.get("match_id") or primary_active.get("id") or "").strip().upper() if primary_active else ""
+        unfinished_sessions = [s for s in active_sessions[1:] if (s.get("match_id") or s.get("id") or "").strip().upper() != primary_mid]
         
         db = get_database()
         completed_history = []
         try:
             completed_history = db.get_tracker_history(limit=50, user_id=user_id, user_name=user_name)
-            completed_history = [g for g in completed_history if g.get("is_finished", True) and g.get("match_id") not in seen_matches]
+            completed_history = [g for g in completed_history if g.get("is_finished", True) and (g.get("match_id") or "").strip().upper() not in seen_matches]
         except Exception as err:
             logger.debug(f"History fetch notice: {err}")
             
@@ -2106,11 +2107,20 @@ if FASTAPI_AVAILABLE:
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
     }
-    body.is-tracker-lobby main > :not(#gt-lobby-wrapper) {
+    body.is-tracker-lobby main > :not(#gt-lobby-wrapper),
+    body:not(.is-tracker-play) main > div:not(:has(#gt-lobby-wrapper)):not(#gt-lobby-wrapper),
+    body:not(.is-tracker-play) main h2:not(#gt-lobby-wrapper *),
+    body:not(.is-tracker-play) main button:not(#gt-lobby-wrapper *):not(#gt-user-status-bar *),
+    body:not(.is-tracker-play) main h3:not(#gt-lobby-wrapper *),
+    body:not(.is-tracker-play) main p:not(#gt-lobby-wrapper *),
+    body:not(.is-tracker-play) div[class*="max-w-md"]:not(#gt-lobby-wrapper *),
+    body:not(.is-tracker-play) main > div > div:not(:has(#gt-lobby-wrapper)):not(#gt-lobby-wrapper) {
       display: none !important;
     }
-    body:has(#gt-lobby-wrapper) main > :not(#gt-lobby-wrapper) {
-      display: none !important;
+    #gt-lobby-wrapper {
+      display: block !important;
+      visibility: visible !important;
+      opacity: 1 !important;
     }
     button[aria-label*="Delete"],
     button[aria-label*="delete"],
