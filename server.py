@@ -63,6 +63,7 @@ logger = logging.getLogger("EloAPI")
 # Initialize Database & EloEngine Singletons
 _db_instance = None
 _engine_instance = None
+_LAST_UPCOMING_SYNC_TIME = 0
 
 def get_database():
     global _db_instance
@@ -1733,39 +1734,41 @@ if FASTAPI_AVAILABLE:
         if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
             user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-        # 2. Query Live Upcoming Events from BCP API (Real-time live synchronization)
-        now_dt = datetime.now(timezone.utc)
-        start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
-        end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
+        # 2. Trigger non-blocking background sync of all upcoming pages if cache is cold (>15m)
+        global _LAST_UPCOMING_SYNC_TIME
+        import time, threading
+        now_ts = time.time()
+        if (now_ts - _LAST_UPCOMING_SYNC_TIME) > 900:
+            def sync_bcp_worker():
+                global _LAST_UPCOMING_SYNC_TIME
+                _LAST_UPCOMING_SYNC_TIME = time.time()
+                try:
+                    now_dt = datetime.now(timezone.utc)
+                    start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
+                    end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
+                    next_key = None
+                    for _ in range(12):
+                        url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
+                        if next_key:
+                            url += f"&nextKey={urllib.parse.quote(next_key)}"
+                        req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
+                        with urllib.request.urlopen(req, timeout=6) as resp:
+                            data = json.loads(resp.read().decode("utf-8"))
+                            items = data.get("data", [])
+                            for it in items:
+                                try:
+                                    db.upsert_event(it)
+                                except Exception:
+                                    pass
+                            next_key = data.get("nextKey")
+                            if not next_key or not items:
+                                break
+                except Exception as e:
+                    logger.warning(f"Background BCP upcoming events sync notice: {e}")
 
-        bcp_live_events = []
-        next_key = None
-        try:
-            for _ in range(10):
-                bcp_url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
-                if query and query.strip():
-                    bcp_url += f"&name={urllib.parse.quote(query.strip())}"
-                if next_key:
-                    bcp_url += f"&nextKey={urllib.parse.quote(next_key)}"
-                req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    bcp_json = json.loads(resp.read().decode("utf-8"))
-                    page_items = bcp_json.get("data", [])
-                    bcp_live_events.extend(page_items)
-                    next_key = bcp_json.get("nextKey")
-                    if not next_key or not page_items:
-                        break
-        except Exception as e:
-            logger.warning(f"Live BCP recommended events fetch notice: {e}")
+            threading.Thread(target=sync_bcp_worker, daemon=True).start()
 
-        # Auto-upsert fresh BCP events into PostgreSQL database so DB stays 100% updated
-        for live_ev in bcp_live_events:
-            try:
-                db.upsert_event(live_ev)
-            except Exception:
-                pass
-
-        # 3. Query upcoming & recent events directly from PostgreSQL database
+        # 3. Query all upcoming & recent events directly from PostgreSQL database (<10ms)
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
@@ -1773,11 +1776,36 @@ if FASTAPI_AVAILABLE:
                 FROM events
                 WHERE event_date >= CURRENT_DATE - INTERVAL '14 days' AND event_date <= CURRENT_DATE + INTERVAL '120 days'
                 ORDER BY event_date ASC
-                LIMIT 1500;
+                LIMIT 2000;
                 """)
-                db_events = [dict(r) for r in cursor.fetchall()]
+                bcp_events = [dict(r) for r in cursor.fetchall()]
 
-        bcp_events = list(bcp_live_events) + db_events
+        # If DB had 0 events (e.g. cold start), fetch first 6 pages synchronously
+        if not bcp_events:
+            try:
+                now_dt = datetime.now(timezone.utc)
+                start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
+                end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
+                next_key = None
+                for _ in range(6):
+                    url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
+                    if next_key:
+                        url += f"&nextKey={urllib.parse.quote(next_key)}"
+                    req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                        items = data.get("data", [])
+                        for it in items:
+                            try:
+                                db.upsert_event(it)
+                            except Exception:
+                                pass
+                        bcp_events.extend(items)
+                        next_key = data.get("nextKey")
+                        if not next_key or not items:
+                            break
+            except Exception as e:
+                logger.warning(f"Initial sync notice: {e}")
 
         def haversine_miles(lat1, lon1, lat2, lon2):
             R = 3958.8
