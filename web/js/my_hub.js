@@ -452,7 +452,7 @@ function renderMyHub(data) {
                   return `
                     <tr>
                       <td style="white-space: nowrap;">
-                        <a href="/11th/tracker/play?match_id=${encodeURIComponent(matchId)}" target="_blank" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; color:var(--accent); text-decoration:none;">
+                        <a href="/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&mode=readonly" target="_blank" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; color:var(--accent); text-decoration:none;">
                           #${escapeHtml(shortId)} ↗
                         </a>
                         <div style="font-size:0.7rem; color:var(--text-muted);">${dateStr}</div>

@@ -1160,6 +1160,7 @@ if FASTAPI_AVAILABLE:
             else:
                 saved = db.get_tracker_game(match_id)
                 if saved and saved.get("state"):
+                    is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
                     room = {
                         "match_id": match_id,
                         "user_id_p1": saved.get("user_id_p1"),
@@ -1167,13 +1168,16 @@ if FASTAPI_AVAILABLE:
                         "p1_name": saved.get("p1_name"),
                         "p2_name": saved.get("p2_name"),
                         "version": saved.get("version", 1),
-                        "state": saved["state"]
+                        "state": saved["state"],
+                        "is_finished": is_fin,
+                        "readonly": is_fin
                     }
-                    TRACKER_ROOMS[match_id] = room
-                    try:
-                        fs_engine.create_room(match_id, room)
-                    except Exception:
-                        pass
+                    if not is_fin:
+                        TRACKER_ROOMS[match_id] = room
+                        try:
+                            fs_engine.create_room(match_id, room)
+                        except Exception:
+                            pass
                 else:
                     return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
                 
@@ -1181,14 +1185,17 @@ if FASTAPI_AVAILABLE:
         p2_id = room.get("user_id_p2")
         is_p1 = bool(user_id and p1_id == user_id)
         is_p2 = bool(user_id and p2_id == user_id)
+        is_finished = bool(room.get("is_finished") or (isinstance(room.get("state"), dict) and room["state"].get("is_finished")))
         
         return {
             "exists": True,
             "match_id": match_id,
             "p1_name": room.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
             "p2_name": room.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
-            "is_full": bool(p1_id is not None and p2_id is not None and not is_p1 and not is_p2),
-            "is_open_for_p2": bool(p2_id is None and not is_p1)
+            "is_full": bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2)),
+            "is_open_for_p2": bool(not is_finished and p2_id is None and not is_p1),
+            "is_finished": is_finished,
+            "readonly": is_finished
         }
 
     @app.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
@@ -1219,6 +1226,16 @@ if FASTAPI_AVAILABLE:
             else:
                 saved = db.get_tracker_game(match_id)
                 if saved and saved.get("state"):
+                    is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
+                    if is_fin:
+                        return {
+                            "success": True,
+                            "match_id": match_id,
+                            "role": "spectator",
+                            "is_finished": True,
+                            "readonly": True,
+                            "state": saved["state"]
+                        }
                     TRACKER_ROOMS[match_id] = {
                         "match_id": match_id,
                         "user_id_p1": saved.get("user_id_p1"),
@@ -2220,8 +2237,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=35.0">
-  <script src="/tracker/tracker_sync.js?v=35.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=36.0">
+  <script src="/tracker/tracker_sync.js?v=36.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

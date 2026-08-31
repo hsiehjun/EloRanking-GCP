@@ -738,13 +738,16 @@
 
       let matchId = params.get('match_id') || params.get('room') || params.get('match') || currentObj.match_id || (currentObj.id && typeof currentObj.id === 'string' && currentObj.id.startsWith('WH40K-') ? currentObj.id : null);
 
+      let chkData = {};
+      const isReadOnlyParam = params.get('mode') === 'readonly';
+
       if (matchId) {
         // Direct URL or History access: verify that this room exists on the server!
         try {
           const chk = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/check`, {
             headers: { 'Authorization': `Bearer ${getAuthToken()}` }
           });
-          const chkData = await chk.json();
+          chkData = await chk.json();
           if (!chk.ok || !chkData.exists) {
             alert(`❌ Room Key "${matchId}" does not exist or has expired.`);
             window.location.href = '/11th/tracker';
@@ -762,7 +765,7 @@
             },
             body: JSON.stringify({
               token: getAuthToken(),
-              p1_name: currentUser.display_name || 'Player 1'
+              p1_name: currentUser ? (currentUser.display_name || 'Player 1') : 'Player 1'
             })
           });
           if (resp.ok) {
@@ -781,8 +784,16 @@
       }
 
       clientState.matchId = matchId.toUpperCase();
+      if (isReadOnlyParam || chkData.readonly || chkData.is_finished) {
+        clientState.isReadOnly = true;
+        document.body.classList.add('gt-readonly-mode');
+      }
+
       const url = new URL(window.location.href);
       url.searchParams.set('match_id', clientState.matchId);
+      if (clientState.isReadOnly) {
+        url.searchParams.set('mode', 'readonly');
+      }
       window.history.replaceState({}, '', url.toString());
 
       injectMultiplayerHUD();
@@ -799,17 +810,25 @@
         });
         if (resp.ok) {
           const joinData = await resp.json();
-          clientState.role = joinData.role || 'spectator';
-          injectMultiplayerHUD(); // Update HUD with confirmed role!
+          clientState.role = clientState.isReadOnly ? 'spectator' : (joinData.role || 'spectator');
+          if (joinData.readonly || joinData.is_finished) {
+            clientState.isReadOnly = true;
+            document.body.classList.add('gt-readonly-mode');
+          }
           if (joinData.state) {
             applyRemoteState(joinData.state);
           }
+          injectMultiplayerHUD(); // Update HUD with confirmed state!
         }
       } catch (e) {}
 
-      injectPlayer2InviteWidget();
-      attachDomActionInterceptors();
-      startHybridSync();
+      if (!clientState.isReadOnly) {
+        injectPlayer2InviteWidget();
+        attachDomActionInterceptors();
+        startHybridSync();
+      } else {
+        attachDomActionInterceptors();
+      }
     } else {
       // Landing page (/11th/tracker or /tracker)
       injectLobbyHub();
@@ -1286,7 +1305,7 @@
               const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
 
               return `
-                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
+                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/11th/tracker/play?match_id=${encodeURIComponent(mid)}&mode=readonly'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
                   <div style="min-width:0; flex:1;">
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
                       <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
@@ -2013,12 +2032,69 @@
     const tournamentId = urlParams.get('event_id') || urlParams.get('tournament_id') || game.tournament_id || game.eventId || '';
     const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
 
+    function getVp(obj) {
+      if (!obj) return 0;
+      if (obj.score !== undefined && obj.score > 0) return obj.score;
+      const pri = (obj.rounds || []).reduce((s, r) => s + (r.primaryScore || 0), 0);
+      const sec = (obj.rounds || []).reduce((s, r) => s + (r.secondaryScore || 0), 0);
+      const paint = obj.battleReady !== false ? 10 : 0;
+      return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
+    }
+    const p1Score = getVp(stateObj.p1);
+    const p2Score = getVp(stateObj.p2);
+
+    const isReadOnly = Boolean(clientState.isReadOnly || stateObj.is_finished || stateObj.isFinished);
+
     // Signature memoization to prevent clobbering DOM on active user clicks
-    const sig = `${clientState.matchId}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${clientState.activeJudgeCall}`;
+    const sig = `${clientState.matchId}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${clientState.activeJudgeCall}_${isReadOnly}_${p1Score}_${p2Score}`;
     if (hud.dataset.sig === sig) {
       return;
     }
     hud.dataset.sig = sig;
+
+    if (isReadOnly) {
+      hud.innerHTML = `
+        <!-- Left: Navigation -->
+        <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+          <a href="/?tab=my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+            🏠 Hub
+          </a>
+          <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+            🎲 Lobby
+          </a>
+          <span style="font-family:'JetBrains Mono',monospace; color:#94a3b8; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
+            #${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}
+          </span>
+        </div>
+
+        <!-- Center: Completed Matchup & Read-Only Badge -->
+        <div style="display:inline-flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 6px; flex-shrink:0;">
+          <span style="color:#38bdf8;">${p1Display} (${p1Score})</span>
+          <span style="color:#64748b; font-size:10px;">vs</span>
+          <span style="color:#f43f5e;">${p2Display} (${p2Score})</span>
+          <span style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.35); padding:2px 8px; border-radius:6px; font-size:10px; font-weight:800; letter-spacing:0.04em; margin-left:4px;">
+            🔒 READ-ONLY ARCHIVE
+          </span>
+        </div>
+
+        <!-- Right: Read-Only Actions -->
+        <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+          <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="View Opponent's Army List">
+            📜 Opponent List ${hasOppList ? '🟢' : ''}
+          </button>
+          <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="View Your Army List">
+            📋 My List ${hasMyList ? '🟢' : ''}
+          </button>
+          <button onclick="window.open('/scorecard/' + encodeURIComponent('${escapeHtml(clientState.matchId)}'), '_blank')" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Open Scorecard">
+            📄 Scorecard ↗
+          </button>
+          <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Match Archive Link Copied!');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Archive Link">
+            🔗 Share
+          </button>
+        </div>
+      `;
+      return;
+    }
 
     hud.innerHTML = `
       <!-- Left: Hub & Lobby Navigation & Match Tag -->
