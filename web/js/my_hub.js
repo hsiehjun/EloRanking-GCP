@@ -1070,10 +1070,20 @@ function openImportArmyListModal() {
 
       <!-- Paste Text Content -->
       <div style="padding:20px;">
+        <!-- Recommended Exporter Options Guide -->
+        <div style="background:rgba(2,132,199,0.08); border:1px solid rgba(56,189,248,0.25); border-radius:8px; padding:10px 14px; margin-bottom:12px; font-size:11.5px; color:#cbd5e1; line-height:1.45;">
+          <div style="font-weight:700; color:#38bdf8; margin-bottom:4px; display:flex; align-items:center; gap:5px;">
+            <span>💡</span> Recommended Export Settings:
+          </div>
+          <div style="color:#94a3b8;">• <b>NewRecruit Text Export:</b> Format: <code>Tournament, GW</code> &bull; Checked: <code>[✓] Constant selections</code> &bull; <code>[✓] Header</code></div>
+          <div style="color:#94a3b8; margin-top:2px;">• <b>Official 40k App:</b> Share / Export text list directly</div>
+          <div style="color:#94a3b8; margin-top:2px;">• <b>BattleScribe / JSON / BCP:</b> Plain text or JSON export</div>
+        </div>
+
         <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">
           Paste Army List Text:
         </label>
-        <textarea id="hub-import-text-input" rows="11" placeholder="Paste your army roster text here... e.g.
+        <textarea id="hub-import-text-input" rows="10" placeholder="Paste your army roster text here... e.g.
 
 Space Marines - Gladius Task Force (2000 pts)
 1x Captain in Gravis Armour (80 pts): Warlord, Enhancement: The Artificer Armour (+10 pts)

@@ -1112,77 +1112,161 @@ class ArmyListParser:
         }
 
     def _parse_warhammer_app_text(self, text: str) -> Dict[str, Any]:
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        name = "Warhammer App List"
-        faction = "Warhammer 40,000"
-        detachment = "Core Detachment"
-        points = 2000
-        warlord = ""
+        """Parses official Warhammer 40k App text exports."""
+        lines = [line.rstrip() for line in text.splitlines()]
+        non_empty_lines = [(i, l.strip()) for i, l in enumerate(lines) if l.strip()]
+        if not non_empty_lines:
+            return self._create_empty_roster()
 
-        if lines:
-            name = lines[0].replace("’", "'")
-
-        for line in lines[:5]:
-            if "(" in line and "pts" in line:
-                m = re.search(r"([^\(]+)\s*\((?:(\d+)\s*pts|(\d+)\s*points)\)", line, re.IGNORECASE)
-                if m:
-                    faction = m.group(1).strip()
-                    points = int(m.group(2) or m.group(3) or 2000)
-            elif "detachment" in line.lower():
-                detachment = line.replace("Detachment", "").replace(":", "").strip()
-
-        parsed_units = []
-        current_role = "Infantry"
         header_roles = {
             "CHARACTERS": "Character",
             "BATTLELINE": "Battleline",
             "DEDICATED TRANSPORTS": "Transport",
             "OTHER DATASHEETS": "Infantry",
             "ALLIED UNITS": "Allied",
+            "FORTIFICATIONS": "Fortification",
         }
 
-        unit_line_pattern = re.compile(r"^([^\(\[]+?)\s*\((?:(\d+)\s*pts|(\d+)\s*points)\)", re.IGNORECASE)
+        first_cat_idx = len(lines)
+        for i, l in non_empty_lines:
+            if l.upper() in header_roles:
+                first_cat_idx = i
+                break
 
-        for line in lines:
-            upper = line.upper().strip()
-            if upper in header_roles:
-                current_role = header_roles[upper]
+        header_lines = [l for i, l in non_empty_lines if i < first_cat_idx]
+        body_lines = [lines[i] for i, l in non_empty_lines if i >= first_cat_idx]
+
+        roster_name = "Warhammer 40k App List"
+        faction = "Warhammer 40,000"
+        detachment = "Core Detachment"
+        points = 2000
+
+        known_factions = [
+            "Space Marines", "Adeptus Astartes", "Blood Angels", "Dark Angels", "Black Templars",
+            "Space Wolves", "Deathwatch", "Grey Knights", "Adepta Sororitas", "Adeptus Custodes",
+            "Adeptus Mechanicus", "Astra Militarum", "Imperial Knights", "Chaos Space Marines",
+            "Death Guard", "Thousand Sons", "World Eaters", "Chaos Knights", "Chaos Daemons",
+            "Tyranids", "Genestealer Cults", "Necrons", "Orks", "T'au Empire", "Aeldari",
+            "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children"
+        ]
+
+        battle_sizes = ["strike force", "incursion", "combat patrol", "onslaught", "boarding patrol", "reconnaissance"]
+
+        if header_lines:
+            first_line = header_lines[0]
+            m_pts = re.search(r"^(.+?)\s*\((?:(\d+)\s*pts|(\d+)\s*points)\)", first_line, re.IGNORECASE)
+            if m_pts:
+                roster_name = m_pts.group(1).replace("’", "'").strip()
+                points = int(m_pts.group(2) or m_pts.group(3) or 2000)
+
+            for hl in header_lines[1:]:
+                hl_clean = hl.strip()
+                hl_lower = hl_clean.lower()
+                if any(bs in hl_lower for bs in battle_sizes):
+                    continue
+                matched_fac = False
+                for kf in known_factions:
+                    if kf.lower() in hl_lower:
+                        faction = kf
+                        matched_fac = True
+                        break
+                if matched_fac:
+                    continue
+                det_clean = re.sub(r"\(\s*\d+\s*Detachment\s*Points\s*\)", "", hl_clean, flags=re.IGNORECASE).strip()
+                det_clean = re.sub(r"\(.*?\)", "", det_clean).strip()
+                if det_clean and not any(bs in det_clean.lower() for bs in battle_sizes):
+                    detachment = det_clean
+
+        parsed_units = []
+        current_unit = None
+        current_role = "Infantry"
+        warlord = ""
+
+        def is_model_line(model_name: str, unit_name: str) -> bool:
+            m_low = model_name.lower().strip()
+            u_low = unit_name.lower().strip()
+            if m_low in u_low or u_low.startswith(m_low) or m_low.rstrip('s') == u_low.rstrip('s'):
+                return True
+            if any(m_low.endswith(k) for k in ['sergeant', 'master', 'champion', 'captain', 'lieutenant', 'knight master', 'leader', 'justiciar']):
+                return True
+            return False
+
+        unit_line_re = re.compile(r"^([^\(\[]+?)\s*\((?:(\d+)\s*pts|(\d+)\s*points)\)", re.IGNORECASE)
+        enh_re = re.compile(r"^[•\-\*\s]*Enhancements?:\s*(.+?)(?:\s*\((?:Upgrade|\+?\d+\s*pts?)\))?$", re.IGNORECASE)
+
+        for line in body_lines:
+            trimmed = line.strip()
+            if not trimmed or trimmed.startswith("Exported with App Version"):
                 continue
 
-            m = unit_line_pattern.match(line)
-            if m:
-                uname = m.group(1).strip()
-                pts = int(m.group(2) or m.group(3) or 0)
-                is_wl = "warlord" in line.lower()
-                if is_wl and not warlord:
-                    warlord = uname
+            upper = trimmed.upper()
+            if upper in header_roles:
+                current_role = header_roles[upper]
+                current_unit = None
+                continue
 
-                parsed_units.append(
-                    {
-                        "id": f"u_{len(parsed_units)+1}_{uuid.uuid4().hex[:6]}",
-                        "name": uname,
-                        "role": current_role,
-                        "model_count": 1,
-                        "points": pts,
-                        "is_warlord": is_wl,
-                        "enhancement": None,
-                        "wargear": [],
-                        "keywords": [current_role, faction],
-                    }
-                )
+            is_indented = line.startswith(" ") or line.startswith("\t")
+            u_m = unit_line_re.match(trimmed)
+            if u_m and not is_indented and not trimmed.startswith("•") and not trimmed.startswith("-"):
+                u_name = u_m.group(1).replace("’", "'").strip()
+                u_pts = int(u_m.group(2) or u_m.group(3) or 0)
+                current_unit = {
+                    "id": f"u_{len(parsed_units)+1}_{uuid.uuid4().hex[:6]}",
+                    "name": u_name,
+                    "role": current_role,
+                    "model_count": 1,
+                    "points": u_pts,
+                    "is_warlord": False,
+                    "enhancement": None,
+                    "wargear": [],
+                    "keywords": [current_role, faction]
+                }
+                parsed_units.append(current_unit)
+                continue
+
+            if current_unit:
+                enh_m = enh_re.match(trimmed)
+                if enh_m:
+                    enh_name = enh_m.group(1).replace("’", "'").strip()
+                    enh_clean = re.sub(r"\(.*?\)", "", enh_name).strip()
+                    current_unit["enhancement"] = enh_clean
+                    continue
+
+                if "warlord" in trimmed.lower() and len(trimmed) < 20:
+                    current_unit["is_warlord"] = True
+                    if not warlord:
+                        warlord = current_unit["name"]
+                    continue
+
+                count_m = re.match(r"^[•\-\*\s]*(\d+)x\s+([A-Za-z0-9\s\'\-’]+)$", trimmed, re.IGNORECASE)
+                if count_m:
+                    c_num = int(count_m.group(1))
+                    c_name = count_m.group(2).replace("’", "'").strip()
+                    if is_model_line(c_name, current_unit["name"]):
+                        current_unit["model_count"] = c_num
+                        continue
+                    else:
+                        if c_name not in current_unit["wargear"]:
+                            current_unit["wargear"].append(c_name)
+                        continue
+
+                clean_sub = re.sub(r"^[•\-\*\s]+", "", trimmed).strip()
+                item_clean = re.sub(r"^\d+x?\s+", "", clean_sub).replace("’", "'").strip()
+                if item_clean and item_clean not in current_unit["wargear"]:
+                    current_unit["wargear"].append(item_clean)
 
         return {
             "id": f"list_{uuid.uuid4().hex[:10]}",
-            "name": name,
+            "name": roster_name,
             "faction": faction,
             "detachment": detachment,
             "points": sum(u["points"] for u in parsed_units) or points,
-            "points_limit": 2000,
+            "points_limit": points or 2000,
             "warlord": warlord or (parsed_units[0]["name"] if parsed_units else ""),
             "source_format": "Warhammer 40k App",
             "source_url": None,
             "units": parsed_units,
-            "enhancements": [],
+            "enhancements": [u["enhancement"] for u in parsed_units if u.get("enhancement")],
             "stratagems": [],
             "raw_text": text,
         }
