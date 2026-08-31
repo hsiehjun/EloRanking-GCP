@@ -2862,6 +2862,36 @@ if FASTAPI_AVAILABLE:
 
         return event_details
 
+    # API: Cloud Scheduler Cron Sync
+    @app.post("/api/cron/sync-tournaments", summary="Cloud Scheduler cron to scrape latest tournaments and update Elo")
+    @app.get("/api/cron/sync-tournaments", summary="Manual trigger to scrape latest tournaments and update Elo")
+    async def api_cron_sync_tournaments(request: Request, background_tasks: BackgroundTasks):
+        """Scrapes newly concluded BCP tournaments and recalculates Elo ratings."""
+        def do_sync():
+            try:
+                db = get_database()
+                scraper = BestCoastPairingsScraper(db=db)
+                end_dt = datetime.now(timezone.utc)
+                start_dt = end_dt - timedelta(days=3)
+                start_str = start_dt.strftime("%Y-%m-%dT00:00:00.000Z")
+                end_str = end_dt.strftime("%Y-%m-%dT23:59:59.999Z")
+                
+                logger.info(f"⏰ [CRON SYNC] Scraping tournaments from {start_str} to {end_str}...")
+                res = scraper.scrape_date_range(start_date=start_str, end_date=end_str, max_events=50)
+                logger.info(f"⏰ [CRON SYNC] Scraped {res.get('events_scraped', 0)} events, {res.get('matches_scraped', 0)} matches.")
+                
+                engine = get_elo_engine()
+                recon_res = engine.reconstruct_incremental()
+                logger.info(f"⏰ [CRON SYNC] Elo Reconstruction complete: {recon_res}")
+            except Exception as err:
+                logger.error(f"❌ [CRON SYNC] Error running scheduled tournament sync: {err}", exc_info=True)
+
+        background_tasks.add_task(do_sync)
+        return {
+            "success": True,
+            "message": "Scheduled BCP tournament sync and Elo recalculation task queued successfully."
+        }
+
     # API: Past Head-to-Head Encounters
     @app.get("/api/head_to_head", summary="Get head-to-head encounters between two players")
     async def api_head_to_head(p1: str = Query(...), p2: str = Query(...)):
