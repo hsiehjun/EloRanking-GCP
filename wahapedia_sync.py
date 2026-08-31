@@ -111,17 +111,10 @@ class WahapediaSync:
                     data_rows = rows[1:]
 
                     with conn.cursor() as cursor:
-                        # Ensure table and all columns exist
+                        # Drop & recreate table cleanly with TEXT columns
                         cols_def = ", ".join([f'"{col}" TEXT' for col in header])
-                        cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({cols_def});")
-                        for col in header:
-                            try:
-                                cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS "{col}" TEXT;')
-                            except Exception:
-                                pass
-
-                        # Truncate table
-                        cursor.execute(f"TRUNCATE TABLE {table_name};")
+                        cursor.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE;")
+                        cursor.execute(f"CREATE TABLE {table_name} ({cols_def});")
 
                         if data_rows:
                             num_cols = len(header)
@@ -137,7 +130,32 @@ class WahapediaSync:
                                 normalized_data.append(tuple(r))
 
                             insert_sql = f"INSERT INTO {table_name} ({cols_str}) VALUES %s;"
-                            extras.execute_values(cursor, insert_sql, normalized_data, page_size=2000)
+                            extras.execute_values(cursor, insert_sql, normalized_data, page_size=5000)
+
+                        # Re-add performance indexes
+                        if table_name == "waha_datasheets":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_datasheets_name ON waha_datasheets(LOWER(name));")
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_datasheets_faction ON waha_datasheets(faction_id);")
+                        elif table_name == "waha_datasheet_models":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_models_ds ON waha_datasheet_models(datasheet_id);")
+                        elif table_name == "waha_datasheet_wargear":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_wargear_ds ON waha_datasheet_wargear(datasheet_id);")
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_wargear_name ON waha_datasheet_wargear(LOWER(name));")
+                        elif table_name == "waha_datasheet_abilities":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_abilities_ds ON waha_datasheet_abilities(datasheet_id);")
+                        elif table_name == "waha_datasheet_keywords":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_keywords_ds ON waha_datasheet_keywords(datasheet_id);")
+                        elif table_name == "waha_datasheet_costs":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_costs_ds ON waha_datasheet_costs(datasheet_id);")
+                        elif table_name == "waha_stratagems":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_stratagems_det ON waha_stratagems(LOWER(detachment));")
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_stratagems_fac ON waha_stratagems(faction_id);")
+                        elif table_name == "waha_enhancements":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_enhancements_det ON waha_enhancements(LOWER(detachment));")
+                        elif table_name == "waha_detachment_abilities":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_det_ab_det ON waha_detachment_abilities(LOWER(detachment));")
+                        elif table_name == "waha_detachments":
+                            cursor.execute("CREATE INDEX IF NOT EXISTS idx_waha_detachments_name ON waha_detachments(LOWER(name));")
 
                     conn.commit()
                     results[filename] = len(data_rows)
