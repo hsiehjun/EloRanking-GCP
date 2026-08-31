@@ -1565,30 +1565,39 @@ if FASTAPI_AVAILABLE:
         army_list = body.get("army_list") or {}
 
         # 1. Update in-memory room
-        if match_id in TRACKER_ROOMS:
-            if role == "player1":
-                TRACKER_ROOMS[match_id]["p1_army_list"] = army_list
-            else:
-                TRACKER_ROOMS[match_id]["p2_army_list"] = army_list
+        if match_id not in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id] = {
+                "match_id": match_id,
+                "state": {},
+                "version": 1
+            }
 
-        # 2. Persist in database
-        db = get_database()
-        db.update_tracker_army_list(match_id, role, army_list)
+        if role == "player1":
+            TRACKER_ROOMS[match_id]["p1_army_list"] = army_list
+        else:
+            TRACKER_ROOMS[match_id]["p2_army_list"] = army_list
+
+        # 2. Persist in database safely
+        try:
+            db = get_database()
+            db.update_tracker_army_list(match_id, role, army_list)
+        except Exception as e:
+            logger.warning(f"Error persisting attached army list: {e}")
 
         # 3. Broadcast SSE update to opponent and spectators
-        if match_id in TRACKER_LISTENERS:
-            payload = json.dumps({
-                "type": "army_list_updated",
-                "match_id": match_id,
-                "role": role,
-                "army_list": army_list,
-                "sender": role
-            })
-            for q in list(TRACKER_LISTENERS[match_id]):
-                try:
-                    await q.put(payload)
-                except Exception:
-                    pass
+        listeners = TRACKER_LISTENERS.get(match_id, [])
+        msg = {
+            "type": "army_list_updated",
+            "match_id": match_id,
+            "role": role,
+            "army_list": army_list,
+            "sender": role
+        }
+        for q in list(listeners):
+            try:
+                await q.put(msg)
+            except Exception:
+                pass
 
         return {"success": True, "match_id": match_id, "role": role, "army_list": army_list}
 
