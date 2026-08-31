@@ -228,21 +228,30 @@ class BestCoastPairingsScraper:
                 except (ValueError, TypeError):
                     pass
 
-            self.db.upsert_player(user_id, first_name, last_name, full_name, team=team_name)
-            self.db.upsert_event_participant(
-                event_id=event_id,
-                player_id=user_id,
-                first_name=first_name,
-                last_name=last_name,
-                full_name=full_name,
-                faction=faction_name,
-                team=team_name,
-                dropped=bool(p.get("dropped")),
-                checked_in=bool(p.get("checkedIn")),
-                placement=placing_num,
-                battle_points=pts_num,
-                pod_num=pod_num
-            )
+            ids_to_upsert = set()
+            if user_id:
+                ids_to_upsert.add(user_id)
+            if p.get("id"):
+                ids_to_upsert.add(p.get("id"))
+            if p.get("userId"):
+                ids_to_upsert.add(p.get("userId"))
+
+            for pid in ids_to_upsert:
+                self.db.upsert_player(pid, first_name, last_name, full_name, team=team_name)
+                self.db.upsert_event_participant(
+                    event_id=event_id,
+                    player_id=pid,
+                    first_name=first_name,
+                    last_name=last_name,
+                    full_name=full_name,
+                    faction=faction_name,
+                    team=team_name,
+                    dropped=bool(p.get("dropped")),
+                    checked_in=bool(p.get("checkedIn")),
+                    placement=placing_num,
+                    battle_points=pts_num,
+                    pod_num=pod_num
+                )
             count += 1
         return count
 
@@ -426,21 +435,30 @@ class BestCoastPairingsScraper:
                     except (ValueError, TypeError):
                         pass
 
-                self.db.upsert_player(user_id, first_name, last_name, full_name, team=team_name)
-                self.db.upsert_event_participant(
-                    event_id=event_id,
-                    player_id=user_id,
-                    first_name=first_name,
-                    last_name=last_name,
-                    full_name=full_name,
-                    faction=faction_name,
-                    team=team_name,
-                    dropped=bool(p.get("dropped")),
-                    checked_in=bool(p.get("checkedIn")),
-                    placement=placing_num,
-                    battle_points=pts_num,
-                    pod_num=pod_num
-                )
+                ids_to_upsert = set()
+                if user_id:
+                    ids_to_upsert.add(user_id)
+                if p.get("id"):
+                    ids_to_upsert.add(p.get("id"))
+                if p.get("userId"):
+                    ids_to_upsert.add(p.get("userId"))
+
+                for pid in ids_to_upsert:
+                    self.db.upsert_player(pid, first_name, last_name, full_name, team=team_name)
+                    self.db.upsert_event_participant(
+                        event_id=event_id,
+                        player_id=pid,
+                        first_name=first_name,
+                        last_name=last_name,
+                        full_name=full_name,
+                        faction=faction_name,
+                        team=team_name,
+                        dropped=bool(p.get("dropped")),
+                        checked_in=bool(p.get("checkedIn")),
+                        placement=placing_num,
+                        battle_points=pts_num,
+                        pod_num=pod_num
+                    )
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")
 
