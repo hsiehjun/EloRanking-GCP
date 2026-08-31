@@ -671,3 +671,188 @@ async function openScorecardModal(matchId) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading scorecard: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
+
+// ==========================================
+// FEEDBACK & BUG REPORT MODAL
+// ==========================================
+
+let activeFeedbackType = 'bug';
+
+function setFeedbackType(type) {
+  activeFeedbackType = type;
+  ['bug', 'feature', 'general'].forEach(t => {
+    const btn = document.getElementById(`fb-type-btn-${t}`);
+    if (btn) {
+      if (t === type) {
+        btn.style.background = '#0284c7';
+        btn.style.color = '#fff';
+        btn.style.borderColor = '#38bdf8';
+      } else {
+        btn.style.background = 'rgba(255,255,255,0.04)';
+        btn.style.color = '#94a3b8';
+        btn.style.borderColor = 'rgba(255,255,255,0.1)';
+      }
+    }
+  });
+}
+
+function openFeedbackModal() {
+  let modal = document.getElementById('feedback-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'feedback-modal';
+    modal.className = 'modal-backdrop';
+    modal.onclick = function(e) { if (e.target === this) closeFeedbackModal(); };
+    document.body.appendChild(modal);
+  }
+
+  const userEmail = (typeof currentUser !== 'undefined' && currentUser && currentUser.email) ? currentUser.email : '';
+
+  modal.innerHTML = `
+    <div class="modal-window" style="max-width: 520px; background:#0b1120; border:1px solid rgba(56,189,248,0.3); border-radius:16px; box-shadow:0 25px 60px rgba(0,0,0,0.85); overflow:hidden; font-family:'Inter',system-ui,sans-serif; color:#f8fafc;">
+      <div class="modal-header" style="padding:16px 20px; background:#0f172a; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:22px;">💬</span>
+          <div>
+            <h3 style="font-size:16px; font-weight:800; color:#fff; margin:0;">Feedback & Bug Report</h3>
+            <div style="font-size:11px; color:#38bdf8; margin-top:2px;">Help us improve 40k Elo Ranking & Game Tracker</div>
+          </div>
+        </div>
+        <button onclick="closeFeedbackModal()" style="background:transparent; border:none; color:#94a3b8; font-size:22px; cursor:pointer;">✕</button>
+      </div>
+
+      <div style="padding:20px;">
+        <!-- Category Selector -->
+        <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:8px;">Category:</label>
+        <div style="display:flex; gap:8px; margin-bottom:16px;">
+          <button type="button" id="fb-type-btn-bug" onclick="setFeedbackType('bug')" style="flex:1; padding:8px 10px; border-radius:8px; font-size:12px; font-weight:700; border:1px solid #38bdf8; background:#0284c7; color:#fff; cursor:pointer; transition:all 0.2s;">
+            🐞 Bug Report
+          </button>
+          <button type="button" id="fb-type-btn-feature" onclick="setFeedbackType('feature')" style="flex:1; padding:8px 10px; border-radius:8px; font-size:12px; font-weight:700; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); color:#94a3b8; cursor:pointer; transition:all 0.2s;">
+            ✨ Feature Idea
+          </button>
+          <button type="button" id="fb-type-btn-general" onclick="setFeedbackType('general')" style="flex:1; padding:8px 10px; border-radius:8px; font-size:12px; font-weight:700; border:1px solid rgba(255,255,255,0.1); background:rgba(255,255,255,0.04); color:#94a3b8; cursor:pointer; transition:all 0.2s;">
+            💬 General
+          </button>
+        </div>
+
+        <!-- Description -->
+        <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">
+          Description / Details: <span style="color:#ef4444;">*</span>
+        </label>
+        <textarea id="fb-input-message" rows="5" placeholder="Describe the issue you encountered or the feature you'd love to see... (e.g. army list text error, scorecard discrepancy, predictor feedback)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12.5px; font-family:'Inter',system-ui,sans-serif; outline:none; box-sizing:border-box; line-height:1.5; resize:vertical;"></textarea>
+
+        <!-- Optional Contact -->
+        <div style="margin-top:14px;">
+          <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">
+            Your Email or Discord (optional for follow-up):
+          </label>
+          <input type="text" id="fb-input-contact" value="${escapeHtml(userEmail)}" placeholder="e.g. name@example.com or Discord username" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:9px 12px; color:#e2e8f0; font-size:12px; outline:none; box-sizing:border-box;">
+        </div>
+
+        <div id="fb-status-msg" style="display:none; margin-top:12px; padding:10px; border-radius:8px; font-size:12px; font-weight:600;"></div>
+
+        <!-- Action Buttons -->
+        <div style="margin-top:18px; display:flex; justify-content:flex-end; gap:8px;">
+          <button onclick="closeFeedbackModal()" style="background:#1e293b; color:#cbd5e1; font-weight:700; font-size:12px; border:none; padding:9px 16px; border-radius:8px; cursor:pointer;">Cancel</button>
+          <button id="fb-btn-submit" onclick="handleSubmitFeedback()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; border:none; padding:9px 20px; border-radius:8px; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            🚀 Submit Feedback
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  modal.classList.add('active');
+  modal.style.display = 'flex';
+  activeFeedbackType = 'bug';
+}
+
+function closeFeedbackModal() {
+  const modal = document.getElementById('feedback-modal');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
+}
+
+async function handleSubmitFeedback() {
+  const msgInput = document.getElementById('fb-input-message');
+  const contactInput = document.getElementById('fb-input-contact');
+  const statusDiv = document.getElementById('fb-status-msg');
+  const btn = document.getElementById('fb-btn-submit');
+
+  const message = msgInput ? msgInput.value.trim() : '';
+  const email = contactInput ? contactInput.value.trim() : '';
+
+  if (!message) {
+    if (statusDiv) {
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = 'rgba(239,68,68,0.15)';
+      statusDiv.style.border = '1px solid rgba(239,68,68,0.4)';
+      statusDiv.style.color = '#f87171';
+      statusDiv.innerText = 'Please enter your feedback message.';
+    }
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:14px; height:14px; border-width:2px;"></span> Submitting...';
+  }
+
+  try {
+    const sessionToken = (typeof getAuthToken === 'function' ? getAuthToken() : (localStorage.getItem('elo_session_token') || ''));
+    const payload = {
+      feedback_type: activeFeedbackType,
+      message: message,
+      email: email,
+      page_url: window.location.href,
+      device_info: `${navigator.userAgent} (${window.innerWidth}x${window.innerHeight})`,
+      token: sessionToken
+    };
+
+    const resp = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(sessionToken ? { 'Authorization': `Bearer ${sessionToken}` } : {})
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await resp.json();
+    if (resp.ok && data.success) {
+      if (statusDiv) {
+        statusDiv.style.display = 'block';
+        statusDiv.style.background = 'rgba(16,185,129,0.15)';
+        statusDiv.style.border = '1px solid rgba(16,185,129,0.4)';
+        statusDiv.style.color = '#34d399';
+        statusDiv.innerText = '✅ Thank you! Your feedback has been sent directly to the developer.';
+      }
+      if (msgInput) msgInput.value = '';
+      setTimeout(() => {
+        closeFeedbackModal();
+      }, 1600);
+    } else {
+      throw new Error(data.detail || data.error || 'Failed to submit feedback');
+    }
+  } catch (err) {
+    if (statusDiv) {
+      statusDiv.style.display = 'block';
+      statusDiv.style.background = 'rgba(239,68,68,0.15)';
+      statusDiv.style.border = '1px solid rgba(239,68,68,0.4)';
+      statusDiv.style.color = '#f87171';
+      statusDiv.innerText = `Error submitting feedback: ${err.message}`;
+    }
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '🚀 Submit Feedback';
+    }
+  }
+}
+
+window.openFeedbackModal = openFeedbackModal;
+window.closeFeedbackModal = closeFeedbackModal;
+window.handleSubmitFeedback = handleSubmitFeedback;
+window.setFeedbackType = setFeedbackType;

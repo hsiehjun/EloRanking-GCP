@@ -56,8 +56,13 @@
         </button>
       </div>
 
-      <!-- User Account Action / Status Area -->
-      <div id="header-user-area" style="display: flex; align-items: center; gap: 0.6rem;"></div>
+      <!-- User Account Action & Feedback Area -->
+      <div style="display: flex; align-items: center; gap: 0.6rem;">
+        <button id="nav-btn-feedback" onclick="openFeedbackModal()" class="nav-btn" style="padding: 5px 12px; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 5px; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; background: rgba(15,23,42,0.6); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#38bdf8'; this.style.borderColor='rgba(56,189,248,0.4)';" onmouseout="this.style.color='#94a3b8'; this.style.borderColor='rgba(255,255,255,0.1)';" title="Send Feedback or Report an Issue">
+          <span>💬</span> <span style="font-weight: 600;">Feedback</span>
+        </button>
+        <div id="header-user-area" style="display: flex; align-items: center; gap: 0.6rem;"></div>
+      </div>
     </div>
   </header>
 

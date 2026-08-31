@@ -378,6 +378,18 @@ class PostgresDatabase:
                 UNIQUE(event_id, round_num)
             );""",
             "CREATE INDEX IF NOT EXISTS idx_wtc_drafts_event ON tournament_wtc_drafts(event_id, round_num);",
+            """CREATE TABLE IF NOT EXISTS user_feedbacks (
+                id VARCHAR(64) PRIMARY KEY,
+                user_id VARCHAR(128),
+                user_email VARCHAR(256),
+                feedback_type VARCHAR(32) DEFAULT 'bug',
+                message TEXT NOT NULL,
+                page_url TEXT,
+                device_info TEXT,
+                status VARCHAR(32) DEFAULT 'new',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_feedbacks_created ON user_feedbacks(created_at DESC);",
             """CREATE TABLE IF NOT EXISTS waha_factions (
                 id TEXT,
                 name TEXT,
@@ -3664,6 +3676,31 @@ class PostgresDatabase:
                         seen.add(n)
                         deduped.append(r)
                 return deduped
+
+    def save_feedback(self, feedback_type: str, message: str, user_id: Optional[str] = None, user_email: Optional[str] = None, page_url: Optional[str] = None, device_info: Optional[str] = None) -> str:
+        """Saves user feedback / bug report to PostgreSQL."""
+        import uuid
+        fb_id = f"fb_{uuid.uuid4().hex[:12]}"
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO user_feedbacks (id, user_id, user_email, feedback_type, message, page_url, device_info, status, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'new', NOW());
+                """, (fb_id, user_id, user_email, feedback_type, message, page_url, device_info))
+                conn.commit()
+        return fb_id
+
+    def get_feedbacks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieves recent user feedbacks from PostgreSQL."""
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT * FROM user_feedbacks
+                    ORDER BY created_at DESC
+                    LIMIT %s;
+                """, (limit,))
+                return [dict(r) for r in cursor.fetchall()]
 
 
 

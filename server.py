@@ -3373,6 +3373,47 @@ if FASTAPI_AVAILABLE:
 
         return auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid)
 
+    class FeedbackPayload(BaseModel):
+        feedback_type: str = "bug"
+        message: str
+        email: Optional[str] = None
+        page_url: Optional[str] = None
+        device_info: Optional[str] = None
+        token: Optional[str] = None
+
+    @app.post("/api/feedback", summary="Submit user feedback or bug report")
+    async def api_submit_feedback(payload: FeedbackPayload, request: Request):
+        if not payload.message or not payload.message.strip():
+            raise HTTPException(status_code=400, detail="Feedback message cannot be empty.")
+
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = payload.token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+        
+        user_id = None
+        user_email = payload.email
+        if session_token:
+            session = auth_mgr.get_session(session_token)
+            if session:
+                user_id = session.get("id")
+                user_email = user_email or session.get("email")
+
+        db = get_database()
+        fb_id = db.save_feedback(
+            feedback_type=payload.feedback_type or "bug",
+            message=payload.message.strip(),
+            user_id=user_id,
+            user_email=user_email,
+            page_url=payload.page_url,
+            device_info=payload.device_info
+        )
+        return {"success": True, "id": fb_id, "message": "Thank you! Your feedback has been received."}
+
+    @app.get("/api/feedback", summary="Get recent user feedbacks (Admin)")
+    async def api_get_feedbacks(request: Request, limit: int = Query(50)):
+        db = get_database()
+        return db.get_feedbacks(limit=limit)
+
 def start_server(port: int = 8080, host: str = "0.0.0.0"):
     """Starts the FastAPI Uvicorn ASGI server."""
     logger.info(f"Starting Warhammer 40k Elo Ranking FastAPI Server on http://{host}:{port}")
