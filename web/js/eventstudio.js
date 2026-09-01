@@ -90,6 +90,43 @@ function updateStudioAuthBadge() {
   }
 }
 
+async function syncBcpOrganizerEvents() {
+  const btns = document.querySelectorAll("#btn-sync-bcp-events");
+  btns.forEach(b => {
+    b.disabled = true;
+    b.textContent = "🔄 Syncing with BCP...";
+  });
+
+  try {
+    const res = await window.api.getStudioEvents();
+    studioState.eventsList = (res && Array.isArray(res.events)) ? res.events : [];
+    
+    renderEventsDirectory();
+    if (typeof loadTournaments === 'function') {
+      try { loadTournaments(); } catch(e) {}
+    }
+
+    const unlinkedEvents = studioState.eventsList.filter(e => e.bcp_status === "deleted_on_bcp");
+    const activeBcpEvents = studioState.eventsList.filter(e => e.id && !e.id.startsWith("ES-") && e.bcp_status !== "deleted_on_bcp");
+    
+    if (unlinkedEvents.length > 0) {
+      alert(`🔄 BCP Sync Complete!\n\n• ${activeBcpEvents.length} active tournament(s) synced with Best Coast Pairings.\n• ⚠️ ${unlinkedEvents.length} tournament(s) were removed on BCP and are now marked as "Unlinked from BCP (Local Only)" in OmniTactica.`);
+    } else if (activeBcpEvents.length > 0) {
+      alert(`🎉 Synced with Best Coast Pairings! Loaded ${activeBcpEvents.length} active BCP tournament${activeBcpEvents.length === 1 ? '' : 's'}.`);
+    } else {
+      alert("✅ Sync complete! Your tournament directory is up to date.");
+    }
+  } catch (err) {
+    console.warn("Notice syncing BCP events:", err);
+    await loadStudioEvents();
+  } finally {
+    btns.forEach(b => {
+      b.disabled = false;
+      b.textContent = "🔄 Sync BCP Events";
+    });
+  }
+}
+
 async function loadStudioEvents() {
   try {
     const res = await window.api.getStudioEvents();
@@ -153,26 +190,37 @@ function renderEventsDirectory() {
       const location = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
       const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
       const isBcp = ev.id && !ev.id.startsWith("ES-");
+      const isDeletedOnBcp = ev.bcp_status === "deleted_on_bcp" || ev.bcp_deleted === true;
       const bcpUrl = isBcp ? `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}` : "#";
 
+      let bcpBadgeHtml = '';
+      if (isDeletedOnBcp) {
+        bcpBadgeHtml = '<span class="badge" style="font-size: 0.7rem; background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.35);" title="This tournament was removed from Best Coast Pairings but remains preserved locally in OmniTactica.">⚠️ UNLINKED FROM BCP</span>';
+      } else if (isBcp) {
+        bcpBadgeHtml = '<span class="badge badge-online" style="font-size: 0.7rem;">BCP SYNCED</span>';
+      } else {
+        bcpBadgeHtml = '<span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">LOCAL</span>';
+      }
+
       return `
-        <div class="es-event-card" data-event-id="${escapeHtml(ev.id)}" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.35rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; transition: transform 0.2s ease, border-color 0.2s ease;">
+        <div class="es-event-card" data-event-id="${escapeHtml(ev.id)}" style="background: var(--bg-card); border: 1px solid ${isDeletedOnBcp ? 'rgba(239,68,68,0.35)' : 'var(--border)'}; border-radius: var(--radius-lg); padding: 1.35rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; transition: transform 0.2s ease, border-color 0.2s ease;">
           <div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.35rem;">
               <span class="badge badge-accent" style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase;">${escapeHtml(tier)}</span>
-              ${isBcp ? '<span class="badge badge-online" style="font-size: 0.7rem;">BCP SYNCED</span>' : '<span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">LOCAL</span>'}
+              ${bcpBadgeHtml}
             </div>
             <h4 style="margin: 0 0 0.4rem; color: #fff; font-size: 1.15rem; font-family: var(--font-heading); cursor: pointer;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">${escapeHtml(ev.name)}</h4>
             <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
               <div>📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(location)}</div>
               <div>👥 <b>${roster.length} / ${ev.capacity || 32}</b> Players • 🎲 <b>${rounds}</b> Rounds (${ev.points || 2000} pts)</div>
+              ${isDeletedOnBcp ? '<div style="color: #ef4444; font-size: 0.75rem; font-weight: 600; margin-top: 0.2rem;">⚠️ Event deleted on BCP — preserved as local</div>' : ''}
             </div>
           </div>
 
           <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 0.85rem; margin-top: 0.25rem; gap: 0.5rem; flex-wrap: wrap;">
             <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">👑 Direct Event</button>
             <div style="display: flex; gap: 0.35rem; align-items: center;">
-              ${isBcp ? `<a href="${bcpUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none;">🔗 BCP</a>` : ''}
+              ${(isBcp && !isDeletedOnBcp) ? `<a href="${bcpUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none;">🔗 BCP</a>` : ''}
               <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.35);" onclick="deleteStudioTournament('${escapeHtml(ev.id)}')">🗑️</button>
             </div>
           </div>
@@ -323,13 +371,72 @@ async function loadTournamentWorkspace(eventId) {
     if (tierBadge) tierBadge.textContent = (ev.tier || "Grand Tournament").toUpperCase();
     
     const isBcp = ev.id && !ev.id.startsWith("ES-");
+    const isDeletedOnBcp = ev.bcp_status === "deleted_on_bcp" || ev.bcp_deleted === true;
+
     if (bcpBadge) {
-      bcpBadge.style.display = isBcp ? "inline-block" : "none";
+      if (isDeletedOnBcp) {
+        bcpBadge.style.display = "inline-block";
+        bcpBadge.className = "badge";
+        bcpBadge.style.background = "rgba(239,68,68,0.15)";
+        bcpBadge.style.color = "#ef4444";
+        bcpBadge.style.borderColor = "rgba(239,68,68,0.35)";
+        bcpBadge.textContent = "⚠️ UNLINKED FROM BCP";
+      } else if (isBcp) {
+        bcpBadge.style.display = "inline-block";
+        bcpBadge.className = "badge badge-online";
+        bcpBadge.style.background = "";
+        bcpBadge.style.color = "";
+        bcpBadge.style.borderColor = "";
+        bcpBadge.textContent = "BCP SYNCED";
+      } else {
+        bcpBadge.style.display = "none";
+      }
     }
     if (bcpLink) {
-      bcpLink.style.display = isBcp ? "inline-flex" : "none";
-      bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
+      if (isDeletedOnBcp) {
+        bcpLink.style.display = "none";
+      } else if (isBcp) {
+        bcpLink.style.display = "inline-flex";
+        bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
+      } else {
+        bcpLink.style.display = "none";
+      }
     }
+
+    // Render / update unlinked warning banner inside the workspace
+    let warningBanner = document.getElementById("manage-event-unlinked-warning");
+    const workspaceViews = document.querySelectorAll("#es-view-manage");
+    workspaceViews.forEach(ws => {
+      let wb = ws.querySelector("#manage-event-unlinked-warning");
+      if (isDeletedOnBcp) {
+        if (!wb) {
+          wb = document.createElement("div");
+          wb.id = "manage-event-unlinked-warning";
+          const header = ws.querySelector(".es-manage-header");
+          if (header) header.parentNode.insertBefore(wb, header.nextSibling);
+        }
+        if (wb) {
+          wb.style.display = "flex";
+          wb.style.alignItems = "center";
+          wb.style.justifyContent = "space-between";
+          wb.style.background = "rgba(239, 68, 68, 0.08)";
+          wb.style.border = "1px solid rgba(239, 68, 68, 0.25)";
+          wb.style.borderRadius = "var(--radius-md)";
+          wb.style.padding = "0.75rem 1.15rem";
+          wb.style.marginBottom = "1.25rem";
+          wb.style.fontSize = "0.85rem";
+          wb.style.color = "#fca5a5";
+          wb.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 0.65rem;">
+              <span style="font-size: 1.2rem;">⚠️</span>
+              <span><strong>Notice:</strong> This tournament was deleted or unlinked on Best Coast Pairings. It is preserved in OmniTactica as a local event with all competitor rosters, pairings, and scores intact.</span>
+            </div>
+          `;
+        }
+      } else if (wb) {
+        wb.style.display = "none";
+      }
+    });
 
     const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
     const locStr = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";

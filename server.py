@@ -243,30 +243,55 @@ if FASTAPI_AVAILABLE:
                     except Exception:
                         resp_ctx = None
 
+                    bcp_event_ids = set()
+                    bcp_sync_succeeded = False
+
                     if resp_ctx:
                         with resp_ctx as resp:
                             if resp.status == 200:
+                                bcp_sync_succeeded = True
                                 bcp_raw = json.loads(resp.read().decode("utf-8"))
                                 items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
                                 for item in (items if isinstance(items, list) else []):
                                     if not isinstance(item, dict): continue
+                                    bcp_id = str(item.get("id") or item.get("_id"))
+                                    bcp_event_ids.add(bcp_id)
                                     loc = item.get("location") if isinstance(item.get("location"), dict) else {}
-                                    db.save_studio_event({
-                                        "id": str(item.get("id") or item.get("_id")),
-                                        "name": item.get("name", "BCP Tournament"),
-                                        "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
-                                        "event_date": item.get("eventDate") or item.get("startDate"),
-                                        "end_date": item.get("endDate") or item.get("eventEndDate"),
-                                        "city": item.get("city") or loc.get("city"),
-                                        "state": item.get("state") or loc.get("state"),
-                                        "country": item.get("country") or loc.get("country"),
-                                        "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
-                                        "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
-                                        "points": item.get("points") or 2000,
-                                        "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                                    
+                                    # Preserve existing local roster/pairings if present
+                                    existing = db.get_studio_event(bcp_id) or {}
+                                    merged = {
+                                        **existing,
+                                        "id": bcp_id,
+                                        "name": item.get("name", existing.get("name", "BCP Tournament")),
+                                        "tier": item.get("eventType") or item.get("tier") or existing.get("tier", "Grand Tournament"),
+                                        "event_date": item.get("eventDate") or item.get("startDate") or existing.get("event_date"),
+                                        "end_date": item.get("endDate") or item.get("eventEndDate") or existing.get("end_date"),
+                                        "city": item.get("city") or loc.get("city") or existing.get("city"),
+                                        "state": item.get("state") or loc.get("state") or existing.get("state"),
+                                        "country": item.get("country") or loc.get("country") or existing.get("country"),
+                                        "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or existing.get("venue"),
+                                        "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or existing.get("num_rounds", 5),
+                                        "points": item.get("points") or existing.get("points", 2000),
+                                        "capacity": item.get("totalPlayers") or item.get("capacity") or existing.get("capacity", 32),
                                         "organizer_id": user_id,
-                                        "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id
-                                    })
+                                        "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
+                                        "bcp_synced": True,
+                                        "bcp_status": "synced"
+                                    }
+                                    db.save_studio_event(merged)
+
+                    # If BCP sync succeeded, inspect existing tournaments in OmniTactica:
+                    # If an event has a BCP ID but is no longer present in the organizer's active BCP events,
+                    # mark it as deleted on BCP (preserving it locally in OmniTactica)
+                    if bcp_sync_succeeded:
+                        existing_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
+                        for ev in existing_events:
+                            ev_id = ev.get("id", "")
+                            if not ev_id.startswith("ES-") and ev_id not in bcp_event_ids:
+                                ev["bcp_status"] = "deleted_on_bcp"
+                                ev["bcp_synced"] = False
+                                db.save_studio_event(ev)
             except Exception as se:
                 logger.info(f"Notice syncing BCP organizer events: {se}")
 
@@ -313,7 +338,9 @@ if FASTAPI_AVAILABLE:
                                 "points": item.get("points") or 2000,
                                 "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
                                 "organizer_id": user["id"] if user else None,
-                                "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or (user.get("bcp_user_id") if user else None)
+                                "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or (user.get("bcp_user_id") if user else None),
+                                "bcp_synced": True,
+                                "bcp_status": "synced"
                             })
                             return {"success": True, "event": saved}
             except Exception as fe:
@@ -324,6 +351,27 @@ if FASTAPI_AVAILABLE:
             if full_ev:
                 return {"success": True, "event": full_ev}
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
+
+        # If it's a BCP event, check if it's still alive on BCP
+        if not event_id.startswith("ES-") and ev.get("bcp_status") != "deleted_on_bcp":
+            try:
+                import urllib.request
+                bcp_check_url = f"{BCP_API_BASE}/events/{event_id}"
+                req = urllib.request.Request(bcp_check_url, headers=DEFAULT_HEADERS)
+                try:
+                    with urllib.request.urlopen(req, timeout=5) as check_resp:
+                        if check_resp.status == 200:
+                            if not ev.get("bcp_synced"):
+                                ev["bcp_synced"] = True
+                                ev["bcp_status"] = "synced"
+                                db.save_studio_event(ev)
+                except urllib.error.HTTPError as che:
+                    if che.code in (404, 400, 410):
+                        ev["bcp_status"] = "deleted_on_bcp"
+                        ev["bcp_synced"] = False
+                        db.save_studio_event(ev)
+            except Exception:
+                pass
 
         return {
             "success": True,
