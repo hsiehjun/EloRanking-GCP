@@ -2019,6 +2019,10 @@
             if (msg.sender !== clientState.clientId && msg.chess_clock) {
               applyRemoteChessClock(msg.chess_clock);
             }
+          } else if (msg.type === 'dice_roll') {
+            if (msg.roll) {
+              applyRemoteDiceRoll(msg.roll, msg.sender === clientState.clientId);
+            }
           } else if (msg.type === 'presence') {
             clientState.onlineCount = msg.count || 1;
             injectMultiplayerHUD();
@@ -2178,6 +2182,9 @@
         <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Chess Clock">
           ⏱️ Clock
         </button>
+        <button onclick="window.gtToggleDiceRoller()" style="background:#0f172a; color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Synchronized Dice Roller">
+          🎲 Dice
+        </button>
         ${tournamentId ? `
           <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
             🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
@@ -2205,6 +2212,10 @@
         </button>
       </div>
     `;
+
+    if (typeof mountDiceRollerModal === 'function' && typeof diceRollerState !== 'undefined' && diceRollerState.visible) {
+      mountDiceRollerModal();
+    }
   }
 
   // 9. Interactive Army List Inspector Modal & Wahapedia Rules Viewer
@@ -3249,6 +3260,439 @@ Space Marines - Gladius Task Force (2000 pts)
 
   function renderChessClock() {
     mountChessClockHud();
+  }
+
+  // ==========================================================================
+  // 10.5. Interactive Synchronized Live Dice Roller (Multiplayer / Dual Device)
+  // ==========================================================================
+  const diceRollerState = {
+    visible: localStorage.getItem('gt-dice-visible') === 'true',
+    count: Math.min(100, Math.max(1, parseInt(localStorage.getItem('gt-dice-count') || '10', 10))),
+    target: parseInt(localStorage.getItem('gt-dice-target') || '3', 10),
+    label: localStorage.getItem('gt-dice-label') || 'Hit Roll',
+    dieType: 'D6',
+    lastResults: [],
+    history: []
+  };
+
+  try {
+    const savedHistory = localStorage.getItem('gt-dice-history');
+    if (savedHistory) diceRollerState.history = JSON.parse(savedHistory);
+  } catch(e) {}
+
+  window.gtToggleDiceRoller = function() {
+    diceRollerState.visible = !diceRollerState.visible;
+    localStorage.setItem('gt-dice-visible', diceRollerState.visible);
+    mountDiceRollerModal();
+  };
+
+  function mountDiceRollerModal() {
+    let modal = document.getElementById('gt-dice-roller-modal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'gt-dice-roller-modal';
+      document.body.appendChild(modal);
+    }
+
+    if (!diceRollerState.visible) {
+      modal.style.display = 'none';
+      return;
+    }
+
+    modal.style.display = 'flex';
+    renderDiceRollerContent();
+  }
+
+  function renderDiceRollerContent() {
+    const modal = document.getElementById('gt-dice-roller-modal');
+    if (!modal || !diceRollerState.visible) return;
+
+    const count = diceRollerState.count;
+    const target = diceRollerState.target;
+    const last = diceRollerState.lastResults || [];
+    const lastSuccess = last.filter(v => v >= target).length;
+    const lastCrits = last.filter(v => v === 6).length;
+    const lastFails = last.filter(v => v < target).length;
+    const sum = last.reduce((a, b) => a + b, 0);
+
+    const hasResults = last.length > 0;
+
+    modal.innerHTML = `
+      <div class="gt-dice-header">
+        <div style="display:flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f59e0b;">
+          <span>🎲</span>
+          <span>LIVE DICE ROLLER</span>
+          <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9px; padding:1px 5px; border-radius:4px; color:#f59e0b;">SYNCED</span>
+        </div>
+        <button onclick="window.gtToggleDiceRoller()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;" title="Close Dice Roller">✕</button>
+      </div>
+
+      <div class="gt-dice-body">
+        <!-- Quick Preset Roll Labels -->
+        <div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none;">
+          ${['Hit Roll', 'Wound Roll', 'Armor Save', 'Invuln Save', 'Feel No Pain', 'Charge (2D6)', 'Advance (D6)'].map(l => `
+            <button class="gt-dice-quick-btn ${diceRollerState.label === l ? 'gt-dice-target-pill active' : ''}" style="white-space:nowrap; padding:3px 7px; font-size:10px;" onclick="window.gtSetDiceLabel('${l}')">
+              ${l}
+            </button>
+          `).join('')}
+        </div>
+
+        <!-- Dice Count Controls -->
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#cbd5e1; font-weight:700;">
+            <span>NUMBER OF DICE: <b id="gt-dice-count-display" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${count}</b></span>
+            <span style="font-size:10px; color:#64748b;">(Max: 100)</span>
+          </div>
+          <div style="display:flex; gap:4px; align-items:center;">
+            <input type="number" id="gt-dice-input" value="${count}" min="1" max="100" class="form-input" style="width:60px; height:28px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:6px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10))">
+            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(1)">+1</button>
+            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(5)">+5</button>
+            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(10)">+10</button>
+            <button class="gt-dice-quick-btn" onclick="window.gtAddDice(20)">+20</button>
+            <button class="gt-dice-quick-btn" style="color:#ef4444;" onclick="window.gtSetDiceCount(1)">Clear</button>
+          </div>
+        </div>
+
+        <!-- Target Threshold Selector -->
+        <div style="display:flex; flex-direction:column; gap:4px;">
+          <div style="font-size:11px; color:#cbd5e1; font-weight:700;">SUCCESS THRESHOLD:</div>
+          <div style="display:flex; gap:4px;">
+            ${[2, 3, 4, 5, 6].map(t => `
+              <button class="gt-dice-target-pill ${target === t ? 'active' : ''}" style="flex:1; text-align:center; font-family:'JetBrains Mono',monospace;" onclick="window.gtSetDiceTarget(${t})">
+                ${t}+
+              </button>
+            `).join('')}
+            <button class="gt-dice-target-pill ${target === 0 ? 'active' : ''}" style="flex:1; text-align:center;" onclick="window.gtSetDiceTarget(0)">
+              Raw
+            </button>
+          </div>
+        </div>
+
+        <!-- Giant Main Action Button -->
+        <button id="btn-main-roll-dice" onclick="window.gtExecuteDiceRoll()" style="background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px; border-radius:8px; font-size:14px; font-weight:900; font-family:'Chakra Petch',sans-serif; letter-spacing:0.5px; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.4); display:flex; justify-content:center; align-items:center; gap:6px; transition:transform 0.1s ease;">
+          🎲 ROLL ${count} ${diceRollerState.dieType} (${target > 0 ? target + '+' : 'Raw'})
+        </button>
+
+        <!-- Live Roll Results Display -->
+        ${hasResults ? `
+          <div style="background:rgba(15,23,42,0.8); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:6px;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <span style="font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase;">${escapeHtml(diceRollerState.label)} Results:</span>
+              <span style="font-size:10px; font-family:'JetBrains Mono',monospace; color:#64748b;">Sum: ${sum}</span>
+            </div>
+
+            <!-- Stats Banner -->
+            ${target > 0 ? `
+              <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:800;">
+                <span style="color:#10b981;">✅ ${lastSuccess} Pass (${target}+)</span>
+                ${lastCrits > 0 ? `<span style="color:#f59e0b;">⭐ ${lastCrits} Crit (6s)</span>` : ''}
+                <span style="color:#ef4444;">❌ ${lastFails} Fail</span>
+              </div>
+            ` : ''}
+
+            <!-- Individual Dice Pips -->
+            <div style="display:flex; flex-wrap:wrap; gap:4px; max-height:120px; overflow-y:auto; padding:2px 0;">
+              ${last.map(v => {
+                let cls = 'gt-die-neutral';
+                if (target > 0) {
+                  if (v === 6) cls = 'gt-die-crit';
+                  else if (v >= target) cls = 'gt-die-success';
+                  else cls = 'gt-die-fail';
+                } else {
+                  if (v === 6) cls = 'gt-die-crit';
+                }
+                return `<span class="gt-die-pip ${cls}">${v}</span>`;
+              }).join('')}
+            </div>
+
+            <!-- Quick Re-Roll Bar -->
+            <div style="display:flex; gap:4px; margin-top:2px; flex-wrap:wrap;">
+              <button class="gt-dice-quick-btn" style="flex:1; font-size:10px;" onclick="window.gtRerollOnes()" ${!last.includes(1) ? 'disabled style="opacity:0.4;"' : ''}>
+                🔄 Re-roll 1s (${last.filter(x => x === 1).length})
+              </button>
+              ${target > 0 && lastFails > 0 ? `
+                <button class="gt-dice-quick-btn" style="flex:1; font-size:10px;" onclick="window.gtRerollFailed()">
+                  🔄 Re-roll Fails (${lastFails})
+                </button>
+              ` : ''}
+              ${lastSuccess > 0 ? `
+                <button class="gt-dice-quick-btn" style="flex:1; font-size:10px; color:#10b981; border-color:rgba(16,185,129,0.3);" onclick="window.gtRollWoundsFromHits(${lastSuccess})" title="Set dice count to successful hits for wound roll">
+                  🎯 Roll ${lastSuccess} Wounds
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Multi-Player Roll History Feed -->
+        <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:10px; color:#64748b; font-weight:700;">
+            <span>MATCH ROLL HISTORY</span>
+            ${diceRollerState.history.length > 0 ? `<button onclick="window.gtClearDiceHistory()" style="background:transparent; border:none; color:#64748b; font-size:9px; cursor:pointer;">Clear</button>` : ''}
+          </div>
+          <div id="gt-dice-history-list" style="display:flex; flex-direction:column; gap:4px; max-height:100px; overflow-y:auto;">
+            ${diceRollerState.history.length === 0 ? `
+              <div style="font-size:10px; color:#475569; text-align:center; padding:4px 0;">No rolls in this match yet.</div>
+            ` : diceRollerState.history.slice(-8).reverse().map(h => `
+              <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:3px 6px; font-size:10px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <b style="color:${h.player_num === 2 ? '#10b981' : '#38bdf8'};">${escapeHtml(h.player_name)}</b>: 
+                  <span style="color:#cbd5e1;">${escapeHtml(h.label)} (${h.dice_count}D6${h.target ? ' @ ' + h.target + '+' : ''})</span>
+                </div>
+                <span style="font-weight:700; font-family:'JetBrains Mono',monospace; color:${h.target ? '#10b981' : '#f59e0b'};">
+                  ${h.target ? `${h.success_count}/${h.dice_count} pass` : `Sum ${h.sum}`}
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  window.gtSetDiceLabel = function(label) {
+    diceRollerState.label = label;
+    localStorage.setItem('gt-dice-label', label);
+    if (label.includes('Charge')) {
+      diceRollerState.count = 2;
+      diceRollerState.target = 0;
+    } else if (label.includes('Advance')) {
+      diceRollerState.count = 1;
+      diceRollerState.target = 0;
+    } else if (label.includes('Invuln') || label.includes('Armor')) {
+      diceRollerState.target = 4;
+    } else if (label.includes('Feel No Pain')) {
+      diceRollerState.target = 5;
+    }
+    renderDiceRollerContent();
+  };
+
+  window.gtSetDiceCount = function(count) {
+    diceRollerState.count = Math.min(100, Math.max(1, count || 1));
+    localStorage.setItem('gt-dice-count', diceRollerState.count);
+    renderDiceRollerContent();
+  };
+
+  window.gtAddDice = function(delta) {
+    diceRollerState.count = Math.min(100, Math.max(1, diceRollerState.count + delta));
+    localStorage.setItem('gt-dice-count', diceRollerState.count);
+    renderDiceRollerContent();
+  };
+
+  window.gtSetDiceTarget = function(target) {
+    diceRollerState.target = target;
+    localStorage.setItem('gt-dice-target', target);
+    renderDiceRollerContent();
+  };
+
+  function getLocalPlayerInfo() {
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let stateObj = {};
+    try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
+    const game = stateObj.game || {};
+    
+    // Determine player from assigned role or default P1
+    const p1Name = game.p1Name || 'Player 1';
+    const p2Name = game.p2Name || 'Player 2';
+    const isP2 = clientState.clientRole === 'player2';
+
+    return {
+      name: isP2 ? p2Name : p1Name,
+      num: isP2 ? 2 : 1
+    };
+  }
+
+  window.gtExecuteDiceRoll = function() {
+    const count = diceRollerState.count;
+    const target = diceRollerState.target;
+    const label = diceRollerState.label;
+
+    // Secure RNG
+    const results = [];
+    const array = new Uint32Array(count);
+    window.crypto.getRandomValues(array);
+    for (let i = 0; i < count; i++) {
+      results.push((array[i] % 6) + 1);
+    }
+    results.sort((a, b) => b - a);
+
+    diceRollerState.lastResults = results;
+
+    const successCount = target > 0 ? results.filter(v => v >= target).length : 0;
+    const failCount = target > 0 ? results.filter(v => v < target).length : 0;
+    const critCount = results.filter(v => v === 6).length;
+    const sum = results.reduce((a, b) => a + b, 0);
+
+    const player = getLocalPlayerInfo();
+    const rollPayload = {
+      id: `roll_${Date.now()}`,
+      client_id: clientState.clientId,
+      player_name: player.name,
+      player_num: player.num,
+      label: label,
+      dice_count: count,
+      die_type: 'D6',
+      target: target,
+      results: results,
+      success_count: successCount,
+      fail_count: failCount,
+      crit_count: critCount,
+      sum: sum
+    };
+
+    diceRollerState.history.push(rollPayload);
+    if (diceRollerState.history.length > 50) diceRollerState.history.shift();
+    try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
+
+    renderDiceRollerContent();
+    broadcastDiceRoll(rollPayload);
+  };
+
+  window.gtRerollOnes = function() {
+    const results = [...diceRollerState.lastResults];
+    const onesIndices = [];
+    results.forEach((v, idx) => {
+      if (v === 1) onesIndices.push(idx);
+    });
+
+    if (onesIndices.length === 0) return;
+
+    const array = new Uint32Array(onesIndices.length);
+    window.crypto.getRandomValues(array);
+    onesIndices.forEach((idx, i) => {
+      results[idx] = (array[i] % 6) + 1;
+    });
+
+    results.sort((a, b) => b - a);
+    diceRollerState.lastResults = results;
+
+    const target = diceRollerState.target;
+    const successCount = target > 0 ? results.filter(v => v >= target).length : 0;
+    const failCount = target > 0 ? results.filter(v => v < target).length : 0;
+    const critCount = results.filter(v => v === 6).length;
+    const sum = results.reduce((a, b) => a + b, 0);
+
+    const player = getLocalPlayerInfo();
+    const rollPayload = {
+      id: `roll_${Date.now()}`,
+      client_id: clientState.clientId,
+      player_name: player.name,
+      player_num: player.num,
+      label: `${diceRollerState.label} (Re-rolled 1s)`,
+      dice_count: results.length,
+      die_type: 'D6',
+      target: target,
+      results: results,
+      success_count: successCount,
+      fail_count: failCount,
+      crit_count: critCount,
+      sum: sum
+    };
+
+    diceRollerState.history.push(rollPayload);
+    if (diceRollerState.history.length > 50) diceRollerState.history.shift();
+    try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
+
+    renderDiceRollerContent();
+    broadcastDiceRoll(rollPayload);
+  };
+
+  window.gtRerollFailed = function() {
+    const target = diceRollerState.target;
+    if (target <= 0) return;
+
+    const results = [...diceRollerState.lastResults];
+    const failIndices = [];
+    results.forEach((v, idx) => {
+      if (v < target) failIndices.push(idx);
+    });
+
+    if (failIndices.length === 0) return;
+
+    const array = new Uint32Array(failIndices.length);
+    window.crypto.getRandomValues(array);
+    failIndices.forEach((idx, i) => {
+      results[idx] = (array[i] % 6) + 1;
+    });
+
+    results.sort((a, b) => b - a);
+    diceRollerState.lastResults = results;
+
+    const successCount = results.filter(v => v >= target).length;
+    const failCount = results.filter(v => v < target).length;
+    const critCount = results.filter(v => v === 6).length;
+    const sum = results.reduce((a, b) => a + b, 0);
+
+    const player = getLocalPlayerInfo();
+    const rollPayload = {
+      id: `roll_${Date.now()}`,
+      client_id: clientState.clientId,
+      player_name: player.name,
+      player_num: player.num,
+      label: `${diceRollerState.label} (Re-rolled Fails)`,
+      dice_count: results.length,
+      die_type: 'D6',
+      target: target,
+      results: results,
+      success_count: successCount,
+      fail_count: failCount,
+      crit_count: critCount,
+      sum: sum
+    };
+
+    diceRollerState.history.push(rollPayload);
+    if (diceRollerState.history.length > 50) diceRollerState.history.shift();
+    try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
+
+    renderDiceRollerContent();
+    broadcastDiceRoll(rollPayload);
+  };
+
+  window.gtRollWoundsFromHits = function(hitCount) {
+    diceRollerState.count = hitCount;
+    diceRollerState.label = 'Wound Roll';
+    diceRollerState.target = 4;
+    localStorage.setItem('gt-dice-count', hitCount);
+    localStorage.setItem('gt-dice-label', 'Wound Roll');
+    localStorage.setItem('gt-dice-target', 4);
+    renderDiceRollerContent();
+  };
+
+  window.gtClearDiceHistory = function() {
+    diceRollerState.history = [];
+    localStorage.removeItem('gt-dice-history');
+    renderDiceRollerContent();
+  };
+
+  function broadcastDiceRoll(rollData) {
+    if (!clientState.matchId) return;
+    fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/dice_roll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rollData)
+    }).catch(() => {});
+  }
+
+  function applyRemoteDiceRoll(remoteRoll, isSelf) {
+    if (!remoteRoll) return;
+
+    // Check if already in history
+    if (!diceRollerState.history.some(h => h.id === remoteRoll.id)) {
+      diceRollerState.history.push(remoteRoll);
+      if (diceRollerState.history.length > 50) diceRollerState.history.shift();
+      try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
+    }
+
+    if (!isSelf) {
+      diceRollerState.lastResults = remoteRoll.results || [];
+      diceRollerState.label = remoteRoll.label || 'Dice Roll';
+      diceRollerState.target = typeof remoteRoll.target === 'number' ? remoteRoll.target : 3;
+      diceRollerState.count = remoteRoll.dice_count || remoteRoll.results?.length || 10;
+    }
+
+    if (diceRollerState.visible) {
+      renderDiceRollerContent();
+    }
   }
 
   // 11. Judge & TO Dispatch Modal

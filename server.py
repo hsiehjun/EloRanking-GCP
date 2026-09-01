@@ -2601,6 +2601,63 @@ if FASTAPI_AVAILABLE:
 
         return {"success": True, "chess_clock": clock_data}
 
+    @app.post("/api/tracker/room/{match_id}/dice_roll", summary="Broadcast live dice roll to both players in room")
+    async def api_tracker_roll_dice(match_id: str, request: Request):
+        match_id = normalize_tracker_match_id(match_id)
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        if match_id not in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id] = {
+                "match_id": match_id,
+                "state": {},
+                "version": 1
+            }
+
+        room = TRACKER_ROOMS[match_id]
+        roll_data = {
+            "id": body.get("id") or f"roll_{int(datetime.now(timezone.utc).timestamp() * 1000)}",
+            "player_name": body.get("player_name") or "Player",
+            "player_num": int(body.get("player_num") or 1),
+            "label": body.get("label") or "Dice Roll",
+            "dice_count": int(body.get("dice_count") or 1),
+            "die_type": body.get("die_type") or "D6",
+            "target": int(body.get("target") or 0),
+            "results": body.get("results") or [],
+            "success_count": int(body.get("success_count") or 0),
+            "fail_count": int(body.get("fail_count") or 0),
+            "crit_count": int(body.get("crit_count") or 0),
+            "sum": int(body.get("sum") or 0),
+            "timestamp": int(datetime.now(timezone.utc).timestamp() * 1000)
+        }
+
+        # Keep last 50 rolls in room history
+        if "dice_history" not in room:
+            room["dice_history"] = []
+        room["dice_history"].append(roll_data)
+        if len(room["dice_history"]) > 50:
+            room["dice_history"] = room["dice_history"][-50:]
+
+        # Broadcast to all SSE listeners in this room
+        listeners = TRACKER_LISTENERS.get(match_id, [])
+        msg = {
+            "type": "dice_roll",
+            "sender": body.get("client_id", "anon"),
+            "roll": roll_data
+        }
+        for l_q in list(listeners):
+            try:
+                await l_q.put(msg)
+            except Exception:
+                pass
+
+        return {
+            "success": True,
+            "roll": roll_data
+        }
+
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
     async def api_tracker_stream(match_id: str, client_id: str = "anon"):
         match_id = normalize_tracker_match_id(match_id)
