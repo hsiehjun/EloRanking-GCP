@@ -67,15 +67,9 @@ class PostgresDatabase:
         try:
             self._ensure_pool()
             if not PostgresDatabase._db_initialized:
+                self.init_db()
+                self.ensure_tracker_table()
                 PostgresDatabase._db_initialized = True
-                import threading
-                def _bg_init():
-                    try:
-                        self.init_db()
-                        self.ensure_tracker_table()
-                    except Exception as err:
-                        logger.debug(f"Background schema check: {err}")
-                threading.Thread(target=_bg_init, daemon=True).start()
         except Exception as e:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
 

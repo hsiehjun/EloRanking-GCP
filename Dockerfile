@@ -19,5 +19,8 @@ COPY . .
 ENV PORT=8080
 EXPOSE 8080
 
-# Production ASGI High-Performance Async Server
-CMD ["sh", "-c", "exec uvicorn server:app --host 0.0.0.0 --port ${PORT:-8080} --workers 2 --timeout-keep-alive 65"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3     CMD curl -f http://localhost:${PORT}/api/stats || exit 1
+
+# Production Gunicorn Async Uvicorn Worker Process
+CMD ["sh", "-c", "gunicorn -c gunicorn.conf.py server:app"]
