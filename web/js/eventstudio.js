@@ -212,7 +212,11 @@ async function submitCreateTournament() {
   try {
     const res = await window.api.createStudioEvent(payload);
     if (res && res.success) {
-      alert(`🎉 Tournament "${name}" successfully created!`);
+      if (res.bcp_registered) {
+        alert(`🎉 Tournament "${name}" successfully created and registered on Best Coast Pairings!`);
+      } else {
+        alert(`🎉 Tournament "${name}" created in Event Studio (${res.event_id || 'Local'})!\n\nNote: To publish an official listing on Best Coast Pairings, create the tournament via BCP's "+ Create Event" button and click "Sync BCP Events" to link it.`);
+      }
       if (nameInput) nameInput.value = "";
       if (venueInput) venueInput.value = "";
       if (cityStateInput) cityStateInput.value = "";
