@@ -648,7 +648,7 @@ if FASTAPI_AVAILABLE:
         if user_id and not event_id.startswith("ES-"):
             bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
             resp_data, err_msg = execute_bcp_api_call(bcp_url, method="DELETE", user_id=user_id)
-            if resp_data is not None or not err_msg:
+            if resp_data is not None or not err_msg or (err_msg and ("404" in str(err_msg) or "not found" in str(err_msg).lower())):
                 bcp_deleted = True
                 logger.info(f"✅ Successfully deleted BCP tournament {event_id}")
             else:
