@@ -375,10 +375,15 @@ class AuthManager:
 
                 # 3. Invalidate old sessions for security
                 cur.execute("DELETE FROM user_sessions WHERE user_id = %s;", (user_id,))
+
+                # 4. Create fresh session so user is logged in immediately
+                session_token = str(uuid.uuid4())
+                cur.execute("""
+                INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
+                VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id))
             conn.commit()
 
-        # 4. Create fresh session so user is logged in immediately
-        session_token = self.create_session(user_id)
         updated_user = self.get_user_by_id(user_id)
         logger.info(f"✅ Password successfully reset for user {row.get('email')} ({user_id})")
 
@@ -388,6 +393,18 @@ class AuthManager:
             "session_token": session_token,
             "user": updated_user
         }
+
+    def create_session(self, user_id: str) -> str:
+        """Creates and stores a fresh session token for user."""
+        session_token = str(uuid.uuid4())
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
+                VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id))
+            conn.commit()
+        return session_token
 
     def get_session(self, session_token: str) -> Optional[Dict[str, Any]]:
         """Retrieves user profile and BCP link status for active session token."""
