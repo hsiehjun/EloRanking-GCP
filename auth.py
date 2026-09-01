@@ -322,7 +322,59 @@ class AuthManager:
     # =========================================================================
 
     def link_bcp_account(self, user_id: str, bcp_email: str, bcp_password: str) -> Dict[str, Any]:
-        """Links user's Best Coast Pairings account and stores refresh token."""
+        """Links user's Best Coast Pairings account via Headless Browser with fallback to Cognito."""
+        # 1. Attempt Headless Browser Automated Login (Native Web-App Session)
+        try:
+            from playwright.sync_api import sync_playwright
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--single-process"]
+                )
+                context = browser.new_context(
+                    user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+                )
+                page = context.new_page()
+                login_url = "https://auth.bestcoastpairings.com/login?client_id=web-app&response_type=code&scope=email+openid+profile+aws.cognito.signin.user.admin&redirect_uri=https://www.bestcoastpairings.com/"
+                page.goto(login_url, wait_until="domcontentloaded", timeout=25000)
+
+                email_input = page.wait_for_selector('input[type="email"], input[name="username"], input[name="email"], input[type="text"]', timeout=10000)
+                if email_input:
+                    email_input.fill(bcp_email.strip())
+
+                pwd_input = page.wait_for_selector('input[type="password"]', timeout=5000)
+                if pwd_input:
+                    pwd_input.fill(bcp_password)
+
+                submit_btn = page.wait_for_selector('button[type="submit"], button:has-text("Log In"), button:has-text("Sign In")', timeout=5000)
+                if submit_btn:
+                    submit_btn.click()
+
+                try:
+                    page.wait_for_url("**/bestcoastpairings.com/**", timeout=25000)
+                    page.wait_for_timeout(3000)
+                except Exception:
+                    pass
+
+                tokens = page.evaluate("""() => {
+                    const r = {};
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const k = localStorage.key(i);
+                        if (k.includes('idToken')) r.id_token = localStorage.getItem(k);
+                        if (k.includes('accessToken')) r.access_token = localStorage.getItem(k);
+                        if (k.includes('refreshToken')) r.refresh_token = localStorage.getItem(k);
+                    }
+                    return r;
+                }""")
+                browser.close()
+
+                if tokens.get("id_token") or tokens.get("access_token"):
+                    logger.info(f"✅ Headless BCP Login succeeded for {bcp_email}")
+                    return self.link_bcp_token(user_id, tokens)
+        except Exception as pe:
+            logger.info(f"Headless Playwright login notice: {pe}")
+
+        # 2. Fallback to Direct Cognito Authentication
         payload = {
             "AuthFlow": "USER_PASSWORD_AUTH",
             "ClientId": BCP_COGNITO_CLIENT_ID,
@@ -348,7 +400,7 @@ class AuthManager:
         except urllib.error.HTTPError as e:
             err_body = e.read().decode("utf-8", errors="ignore")
             logger.warning(f"Cognito Link HTTP {e.code}: {err_body}")
-            return {"success": False, "error": "Incorrect Best Coast Pairings email or password."}
+            return {"success": False, "error": "Incorrect Best Coast Pairings email or password. You can also use the 1-Line Browser Sync tab."}
         except Exception as e:
             return {"success": False, "error": f"Connection error to BCP Authentication: {str(e)}"}
 

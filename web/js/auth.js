@@ -286,7 +286,7 @@ async function handleConnectBcp(e) {
 
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.innerText = 'Connecting to BCP...';
+    submitBtn.innerHTML = '<span style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; animation:spin 0.8s linear infinite; vertical-align:middle; margin-right:6px;"></span> Logging in to BCP...';
   }
   if (errorDiv) errorDiv.style.display = 'none';
 
@@ -305,13 +305,13 @@ async function handleConnectBcp(e) {
       alert("🎉 Best Coast Pairings account connected successfully!");
     } else {
       if (errorDiv) {
-        errorDiv.innerText = res.error || 'Failed to connect BCP account.';
+        errorDiv.innerText = res.error || 'Failed to connect BCP account. If using SSO, please use the 1-Line Browser Sync tab.';
         errorDiv.style.display = 'block';
       }
     }
   } catch (err) {
     if (errorDiv) {
-      errorDiv.innerText = 'Connection error: ' + err.message;
+      errorDiv.innerText = 'Connection error: ' + err.message + '. You can also use the 1-Line Browser Sync tab.';
       errorDiv.style.display = 'block';
     }
   } finally {
