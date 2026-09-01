@@ -1399,10 +1399,10 @@
   <script src="/js/factions.js?v=49.0"></script>
   <script src="/js/predictor.js?v=49.0"></script>
   <script src="/js/modals.js?v=49.0"></script>
-  <script src="/js/auth.js?v=50.0"></script>
-  <script src="/js/my_hub.js?v=49.0"></script>
-  <script src="/js/eventstudio.js?v=50.0"></script>
-  <script src="/js/app.js?v=50.0"></script>
+  <script src="/js/auth.js?v=51.0"></script>
+  <script src="/js/my_hub.js?v=51.0"></script>
+  <script src="/js/eventstudio.js?v=51.0"></script>
+  <script src="/js/app.js?v=51.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
@@ -1418,17 +1418,7 @@
         <button class="modal-close-btn" onclick="closeBcpLinkModal()">✕</button>
       </div>
 
-      <!-- Mode Selector Tabs -->
-      <div style="display: flex; gap: 6px; background: rgba(0,0,0,0.3); padding: 3px; border-radius: 8px; margin-bottom: 1.25rem; border: 1px solid var(--border);">
-        <button id="bcp-tab-btn-pwd" type="button" class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.4rem 0.6rem;" onclick="switchBcpModalTab('pwd')">
-          🔑 BCP Sign-In
-        </button>
-        <button id="bcp-tab-btn-token" type="button" class="btn btn-outline" style="flex: 1; font-size: 0.78rem; padding: 0.4rem 0.6rem;" onclick="switchBcpModalTab('token')">
-          🌐 Browser Token Sync
-        </button>
-      </div>
-
-      <!-- VIEW 1: Direct BCP Credentials Form -->
+      <!-- Direct BCP Credentials Form -->
       <form id="bcp-form-credentials" onsubmit="handleConnectBcp(event)">
         <div style="margin-bottom: 1rem;">
           <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">BCP Email Address</label>
@@ -1443,28 +1433,8 @@
           Connect with BCP Credentials
         </button>
         <div style="font-size: 0.74rem; color: var(--text-muted); text-align: center; margin-top: 0.85rem; line-height: 1.4;">
-          ✨ Connects directly to BCP Cognito and saves an auto-refreshing token so your tournaments never expire.
+          ✨ Securely links to Best Coast Pairings to sync your tournaments, pairings, and results.
         </div>
-      </form>
-
-      <!-- VIEW 2: Browser Session Token Paste / Snippet -->
-      <form id="bcp-form-token" style="display: none;" onsubmit="handleConnectBcpTokenDirect(event)">
-        <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.75rem; font-size: 0.78rem; color: #cbd5e1; margin-bottom: 1rem; line-height: 1.45;">
-          <b style="color: #38bdf8;">1-Line Browser Sync:</b><br>
-          If you are logged into <a href="https://bestcoastpairings.com" target="_blank" style="color:#f59e0b; text-decoration:underline;">bestcoastpairings.com</a>, press <b>F12</b> &gt; <b>Console</b> and paste:
-          <div style="margin-top: 6px; display: flex; gap: 4px;">
-            <input type="text" readonly id="bcp-console-snippet" value="copy(JSON.stringify((()=>{const r={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.includes('idToken'))r.id_token=localStorage.getItem(k);if(k.includes('accessToken'))r.access_token=localStorage.getItem(k);if(k.includes('refreshToken'))r.refresh_token=localStorage.getItem(k);}return r;})()))" style="font-family: monospace; font-size: 0.72rem; background: #070b14; color: #94a3b8; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; flex: 1;">
-            <button type="button" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px;" onclick="copyBcpSnippet()">Copy</button>
-          </div>
-        </div>
-        <div style="margin-bottom: 1rem;">
-          <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Paste Token or JSON Output Below</label>
-          <textarea id="bcp-link-raw-token" class="search-input" style="width: 100%; height: 75px; font-size: 0.75rem; font-family: monospace; box-sizing: border-box; resize: vertical;" placeholder='{"id_token": "...", "access_token": "...", "refresh_token": "..."} or raw token' required></textarea>
-        </div>
-        <div id="bcp-token-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.5rem; background: rgba(239,68,68,0.1); border-radius: 6px;"></div>
-        <button type="submit" id="bcp-token-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.7rem; font-size: 0.92rem;">
-          🔗 Link Browser Session Token
-        </button>
       </form>
     </div>
   </div>

@@ -206,37 +206,26 @@ if FASTAPI_AVAILABLE:
         explicit_token: Optional[str] = None
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
-        Robust caller for Best Coast Pairings API with:
-        1. Automatic token candidate permutation (IdToken, AccessToken)
-        2. Header permutations (Bearer prefix and raw token)
-        3. Silent AWS Cognito refresh fallback on 401
-        4. Exhaustive debug and error logging
+        Direct caller for Best Coast Pairings API with:
+        1. AccessToken with 'Bearer ' header
+        2. Automatic token refresh fallback on 401
         """
         import urllib.request, urllib.error, json
         auth_mgr = get_auth_manager()
 
-        candidate_tokens = []
-        if explicit_token:
-            candidate_tokens.append(("explicit", explicit_token))
-
-        if user_id:
+        tok = explicit_token
+        if not tok and user_id:
             tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
-            if tok_dict.get("access_token"):
-                candidate_tokens.append(("access_token", tok_dict["access_token"]))
-            if tok_dict.get("id_token") and tok_dict.get("id_token") != tok_dict.get("access_token"):
-                candidate_tokens.append(("id_token", tok_dict["id_token"]))
+            tok = tok_dict.get("access_token") or tok_dict.get("id_token")
 
-        if not candidate_tokens:
+        if not tok:
             logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
             return None, "No BCP authorization token available"
 
-        last_error = None
-
-        def _try_request(tok_label: str, tok_val: str, auth_prefix: str) -> Tuple[Optional[Dict[str, Any]], Optional[int], Optional[str]]:
-            clean_tok = tok_val.replace("Bearer ", "").replace("bearer ", "").strip()
-            auth_val = f"{auth_prefix}{clean_tok}".strip()
+        def _do_request(token_val: str) -> Tuple[Optional[Dict[str, Any]], Optional[int], Optional[str]]:
+            clean_tok = token_val.replace("Bearer ", "").replace("bearer ", "").strip()
             headers = DEFAULT_HEADERS.copy()
-            headers["Authorization"] = auth_val
+            headers["Authorization"] = f"Bearer {clean_tok}"
             headers["Content-Type"] = "application/json"
 
             if json_data is not None:
@@ -252,54 +241,33 @@ if FASTAPI_AVAILABLE:
                 with urllib.request.urlopen(req, timeout=12) as resp:
                     raw = resp.read().decode("utf-8")
                     data = json.loads(raw) if raw else {}
-                    logger.info(f"✅ [BCP API SUCCESS {resp.status}] {method} {url} with {tok_label} (prefix='{auth_prefix}')")
+                    logger.info(f"✅ [BCP API SUCCESS {resp.status}] {method} {url}")
                     return data, resp.status, None
             except urllib.error.HTTPError as he:
                 err_body = he.read().decode("utf-8", errors="ignore")
-                logger.warning(f"⚠️ [BCP API HTTP {he.code}] {method} {url} using {tok_label} (prefix='{auth_prefix}'): {err_body}")
                 return None, he.code, f"HTTP {he.code}: {err_body}"
             except Exception as e:
                 logger.warning(f"⚠️ [BCP API Network Error] {method} {url}: {e}")
                 return None, 0, str(e)
 
-        # Pass 1: Try candidate tokens
-        for tok_label, tok in candidate_tokens:
-            data, status, err = _try_request(tok_label, tok, "Bearer ")
-            if data is not None:
-                return data, None
-            last_error = err
-            if status != 401:
-                return None, last_error
+        # 1. Primary Request
+        data, status, err = _do_request(tok)
+        if data is not None:
+            return data, None
 
-            data, status, err = _try_request(tok_label, tok, "")
-            if data is not None:
-                return data, None
-            last_error = err
-
-        # Pass 2: Force silent refresh from Cognito and retry fresh tokens
-        if user_id:
-            logger.info(f"🔄 [BCP API] Forcing Cognito token refresh for user {user_id}")
+        # 2. If 401 Unauthorized, refresh token once and retry
+        if status == 401 and user_id:
+            logger.info(f"🔄 [BCP API] Token expired on {method} {url}. Refreshing BCP token...")
             fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
-            fresh_candidates = []
-            if fresh_dict.get("id_token"):
-                fresh_candidates.append(("fresh_id_token", fresh_dict["id_token"]))
-            if fresh_dict.get("access_token") and fresh_dict.get("access_token") != fresh_dict.get("id_token"):
-                fresh_candidates.append(("fresh_access_token", fresh_dict["access_token"]))
-
-            for tok_label, tok in fresh_candidates:
-                data, status, err = _try_request(tok_label, tok, "Bearer ")
+            fresh_tok = fresh_dict.get("access_token") or fresh_dict.get("id_token")
+            if fresh_tok and fresh_tok != tok:
+                data, status, err = _do_request(fresh_tok)
                 if data is not None:
                     return data, None
-                last_error = err
-                if status != 401:
-                    return None, last_error
 
-                data, status, err = _try_request(tok_label, tok, "")
-                if data is not None:
-                    return data, None
-                last_error = err
-
-        return None, last_error
+        if err:
+            logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
+        return None, err
 
     @app.get("/api/eventstudio/events", summary="List organizer tournaments")
     async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None)):

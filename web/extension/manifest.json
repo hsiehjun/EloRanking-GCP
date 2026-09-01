@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "OmniTactica BCP Bridge",
+  "version": "1.0.0",
+  "description": "Seamless, secure 1-click sync between Best Coast Pairings and OmniTactica Event Studio.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.bestcoastpairings.com/*",
+    "https://*.omnitactica.com/*",
+    "http://localhost:*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.bestcoastpairings.com/*",
+        "https://*.omnitactica.com/*",
+        "http://localhost:*/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "OmniTactica BCP Bridge"
+  }
+}
