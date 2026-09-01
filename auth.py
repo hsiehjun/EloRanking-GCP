@@ -423,8 +423,8 @@ class AuthManager:
             conn.commit()
         return {"success": True}
 
-    def get_valid_bcp_token(self, user_id: str) -> Optional[str]:
-        """Returns active BCP access token, silently refreshing via refresh_token if expired."""
+    def get_valid_bcp_token(self, user_id: str, force_refresh: bool = False) -> Optional[str]:
+        """Returns active BCP access token, silently refreshing via refresh_token if expired or forced."""
         from psycopg2 import extras
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -436,8 +436,8 @@ class AuthManager:
                 if not row or not row.get("bcp_refresh_token"):
                     return None
 
-                # If token still valid (>5 mins remaining), return it
-                if row.get("bcp_access_token") and row.get("bcp_token_expires_at"):
+                # If token still valid (>5 mins remaining) and not forced, return it
+                if not force_refresh and row.get("bcp_access_token") and row.get("bcp_token_expires_at"):
                     if row["bcp_token_expires_at"] > datetime.now(timezone.utc):
                         return row["bcp_access_token"]
 

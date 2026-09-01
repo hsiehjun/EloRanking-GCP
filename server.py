@@ -219,7 +219,21 @@ if FASTAPI_AVAILABLE:
                 ]:
                     try:
                         req = urllib.request.Request(sync_url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=8) as resp:
+                        try:
+                            resp_ctx = urllib.request.urlopen(req, timeout=8)
+                        except urllib.error.HTTPError as he:
+                            if he.code == 401 and user_id:
+                                fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
+                                if fresh_tok:
+                                    headers["Authorization"] = f"Bearer {fresh_tok}"
+                                    req = urllib.request.Request(sync_url, headers=headers)
+                                    resp_ctx = urllib.request.urlopen(req, timeout=8)
+                                else:
+                                    raise
+                            else:
+                                raise
+
+                        with resp_ctx as resp:
                             if resp.status == 200:
                                 bcp_raw = json.loads(resp.read().decode("utf-8"))
                                 items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
@@ -340,7 +354,26 @@ if FASTAPI_AVAILABLE:
                     headers=headers,
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=12) as resp:
+                try:
+                    resp_obj = urllib.request.urlopen(req, timeout=12)
+                except urllib.error.HTTPError as he:
+                    if he.code == 401 and user_id:
+                        fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
+                        if fresh_tok:
+                            headers["Authorization"] = f"Bearer {fresh_tok}"
+                            req = urllib.request.Request(
+                                bcp_url,
+                                data=json.dumps(bcp_payload).encode("utf-8"),
+                                headers=headers,
+                                method="POST"
+                            )
+                            resp_obj = urllib.request.urlopen(req, timeout=12)
+                        else:
+                            raise
+                    else:
+                        raise
+
+                with resp_obj as resp:
                     if resp.status in (200, 201):
                         res_data = json.loads(resp.read().decode("utf-8"))
                         if isinstance(res_data, dict):
