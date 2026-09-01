@@ -13,7 +13,7 @@ async function loadMyHubDashboard() {
   }
 
   if (!currentUser) {
-    window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');
+    window.location.href = '/login?redirect=' + encodeURIComponent('/#my-hub');
     return;
   }
 

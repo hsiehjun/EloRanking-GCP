@@ -29,9 +29,10 @@ function switchTab(tabName) {
   const activePanel = document.getElementById(`tab-${tabName}`);
   if (activePanel) activePanel.classList.add('active');
 
-  // Update URL hash history
+  // Update URL hash history and clean away any query parameters
   if (window.history && window.history.replaceState) {
-    window.history.replaceState(null, '', '#' + tabName);
+    const cleanPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    window.history.replaceState(null, '', `${cleanPath}#${tabName}`);
   }
 
   // Trigger lazy loading of view data
@@ -46,7 +47,7 @@ function switchTab(tabName) {
     if (typeof initStudio === 'function') initStudio();
   } else if (tabName === 'my-hub') {
     if (!currentUser) {
-      window.location.href = '/login?redirect=' + encodeURIComponent('/?tab=my-hub');
+      window.location.href = '/login?redirect=' + encodeURIComponent('/#my-hub');
       return;
     }
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
@@ -284,9 +285,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadGlobalStats();
   checkIosPwaInstall();
 
+  const hashVal = window.location.hash ? window.location.hash.replace('#', '').trim() : null;
   const params = new URLSearchParams(window.location.search);
-  let targetTab = params.get('tab') || (window.location.hash ? window.location.hash.replace('#', '') : null);
-  if (targetTab === 'my_hub') targetTab = 'my-hub';
+  let targetTab = hashVal || params.get('tab');
+  if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
+  if (targetTab === 'tournaments') targetTab = 'events';
+  if (targetTab === 'eventstudio') targetTab = 'event-studio';
   if (targetTab) {
     switchTab(targetTab);
   } else {

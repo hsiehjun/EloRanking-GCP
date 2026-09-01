@@ -3057,8 +3057,8 @@ if FASTAPI_AVAILABLE:
         session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         if not user:
-            return RedirectResponse(url="/login?redirect=/?tab=my-hub", status_code=303)
-        return RedirectResponse(url="/?tab=my-hub", status_code=303)
+            return RedirectResponse(url="/login?redirect=/#my-hub", status_code=303)
+        return RedirectResponse(url="/#my-hub", status_code=303)
 
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
@@ -3121,7 +3121,7 @@ if FASTAPI_AVAILABLE:
                 "name": "OmniTactica - 40K Tactical Suite",
                 "short_name": "OmniTactica",
                 "description": "OmniTactica Warhammer 40,000 Elo Rankings, Tournament Companion & Live Game Tracker",
-                "start_url": "/?tab=my-hub",
+                "start_url": "/#my-hub",
                 "scope": "/",
                 "display": "standalone",
                 "background_color": "#070b14",

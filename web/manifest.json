@@ -2,7 +2,7 @@
   "name": "OmniTactica - 40K Tactical Suite",
   "short_name": "OmniTactica",
   "description": "OmniTactica Warhammer 40,000 Elo Rankings, Tournament Companion & Live Game Tracker",
-  "start_url": "/?tab=my-hub",
+  "start_url": "/#my-hub",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
