@@ -2883,6 +2883,7 @@ if FASTAPI_AVAILABLE:
         room = TRACKER_ROOMS[match_id]
         tray = body.get("tray", [])
         target = int(body.get("target", 0))
+        history = body.get("history")
 
         if "state" not in room or not isinstance(room["state"], dict):
             room["state"] = {}
@@ -2890,18 +2891,25 @@ if FASTAPI_AVAILABLE:
         room["state"]["dice_target"] = target
         room["dice_tray"] = tray
         room["dice_target"] = target
+        if history is not None:
+            room["state"]["dice_history"] = history
+            room["dice_history"] = history
 
         # Sync to Firestore Native
         try:
             fs_engine = get_firestore_engine()
-            fs_engine.update_room(match_id, {
+            update_fields = {
                 "dice_tray": tray,
                 "dice_target": target,
                 "state": {
                     "dice_tray": tray,
                     "dice_target": target
                 }
-            })
+            }
+            if history is not None:
+                update_fields["dice_history"] = history
+                update_fields["state"]["dice_history"] = history
+            fs_engine.update_room(match_id, update_fields)
         except Exception:
             pass
 
@@ -2913,6 +2921,8 @@ if FASTAPI_AVAILABLE:
             "tray": tray,
             "target": target
         }
+        if history is not None:
+            msg["history"] = history
         for l_q in list(listeners):
             try:
                 await l_q.put(msg)

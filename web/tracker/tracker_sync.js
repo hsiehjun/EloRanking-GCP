@@ -819,6 +819,10 @@
       }
 
       clientState.matchId = matchId.toUpperCase();
+      if (typeof diceRollerState !== 'undefined') {
+        diceRollerState.history = [];
+        diceRollerState.tray = [];
+      }
       const url = new URL(window.location.href);
       url.searchParams.set('match_id', clientState.matchId);
       url.searchParams.delete('mode');
@@ -1779,9 +1783,12 @@
             if (data.clock) {
               applyRemoteChessClock(data.clock);
             }
-            if (data.dice_tray || (data.state && data.state.dice_tray)) {
-              applyRemoteDiceTray(data.dice_tray || data.state.dice_tray, data.dice_target !== undefined ? data.dice_target : (data.state ? data.state.dice_target : undefined), data.dice_history || (data.state ? data.state.dice_history : undefined));
-            }
+            const remoteHist = data.dice_history || (data.state && data.state.dice_history) || [];
+            applyRemoteDiceTray(
+              data.dice_tray || (data.state && data.state.dice_tray),
+              data.dice_target !== undefined ? data.dice_target : (data.state ? data.state.dice_target : undefined),
+              remoteHist
+            );
             if (data.rosters) {
               if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
               if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
@@ -3294,20 +3301,20 @@ Space Marines - Gladius Task Force (2000 pts)
     visible: localStorage.getItem('gt-dice-visible') === 'true',
     target: parseInt(localStorage.getItem('gt-dice-target') || '3', 10),
     tray: [], // Array of { id: number, val: number, selected: boolean, rolled: boolean }
-    history: []
+    history: [] // Strictly populated from active Firestore match room
   };
 
-  // Restore saved dice or initialize empty tray
+  // Explicitly purge legacy localStorage cached roll history
+  try {
+    localStorage.removeItem('gt-dice-history');
+  } catch(e) {}
+
+  // Restore saved dice tray or initialize empty
   try {
     const savedTray = localStorage.getItem('gt-dice-tray');
     if (savedTray) {
       diceRollerState.tray = JSON.parse(savedTray);
     }
-  } catch(e) {}
-
-  try {
-    const savedHistory = localStorage.getItem('gt-dice-history');
-    if (savedHistory) diceRollerState.history = JSON.parse(savedHistory);
   } catch(e) {}
 
   function saveDiceTray(shouldBroadcast = true) {
@@ -3359,15 +3366,15 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   function applyRemoteDiceTray(remoteTray, remoteTarget, remoteHistory) {
-    if (!Array.isArray(remoteTray)) return;
-    diceRollerState.tray = remoteTray;
+    if (Array.isArray(remoteTray)) {
+      diceRollerState.tray = remoteTray;
+    }
     if (remoteTarget !== undefined && remoteTarget !== null) {
       diceRollerState.target = parseInt(remoteTarget, 10);
       try { localStorage.setItem('gt-dice-target', diceRollerState.target); } catch(e) {}
     }
-    if (Array.isArray(remoteHistory) && remoteHistory.length > 0) {
+    if (Array.isArray(remoteHistory)) {
       diceRollerState.history = remoteHistory;
-      try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
     }
     saveDiceTray(false);
     if (diceRollerState.visible) {
@@ -3767,7 +3774,6 @@ Space Marines - Gladius Task Force (2000 pts)
 
     diceRollerState.history.push(rollPayload);
     if (diceRollerState.history.length > 50) diceRollerState.history.shift();
-    try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
 
     renderDiceRollerContent();
     broadcastDiceRoll(rollPayload);
@@ -3775,8 +3781,19 @@ Space Marines - Gladius Task Force (2000 pts)
 
   window.gtClearDiceHistory = function() {
     diceRollerState.history = [];
-    localStorage.removeItem('gt-dice-history');
+    try { localStorage.removeItem('gt-dice-history'); } catch(e) {}
     renderDiceRollerContent();
+
+    if (!clientState.matchId) return;
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(clientState.matchId).set({
+          dice_history: [],
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch(e) {}
+    }
   };
 
   function broadcastDiceRoll(rollData) {
