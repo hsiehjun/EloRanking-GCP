@@ -617,6 +617,7 @@ class AuthManager:
                 ORDER BY e.event_date DESC NULLS LAST;
                 """, (target_pid, target_pid, target_pid, target_pid, target_pid, target_pid))
                 events_attended = [dict(r) for r in cur.fetchall()]
+                conn.commit()
 
         upcoming_events = []
         for ev in events_attended:

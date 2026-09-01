@@ -2877,7 +2877,7 @@ class PostgresDatabase:
                 if organizer_id:
                     cursor.execute("""
                     DELETE FROM events 
-                    WHERE id = %s AND (organizer_id = %s OR organizer_id IS NULL OR id LIKE 'ES-%');
+                    WHERE id = %s AND (organizer_id = %s OR organizer_id IS NULL OR LEFT(id, 3) = 'ES-');
                     """, (event_id, organizer_id))
                 else:
                     cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
