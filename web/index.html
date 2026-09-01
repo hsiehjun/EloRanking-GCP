@@ -1453,7 +1453,7 @@
           <b style="color: #38bdf8;">1-Line Browser Sync:</b><br>
           If you are logged into <a href="https://bestcoastpairings.com" target="_blank" style="color:#f59e0b; text-decoration:underline;">bestcoastpairings.com</a>, press <b>F12</b> &gt; <b>Console</b> and paste:
           <div style="margin-top: 6px; display: flex; gap: 4px;">
-            <input type="text" readonly id="bcp-console-snippet" value="copy(JSON.stringify((()=>{const r={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.startsWith('CognitoIdentityServiceProvider.')){const p=k.split('.');if(p.length>=2&&p[1]!=='undefined')r.client_id=p[1];if(k.endsWith('.idToken'))r.id_token=localStorage.getItem(k);if(k.endsWith('.accessToken'))r.access_token=localStorage.getItem(k);if(k.endsWith('.refreshToken'))r.refresh_token=localStorage.getItem(k);}}return r;})()))" style="font-family: monospace; font-size: 0.72rem; background: #070b14; color: #94a3b8; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; flex: 1;">
+            <input type="text" readonly id="bcp-console-snippet" value="copy(JSON.stringify((()=>{const r={};for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(k.includes('idToken'))r.id_token=localStorage.getItem(k);if(k.includes('accessToken'))r.access_token=localStorage.getItem(k);if(k.includes('refreshToken'))r.refresh_token=localStorage.getItem(k);}return r;})()))" style="font-family: monospace; font-size: 0.72rem; background: #070b14; color: #94a3b8; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; flex: 1;">
             <button type="button" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px;" onclick="copyBcpSnippet()">Copy</button>
           </div>
         </div>
