@@ -76,6 +76,51 @@ window.api = {
     }
   },
 
+  // Request Password Reset via Email
+  async forgotPassword(email) {
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.detail || data.error || 'Failed to request password reset' };
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Validate Password Reset Token or Code
+  async validateResetToken(token = '', code = '', email = '') {
+    const params = new URLSearchParams();
+    if (token) params.set('token', token);
+    if (code) params.set('code', code);
+    if (email) params.set('email', email);
+    return this._fetchJson(`/api/auth/reset-password/validate?${params.toString()}`);
+  },
+
+  // Reset Password
+  async resetPassword(newPassword, token = '', code = '', email = '') {
+    try {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_password: newPassword, token, code, email })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.detail || data.error || 'Password reset failed' };
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
   // Session Verification
   async getAuthMe() {
     const token = this.getAuthToken();

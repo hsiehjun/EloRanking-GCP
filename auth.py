@@ -25,6 +25,15 @@ except ImportError:
         from config import BCP_API_BASE, DEFAULT_HEADERS
         from database import Database, get_db
 
+try:
+    from email_service import send_password_reset_email
+except ImportError:
+    try:
+        from google3.experimental.users.hsiehjun.EloRanking.email_service import send_password_reset_email
+    except ImportError:
+        def send_password_reset_email(*args, **kwargs):
+            return {"success": True, "simulated": True}
+
 logger = logging.getLogger("NativeAuth")
 
 COGNITO_ENDPOINT = "https://cognito-idp.us-east-1.amazonaws.com/"
@@ -146,6 +155,20 @@ class AuthManager:
                     );
                     ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);
                     CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+
+                    CREATE TABLE IF NOT EXISTS password_resets (
+                        id VARCHAR(64) PRIMARY KEY,
+                        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                        email TEXT NOT NULL,
+                        token VARCHAR(128) UNIQUE NOT NULL,
+                        code VARCHAR(16) NOT NULL,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        used_at TIMESTAMPTZ,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
+                    CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+                    CREATE INDEX IF NOT EXISTS idx_password_resets_code ON password_resets(code);
                     """)
                 conn.commit()
         except Exception as e:
@@ -220,6 +243,150 @@ class AuthManager:
             "success": True,
             "session_token": session_token,
             "user": user_info
+        }
+
+    # =========================================================================
+    # PASSWORD RESET FLOW VIA EMAIL
+    # =========================================================================
+
+    def request_password_reset(self, email: str) -> Dict[str, Any]:
+        """Initiates password reset flow by generating a secure token/code and dispatching email."""
+        email = email.strip().lower()
+        if not email or "@" not in email:
+            return {"success": False, "error": "Please provide a valid email address."}
+
+        from psycopg2 import extras
+        user = None
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT id, email, display_name FROM users WHERE LOWER(email) = %s;", (email,))
+                user = cur.fetchone()
+
+        # To prevent account enumeration, return success even if user doesn't exist
+        if not user:
+            logger.info(f"Password reset requested for non-existent email: {email}")
+            return {
+                "success": True,
+                "message": "If this email is registered, a password reset link and verification code has been dispatched."
+            }
+
+        user_id = user["id"]
+        token = secrets.token_urlsafe(32)
+        code = f"{secrets.randbelow(900000) + 100000}"
+        reset_id = str(uuid.uuid4())
+
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                # Invalidate any previous active reset requests for this user
+                cur.execute("UPDATE password_resets SET used_at = NOW() WHERE user_id = %s AND used_at IS NULL;", (user_id,))
+                cur.execute("""
+                INSERT INTO password_resets (id, user_id, email, token, code, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW() + INTERVAL '1 hour', NOW());
+                """, (reset_id, user_id, email, token, code))
+            conn.commit()
+
+        # Dispatch email (or fallback to log simulation if SMTP is not configured)
+        mail_res = send_password_reset_email(
+            to_email=user["email"],
+            reset_token=token,
+            reset_code=code,
+            display_name=user.get("display_name")
+        )
+
+        return {
+            "success": True,
+            "message": "If this email is registered, a password reset link and verification code has been dispatched.",
+            "email": email,
+            "simulated": mail_res.get("simulated", False),
+            "dev_code": code if mail_res.get("simulated") else None
+        }
+
+    def validate_reset_token(self, token: Optional[str] = None, code: Optional[str] = None, email: Optional[str] = None) -> Dict[str, Any]:
+        """Validates if a reset token or code is valid and has not expired."""
+        token = (token or "").strip()
+        code = (code or "").strip()
+        email = (email or "").strip().lower()
+
+        if not token and not (code and email):
+            return {"valid": False, "error": "Reset token or email & code required."}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                if token:
+                    cur.execute("""
+                    SELECT pr.id, pr.email, pr.expires_at, u.display_name
+                    FROM password_resets pr
+                    JOIN users u ON u.id = pr.user_id
+                    WHERE pr.token = %s AND pr.used_at IS NULL AND pr.expires_at > NOW();
+                    """, (token,))
+                else:
+                    cur.execute("""
+                    SELECT pr.id, pr.email, pr.expires_at, u.display_name
+                    FROM password_resets pr
+                    JOIN users u ON u.id = pr.user_id
+                    WHERE pr.code = %s AND LOWER(pr.email) = %s AND pr.used_at IS NULL AND pr.expires_at > NOW();
+                    """, (code, email))
+                row = cur.fetchone()
+                if row:
+                    return {"valid": True, "email": row["email"], "display_name": row.get("display_name")}
+                return {"valid": False, "error": "Password reset token or code has expired or is invalid."}
+
+    def reset_password(self, new_password: str, token: Optional[str] = None, code: Optional[str] = None, email: Optional[str] = None) -> Dict[str, Any]:
+        """Resets user password, marks reset token as used, and returns fresh session."""
+        if not new_password or len(new_password) < 6:
+            return {"success": False, "error": "Password must be at least 6 characters."}
+
+        token = (token or "").strip()
+        code = (code or "").strip()
+        email = (email or "").strip().lower()
+
+        if not token and not (code and email):
+            return {"success": False, "error": "Reset token or email and 6-digit code is required."}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                if token:
+                    cur.execute("""
+                    SELECT pr.id, pr.user_id, pr.email
+                    FROM password_resets pr
+                    WHERE pr.token = %s AND pr.used_at IS NULL AND pr.expires_at > NOW();
+                    """, (token,))
+                else:
+                    cur.execute("""
+                    SELECT pr.id, pr.user_id, pr.email
+                    FROM password_resets pr
+                    WHERE pr.code = %s AND LOWER(pr.email) = %s AND pr.used_at IS NULL AND pr.expires_at > NOW();
+                    """, (code, email))
+                row = cur.fetchone()
+                if not row:
+                    return {"success": False, "error": "Invalid or expired reset token/code. Please request a new link."}
+
+                user_id = row["user_id"]
+                reset_id = row["id"]
+                new_pw_hash = _hash_password(new_password)
+
+                # 1. Update user password
+                cur.execute("UPDATE users SET password_hash = %s, updated_at = NOW() WHERE id = %s;", (new_pw_hash, user_id))
+
+                # 2. Mark reset token as used
+                cur.execute("UPDATE password_resets SET used_at = NOW() WHERE id = %s;", (reset_id,))
+
+                # 3. Invalidate old sessions for security
+                cur.execute("DELETE FROM user_sessions WHERE user_id = %s;", (user_id,))
+            conn.commit()
+
+        # 4. Create fresh session so user is logged in immediately
+        session_token = self.create_session(user_id)
+        updated_user = self.get_user_by_id(user_id)
+        logger.info(f"✅ Password successfully reset for user {row.get('email')} ({user_id})")
+
+        return {
+            "success": True,
+            "message": "Password successfully reset!",
+            "session_token": session_token,
+            "user": updated_user
         }
 
     def get_session(self, session_token: str) -> Optional[Dict[str, Any]]:

@@ -4175,6 +4175,15 @@ if FASTAPI_AVAILABLE:
         bcp_token: Optional[str] = None
         refresh_token: Optional[str] = None
 
+    class ForgotPasswordPayload(BaseModel):
+        email: str
+
+    class ResetPasswordPayload(BaseModel):
+        new_password: str
+        token: Optional[str] = None
+        code: Optional[str] = None
+        email: Optional[str] = None
+
     class UserSettingsPayload(BaseModel):
         display_name: Optional[str] = None
         old_password: Optional[str] = None
@@ -4197,6 +4206,34 @@ if FASTAPI_AVAILABLE:
         res = auth_mgr.login(payload.email, payload.password)
         if not res.get("success"):
             raise HTTPException(status_code=401, detail=res.get("error", "Invalid credentials"))
+        token = res.get("session_token")
+        if token:
+            response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
+        return res
+
+    @app.post("/api/auth/forgot-password", summary="Request password reset link and verification code via email")
+    async def api_auth_forgot_password(payload: ForgotPasswordPayload):
+        auth_mgr = get_auth_manager()
+        res = auth_mgr.request_password_reset(payload.email)
+        return res
+
+    @app.get("/api/auth/reset-password/validate", summary="Validate password reset token or code")
+    async def api_auth_validate_reset_token(token: Optional[str] = Query(None), code: Optional[str] = Query(None), email: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        res = auth_mgr.validate_reset_token(token=token, code=code, email=email)
+        return res
+
+    @app.post("/api/auth/reset-password", summary="Reset account password using token or email & code")
+    async def api_auth_reset_password(payload: ResetPasswordPayload, response: Response):
+        auth_mgr = get_auth_manager()
+        res = auth_mgr.reset_password(
+            new_password=payload.new_password,
+            token=payload.token,
+            code=payload.code,
+            email=payload.email
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Password reset failed"))
         token = res.get("session_token")
         if token:
             response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")

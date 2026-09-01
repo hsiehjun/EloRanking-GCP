@@ -30,13 +30,13 @@
       border: 1px solid #1e293b;
       border-radius: 20px;
       width: 100%;
-      max-width: 440px;
+      max-width: 450px;
       box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85);
       overflow: hidden;
       position: relative;
     }
     .login-header {
-      padding: 32px 24px 20px;
+      padding: 30px 24px 18px;
       text-align: center;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       background: linear-gradient(180deg, rgba(30, 41, 59, 0.35) 0%, transparent 100%);
@@ -79,7 +79,7 @@
       background: rgba(56, 189, 248, 0.04);
     }
     .login-body {
-      padding: 24px 28px 32px;
+      padding: 24px 28px 30px;
     }
     .form-group {
       margin-bottom: 16px;
@@ -138,6 +138,19 @@
       font-size: 12px;
       color: #fca5a5;
       text-align: center;
+      line-height: 1.4;
+    }
+    .alert-success {
+      display: none;
+      padding: 12px 14px;
+      margin-bottom: 16px;
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      border-radius: 8px;
+      font-size: 12px;
+      color: #86efac;
+      text-align: center;
+      line-height: 1.4;
     }
     .hub-link {
       margin-top: 20px;
@@ -169,10 +182,13 @@
     <div class="tab-bar">
       <button id="tab-login" class="tab-btn active" onclick="switchTab('login')">SIGN IN</button>
       <button id="tab-register" class="tab-btn" onclick="switchTab('register')">CREATE ACCOUNT</button>
+      <button id="tab-forgot" class="tab-btn" style="display:none;" onclick="switchTab('forgot')">RESET PASSWORD</button>
     </div>
 
-    <form class="login-body" onsubmit="handleSubmit(event)">
+    <!-- MAIN LOGIN / REGISTER FORM -->
+    <form id="main-auth-form" class="login-body" onsubmit="handleSubmit(event)">
       <div id="auth-error" class="alert-error"></div>
+      <div id="auth-success" class="alert-success"></div>
 
       <div id="name-group" class="form-group" style="display: none;">
         <label>Player Handle / Display Name</label>
@@ -189,24 +205,125 @@
         <input id="auth-password" type="password" required placeholder="••••••••" />
       </div>
 
+      <div id="forgot-link-row" style="display: flex; justify-content: flex-end; margin-top: -6px; margin-bottom: 14px;">
+        <button type="button" onclick="switchTab('forgot')" style="background: transparent; border: none; color: #38bdf8; font-size: 12px; cursor: pointer; text-decoration: none; font-family: inherit;">
+          Forgot your password?
+        </button>
+      </div>
+
       <button id="btn-submit" type="submit" class="btn-submit">LOGIN</button>
 
       <div class="hub-link">
         <a href="/">❮ Return to Elo Leaderboard</a>
       </div>
     </form>
+
+    <!-- FORGOT / RESET PASSWORD FORM -->
+    <div id="forgot-auth-form" class="login-body" style="display: none;">
+      <div id="forgot-error" class="alert-error"></div>
+      <div id="forgot-success" class="alert-success"></div>
+
+      <!-- STAGE 1: REQUEST EMAIL LINK & CODE -->
+      <div id="forgot-stage-request">
+        <div style="font-size: 13px; color: #94a3b8; line-height: 1.5; margin-bottom: 16px;">
+          Enter the email address tied to your OmniTactica account. We will send you a <strong>6-digit verification code</strong> and a secure 1-click password reset link.
+        </div>
+
+        <div class="form-group">
+          <label>Your Account Email</label>
+          <input id="forgot-email" type="email" placeholder="player@chapter.com" />
+        </div>
+
+        <button id="btn-send-reset" type="button" onclick="handleRequestReset()" class="btn-submit">
+          SEND RESET CODE & LINK
+        </button>
+
+        <div style="text-align: center; margin-top: 14px;">
+          <button type="button" onclick="setForgotStage('reset')" style="background: transparent; border: none; color: #64748b; font-size: 12px; cursor: pointer; text-decoration: underline;">
+            Already have a 6-digit code or link?
+          </button>
+        </div>
+      </div>
+
+      <!-- STAGE 2: ENTER CODE & NEW PASSWORD -->
+      <div id="forgot-stage-reset" style="display: none;">
+        <div id="reset-sent-notice" style="font-size: 12px; color: #38bdf8; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 10px 12px; margin-bottom: 16px; line-height: 1.4;">
+          📩 Check your email for your 6-digit verification code.
+        </div>
+
+        <div class="form-group">
+          <label>Account Email</label>
+          <input id="reset-email" type="email" placeholder="player@chapter.com" />
+        </div>
+
+        <div class="form-group">
+          <label>6-Digit Verification Code</label>
+          <input id="reset-code" type="text" maxlength="6" placeholder="123456" style="font-family: 'JetBrains Mono', monospace; font-size: 18px; letter-spacing: 4px; text-align: center;" />
+        </div>
+
+        <div class="form-group">
+          <label>New Password (min. 6 characters)</label>
+          <input id="reset-new-password" type="password" placeholder="••••••••" />
+        </div>
+
+        <div class="form-group">
+          <label>Confirm New Password</label>
+          <input id="reset-confirm-password" type="password" placeholder="••••••••" />
+        </div>
+
+        <button id="btn-do-reset" type="button" onclick="handlePerformReset()" class="btn-submit">
+          RESET PASSWORD & SIGN IN
+        </button>
+
+        <div style="display: flex; justify-content: space-between; margin-top: 14px; font-size: 12px;">
+          <button type="button" onclick="setForgotStage('request')" style="background: transparent; border: none; color: #94a3b8; cursor: pointer;">
+            ❮ Request New Code
+          </button>
+          <button type="button" onclick="switchTab('login')" style="background: transparent; border: none; color: #38bdf8; cursor: pointer;">
+            Back to Sign In
+          </button>
+        </div>
+      </div>
+
+      <div class="hub-link">
+        <a href="#" onclick="switchTab('login'); return false;">❮ Return to Sign In</a>
+      </div>
+    </div>
   </div>
 
   <script>
     let activeTab = 'login';
+    let resetTokenFromUrl = '';
     const params = new URLSearchParams(window.location.search);
     const redirectUrl = params.get('redirect') || '/11th/tracker';
 
     (function checkExistingSession() {
+      // Check if user came from a password reset email link
+      const urlToken = params.get('token');
+      const urlCode = params.get('code');
+      const urlEmail = params.get('email');
+      const urlView = params.get('view');
+
+      if (urlToken || urlCode || urlView === 'reset') {
+        resetTokenFromUrl = urlToken || '';
+        switchTab('forgot');
+        setForgotStage('reset');
+        if (urlEmail) {
+          const rEmail = document.getElementById('reset-email');
+          const fEmail = document.getElementById('forgot-email');
+          if (rEmail) rEmail.value = urlEmail;
+          if (fEmail) fEmail.value = urlEmail;
+        }
+        if (urlCode) {
+          const rCode = document.getElementById('reset-code');
+          if (rCode) rCode.value = urlCode;
+        }
+        return;
+      }
+
       const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
       if (token) {
         document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
-        // If arrived via redirect, quickly jump back to destination
         window.location.replace(redirectUrl);
       }
     })();
@@ -215,21 +332,241 @@
       activeTab = tab;
       const tabLog = document.getElementById('tab-login');
       const tabReg = document.getElementById('tab-register');
+      const tabForg = document.getElementById('tab-forgot');
       const nameGroup = document.getElementById('name-group');
+      const forgotRow = document.getElementById('forgot-link-row');
+      const mainForm = document.getElementById('main-auth-form');
+      const forgotForm = document.getElementById('forgot-auth-form');
       const btn = document.getElementById('btn-submit');
       const err = document.getElementById('auth-error');
+      const success = document.getElementById('auth-success');
+      const forgotErr = document.getElementById('forgot-error');
+      const forgotSuccess = document.getElementById('forgot-success');
+
       if (err) err.style.display = 'none';
+      if (success) success.style.display = 'none';
+      if (forgotErr) forgotErr.style.display = 'none';
+      if (forgotSuccess) forgotSuccess.style.display = 'none';
 
       if (tab === 'login') {
         tabLog.className = 'tab-btn active';
         tabReg.className = 'tab-btn';
+        if (tabForg) tabForg.style.display = 'none';
+        if (mainForm) mainForm.style.display = 'block';
+        if (forgotForm) forgotForm.style.display = 'none';
         nameGroup.style.display = 'none';
+        if (forgotRow) forgotRow.style.display = 'flex';
         btn.textContent = 'LOGIN';
-      } else {
+      } else if (tab === 'register') {
         tabReg.className = 'tab-btn active';
         tabLog.className = 'tab-btn';
+        if (tabForg) tabForg.style.display = 'none';
+        if (mainForm) mainForm.style.display = 'block';
+        if (forgotForm) forgotForm.style.display = 'none';
         nameGroup.style.display = 'block';
+        if (forgotRow) forgotRow.style.display = 'none';
         btn.textContent = 'CREATE ACCOUNT';
+      } else if (tab === 'forgot') {
+        if (tabForg) {
+          tabForg.style.display = 'block';
+          tabForg.className = 'tab-btn active';
+        }
+        tabLog.className = 'tab-btn';
+        tabReg.className = 'tab-btn';
+        if (mainForm) mainForm.style.display = 'none';
+        if (forgotForm) forgotForm.style.display = 'block';
+
+        // Prefill email if entered on login form
+        const loginEmail = document.getElementById('auth-email').value.trim();
+        if (loginEmail) {
+          const fEmail = document.getElementById('forgot-email');
+          const rEmail = document.getElementById('reset-email');
+          if (fEmail && !fEmail.value) fEmail.value = loginEmail;
+          if (rEmail && !rEmail.value) rEmail.value = loginEmail;
+        }
+      }
+    }
+
+    function setForgotStage(stage) {
+      const stageRequest = document.getElementById('forgot-stage-request');
+      const stageReset = document.getElementById('forgot-stage-reset');
+      const forgotErr = document.getElementById('forgot-error');
+      const forgotSuccess = document.getElementById('forgot-success');
+
+      if (forgotErr) forgotErr.style.display = 'none';
+      if (forgotSuccess) forgotSuccess.style.display = 'none';
+
+      if (stage === 'request') {
+        if (stageRequest) stageRequest.style.display = 'block';
+        if (stageReset) stageReset.style.display = 'none';
+      } else {
+        if (stageRequest) stageRequest.style.display = 'none';
+        if (stageReset) stageReset.style.display = 'block';
+      }
+    }
+
+    async function handleRequestReset() {
+      const emailInput = document.getElementById('forgot-email');
+      const errEl = document.getElementById('forgot-error');
+      const successEl = document.getElementById('forgot-success');
+      const btn = document.getElementById('btn-send-reset');
+
+      const email = emailInput ? emailInput.value.trim() : '';
+      if (!email || !email.includes('@')) {
+        if (errEl) {
+          errEl.textContent = 'Please enter a valid email address.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (errEl) errEl.style.display = 'none';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'SENDING RESET EMAIL...';
+      }
+
+      try {
+        const resp = await fetch('/api/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email })
+        });
+        const data = await resp.json();
+
+        // Populate reset email field
+        const rEmail = document.getElementById('reset-email');
+        if (rEmail) rEmail.value = email;
+
+        // Transition to Stage 2
+        setForgotStage('reset');
+
+        const notice = document.getElementById('reset-sent-notice');
+        if (notice) {
+          notice.innerHTML = `📩 We sent a 6-digit verification code and reset link to <strong>${escapeHtml(email)}</strong>.`;
+        }
+
+        if (data.dev_code) {
+          // In development simulation mode, show code banner for convenient testing
+          if (successEl) {
+            successEl.innerHTML = `⚡ [DEV MODE SIMULATION] Your 6-digit code is: <strong style="font-family:'JetBrains Mono',monospace; font-size:14px; letter-spacing:2px;">${data.dev_code}</strong>`;
+            successEl.style.display = 'block';
+          }
+          const codeInput = document.getElementById('reset-code');
+          if (codeInput) codeInput.value = data.dev_code;
+        } else if (successEl) {
+          successEl.textContent = data.message || 'Verification code dispatched!';
+          successEl.style.display = 'block';
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Connection error: ' + err.message;
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'SEND RESET CODE & LINK';
+        }
+      }
+    }
+
+    async function handlePerformReset() {
+      const email = document.getElementById('reset-email').value.trim();
+      const code = document.getElementById('reset-code').value.trim();
+      const newPassword = document.getElementById('reset-new-password').value;
+      const confirmPassword = document.getElementById('reset-confirm-password').value;
+      const errEl = document.getElementById('forgot-error');
+      const successEl = document.getElementById('forgot-success');
+      const btn = document.getElementById('btn-do-reset');
+
+      if (errEl) errEl.style.display = 'none';
+
+      if (!resetTokenFromUrl && (!code || !email)) {
+        if (errEl) {
+          errEl.textContent = 'Please enter both your account email and the 6-digit code from your email.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (!newPassword || newPassword.length < 6) {
+        if (errEl) {
+          errEl.textContent = 'New password must be at least 6 characters long.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        if (errEl) {
+          errEl.textContent = 'Passwords do not match. Please re-enter.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'UPDATING PASSWORD...';
+      }
+
+      try {
+        const payload = {
+          new_password: newPassword,
+          token: resetTokenFromUrl || undefined,
+          code: code || undefined,
+          email: email || undefined
+        };
+
+        const resp = await fetch('/api/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await resp.json();
+        if (!resp.ok || !data.success) {
+          if (errEl) {
+            errEl.textContent = data.detail || data.error || 'Password reset failed. Please check the code and try again.';
+            errEl.style.display = 'block';
+          }
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'RESET PASSWORD & SIGN IN';
+          }
+          return;
+        }
+
+        if (successEl) {
+          successEl.textContent = '🎉 Password successfully reset! Signing you in...';
+          successEl.style.display = 'block';
+        }
+
+        const token = data.session_token;
+        if (token) {
+          localStorage.setItem('elo_auth_token', token);
+          localStorage.setItem('native_session_token', token);
+          sessionStorage.setItem('elo_auth_token', token);
+          if (data.user) {
+            localStorage.setItem('native_user_profile', JSON.stringify(data.user));
+          }
+          document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
+        }
+
+        setTimeout(() => {
+          window.location.href = redirectUrl;
+        }, 1200);
+
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Connection error: ' + err.message;
+          errEl.style.display = 'block';
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'RESET PASSWORD & SIGN IN';
+        }
       }
     }
 
@@ -285,6 +622,16 @@
         btn.disabled = false;
         btn.textContent = activeTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT';
       }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
     }
   </script>
 </body>
