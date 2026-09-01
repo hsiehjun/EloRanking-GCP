@@ -1725,9 +1725,13 @@ if FASTAPI_AVAILABLE:
                     "p2_name": game.get("p2Name", "Player 2"),
                     "state": st,
                     "version": room["version"],
-                    "participants.player2": {
-                        "uid": room["user_id_p2"],
-                        "name": game.get("p2Name", "Player 2")
+                    "participants": {
+                        "player2": {
+                            "uid": room["user_id_p2"],
+                            "name": game.get("p2Name", "Player 2"),
+                            "faction": game.get("p2Faction"),
+                            "detachment": game.get("p2Detachment")
+                        }
                     }
                 })
             except Exception:
@@ -2693,8 +2697,10 @@ if FASTAPI_AVAILABLE:
             fs_engine.update_room(match_id, {
                 "dice_tray": tray,
                 "dice_target": target,
-                "state.dice_tray": tray,
-                "state.dice_target": target
+                "state": {
+                    "dice_tray": tray,
+                    "dice_target": target
+                }
             })
         except Exception:
             pass
@@ -2771,13 +2777,15 @@ if FASTAPI_AVAILABLE:
             fs_engine = get_firestore_engine()
             fs_updates = {
                 "dice_history": room["dice_history"],
-                "state.dice_history": room["dice_history"],
-                "state.dice_target": target,
-                "dice_target": target
+                "dice_target": target,
+                "state": {
+                    "dice_history": room["dice_history"],
+                    "dice_target": target
+                }
             }
             if tray is not None:
                 fs_updates["dice_tray"] = tray
-                fs_updates["state.dice_tray"] = tray
+                fs_updates["state"]["dice_tray"] = tray
             fs_engine.update_room(match_id, fs_updates)
         except Exception:
             pass
@@ -2860,8 +2868,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=44.0">
-  <script src="/tracker/tracker_sync.js?v=44.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=45.0">
+  <script src="/tracker/tracker_sync.js?v=45.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

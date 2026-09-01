@@ -3333,8 +3333,10 @@ Space Marines - Gladius Task Force (2000 pts)
             dice_tray: diceRollerState.tray,
             dice_target: diceRollerState.target,
             dice_history: diceRollerState.history,
-            'state.dice_tray': diceRollerState.tray,
-            'state.dice_target': diceRollerState.target,
+            state: {
+              dice_tray: diceRollerState.tray,
+              dice_target: diceRollerState.target
+            },
             updatedAt: Date.now()
           }, { merge: true });
         } catch(e) {}
@@ -3788,8 +3790,10 @@ Space Marines - Gladius Task Force (2000 pts)
           dice_tray: diceRollerState.tray,
           dice_target: diceRollerState.target,
           dice_history: diceRollerState.history,
-          'state.dice_tray': diceRollerState.tray,
-          'state.dice_target': diceRollerState.target,
+          state: {
+            dice_tray: diceRollerState.tray,
+            dice_target: diceRollerState.target
+          },
           updatedAt: Date.now()
         }, { merge: true });
       } catch(e) {}
