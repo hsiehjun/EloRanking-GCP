@@ -2887,41 +2887,7 @@ if FASTAPI_AVAILABLE:
         if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
             user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-        # 2. Trigger non-blocking background sync of all upcoming pages if cache is cold (>15m)
-        global _LAST_UPCOMING_SYNC_TIME
-        import time, threading
-        now_ts = time.time()
-        if (now_ts - _LAST_UPCOMING_SYNC_TIME) > 900:
-            def sync_bcp_worker():
-                global _LAST_UPCOMING_SYNC_TIME
-                _LAST_UPCOMING_SYNC_TIME = time.time()
-                try:
-                    now_dt = datetime.now(timezone.utc)
-                    start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
-                    end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
-                    next_key = None
-                    for _ in range(12):
-                        url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
-                        if next_key:
-                            url += f"&nextKey={urllib.parse.quote(next_key)}"
-                        req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
-                        with urllib.request.urlopen(req, timeout=6) as resp:
-                            data = json.loads(resp.read().decode("utf-8"))
-                            items = data.get("data", [])
-                            for it in items:
-                                try:
-                                    db.upsert_event(it)
-                                except Exception:
-                                    pass
-                            next_key = data.get("nextKey")
-                            if not next_key or not items:
-                                break
-                except Exception as e:
-                    logger.warning(f"Background BCP upcoming events sync notice: {e}")
-
-            threading.Thread(target=sync_bcp_worker, daemon=True).start()
-
-        # 3. Query all upcoming & recent events directly from PostgreSQL database (<10ms)
+        # 2. Query upcoming & recent events directly from PostgreSQL database (<10ms)
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
@@ -2929,11 +2895,11 @@ if FASTAPI_AVAILABLE:
                 FROM events
                 WHERE event_date >= CURRENT_DATE - INTERVAL '14 days' AND event_date <= CURRENT_DATE + INTERVAL '120 days'
                 ORDER BY event_date ASC
-                LIMIT 2000;
+                LIMIT 300;
                 """)
                 bcp_events = [dict(r) for r in cursor.fetchall()]
 
-        # If DB had 0 upcoming events, fall back to recent events from Postgres (<10ms)
+        # Fallback to recent events if 0 upcoming
         if not bcp_events:
             with db.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
@@ -2941,7 +2907,7 @@ if FASTAPI_AVAILABLE:
                     SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
                     FROM events
                     ORDER BY event_date DESC
-                    LIMIT 200;
+                    LIMIT 100;
                     """)
                     bcp_events = [dict(r) for r in cursor.fetchall()]
 
@@ -2954,13 +2920,7 @@ if FASTAPI_AVAILABLE:
 
         processed_events = []
         seen_ids = set()
-
-        # Batch query enrolled player stats from DB for all incoming events
-        ev_all_ids = [str(ev.get("id") or ev.get("objectId")) for ev in bcp_events if (ev.get("id") or ev.get("objectId"))]
-        try:
-            field_stats = db.get_events_field_stats(ev_all_ids)
-        except Exception:
-            field_stats = {}
+        field_stats = {}
 
         for ev in bcp_events:
             ev_id = ev.get("id") or ev.get("objectId")
