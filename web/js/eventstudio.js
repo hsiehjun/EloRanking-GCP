@@ -54,9 +54,40 @@ function updateStudioAuthBadge() {
     } catch(e) {}
   }
 
+  const token = getBcpToken();
+  const isBcpConnected = !!((user && (user.bcp_connected || user.bcp_user_id || user.bcp_email)) || (token && token.length > 20));
+  studioState.bcpConnected = isBcpConnected;
+
+  // Toggle locked gate vs tournament directory/management views
+  const lockedGates = document.querySelectorAll("#es-locked-gate");
+  const mainViews = document.querySelectorAll("#es-view-events, #es-view-create, #es-view-manage");
+  const headerCreateBtns = document.querySelectorAll("#btn-sync-bcp-events, .es-create-tourney-btn");
+
+  if (!isBcpConnected) {
+    lockedGates.forEach(g => { g.style.display = "block"; });
+    mainViews.forEach(v => { v.style.display = "none"; });
+    headerCreateBtns.forEach(b => {
+      b.disabled = true;
+      b.style.opacity = "0.4";
+      b.style.cursor = "not-allowed";
+    });
+  } else {
+    lockedGates.forEach(g => { g.style.display = "none"; });
+    headerCreateBtns.forEach(b => {
+      b.disabled = false;
+      b.style.opacity = "1";
+      b.style.cursor = "pointer";
+    });
+    // If on events tab, show events directory
+    if (studioState.activeTab === 'events' || !studioState.activeTab) {
+      const evView = document.getElementById("es-view-events");
+      if (evView) evView.style.display = "block";
+    }
+  }
+
   if (statusText) {
-    if (user && (user.bcp_connected || user.bcp_user_id || user.bcp_email)) {
-      const email = user.bcp_email || user.email || user.display_name || "Organizer";
+    if (isBcpConnected) {
+      const email = (user && (user.bcp_email || user.email || user.display_name)) || "BCP Organizer";
       if (banner) {
         banner.style.background = "rgba(16, 185, 129, 0.08)";
         banner.style.borderColor = "rgba(16, 185, 129, 0.25)";
@@ -75,7 +106,7 @@ function updateStudioAuthBadge() {
         dot.style.background = "#f59e0b";
         dot.style.boxShadow = "none";
       }
-      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> — <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Link BCP Account</a> to sync your official tournaments`;
+      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> — <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Link BCP Account</a> to unlock Event Studio`;
     } else {
       if (banner) {
         banner.style.background = "rgba(56, 189, 248, 0.05)";
@@ -85,7 +116,7 @@ function updateStudioAuthBadge() {
         dot.style.background = "#94a3b8";
         dot.style.boxShadow = "none";
       }
-      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign in & Link BCP</a> to manage and publish live tournaments`;
+      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login?redirect=%2F%23event-studio" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign in & Link BCP</a> to unlock Event Studio`;
     }
   }
 }
@@ -145,6 +176,13 @@ async function loadStudioEvents() {
 
 function switchStudioTab(tabName, eventId = null) {
   if (typeof switchTab === 'function') switchTab('event-studio');
+
+  // Enforce BCP link requirement
+  if (!studioState.bcpConnected && tabName !== 'events') {
+    openBcpLinkModal();
+    return;
+  }
+
   studioState.activeTab = tabName || 'events';
   const views = ["events", "create", "manage"];
 
@@ -314,6 +352,10 @@ async function submitCreateTournament() {
       if (typeof loadTournaments === 'function') {
         try { loadTournaments(); } catch(e) {}
       }
+      if (typeof loadEvents === 'function') {
+        try { loadEvents(); } catch(e) {}
+      }
+      window.dispatchEvent(new CustomEvent('tournaments-updated', { detail: { eventId, action: 'create', event: newEvent } }));
 
       if (res.bcp_registered) {
         alert(`🎉 Tournament "${name}" successfully created and registered on Best Coast Pairings!`);
@@ -984,9 +1026,16 @@ async function deleteStudioTournament(eventId) {
   studioState.eventsList = (studioState.eventsList || []).filter(e => e.id !== eventId);
   renderEventsDirectory();
 
+  // Remove matching cards from DOM immediately
+  document.querySelectorAll(`.es-event-card[data-event-id="${eventId}"]`).forEach(el => el.remove());
+
   if (typeof loadTournaments === 'function') {
     try { loadTournaments(); } catch(e) {}
   }
+  if (typeof loadEvents === 'function') {
+    try { loadEvents(); } catch(e) {}
+  }
+  window.dispatchEvent(new CustomEvent('tournaments-updated', { detail: { eventId, action: 'delete' } }));
 
   try {
     const res = await window.api.deleteStudioEvent(eventId);

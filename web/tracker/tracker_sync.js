@@ -3267,9 +3267,9 @@ Space Marines - Gladius Task Force (2000 pts)
   // ==========================================================================
   const diceRollerState = {
     visible: localStorage.getItem('gt-dice-visible') === 'true',
-    count: Math.min(100, Math.max(1, parseInt(localStorage.getItem('gt-dice-count') || '10', 10))),
+    count: Math.min(100, Math.max(0, parseInt(localStorage.getItem('gt-dice-count') || '0', 10))),
     target: parseInt(localStorage.getItem('gt-dice-target') || '3', 10),
-    label: localStorage.getItem('gt-dice-label') || 'Hit Roll',
+    label: 'Dice Roll',
     dieType: 'D6',
     lastResults: [],
     history: []
@@ -3328,15 +3328,6 @@ Space Marines - Gladius Task Force (2000 pts)
       </div>
 
       <div class="gt-dice-body">
-        <!-- Quick Preset Roll Labels -->
-        <div style="display:flex; gap:4px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none;">
-          ${['Hit Roll', 'Wound Roll', 'Armor Save', 'Invuln Save', 'Feel No Pain', 'Charge (2D6)', 'Advance (D6)'].map(l => `
-            <button class="gt-dice-quick-btn ${diceRollerState.label === l ? 'gt-dice-target-pill active' : ''}" style="white-space:nowrap; padding:3px 7px; font-size:10px;" onclick="window.gtSetDiceLabel('${l}')">
-              ${l}
-            </button>
-          `).join('')}
-        </div>
-
         <!-- Dice Count Controls -->
         <div style="display:flex; flex-direction:column; gap:4px;">
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#cbd5e1; font-weight:700;">
@@ -3344,12 +3335,12 @@ Space Marines - Gladius Task Force (2000 pts)
             <span style="font-size:10px; color:#64748b;">(Max: 100)</span>
           </div>
           <div style="display:flex; gap:4px; align-items:center;">
-            <input type="number" id="gt-dice-input" value="${count}" min="1" max="100" class="form-input" style="width:60px; height:28px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:6px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10))">
+            <input type="number" id="gt-dice-input" value="${count}" min="0" max="100" class="form-input" style="width:60px; height:28px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:6px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10))">
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(1)">+1</button>
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(5)">+5</button>
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(10)">+10</button>
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(20)">+20</button>
-            <button class="gt-dice-quick-btn" style="color:#ef4444;" onclick="window.gtSetDiceCount(1)">Clear</button>
+            <button class="gt-dice-quick-btn" style="color:#ef4444;" onclick="window.gtSetDiceCount(0)">Clear (0)</button>
           </div>
         </div>
 
@@ -3369,15 +3360,15 @@ Space Marines - Gladius Task Force (2000 pts)
         </div>
 
         <!-- Giant Main Action Button -->
-        <button id="btn-main-roll-dice" onclick="window.gtExecuteDiceRoll()" style="background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px; border-radius:8px; font-size:14px; font-weight:900; font-family:'Chakra Petch',sans-serif; letter-spacing:0.5px; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.4); display:flex; justify-content:center; align-items:center; gap:6px; transition:transform 0.1s ease;">
-          🎲 ROLL ${count} ${diceRollerState.dieType} (${target > 0 ? target + '+' : 'Raw'})
+        <button id="btn-main-roll-dice" onclick="window.gtExecuteDiceRoll()" style="background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px; border-radius:8px; font-size:14px; font-weight:900; font-family:'Chakra Petch',sans-serif; letter-spacing:0.5px; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.4); display:flex; justify-content:center; align-items:center; gap:6px; transition:transform 0.1s ease; ${count === 0 ? 'opacity:0.6;' : ''}">
+          🎲 ROLL ${count > 0 ? `${count} ${diceRollerState.dieType}` : 'DICE'} (${target > 0 ? target + '+' : 'Raw'})
         </button>
 
         <!-- Live Roll Results Display -->
         ${hasResults ? `
           <div style="background:rgba(15,23,42,0.8); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:6px;">
             <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase;">${escapeHtml(diceRollerState.label)} Results:</span>
+              <span style="font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase;">Roll Results:</span>
               <span style="font-size:10px; font-family:'JetBrains Mono',monospace; color:#64748b;">Sum: ${sum}</span>
             </div>
 
@@ -3415,11 +3406,6 @@ Space Marines - Gladius Task Force (2000 pts)
                   🔄 Re-roll Fails (${lastFails})
                 </button>
               ` : ''}
-              ${lastSuccess > 0 ? `
-                <button class="gt-dice-quick-btn" style="flex:1; font-size:10px; color:#10b981; border-color:rgba(16,185,129,0.3);" onclick="window.gtRollWoundsFromHits(${lastSuccess})" title="Set dice count to successful hits for wound roll">
-                  🎯 Roll ${lastSuccess} Wounds
-                </button>
-              ` : ''}
             </div>
           </div>
         ` : ''}
@@ -3437,7 +3423,7 @@ Space Marines - Gladius Task Force (2000 pts)
               <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:3px 6px; font-size:10px; display:flex; justify-content:space-between; align-items:center;">
                 <div>
                   <b style="color:${h.player_num === 2 ? '#10b981' : '#38bdf8'};">${escapeHtml(h.player_name)}</b>: 
-                  <span style="color:#cbd5e1;">${escapeHtml(h.label)} (${h.dice_count}D6${h.target ? ' @ ' + h.target + '+' : ''})</span>
+                  <span style="color:#cbd5e1;">${h.dice_count}D6${h.target ? ' @ ' + h.target + '+' : ''}</span>
                 </div>
                 <span style="font-weight:700; font-family:'JetBrains Mono',monospace; color:${h.target ? '#10b981' : '#f59e0b'};">
                   ${h.target ? `${h.success_count}/${h.dice_count} pass` : `Sum ${h.sum}`}
@@ -3450,31 +3436,14 @@ Space Marines - Gladius Task Force (2000 pts)
     `;
   }
 
-  window.gtSetDiceLabel = function(label) {
-    diceRollerState.label = label;
-    localStorage.setItem('gt-dice-label', label);
-    if (label.includes('Charge')) {
-      diceRollerState.count = 2;
-      diceRollerState.target = 0;
-    } else if (label.includes('Advance')) {
-      diceRollerState.count = 1;
-      diceRollerState.target = 0;
-    } else if (label.includes('Invuln') || label.includes('Armor')) {
-      diceRollerState.target = 4;
-    } else if (label.includes('Feel No Pain')) {
-      diceRollerState.target = 5;
-    }
-    renderDiceRollerContent();
-  };
-
   window.gtSetDiceCount = function(count) {
-    diceRollerState.count = Math.min(100, Math.max(1, count || 1));
+    diceRollerState.count = Math.min(100, Math.max(0, isNaN(count) ? 0 : count));
     localStorage.setItem('gt-dice-count', diceRollerState.count);
     renderDiceRollerContent();
   };
 
   window.gtAddDice = function(delta) {
-    diceRollerState.count = Math.min(100, Math.max(1, diceRollerState.count + delta));
+    diceRollerState.count = Math.min(100, Math.max(0, (diceRollerState.count || 0) + delta));
     localStorage.setItem('gt-dice-count', diceRollerState.count);
     renderDiceRollerContent();
   };
@@ -3491,7 +3460,6 @@ Space Marines - Gladius Task Force (2000 pts)
     try { stateObj = JSON.parse(raw) || {}; } catch(e) {}
     const game = stateObj.game || {};
     
-    // Determine player from assigned role or default P1
     const p1Name = game.p1Name || 'Player 1';
     const p2Name = game.p2Name || 'Player 2';
     const isP2 = clientState.clientRole === 'player2';
@@ -3504,6 +3472,10 @@ Space Marines - Gladius Task Force (2000 pts)
 
   window.gtExecuteDiceRoll = function() {
     const count = diceRollerState.count;
+    if (count <= 0) {
+      alert("Please add at least 1 die (+1, +5, +10) before rolling!");
+      return;
+    }
     const target = diceRollerState.target;
     const label = diceRollerState.label;
 

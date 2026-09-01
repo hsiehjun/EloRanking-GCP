@@ -5,14 +5,23 @@
 let activeTab = 'leaderboard';
 
 function switchTab(tabName) {
+  // Normalize alias names
+  if (tabName === 'tournaments') tabName = 'events';
+  if (tabName === 'eventstudio') tabName = 'event-studio';
+  if (tabName === 'myhub') tabName = 'my-hub';
+
   activeTab = tabName;
+
+  // Update top navigation button states
   document.querySelectorAll('.nav-btn').forEach(b => {
     b.classList.remove('active');
-    if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${tabName}'`)) {
-      b.classList.add('active');
-    }
   });
 
+  const matchingBtn = document.getElementById(`nav-btn-${tabName}`) ||
+                      document.querySelector(`.nav-btn[onclick*="'${tabName}'"]`);
+  if (matchingBtn) matchingBtn.classList.add('active');
+
+  // Update tab panel visibility
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.remove('active');
   });
@@ -20,13 +29,19 @@ function switchTab(tabName) {
   const activePanel = document.getElementById(`tab-${tabName}`);
   if (activePanel) activePanel.classList.add('active');
 
+  // Update URL hash history
+  if (window.history && window.history.replaceState) {
+    window.history.replaceState(null, '', '#' + tabName);
+  }
+
   // Trigger lazy loading of view data
   if (tabName === 'leaderboard') {
     loadLeaderboard();
   } else if (tabName === 'search') {
     switchSearchSubtab('players');
   } else if (tabName === 'events') {
-    loadEvents();
+    if (typeof loadEvents === 'function') loadEvents();
+    if (typeof loadTournaments === 'function') loadTournaments();
   } else if (tabName === 'event-studio') {
     if (typeof initStudio === 'function') initStudio();
   } else if (tabName === 'my-hub') {
@@ -37,6 +52,17 @@ function switchTab(tabName) {
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   }
 }
+
+// Support hash navigation and reactive updates across tabs
+window.addEventListener('hashchange', () => {
+  const hash = window.location.hash.replace('#', '').trim();
+  if (hash) switchTab(hash);
+});
+
+window.addEventListener('tournaments-updated', () => {
+  if (typeof loadEvents === 'function') loadEvents();
+  if (typeof loadTournaments === 'function') loadTournaments();
+});
 
 function switchSearchSubtab(subtab) {
   const btnPlayers = document.getElementById('search-subtab-players');

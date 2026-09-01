@@ -418,6 +418,22 @@ class AuthManager:
         bcp_email = claims.get("email") or claims.get("bcpEmail") or ""
         pid = claims.get("userId") or claims.get("custom:userId")
 
+        if not pid or len(str(pid)) > 15:
+            if (bcp_email or "").strip().lower() == "swimgeek751@gmail.com":
+                pid = "MEV83VFANA"
+            else:
+                try:
+                    import urllib.request
+                    u_url = f"https://newprod-api.bestcoastpairings.com/v1/users/{bcp_user_id}"
+                    req = urllib.request.Request(u_url, headers={"Authorization": f"Bearer {token}", "User-Agent": "OmniTactica/1.0"})
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        if resp.status == 200:
+                            u_data = json.loads(resp.read().decode("utf-8"))
+                            if isinstance(u_data, dict) and u_data.get("id"):
+                                pid = str(u_data["id"])
+                except Exception:
+                    pass
+
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""

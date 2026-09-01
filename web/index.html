@@ -518,7 +518,20 @@
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
             <button id="btn-sync-bcp-events" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.32rem 0.75rem;" onclick="syncBcpOrganizerEvents()">🔄 Sync BCP Events</button>
-            <button class="btn btn-primary" style="font-size: 0.76rem; padding: 0.32rem 0.85rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+            <button id="btn-studio-create-tourney" class="btn btn-primary es-create-tourney-btn" style="font-size: 0.76rem; padding: 0.32rem 0.85rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
+          </div>
+        </div>
+
+        <!-- LOCKED GATE: Displayed when BCP is not connected -->
+        <div id="es-locked-gate" style="display: none; max-width: 640px; margin: 2rem auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 2.5rem 1.75rem; text-align: center; box-shadow: var(--shadow-lg);">
+          <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔒</div>
+          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Best Coast Pairings Link Required</h3>
+          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
+            Event Studio is the dedicated Tournament Director suite for Best Coast Pairings. Link your BCP account to organize official tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
+          </p>
+          <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Link BCP Account</button>
+            <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
           </div>
         </div>
 
@@ -549,17 +562,16 @@
               <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Create a tournament in Event Studio and automatically register the listing on Best Coast Pairings.</p>
             </div>
             <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-              <!-- Game System Picker -->
+              <!-- Game System Picker (Locked to Warhammer 40k Only) -->
               <div class="form-group" style="grid-column: 1 / -1;">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Game System *</label>
                 <select id="create-event-game-system" class="form-input" style="width: 100%; box-sizing: border-box;">
                   <option value="WGMSzfKFYA" selected>Warhammer 40,000 (10th Edition)</option>
-                  <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
-                  <option value="23qDprPABN">Warhammer: Age of Sigmar</option>
-                  <option value="WGMSzfKFYA">Warhammer: Horus Heresy</option>
-                  <option value="vyeOD0fcYY">Kill Team</option>
-                  <option value="starwars_legion">Star Wars: Legion</option>
-                  <option value="marvel_cp">Marvel: Crisis Protocol</option>
+                  <option value="dJtT7U0Wv2" disabled>Warhammer: The Old World (Coming Soon)</option>
+                  <option value="23qDprPABN" disabled>Warhammer: Age of Sigmar (Coming Soon)</option>
+                  <option value="vyeOD0fcYY" disabled>Kill Team (Coming Soon)</option>
+                  <option value="starwars_legion" disabled>Star Wars: Legion (Coming Soon)</option>
+                  <option value="marvel_cp" disabled>Marvel: Crisis Protocol (Coming Soon)</option>
                 </select>
               </div>
 
