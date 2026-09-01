@@ -1519,30 +1519,107 @@ input, select, textarea {
     padding: 1rem 0.75rem;
   }
 
-  /* My Hub Match History Table -> Mobile Cards */
-  #hub-history-table td:nth-child(1)::before { content: "Date"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-history-table td:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.35rem !important; margin-bottom: 0.2rem; font-size: 0.9rem !important; }
-  #hub-history-table td:nth-child(3)::before { content: "Round"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-history-table td:nth-child(4)::before { content: "Opponent"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-history-table td:nth-child(5)::before { content: "Opponent Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-history-table td:nth-child(6)::before { content: "Match Result"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-history-table td:nth-child(7)::before { content: "Elo Delta"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-history-table td:nth-child(8)::before { content: "New Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  .hub-table-wrapper {
+    max-height: 360px;
+    overflow-y: auto;
+    overflow-x: hidden !important;
+    background: transparent !important;
+    border: none !important;
+  }
 
-  /* Faction Mastery Table -> Mobile Cards */
-  #hub-faction-table td:nth-child(1) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.35rem !important; margin-bottom: 0.2rem; font-size: 0.92rem !important; }
+  .hub-table {
+    display: block !important;
+    width: 100% !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    table-layout: auto !important;
+  }
+
+  .hub-table thead {
+    display: none !important;
+  }
+
+  .hub-table tbody {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0.65rem !important;
+    width: 100% !important;
+  }
+
+  .hub-table tr {
+    display: block !important;
+    width: 100% !important;
+    background: rgba(15, 23, 42, 0.7) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 0.75rem 0.85rem !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+    box-sizing: border-box !important;
+  }
+
+  .hub-table tr:hover td {
+    background: transparent !important;
+  }
+
+  .hub-table td {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0.25rem 0 !important;
+    border: none !important;
+    font-size: 0.82rem !important;
+    box-sizing: border-box !important;
+    white-space: normal !important;
+    text-align: right !important;
+  }
+
+  /* 1. Career Match History Card (5 columns) */
+  #hub-history-table td:nth-child(2) {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: 0.4rem !important;
+    margin-bottom: 0.35rem;
+    font-size: 0.88rem !important;
+    font-weight: 700;
+  }
+  #hub-history-table td:nth-child(1)::before { content: "Match Date"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-history-table td:nth-child(3)::before { content: "Opponent"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-history-table td:nth-child(4)::before { content: "Match Result"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-history-table td:nth-child(5)::before { content: "Elo Delta"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* 2. Matchup Matrix Card (4 columns) */
+  #hub-matchup-table td:nth-child(1) {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: 0.4rem !important;
+    margin-bottom: 0.35rem;
+    font-size: 0.92rem !important;
+  }
+  #hub-matchup-table td:nth-child(2)::before { content: "Total Encounters"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(3)::before { content: "Record (W-L-D)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(4)::before { content: "Win Rate vs Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(4) > div { width: 55%; }
+
+  /* 3. Faction Mastery Card (5 columns) */
+  #hub-faction-table td:nth-child(1) {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: 0.4rem !important;
+    margin-bottom: 0.35rem;
+    font-size: 0.92rem !important;
+  }
   #hub-faction-table td:nth-child(2)::before { content: "Games Played"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-faction-table td:nth-child(3)::before { content: "Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(3)::before { content: "Career Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-faction-table td:nth-child(4)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-faction-table td:nth-child(5)::before { content: "Avg Battle Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
-  /* Matchup Matrix Table -> Mobile Cards */
-  #hub-matchup-table td:nth-child(1) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.35rem !important; margin-bottom: 0.2rem; font-size: 0.92rem !important; }
-  #hub-matchup-table td:nth-child(2)::before { content: "Encounters"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-matchup-table td:nth-child(3)::before { content: "Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-matchup-table td:nth-child(4)::before { content: "Win Rate vs Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-matchup-table td:nth-child(4) > div { width: 65%; }
-
+  /* 4. Live Game Tracker Completed History */
+  #hub-tracker-history-table td:nth-child(1) {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: 0.4rem !important;
+    margin-bottom: 0.35rem;
+    font-size: 0.88rem !important;
+  }
+  #hub-tracker-history-table td:nth-child(2)::before { content: "Players & Armies"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-tracker-history-table td:nth-child(3)::before { content: "Final Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-tracker-history-table td:nth-child(4)::before { content: "Scorecard"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 }
 
 
