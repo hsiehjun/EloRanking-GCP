@@ -44,6 +44,10 @@ function switchTab(tabName) {
     if (typeof loadEvents === 'function') loadEvents();
     if (typeof loadTournaments === 'function') loadTournaments();
   } else if (tabName === 'event-studio') {
+    if (!currentUser) {
+      window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
+      return;
+    }
     if (typeof initStudio === 'function') initStudio();
   } else if (tabName === 'my-hub') {
     if (!currentUser) {

@@ -64,7 +64,34 @@ function updateStudioAuthBadge() {
   const headerCreateBtns = document.querySelectorAll("#btn-sync-bcp-events, .es-create-tourney-btn");
 
   if (!isBcpConnected) {
-    lockedGates.forEach(g => { g.style.display = "block"; });
+    lockedGates.forEach(g => {
+      g.style.display = "block";
+      if (!user) {
+        g.innerHTML = `
+          <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔑</div>
+          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Sign In to OmniTactica</h3>
+          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
+            Event Studio is the dedicated Tournament Director suite. Please sign in or create an account to organize tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
+          </p>
+          <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+            <a href="/login?redirect=%2F%23event-studio" class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;">🔑 Sign In / Register</a>
+            <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
+          </div>
+        `;
+      } else {
+        g.innerHTML = `
+          <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔒</div>
+          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Best Coast Pairings Link Required</h3>
+          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
+            Event Studio is the dedicated Tournament Director suite for Best Coast Pairings. Link your BCP account to organize official tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
+          </p>
+          <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Link BCP Account</button>
+            <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
+          </div>
+        `;
+      }
+    });
     mainViews.forEach(v => { v.style.display = "none"; });
     headerCreateBtns.forEach(b => {
       b.disabled = true;
@@ -116,7 +143,7 @@ function updateStudioAuthBadge() {
         dot.style.background = "#94a3b8";
         dot.style.boxShadow = "none";
       }
-      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login?redirect=%2F%23event-studio" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign in & Link BCP</a> to unlock Event Studio`;
+      statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login?redirect=%2F%23event-studio" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign In</a> to unlock Event Studio`;
     }
   }
 }
