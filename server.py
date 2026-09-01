@@ -200,37 +200,48 @@ if FASTAPI_AVAILABLE:
         if bcp_user_id:
             try:
                 import urllib.request, json
-                start_range = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT00:00:00Z")
-                end_range = (datetime.now(timezone.utc) + timedelta(days=180)).strftime("%Y-%m-%dT23:59:59Z")
-                sync_url = f"{BCP_API_BASE}/events?limit=50&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_range}&endDate={end_range}"
+                start_range = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT00:00:00.000Z")
+                end_range = (datetime.now(timezone.utc) + timedelta(days=365)).strftime("%Y-%m-%dT23:59:59.000Z")
                 headers = DEFAULT_HEADERS.copy()
                 bcp_tok = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
                 if bcp_tok:
                     headers["Authorization"] = f"Bearer {bcp_tok}"
                 
-                req = urllib.request.Request(sync_url, headers=headers)
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    if resp.status == 200:
-                        bcp_raw = json.loads(resp.read().decode("utf-8"))
-                        for item in bcp_raw.get("data", []):
-                            owner = item.get("ownerId") or item.get("userId") or (item.get("user") or {}).get("id") or item.get("organizerId")
-                            if owner == bcp_user_id:
-                                db.save_studio_event({
-                                    "id": str(item["id"]),
-                                    "name": item.get("name", "BCP Tournament"),
-                                    "tier": item.get("eventType") or "Grand Tournament",
-                                    "event_date": item.get("eventDate"),
-                                    "end_date": item.get("endDate") or item.get("eventEndDate"),
-                                    "city": item.get("city"),
-                                    "state": item.get("state"),
-                                    "country": item.get("country"),
-                                    "venue": item.get("venueName"),
-                                    "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
-                                    "points": item.get("points") or 2000,
-                                    "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
-                                    "organizer_id": user_id,
-                                    "organizer_bcp_id": bcp_user_id
-                                })
+                # Query organizer endpoints
+                for sync_url in [
+                    f"https://newprod-api.bestcoastpairings.com/v2/events?eventSearchType=organizer&limit=50&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}",
+                    f"https://newprod-api.bestcoastpairings.com/v1/events?eventSearchType=organizer&limit=50&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}",
+                    f"{BCP_API_BASE}/events?limit=50&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_range}&endDate={end_range}"
+                ]:
+                    try:
+                        req = urllib.request.Request(sync_url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=8) as resp:
+                            if resp.status == 200:
+                                bcp_raw = json.loads(resp.read().decode("utf-8"))
+                                items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
+                                for item in (items if isinstance(items, list) else []):
+                                    if not isinstance(item, dict): continue
+                                    owner = item.get("ownerId") or item.get("userId") or (item.get("user") or {}).get("id") or (item.get("owner") or {}).get("id") or item.get("organizerId")
+                                    if owner == bcp_user_id or "organizer" in sync_url:
+                                        loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                                        db.save_studio_event({
+                                            "id": str(item.get("id") or item.get("_id")),
+                                            "name": item.get("name", "BCP Tournament"),
+                                            "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
+                                            "event_date": item.get("eventDate") or item.get("startDate"),
+                                            "end_date": item.get("endDate") or item.get("eventEndDate"),
+                                            "city": item.get("city") or loc.get("city"),
+                                            "state": item.get("state") or loc.get("state"),
+                                            "country": item.get("country") or loc.get("country"),
+                                            "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
+                                            "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                                            "points": item.get("points") or 2000,
+                                            "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                                            "organizer_id": user_id,
+                                            "organizer_bcp_id": bcp_user_id
+                                        })
+                    except Exception as loop_err:
+                        logger.debug(f"Sync attempt {sync_url}: {loop_err}")
             except Exception as se:
                 logger.info(f"Notice syncing BCP organizer events: {se}")
 
