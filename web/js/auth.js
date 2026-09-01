@@ -212,13 +212,13 @@ async function handleConnectBcp(e) {
       alert("🎉 Best Coast Pairings account connected successfully!");
     } else {
       if (errorDiv) {
-        errorDiv.innerText = res.error || 'Failed to connect BCP account. If using SSO, please use the 1-Line Browser Sync tab.';
+        errorDiv.innerText = res?.error || 'Failed to connect BCP account. Please verify credentials.';
         errorDiv.style.display = 'block';
       }
     }
   } catch (err) {
     if (errorDiv) {
-      errorDiv.innerText = 'Connection error: ' + err.message + '. You can also use the 1-Line Browser Sync tab.';
+      errorDiv.innerText = err.message || 'Connection error occurred.';
       errorDiv.style.display = 'block';
     }
   } finally {

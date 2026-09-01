@@ -100,6 +100,41 @@ class AuthManager:
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
+                    -- Deduplicate any existing multi-linked BCP accounts (keep most recent)
+                    WITH dup_bcp_user AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY bcp_user_id ORDER BY bcp_linked_at DESC NULLS LAST, updated_at DESC) as rn
+                        FROM users
+                        WHERE bcp_user_id IS NOT NULL AND bcp_user_id != ''
+                    )
+                    UPDATE users SET
+                        bcp_user_id = NULL,
+                        bcp_email = NULL,
+                        bcp_access_token = NULL,
+                        bcp_id_token = NULL,
+                        bcp_refresh_token = NULL,
+                        bcp_token_expires_at = NULL,
+                        bcp_linked_at = NULL
+                    WHERE id IN (SELECT id FROM dup_bcp_user WHERE rn > 1);
+
+                    WITH dup_bcp_email AS (
+                        SELECT id, ROW_NUMBER() OVER (PARTITION BY LOWER(bcp_email) ORDER BY bcp_linked_at DESC NULLS LAST, updated_at DESC) as rn
+                        FROM users
+                        WHERE bcp_email IS NOT NULL AND bcp_email != ''
+                    )
+                    UPDATE users SET
+                        bcp_user_id = NULL,
+                        bcp_email = NULL,
+                        bcp_access_token = NULL,
+                        bcp_id_token = NULL,
+                        bcp_refresh_token = NULL,
+                        bcp_token_expires_at = NULL,
+                        bcp_linked_at = NULL
+                    WHERE id IN (SELECT id FROM dup_bcp_email WHERE rn > 1);
+
+                    -- Enforce unique BCP link constraints
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
+
                     -- Ensure primary administrator accounts have admin role
                     UPDATE users SET role = 'admin' WHERE LOWER(email) IN ('swimgeek751@gmail.com', 'hsiehjun@google.com', 'hsiehjun@gmail.com') AND role = 'player';
 
@@ -433,6 +468,32 @@ class AuthManager:
                 pid = p_match["player_id"] if p_match else bcp_user_id
                 official_name = (p_match["player_name"] if p_match else None) or bcp_name
 
+                # Enforce strict 1-to-1 BCP account linking
+                clauses = []
+                chk_params = []
+                if bcp_user_id:
+                    clauses.append("bcp_user_id = %s")
+                    chk_params.append(bcp_user_id)
+                if bcp_email and bcp_email.strip():
+                    clauses.append("LOWER(bcp_email) = LOWER(%s)")
+                    chk_params.append(bcp_email.strip())
+
+                if clauses:
+                    cur.execute(f"""
+                    SELECT id, email, display_name FROM users
+                    WHERE ({' OR '.join(clauses)}) AND id != %s
+                    LIMIT 1;
+                    """, tuple(chk_params + [user_id]))
+                    conflict = cur.fetchone()
+                    if conflict:
+                        conflict_name = conflict.get("display_name") or conflict.get("email") or "another user"
+                        display_email = bcp_email or bcp_user_id
+                        logger.warning(f"⚠️ Conflict: BCP account {display_email} is already linked to OmniTactica user {conflict_name} ({conflict.get('id')})")
+                        return {
+                            "success": False,
+                            "error": f"This Best Coast Pairings account ({display_email}) is already linked to another OmniTactica account ({conflict_name}). An account can only be linked to one OmniTactica profile. Please disconnect it from that profile first."
+                        }
+
                 # Override name, player_id, and tokens
                 cur.execute("""
                 UPDATE users SET
@@ -505,6 +566,34 @@ class AuthManager:
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
+                # 1. Enforce strict 1-to-1 BCP account linking
+                clauses = []
+                chk_params = []
+                if bcp_user_id:
+                    clauses.append("bcp_user_id = %s")
+                    chk_params.append(bcp_user_id)
+                if bcp_email and bcp_email.strip():
+                    clauses.append("LOWER(bcp_email) = LOWER(%s)")
+                    chk_params.append(bcp_email.strip())
+
+                if clauses:
+                    check_query = f"""
+                    SELECT id, email, display_name FROM users
+                    WHERE ({' OR '.join(clauses)}) AND id != %s
+                    LIMIT 1;
+                    """
+                    chk_params.append(user_id)
+                    cur.execute(check_query, tuple(chk_params))
+                    conflict = cur.fetchone()
+                    if conflict:
+                        conflict_name = conflict[2] or conflict[1] or "another user"
+                        display_email = bcp_email or bcp_user_id
+                        logger.warning(f"⚠️ Conflict: BCP account {display_email} is already linked to OmniTactica user {conflict_name} ({conflict[0]})")
+                        return {
+                            "success": False,
+                            "error": f"This Best Coast Pairings account ({display_email}) is already linked to another OmniTactica account ({conflict_name}). An account can only be linked to one OmniTactica profile. Please disconnect it from that profile first."
+                        }
+
                 cur.execute("""
                 UPDATE users SET
                     bcp_user_id = COALESCE(%s, bcp_user_id),
