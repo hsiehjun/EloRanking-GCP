@@ -196,6 +196,44 @@ if FASTAPI_AVAILABLE:
         if not user_id and not bcp_user_id:
             return {"success": True, "count": 0, "events": []}
 
+        # Check BCP for any tournaments hosted by this organizer
+        if bcp_user_id:
+            try:
+                import urllib.request, json
+                start_range = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT00:00:00Z")
+                end_range = (datetime.now(timezone.utc) + timedelta(days=180)).strftime("%Y-%m-%dT23:59:59Z")
+                sync_url = f"{BCP_API_BASE}/events?limit=50&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_range}&endDate={end_range}"
+                headers = DEFAULT_HEADERS.copy()
+                bcp_tok = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
+                if bcp_tok:
+                    headers["Authorization"] = f"Bearer {bcp_tok}"
+                
+                req = urllib.request.Request(sync_url, headers=headers)
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    if resp.status == 200:
+                        bcp_raw = json.loads(resp.read().decode("utf-8"))
+                        for item in bcp_raw.get("data", []):
+                            owner = item.get("ownerId") or item.get("userId") or (item.get("user") or {}).get("id") or item.get("organizerId")
+                            if owner == bcp_user_id:
+                                db.save_studio_event({
+                                    "id": str(item["id"]),
+                                    "name": item.get("name", "BCP Tournament"),
+                                    "tier": item.get("eventType") or "Grand Tournament",
+                                    "event_date": item.get("eventDate"),
+                                    "end_date": item.get("endDate") or item.get("eventEndDate"),
+                                    "city": item.get("city"),
+                                    "state": item.get("state"),
+                                    "country": item.get("country"),
+                                    "venue": item.get("venueName"),
+                                    "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                                    "points": item.get("points") or 2000,
+                                    "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                                    "organizer_id": user_id,
+                                    "organizer_bcp_id": bcp_user_id
+                                })
+            except Exception as se:
+                logger.info(f"Notice syncing BCP organizer events: {se}")
+
         # Fetch tournaments created by or explicitly linked to this user/TO
         events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id)
 
@@ -242,22 +280,26 @@ if FASTAPI_AVAILABLE:
         bcp_error = None
 
         # Attempt to register on Best Coast Pairings API if authenticated
-        if bcp_token:
+        if bcp_token and bcp_user_id:
             try:
                 import urllib.request, json
-                bcp_url = "https://newprod-api.bestcoastpairings.com/v1/events"
+                bcp_url = f"{BCP_API_BASE}/events"
                 
                 # Format ISO timestamps for BCP
                 s_date = payload.start_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                 e_date = payload.end_date or s_date
-                event_date_iso = f"{s_date}T09:00:00Z" if len(s_date) == 10 else s_date
-                end_date_iso = f"{e_date}T18:00:00Z" if len(e_date) == 10 else e_date
+                event_date_iso = f"{s_date}T09:00:00.000Z" if len(s_date) == 10 else s_date
+                end_date_iso = f"{e_date}T18:00:00.000Z" if len(e_date) == 10 else e_date
 
                 bcp_payload = {
                     "name": payload.name,
+                    "ownerId": bcp_user_id,
                     "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                    "gameType": "singles",
+                    "eventSubType": "standard",
                     "eventType": payload.tier or "Grand Tournament",
                     "eventDate": event_date_iso,
+                    "eventEndDate": end_date_iso,
                     "endDate": end_date_iso,
                     "city": payload.city or "",
                     "state": payload.state or "",
@@ -268,18 +310,19 @@ if FASTAPI_AVAILABLE:
                     "totalPlayers": payload.capacity or 32,
                     "capacity": payload.capacity or 32,
                     "points": payload.points or 2000,
+                    "ticketPrice": 0,
+                    "usingOnlineReg": False,
+                    "boardGameEvent": False,
                     "description": payload.mission_pack or "Created via OmniTactica Event Studio"
                 }
+                headers = DEFAULT_HEADERS.copy()
+                headers["Authorization"] = f"Bearer {bcp_token}"
+                headers["Content-Type"] = "application/json"
+
                 req = urllib.request.Request(
                     bcp_url,
                     data=json.dumps(bcp_payload).encode("utf-8"),
-                    headers={
-                        "Authorization": f"Bearer {bcp_token}",
-                        "client-id": "web-app",
-                        "User-Agent": BCP_USER_AGENT,
-                        "Content-Type": "application/json",
-                        "Accept": "application/json, text/plain, */*"
-                    },
+                    headers=headers,
                     method="POST"
                 )
                 with urllib.request.urlopen(req, timeout=12) as resp:
@@ -323,6 +366,7 @@ if FASTAPI_AVAILABLE:
             "success": True,
             "event_id": event_id,
             "bcp_registered": bcp_created,
+            "bcp_error": bcp_error,
             "event": saved
         }
 
