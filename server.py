@@ -332,6 +332,8 @@ if FASTAPI_AVAILABLE:
                     for item in (items if isinstance(items, list) else []):
                         if not isinstance(item, dict): continue
                         bcp_id = str(item.get("id") or item.get("_id"))
+                        if db.is_event_deleted(bcp_id):
+                            continue
                         bcp_event_ids.add(bcp_id)
                         loc = item.get("location") if isinstance(item.get("location"), dict) else {}
                         

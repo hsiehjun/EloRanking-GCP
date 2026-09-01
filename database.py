@@ -2874,11 +2874,34 @@ class PostgresDatabase:
         """Deletes a tournament event and associated data from the database."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
+                cursor.execute("""
+                CREATE TABLE IF NOT EXISTS deleted_studio_events (
+                    event_id VARCHAR(64) PRIMARY KEY,
+                    deleted_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """)
+                cursor.execute("INSERT INTO deleted_studio_events (event_id, deleted_at) VALUES (%s, NOW()) ON CONFLICT (event_id) DO UPDATE SET deleted_at = NOW();", (event_id,))
                 cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
                 cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
                 cursor.execute("DELETE FROM matches WHERE event_id = %s;", (event_id,))
             conn.commit()
         return True
+
+    def is_event_deleted(self, event_id: str) -> bool:
+        """Checks if an event was recently marked as deleted."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS deleted_studio_events (
+                        event_id VARCHAR(64) PRIMARY KEY,
+                        deleted_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    """)
+                    cursor.execute("SELECT 1 FROM deleted_studio_events WHERE event_id = %s AND deleted_at > NOW() - INTERVAL '7 days';", (event_id,))
+                    return bool(cursor.fetchone())
+        except Exception:
+            return False
 
     def save_user_army_list(self, user_id: Optional[str], list_data: Dict[str, Any]) -> Dict[str, Any]:
         """Saves or updates a user army list in the database."""
