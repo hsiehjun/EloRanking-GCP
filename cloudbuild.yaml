@@ -19,9 +19,8 @@ steps:
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking'
 
   # 3. Deploy Cloud Run Web Service: elo-ranking
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - name: 'gcr.io/cloud-builders/gcloud'
     id: 'deploy-web-service'
-    entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
@@ -30,11 +29,11 @@ steps:
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
+      - '--quiet'
 
   # 4. Update Cloud Run Job: elo-tournament-sync-job
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - name: 'gcr.io/cloud-builders/gcloud'
     id: 'update-tournament-job'
-    entrypoint: gcloud
     args:
       - 'run'
       - 'jobs'
@@ -44,11 +43,11 @@ steps:
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
+      - '--quiet'
 
   # 5. Update Cloud Run Job: wahapedia-sync-job
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - name: 'gcr.io/cloud-builders/gcloud'
     id: 'update-wahapedia-job'
-    entrypoint: gcloud
     args:
       - 'run'
       - 'jobs'
@@ -58,6 +57,7 @@ steps:
       - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
       - '--region'
       - 'us-central1'
+      - '--quiet'
 
 images:
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
