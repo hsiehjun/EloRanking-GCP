@@ -40,7 +40,8 @@ except ImportError:
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
         DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
-        MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL
+        MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
+        BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
     )
     from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db
     from google3.experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
@@ -49,7 +50,8 @@ except ImportError:
     try:
         from experimental.users.hsiehjun.EloRanking.config import (
             DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
-            MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL
+            MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
+            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
         )
         from experimental.users.hsiehjun.EloRanking.database import Database, get_db
         from experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
@@ -57,7 +59,8 @@ except ImportError:
     except ImportError:
         from config import (
             DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
-            MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL
+            MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
+            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
         )
         from database import Database, get_db
         from scraper import BestCoastPairingsScraper
