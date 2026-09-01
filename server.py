@@ -1705,14 +1705,11 @@ if FASTAPI_AVAILABLE:
             role = "player2"
             if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
                 game["p2Name"] = incoming_name
-                st["p2_name"] = incoming_name
         # 3. Check if explicit Player 2 claim or open Player 2 slot
         elif (payload and payload.claim_role == "player2") or (not room.get("user_id_p2") and not is_p1_owner) or (not room.get("user_id_p2") and not is_tournament_match):
             room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
-            st["user_id_p2"] = room["user_id_p2"]
             if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
                 game["p2Name"] = incoming_name
-                st["p2_name"] = incoming_name
             if payload and payload.faction and not game.get("p2Faction"):
                 game["p2Faction"] = payload.faction
             role = "player2"
