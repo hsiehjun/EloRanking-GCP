@@ -85,14 +85,9 @@ function updateStudioAuthBadge() {
 }
 
 async function loadStudioEvents() {
-  const listContainer = document.getElementById("es-events-list");
-  if (listContainer) {
-    listContainer.innerHTML = "<div style="padding: 2.5rem; text-align: center;"><div class="spinner" style="margin: 0 auto; width: 22px; height: 22px;"></div></div>";
-  }
-
   try {
     const res = await window.api.getStudioEvents();
-    studioState.eventsList = (res && res.events) ? res.events : [];
+    studioState.eventsList = (res && Array.isArray(res.events)) ? res.events : [];
     
     const countEl = document.getElementById("es-events-count");
     if (countEl) countEl.textContent = studioState.eventsList.length;
@@ -106,17 +101,18 @@ async function loadStudioEvents() {
 }
 
 function switchStudioTab(tabName) {
-  studioState.activeTab = tabName;
+  if (typeof switchTab === 'function') switchTab('event-studio');
+  studioState.activeTab = tabName || 'events';
   const views = ["events", "create"];
 
   views.forEach(v => {
     const el = document.getElementById(`es-view-${v}`);
     if (el) {
-      el.style.display = (v === tabName) ? "block" : "none";
+      el.style.display = (v === studioState.activeTab) ? "block" : "none";
     }
   });
 
-  if (tabName === "events") {
+  if (studioState.activeTab === "events") {
     renderEventsDirectory();
   }
 }

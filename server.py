@@ -2476,38 +2476,43 @@ if FASTAPI_AVAILABLE:
     @app.get("/manifest.json", include_in_schema=False)
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def serve_pwa_manifest():
+        manifest_file = web_dir / "manifest.json"
+        if manifest_file.exists():
+            return FileResponse(str(manifest_file), media_type="application/manifest+json")
         return JSONResponse(
             content={
-                "name": "Warhammer 40,000 Elo Rankings & Game Tracker",
-                "short_name": "40k Elo",
-                "description": "Competitive Warhammer 40k Elo Rankings, Faction Meta, & Live Multiplayer Match Tracker",
-                "start_url": "/",
+                "name": "OmniTactica - 40K Tactical Suite",
+                "short_name": "OmniTactica",
+                "description": "OmniTactica Warhammer 40,000 Elo Rankings, Tournament Companion & Live Game Tracker",
+                "start_url": "/?tab=my-hub",
                 "scope": "/",
                 "display": "standalone",
                 "background_color": "#070b14",
-                "theme_color": "#0284c7",
+                "theme_color": "#070b14",
                 "icons": [
                     {
-                        "src": "/assets/logo-192.png",
+                        "src": "/assets/icon-192.png",
                         "sizes": "192x192",
                         "type": "image/png",
-                        "purpose": "any maskable"
+                        "purpose": "any"
                     },
                     {
-                        "src": "/assets/logo-512.png",
+                        "src": "/assets/icon-512.png",
                         "sizes": "512x512",
                         "type": "image/png",
-                        "purpose": "any maskable"
+                        "purpose": "any"
                     },
                     {
-                        "src": "/logo192w.png",
+                        "src": "/assets/icon-maskable-192.png",
                         "sizes": "192x192",
-                        "type": "image/png"
+                        "type": "image/png",
+                        "purpose": "maskable"
                     },
                     {
-                        "src": "/logo512w.png",
+                        "src": "/assets/icon-maskable-512.png",
                         "sizes": "512x512",
-                        "type": "image/png"
+                        "type": "image/png",
+                        "purpose": "maskable"
                     }
                 ]
             },
