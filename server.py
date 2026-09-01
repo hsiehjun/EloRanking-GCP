@@ -2932,32 +2932,17 @@ if FASTAPI_AVAILABLE:
                 """)
                 bcp_events = [dict(r) for r in cursor.fetchall()]
 
-        # If DB had 0 events (e.g. cold start), fetch first 6 pages synchronously
+        # If DB had 0 upcoming events, fall back to recent events from Postgres (<10ms)
         if not bcp_events:
-            try:
-                now_dt = datetime.now(timezone.utc)
-                start_iso = (now_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00Z")
-                end_iso = (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59Z")
-                next_key = None
-                for _ in range(6):
-                    url = f"{BCP_API_BASE}/events?limit=100&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&startDate={start_iso}&endDate={end_iso}"
-                    if next_key:
-                        url += f"&nextKey={urllib.parse.quote(next_key)}"
-                    req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                        items = data.get("data", [])
-                        for it in items:
-                            try:
-                                db.upsert_event(it)
-                            except Exception:
-                                pass
-                        bcp_events.extend(items)
-                        next_key = data.get("nextKey")
-                        if not next_key or not items:
-                            break
-            except Exception as e:
-                logger.warning(f"Initial sync notice: {e}")
+            with db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                    cursor.execute("""
+                    SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
+                    FROM events
+                    ORDER BY event_date DESC
+                    LIMIT 200;
+                    """)
+                    bcp_events = [dict(r) for r in cursor.fetchall()]
 
         def haversine_miles(lat1, lon1, lat2, lon2):
             R = 3958.8

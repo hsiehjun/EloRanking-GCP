@@ -1922,7 +1922,7 @@ class PostgresDatabase:
     def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
         """Returns overall faction balance metrics, timeline trends, and tier ratings (instant cached)."""
         cache_key = f"{start_date}_{end_date}"
-        cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, cache_key, ttl=300)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, cache_key, ttl=3600)
         if cached:
             return cached
 
