@@ -1308,6 +1308,10 @@ if FASTAPI_AVAILABLE:
 
     class TrackerJoinPayload(BaseModel):
         token: Optional[str] = None
+        player_name: Optional[str] = None
+        claim_role: Optional[str] = None
+        faction: Optional[str] = None
+        detachment: Optional[str] = None
 
     class TrackerActionPayload(BaseModel):
         token: Optional[str] = None
@@ -1687,38 +1691,34 @@ if FASTAPI_AVAILABLE:
         # Determine Role with Tournament Participant Validation:
         p1_assigned_name = (game.get("p1Name") or "").strip().lower()
         p2_assigned_name = (game.get("p2Name") or "").strip().lower()
-        u_name = (user_name or "").strip().lower()
+        # Determine candidate Player 2 identity from payload / user session
+        incoming_name = (payload.player_name if payload and payload.player_name else None) or (user.get("display_name") if user else None) or (user.get("email", "").split("@")[0] if user else None)
+        u_name = (incoming_name or "").strip().lower()
         is_tournament_match = match_id.startswith("BCP-") or bool(st.get("event_id"))
-        
-        # 1. Check if user is already registered Player 1 owner or matches P1 name
-        if user_id and room.get("user_id_p1") == user_id:
+        is_p1_owner = bool(user_id and room.get("user_id_p1") and room.get("user_id_p1") == user_id)
+
+        # 1. Check if user is already registered Player 1 owner
+        if is_p1_owner and (not payload or payload.claim_role != "player2"):
             role = "player1"
-        elif not room.get("user_id_p1") and u_name and p1_assigned_name and u_name == p1_assigned_name:
-            room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
-            st["user_id_p1"] = room["user_id_p1"]
-            role = "player1"
-            room["version"] += 1
-        # 2. Check if user is already registered Player 2 owner or matches P2 name
+        # 2. Check if user is already registered Player 2 owner
         elif user_id and room.get("user_id_p2") == user_id:
             role = "player2"
-        elif not room.get("user_id_p2") and u_name and p2_assigned_name and u_name == p2_assigned_name:
+            if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
+                game["p2Name"] = incoming_name
+                st["p2_name"] = incoming_name
+        # 3. Check if explicit Player 2 claim or open Player 2 slot
+        elif (payload and payload.claim_role == "player2") or (not room.get("user_id_p2") and not is_p1_owner) or (not room.get("user_id_p2") and not is_tournament_match):
             room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
             st["user_id_p2"] = room["user_id_p2"]
-            role = "player2"
-            room["version"] += 1
-        # 3. Check if user is Admin / TO / Referee
-        elif (user_id and user_id in room.get("referee_ids", [])) or (user and user.get("role") in ("admin", "referee", "to")):
-            role = "referee"
-        # 4. If Casual Match (non-tournament), open P2 slot can be claimed by opponent
-        elif not is_tournament_match and not room.get("user_id_p2"):
-            room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
-            st["user_id_p2"] = room["user_id_p2"]
-            if user_name and user_name != game.get("p1Name"):
-                game["p2Name"] = user_name
+            if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
+                game["p2Name"] = incoming_name
+                st["p2_name"] = incoming_name
+            if payload and payload.faction and not game.get("p2Faction"):
+                game["p2Faction"] = payload.faction
             role = "player2"
             room["version"] += 1
             
-            # Sync to Firestore Native without touching PostgreSQL
+            # Sync to Firestore Native
             try:
                 fs_engine.update_room(match_id, {
                     "user_id_p2": room["user_id_p2"],
@@ -1746,8 +1746,9 @@ if FASTAPI_AVAILABLE:
                     await q.put(msg)
                 except Exception:
                     pass
+        elif (user_id and user_id in room.get("referee_ids", [])) or (user and user.get("role") in ("admin", "referee", "to")):
+            role = "referee"
         else:
-            # Player 3, Player 4, or unauthorized user -> Spectator (View Only)
             role = "spectator"
             
         return {
@@ -2660,6 +2661,60 @@ if FASTAPI_AVAILABLE:
 
         return {"success": True, "chess_clock": clock_data}
 
+    @app.post("/api/tracker/room/{match_id}/dice_tray", summary="Synchronize live tabletop dice tray across players")
+    async def api_tracker_sync_dice_tray(match_id: str, request: Request):
+        match_id = normalize_tracker_match_id(match_id)
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        if match_id not in TRACKER_ROOMS:
+            TRACKER_ROOMS[match_id] = {
+                "match_id": match_id,
+                "state": {},
+                "version": 1
+            }
+
+        room = TRACKER_ROOMS[match_id]
+        tray = body.get("tray", [])
+        target = int(body.get("target", 0))
+
+        if "state" not in room or not isinstance(room["state"], dict):
+            room["state"] = {}
+        room["state"]["dice_tray"] = tray
+        room["state"]["dice_target"] = target
+        room["dice_tray"] = tray
+        room["dice_target"] = target
+
+        # Sync to Firestore Native
+        try:
+            fs_engine = get_firestore_engine()
+            fs_engine.update_room(match_id, {
+                "dice_tray": tray,
+                "dice_target": target,
+                "state.dice_tray": tray,
+                "state.dice_target": target
+            })
+        except Exception:
+            pass
+
+        # Broadcast live tray update to opponent
+        listeners = TRACKER_LISTENERS.get(match_id, [])
+        msg = {
+            "type": "dice_tray",
+            "sender": body.get("client_id", "anon"),
+            "tray": tray,
+            "target": target
+        }
+        for l_q in list(listeners):
+            try:
+                await l_q.put(msg)
+            except Exception:
+                pass
+
+        return {"success": True, "tray": tray, "target": target}
+
     @app.post("/api/tracker/room/{match_id}/dice_roll", summary="Broadcast live dice roll to both players in room")
     async def api_tracker_roll_dice(match_id: str, request: Request):
         match_id = normalize_tracker_match_id(match_id)
@@ -2699,12 +2754,43 @@ if FASTAPI_AVAILABLE:
         if len(room["dice_history"]) > 50:
             room["dice_history"] = room["dice_history"][-50:]
 
+        tray = body.get("tray")
+        target = int(body.get("target", 0))
+
+        if "state" not in room or not isinstance(room["state"], dict):
+            room["state"] = {}
+        if tray is not None:
+            room["state"]["dice_tray"] = tray
+            room["dice_tray"] = tray
+        room["state"]["dice_target"] = target
+        room["state"]["dice_history"] = room["dice_history"]
+        room["dice_target"] = target
+
+        # Save to Firestore Native
+        try:
+            fs_engine = get_firestore_engine()
+            fs_updates = {
+                "dice_history": room["dice_history"],
+                "state.dice_history": room["dice_history"],
+                "state.dice_target": target,
+                "dice_target": target
+            }
+            if tray is not None:
+                fs_updates["dice_tray"] = tray
+                fs_updates["state.dice_tray"] = tray
+            fs_engine.update_room(match_id, fs_updates)
+        except Exception:
+            pass
+
         # Broadcast to all SSE listeners in this room
         listeners = TRACKER_LISTENERS.get(match_id, [])
         msg = {
             "type": "dice_roll",
             "sender": body.get("client_id", "anon"),
-            "roll": roll_data
+            "roll": roll_data,
+            "tray": tray,
+            "target": target,
+            "history": room["dice_history"]
         }
         for l_q in list(listeners):
             try:
@@ -2714,7 +2800,9 @@ if FASTAPI_AVAILABLE:
 
         return {
             "success": True,
-            "roll": roll_data
+            "roll": roll_data,
+            "tray": tray,
+            "target": target
         }
 
     @app.get("/api/tracker/room/{match_id}/stream", summary="Real-time Server-Sent Events stream for multiplayer match")
@@ -2772,8 +2860,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=43.0">
-  <script src="/tracker/tracker_sync.js?v=43.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=44.0">
+  <script src="/tracker/tracker_sync.js?v=44.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;

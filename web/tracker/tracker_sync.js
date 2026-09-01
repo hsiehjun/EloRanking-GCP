@@ -828,13 +828,17 @@
 
       // Join room to bind Player 2 slot or Spectator (Strict 2-Player Capacity)
       try {
+        const myName = currentUser ? (currentUser.display_name || (currentUser.email ? currentUser.email.split('@')[0] : '')) : '';
         const resp = await fetch(`/api/tracker/room/${clientState.matchId}/join`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${getAuthToken()}`
           },
-          body: JSON.stringify({ token: getAuthToken() })
+          body: JSON.stringify({
+            token: getAuthToken(),
+            player_name: myName || undefined
+          })
         });
         if (resp.ok) {
           const joinData = await resp.json();
@@ -1775,6 +1779,9 @@
             if (data.clock) {
               applyRemoteChessClock(data.clock);
             }
+            if (data.dice_tray || (data.state && data.state.dice_tray)) {
+              applyRemoteDiceTray(data.dice_tray || data.state.dice_tray, data.dice_target !== undefined ? data.dice_target : (data.state ? data.state.dice_target : undefined), data.dice_history || (data.state ? data.state.dice_history : undefined));
+            }
             if (data.rosters) {
               if (data.rosters.player1) clientState.p1ArmyList = data.rosters.player1;
               if (data.rosters.player2) clientState.p2ArmyList = data.rosters.player2;
@@ -1815,6 +1822,11 @@
       updated_at: chessClock.updatedAt
     };
 
+    // Embed unified tabletop dice_tray directly into game state payload
+    parsedState.dice_tray = diceRollerState.tray;
+    parsedState.dice_target = diceRollerState.target;
+    parsedState.dice_history = diceRollerState.history;
+
     clientState.version++;
 
     // 1. Direct write to Cloud Firestore if client SDK is loaded
@@ -1823,6 +1835,9 @@
         const db = firebase.firestore();
         db.collection('rooms').doc(clientState.matchId).set({
           state: parsedState,
+          dice_tray: diceRollerState.tray,
+          dice_target: diceRollerState.target,
+          dice_history: diceRollerState.history,
           version: clientState.version,
           updatedAt: Date.now()
         }, { merge: true });
@@ -1866,9 +1881,12 @@
       const serialized = JSON.stringify(stateObj);
       originalSetItem('gdm-11e-tracker-state', serialized);
 
-      // 0. Synchronize Chess Clock from game state
+      // 0. Synchronize Chess Clock and Dice Tray from game state
       if (stateObj.chess_clock) {
         applyRemoteChessClock(stateObj.chess_clock);
+      }
+      if (stateObj.dice_tray) {
+        applyRemoteDiceTray(stateObj.dice_tray, stateObj.dice_target, stateObj.dice_history);
       }
 
       // Ensure CP Counter is enabled by default
@@ -2022,6 +2040,13 @@
           } else if (msg.type === 'dice_roll') {
             if (msg.roll) {
               applyRemoteDiceRoll(msg.roll, msg.sender === clientState.clientId);
+            }
+            if (msg.tray && msg.sender !== clientState.clientId) {
+              applyRemoteDiceTray(msg.tray, msg.target, msg.history);
+            }
+          } else if (msg.type === 'dice_tray') {
+            if (msg.sender !== clientState.clientId && msg.tray) {
+              applyRemoteDiceTray(msg.tray, msg.target);
             }
           } else if (msg.type === 'presence') {
             clientState.onlineCount = msg.count || 1;
@@ -3285,11 +3310,67 @@ Space Marines - Gladius Task Force (2000 pts)
     if (savedHistory) diceRollerState.history = JSON.parse(savedHistory);
   } catch(e) {}
 
-  function saveDiceTray() {
+  function saveDiceTray(shouldBroadcast = true) {
     try {
       localStorage.setItem('gt-dice-tray', JSON.stringify(diceRollerState.tray));
       localStorage.setItem('gt-dice-count', diceRollerState.tray.length);
     } catch(e) {}
+
+    if (shouldBroadcast) {
+      broadcastDiceTray();
+    }
+  }
+
+  function broadcastDiceTray() {
+    if (!clientState.matchId) return;
+    clearTimeout(diceRollerState.syncTimer);
+    diceRollerState.syncTimer = setTimeout(() => {
+      // 1. Direct write to Cloud Firestore if client SDK is loaded
+      if (typeof firebase !== 'undefined' && firebase.firestore) {
+        try {
+          const db = firebase.firestore();
+          db.collection('rooms').doc(clientState.matchId).set({
+            dice_tray: diceRollerState.tray,
+            dice_target: diceRollerState.target,
+            dice_history: diceRollerState.history,
+            'state.dice_tray': diceRollerState.tray,
+            'state.dice_target': diceRollerState.target,
+            updatedAt: Date.now()
+          }, { merge: true });
+        } catch(e) {}
+      }
+
+      // 2. Broadcast via API
+      fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/dice_tray`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${getAuthToken()}`
+        },
+        body: JSON.stringify({
+          client_id: clientState.clientId,
+          tray: diceRollerState.tray,
+          target: diceRollerState.target
+        })
+      }).catch(() => {});
+    }, 120);
+  }
+
+  function applyRemoteDiceTray(remoteTray, remoteTarget, remoteHistory) {
+    if (!Array.isArray(remoteTray)) return;
+    diceRollerState.tray = remoteTray;
+    if (remoteTarget !== undefined && remoteTarget !== null) {
+      diceRollerState.target = parseInt(remoteTarget, 10);
+      try { localStorage.setItem('gt-dice-target', diceRollerState.target); } catch(e) {}
+    }
+    if (Array.isArray(remoteHistory) && remoteHistory.length > 0) {
+      diceRollerState.history = remoteHistory;
+      try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
+    }
+    saveDiceTray(false);
+    if (diceRollerState.visible) {
+      renderDiceRollerContent();
+    }
   }
 
   window.gtToggleDiceRoller = function() {
@@ -3675,6 +3756,7 @@ Space Marines - Gladius Task Force (2000 pts)
       die_type: 'D6',
       target: target,
       results: newValues,
+      tray: diceRollerState.tray,
       success_count: passCount,
       fail_count: failCount,
       crit_count: critCount,
@@ -3697,9 +3779,28 @@ Space Marines - Gladius Task Force (2000 pts)
 
   function broadcastDiceRoll(rollData) {
     if (!clientState.matchId) return;
+
+    // Direct write to Cloud Firestore
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(clientState.matchId).set({
+          dice_tray: diceRollerState.tray,
+          dice_target: diceRollerState.target,
+          dice_history: diceRollerState.history,
+          'state.dice_tray': diceRollerState.tray,
+          'state.dice_target': diceRollerState.target,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch(e) {}
+    }
+
     fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/dice_roll`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${getAuthToken()}`
+      },
       body: JSON.stringify(rollData)
     }).catch(() => {});
   }
