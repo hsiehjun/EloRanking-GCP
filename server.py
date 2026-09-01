@@ -4173,7 +4173,7 @@ if FASTAPI_AVAILABLE:
     @app.get("/api/admin/feedback", summary="Get filtered user feedbacks (Admin)")
     async def api_admin_get_feedbacks(request: Request, limit: int = Query(100), status: Optional[str] = Query(None), feedback_type: Optional[str] = Query(None), token: Optional[str] = Query(None)):
         if not _is_admin_feedback_request(request, token=token):
-            raise HTTPException(status_code=403, detail="Admin access restricted to swimgeek751@gmail.com")
+            raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
         db = get_database()
         feedbacks = db.get_feedbacks(limit=limit, status=status, feedback_type=feedback_type)
         return {"success": True, "feedbacks": feedbacks}
@@ -4181,7 +4181,7 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/admin/feedback/{feedback_id}/update", summary="Update feedback status, admin notes, or message")
     async def api_admin_update_feedback(feedback_id: str, payload: FeedbackUpdatePayload, request: Request, token: Optional[str] = Query(None)):
         if not _is_admin_feedback_request(request, token=payload.token or token):
-            raise HTTPException(status_code=403, detail="Admin access restricted to swimgeek751@gmail.com")
+            raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
         db = get_database()
         ok = db.update_feedback(
             feedback_id=feedback_id,
@@ -4197,7 +4197,7 @@ if FASTAPI_AVAILABLE:
     @app.delete("/api/admin/feedback/{feedback_id}", summary="Delete feedback entry from database")
     async def api_admin_delete_feedback(feedback_id: str, request: Request, token: Optional[str] = Query(None)):
         if not _is_admin_feedback_request(request, token=token):
-            raise HTTPException(status_code=403, detail="Admin access restricted to swimgeek751@gmail.com")
+            raise HTTPException(status_code=403, detail="Admin access restricted to authorized administrators.")
         db = get_database()
         ok = db.delete_feedback(feedback_id)
         if not ok:

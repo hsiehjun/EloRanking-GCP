@@ -147,7 +147,7 @@ async function fetchFeedbacks() {
 
     if (!resp.ok) {
       if (resp.status === 403 || resp.status === 401) {
-        throw new Error('Access denied. Please log in with your admin account (swimgeek751@gmail.com).');
+        throw new Error('Access denied. Please log in with an authorized admin account.');
       }
       throw new Error(`Server returned HTTP ${resp.status}`);
     }
