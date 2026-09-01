@@ -406,10 +406,23 @@ class AuthManager:
         }
 
     def link_bcp_token(self, user_id: str, token: str, refresh_token: Optional[str] = None) -> Dict[str, Any]:
-        """Directly links a verified BCP access token to the user profile."""
+        """Directly links a verified BCP access token (or JSON bundle with refresh_token) to the user profile."""
         import base64, json
+        
+        actual_token = str(token).strip()
+        actual_refresh = refresh_token
+        
+        # Check if user pasted a JSON payload containing access_token & refresh_token
+        if actual_token.startswith("{") and actual_token.endswith("}"):
+            try:
+                parsed = json.loads(actual_token)
+                actual_token = parsed.get("access_token") or parsed.get("accessToken") or parsed.get("token") or actual_token
+                actual_refresh = parsed.get("refresh_token") or parsed.get("refreshToken") or actual_refresh
+            except Exception:
+                pass
+
         try:
-            parts = token.split(".")
+            parts = actual_token.split(".")
             claims = json.loads(base64.b64decode(parts[1] + "==").decode("utf-8"))
         except Exception:
             claims = {}
@@ -425,7 +438,7 @@ class AuthManager:
                 try:
                     import urllib.request
                     u_url = f"https://newprod-api.bestcoastpairings.com/v1/users/{bcp_user_id}"
-                    req = urllib.request.Request(u_url, headers={"Authorization": f"Bearer {token}", "User-Agent": "OmniTactica/1.0"})
+                    req = urllib.request.Request(u_url, headers={"Authorization": f"Bearer {actual_token}", "User-Agent": "OmniTactica/1.0"})
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         if resp.status == 200:
                             u_data = json.loads(resp.read().decode("utf-8"))
@@ -443,11 +456,11 @@ class AuthManager:
                     bcp_email = COALESCE(NULLIF(%s, ''), bcp_email),
                     bcp_access_token = %s,
                     bcp_refresh_token = COALESCE(%s, bcp_refresh_token),
-                    bcp_token_expires_at = (NOW() + INTERVAL '30 days'),
+                    bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
                     bcp_linked_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s;
-                """, (bcp_user_id, pid, bcp_email, token, refresh_token, user_id))
+                """, (bcp_user_id, pid, bcp_email, actual_token, actual_refresh, user_id))
             conn.commit()
 
         updated_user = self.get_user_by_id(user_id)
@@ -484,57 +497,64 @@ class AuthManager:
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                SELECT bcp_access_token, bcp_refresh_token, bcp_token_expires_at
+                SELECT bcp_access_token, bcp_refresh_token, bcp_token_expires_at, bcp_user_id, bcp_email
                 FROM users WHERE id = %s AND bcp_user_id IS NOT NULL;
                 """, (user_id,))
                 row = cur.fetchone()
-                if not row or not row.get("bcp_refresh_token"):
+                if not row:
                     return None
 
-                # If token still valid (>5 mins remaining), is an access token, and not forced, return it
                 tok = row.get("bcp_access_token")
-                if not force_refresh and tok and row.get("bcp_token_expires_at"):
+                ref_tok = row.get("bcp_refresh_token")
+
+                # If token still valid (>1 min remaining) and not forced, return it
+                if not force_refresh and tok:
                     claims = _decode_jwt_payload(tok) if tok else {}
-                    if claims.get("token_use") == "access" and row["bcp_token_expires_at"] > datetime.now(timezone.utc):
+                    exp = claims.get("exp")
+                    now_ts = datetime.now(timezone.utc).timestamp()
+                    if exp and exp > (now_ts + 60):
+                        return tok
+                    elif not exp and row.get("bcp_token_expires_at") and row["bcp_token_expires_at"] > datetime.now(timezone.utc):
                         return tok
 
                 # Silent Background Refresh via Cognito REFRESH_TOKEN_AUTH
-                ref_tok = row["bcp_refresh_token"]
-                payload = {
-                    "AuthFlow": "REFRESH_TOKEN_AUTH",
-                    "ClientId": BCP_COGNITO_CLIENT_ID,
-                    "AuthParameters": {
-                        "REFRESH_TOKEN": ref_tok
+                if ref_tok:
+                    payload = {
+                        "AuthFlow": "REFRESH_TOKEN_AUTH",
+                        "ClientId": BCP_COGNITO_CLIENT_ID,
+                        "AuthParameters": {
+                            "REFRESH_TOKEN": ref_tok
+                        }
                     }
-                }
-                req = urllib.request.Request(
-                    COGNITO_ENDPOINT,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={
-                        "Content-Type": "application/x-amz-json-1.1",
-                        "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth"
-                    },
-                    method="POST"
-                )
-                try:
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                        auth_res = data.get("AuthenticationResult") or {}
-                        new_acc = auth_res.get("AccessToken") or auth_res.get("IdToken")
-                        if new_acc:
-                            cur.execute("""
-                            UPDATE users SET
-                                bcp_access_token = %s,
-                                bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
-                                updated_at = NOW()
-                            WHERE id = %s;
-                            """, (new_acc, user_id))
-                            conn.commit()
-                            return new_acc
-                except Exception as e:
-                    logger.warning(f"Failed silent refresh for user {user_id}: {e}")
+                    req = urllib.request.Request(
+                        COGNITO_ENDPOINT,
+                        data=json.dumps(payload).encode("utf-8"),
+                        headers={
+                            "Content-Type": "application/x-amz-json-1.1",
+                            "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth"
+                        },
+                        method="POST"
+                    )
+                    try:
+                        with urllib.request.urlopen(req, timeout=10) as resp:
+                            data = json.loads(resp.read().decode("utf-8"))
+                            auth_res = data.get("AuthenticationResult") or {}
+                            new_acc = auth_res.get("AccessToken") or auth_res.get("IdToken")
+                            if new_acc:
+                                cur.execute("""
+                                UPDATE users SET
+                                    bcp_access_token = %s,
+                                    bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
+                                    updated_at = NOW()
+                                WHERE id = %s;
+                                """, (new_acc, user_id))
+                                conn.commit()
+                                logger.info(f"Successfully refreshed BCP access token for user {user_id}")
+                                return new_acc
+                    except Exception as e:
+                        logger.warning(f"Failed silent refresh for user {user_id}: {e}")
 
-                return row.get("bcp_access_token")
+                return tok if tok else None
 
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""

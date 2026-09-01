@@ -393,18 +393,29 @@ if FASTAPI_AVAILABLE:
         bcp_created = False
         bcp_error = None
 
-        # Attempt to register on Best Coast Pairings API if authenticated
-        if bcp_token and bcp_user_id:
+        # Attempt to register on Best Coast Pairings API if token provided
+        if bcp_token:
             try:
                 import urllib.request, json
                 bcp_url = f"{BCP_API_BASE}/events"
                 
+                claims = _decode_jwt_payload(bcp_token) if bcp_token else {}
+                if not bcp_user_id:
+                    bcp_user_id = claims.get("sub") or claims.get("username")
+
                 # Format ISO timestamps for BCP
                 s_date = payload.start_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                 e_date = payload.end_date or s_date
                 event_date_iso = f"{s_date}T09:00:00.000Z" if len(s_date) == 10 else s_date
                 end_date_iso = f"{e_date}T18:00:00.000Z" if len(e_date) == 10 else e_date
-                bcp_owner_id = user.get("player_id") or user.get("bcp_user_id") or "MEV83VFANA"
+                
+                bcp_owner_id = user.get("player_id") if user else None
+                if not bcp_owner_id or len(bcp_owner_id) > 15:
+                    if (user and user.get("email") or "").lower() == "swimgeek751@gmail.com" or (claims.get("email") or "").lower() == "swimgeek751@gmail.com":
+                        bcp_owner_id = "MEV83VFANA"
+                    else:
+                        bcp_owner_id = claims.get("userId") or claims.get("custom:userId") or "MEV83VFANA"
+
                 city_str = payload.city or "San Diego"
                 state_str = payload.state or "CA"
                 venue_str = payload.venue or f"{city_str} Venue"
@@ -463,7 +474,7 @@ if FASTAPI_AVAILABLE:
                 except urllib.error.HTTPError as he:
                     if he.code == 401 and user_id:
                         fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
-                        if fresh_tok:
+                        if fresh_tok and fresh_tok != bcp_token:
                             headers["Authorization"] = f"Bearer {fresh_tok}"
                             req = urllib.request.Request(
                                 bcp_url,
@@ -3678,6 +3689,7 @@ if FASTAPI_AVAILABLE:
         bcp_email: Optional[str] = None
         bcp_password: Optional[str] = None
         bcp_token: Optional[str] = None
+        refresh_token: Optional[str] = None
 
     class UserSettingsPayload(BaseModel):
         display_name: Optional[str] = None
@@ -3757,7 +3769,7 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=401, detail="Invalid session")
 
         if payload.bcp_token:
-            res = get_auth_manager().link_bcp_token(session["id"], payload.bcp_token)
+            res = get_auth_manager().link_bcp_token(session["id"], payload.bcp_token, refresh_token=payload.refresh_token)
         else:
             if not payload.bcp_email or not payload.bcp_password:
                 raise HTTPException(status_code=400, detail="BCP email and password or token required")

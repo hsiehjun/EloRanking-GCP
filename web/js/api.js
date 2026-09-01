@@ -132,6 +132,19 @@ window.api = {
     });
   },
 
+  // Connect BCP Token Directly
+  async connectBcpToken(bcpToken, bcpRefreshToken = '') {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/user/bcp/connect?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ bcp_token: bcpToken, refresh_token: bcpRefreshToken })
+    });
+  },
+
   // Disconnect BCP Account
   async disconnectBcpAccount() {
     const token = this.getAuthToken();
