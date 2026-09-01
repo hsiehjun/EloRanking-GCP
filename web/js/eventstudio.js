@@ -278,29 +278,45 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
-async function promptImportBcpEvent() {
-  const input = prompt("Enter Best Coast Pairings Event ID or URL:\n(e.g., QEwy45HcX1Cv or https://www.bestcoastpairings.com/event/QEwy45HcX1Cv)");
-  if (!input || !input.trim()) return;
+async function syncBcpOrganizerEvents() {
+  const btn = document.getElementById("btn-sync-bcp-events");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "🔄 Syncing with BCP...";
+  }
 
   try {
-    const res = await window.api.importStudioEvent(input.trim());
-    if (res && res.success) {
-      alert(`🎉 Successfully imported "${res.event?.name || 'Tournament'}" (${res.event?.id || ''}) from Best Coast Pairings!`);
-      await loadStudioEvents();
+    const res = await window.api.getStudioEvents();
+    studioState.eventsList = (res && Array.isArray(res.events)) ? res.events : [];
+    
+    const countEl = document.getElementById("es-events-count");
+    if (countEl) countEl.textContent = studioState.eventsList.length;
+
+    renderEventsDirectory();
+    
+    const bcpCount = studioState.eventsList.filter(e => e.id && !e.id.startsWith("ES-")).length;
+    if (bcpCount > 0) {
+      alert(`🎉 Synced with Best Coast Pairings! Loaded ${bcpCount} BCP-linked tournament${bcpCount === 1 ? '' : 's'}.`);
     } else {
-      alert(res.detail || res.error || "Failed to import tournament from BCP.");
+      alert("✅ Sync complete! Your managed tournaments directory is up to date.");
     }
   } catch (err) {
-    alert(`Import failed: ${err.message || err}`);
+    console.warn("Notice syncing BCP events:", err);
+    await loadStudioEvents();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🔄 Sync BCP Events";
+    }
   }
 }
 
 // Global window bindings for Event Studio
 window.initStudio = initStudio;
 window.loadStudioEvents = loadStudioEvents;
+window.syncBcpOrganizerEvents = syncBcpOrganizerEvents;
 window.switchStudioTab = switchStudioTab;
 window.renderEventsDirectory = renderEventsDirectory;
 window.submitCreateTournament = submitCreateTournament;
 window.deleteStudioTournament = deleteStudioTournament;
 window.updateDefaultRounds = updateDefaultRounds;
-window.promptImportBcpEvent = promptImportBcpEvent;

@@ -268,8 +268,10 @@ window.api = {
   },
 
   // EventStudio: List Managed Events
-  async getStudioEvents() {
-    return this._fetchJson('/api/eventstudio/events');
+  async getStudioEvents(options = {}) {
+    const bcpToken = options.bcp_token || (typeof getBcpToken === 'function' ? getBcpToken() : '');
+    const query = bcpToken ? `?bcp_token=${encodeURIComponent(bcpToken)}` : '';
+    return this._fetchJson(`/api/eventstudio/events${query}`);
   },
 
   // EventStudio: Get Event Details
@@ -283,15 +285,6 @@ window.api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
-    });
-  },
-
-  // EventStudio: Import Existing Tournament from BCP
-  async importStudioEvent(eventIdOrUrl) {
-    return this._fetchJson('/api/eventstudio/event/import', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_id: eventIdOrUrl })
     });
   },
 
