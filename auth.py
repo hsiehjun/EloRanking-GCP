@@ -392,7 +392,7 @@ class AuthManager:
                     bcp_linked_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s;
-                """, (official_name, pid, bcp_user_id, bcp_email.strip(), id_token or access_token, refresh_token, user_id))
+                """, (official_name, pid, bcp_user_id, bcp_email.strip(), access_token or id_token, refresh_token, user_id))
             conn.commit()
 
         updated_user = self.get_user_by_id(user_id)
