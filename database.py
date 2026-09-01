@@ -170,6 +170,10 @@ class PostgresDatabase:
                     scraped_at TIMESTAMPTZ DEFAULT NOW()
                 );
 
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS event_type VARCHAR(32) DEFAULT 'singles';
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS team_size INT DEFAULT 1;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS circuits JSONB DEFAULT '[]'::jsonb;
+
                 CREATE TABLE IF NOT EXISTS players (
                     id VARCHAR(64) PRIMARY KEY,
                     first_name TEXT,
@@ -2726,7 +2730,10 @@ class PostgresDatabase:
                 SELECT id, name, event_date, end_date, city, state, country, venue,
                        tier, total_players, num_rounds, current_round, is_ended,
                        points, capacity, mission_pack, organizer_id, organizer_bcp_id,
-                       roster, pairings, raw_json, scraped_at
+                       roster, pairings, raw_json, scraped_at,
+                       COALESCE(event_type, 'singles') as event_type,
+                       COALESCE(team_size, 1) as team_size,
+                       COALESCE(circuits, '[]'::jsonb) as circuits
                 FROM events
                 WHERE id = %s;
                 """, (event_id,))
@@ -2821,6 +2828,21 @@ class PostgresDatabase:
         organizer_id = event_data.get("organizer_id")
         organizer_bcp_id = event_data.get("organizer_bcp_id")
         
+        raw_et = str(event_data.get("event_type") or event_data.get("eventType") or "singles").lower()
+        if "doubles" in raw_et or event_data.get("doubles_event") or event_data.get("doublesEvent"):
+            event_type = "doubles"
+            default_ts = 2
+        elif "team" in raw_et or event_data.get("team_event") or event_data.get("teamEvent"):
+            event_type = "teams"
+            default_ts = 5
+        else:
+            event_type = "singles"
+            default_ts = 1
+            
+        team_size = int(event_data.get("team_size") or event_data.get("teamSize") or default_ts)
+        circuits = event_data.get("circuits") or []
+        circuits_json = json.dumps(circuits if isinstance(circuits, list) else [])
+        
         roster_json = json.dumps(event_data.get("roster") or [])
         pairings_json = json.dumps(event_data.get("pairings") or {})
         raw_json = json.dumps(event_data.get("raw_json") or event_data)
@@ -2832,12 +2854,12 @@ class PostgresDatabase:
                     id, name, event_date, end_date, city, state, country, venue,
                     tier, total_players, num_rounds, current_round, points, capacity,
                     mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
-                    raw_json, scraped_at
+                    raw_json, scraped_at, event_type, team_size, circuits
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s::jsonb, %s::jsonb,
-                    %s::jsonb, NOW()
+                    %s::jsonb, NOW(), %s, %s, %s::jsonb
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -2854,6 +2876,9 @@ class PostgresDatabase:
                     points = EXCLUDED.points,
                     capacity = EXCLUDED.capacity,
                     mission_pack = EXCLUDED.mission_pack,
+                    event_type = EXCLUDED.event_type,
+                    team_size = EXCLUDED.team_size,
+                    circuits = COALESCE(EXCLUDED.circuits, events.circuits),
                     organizer_id = COALESCE(EXCLUDED.organizer_id, events.organizer_id),
                     organizer_bcp_id = COALESCE(EXCLUDED.organizer_bcp_id, events.organizer_bcp_id),
                     roster = COALESCE(EXCLUDED.roster, events.roster),
@@ -2864,7 +2889,7 @@ class PostgresDatabase:
                     event_id, name, event_date, end_date, city, state, country, venue,
                     tier, total_players, num_rounds, current_round, points, capacity,
                     mission_pack, organizer_id, organizer_bcp_id, roster_json, pairings_json,
-                    raw_json
+                    raw_json, event_type, team_size, circuits_json
                 ))
             conn.commit()
 

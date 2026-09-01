@@ -301,6 +301,8 @@ function renderEventsDirectory() {
 
 async function submitCreateTournament() {
   const nameInput = document.getElementById("create-event-name");
+  const typeInput = document.getElementById("create-event-type");
+  const teamSizeInput = document.getElementById("create-event-team-size");
   const gameSystemInput = document.getElementById("create-event-game-system");
   const formatInput = document.getElementById("create-event-format");
   const pairingStyleInput = document.getElementById("create-event-pairing-style");
@@ -312,6 +314,8 @@ async function submitCreateTournament() {
   const pointsInput = document.getElementById("create-event-points");
   const venueInput = document.getElementById("create-event-venue");
   const cityStateInput = document.getElementById("create-event-city-state");
+  const circuitInput = document.getElementById("create-event-circuit");
+  const circuitTokenInput = document.getElementById("create-event-circuit-token");
   const hideListsInput = document.getElementById("create-event-hide-lists");
   const requireListsInput = document.getElementById("create-event-require-lists");
   const passwordlessInput = document.getElementById("create-event-passwordless");
@@ -327,10 +331,17 @@ async function submitCreateTournament() {
     return;
   }
 
+  const selectedCircuitName = circuitInput && circuitInput.selectedIndex >= 0 && circuitInput.value ? circuitInput.options[circuitInput.selectedIndex].text : "";
+
   const payload = {
     name: name,
     game_system_id: gameSystemInput ? gameSystemInput.value : "WGMSzfKFYA",
     tier: formatInput ? formatInput.value : "Grand Tournament",
+    event_type: typeInput ? typeInput.value : "Singles Event",
+    team_size: teamSizeInput ? parseInt(teamSizeInput.value, 10) : 5,
+    circuit_id: circuitInput ? circuitInput.value : "",
+    circuit_token: circuitTokenInput ? circuitTokenInput.value.trim() : "",
+    circuit_name: selectedCircuitName,
     pairing_style: pairingStyleInput ? pairingStyleInput.value : "swiss",
     rounds: roundsInput ? parseInt(roundsInput.value, 10) : 5,
     default_round_length: roundLengthInput ? parseInt(roundLengthInput.value, 10) : 9000,
@@ -438,6 +449,37 @@ async function loadTournamentWorkspace(eventId) {
 
     if (nameEl) nameEl.textContent = ev.name || "Tournament";
     if (tierBadge) tierBadge.textContent = (ev.tier || "Grand Tournament").toUpperCase();
+
+    const formatBadge = document.getElementById("manage-event-format-badge");
+    if (formatBadge) {
+      const et = String(ev.event_type || ev.eventType || "").toLowerCase();
+      if (et.includes("doubles")) {
+        formatBadge.textContent = "👥 DOUBLES";
+        formatBadge.style.display = "inline-block";
+      } else if (et.includes("team")) {
+        const sz = ev.team_size || ev.teamSize || 5;
+        formatBadge.textContent = `🛡️ TEAMS (${sz}-MAN)`;
+        formatBadge.style.display = "inline-block";
+      } else {
+        formatBadge.textContent = "👤 SINGLES";
+        formatBadge.style.display = "inline-block";
+      }
+    }
+
+    const circuitBadgesEl = document.getElementById("manage-event-circuit-badges");
+    if (circuitBadgesEl) {
+      circuitBadgesEl.innerHTML = "";
+      const circuits = Array.isArray(ev.circuits) ? ev.circuits : [];
+      circuits.forEach(c => {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.style.background = "rgba(234, 179, 8, 0.15)";
+        badge.style.color = "#facc15";
+        badge.style.border = "1px solid rgba(234, 179, 8, 0.4)";
+        badge.textContent = `🏆 ${c.name || 'Circuit'}`;
+        circuitBadgesEl.appendChild(badge);
+      });
+    }
     
     const isBcp = ev.id && !ev.id.startsWith("ES-");
     const isDeletedOnBcp = ev.bcp_status === "deleted_on_bcp" || ev.bcp_deleted === true;
@@ -791,6 +833,17 @@ function openEditTournamentModal() {
   if (ptsEl) ptsEl.value = ev.points || 2000;
   if (capEl) capEl.value = ev.capacity || 32;
 
+  const typeEl = document.getElementById("edit-event-type");
+  const teamSizeEl = document.getElementById("edit-event-team-size");
+  if (typeEl) {
+    const rawEt = String(ev.event_type || ev.eventType || "").toLowerCase();
+    if (rawEt.includes("doubles")) typeEl.value = "Doubles Event";
+    else if (rawEt.includes("team")) typeEl.value = "Teams Event";
+    else typeEl.value = "Singles Event";
+  }
+  if (teamSizeEl) teamSizeEl.value = ev.team_size || ev.teamSize || 5;
+  toggleTeamOptions("edit");
+
   if (modal) modal.classList.add("active");
 }
 
@@ -805,6 +858,8 @@ async function saveEditedTournament(e) {
   if (!ev) return;
 
   const nameEl = document.getElementById("edit-event-name");
+  const typeEl = document.getElementById("edit-event-type");
+  const teamSizeEl = document.getElementById("edit-event-team-size");
   const sDateEl = document.getElementById("edit-event-start-date");
   const eDateEl = document.getElementById("edit-event-end-date");
   const venueEl = document.getElementById("edit-event-venue");
@@ -816,8 +871,13 @@ async function saveEditedTournament(e) {
   const errEl = document.getElementById("edit-event-error");
   const btn = document.getElementById("edit-event-submit-btn");
 
+  const eventType = typeEl ? typeEl.value : "Singles Event";
+  const teamSize = teamSizeEl ? parseInt(teamSizeEl.value, 10) : 5;
+
   const payload = {
     name: nameEl ? nameEl.value.trim() : ev.name,
+    event_type: eventType,
+    team_size: teamSize,
     event_date: sDateEl ? sDateEl.value : ev.event_date,
     start_date: sDateEl ? sDateEl.value : ev.event_date,
     end_date: eDateEl ? eDateEl.value : ev.end_date,
@@ -853,11 +913,19 @@ async function saveEditedTournament(e) {
       const locHeader = document.getElementById("manage-event-location");
       const dateHeader = document.getElementById("manage-event-date");
       const roundsPtsHeader = document.getElementById("manage-event-rounds-pts");
+      const formatBadge = document.getElementById("manage-event-format-badge");
 
       if (nameHeader) nameHeader.textContent = updated.name || ev.name;
       if (locHeader) locHeader.textContent = [updated.venue, updated.city, updated.state].filter(Boolean).join(", ") || "Local Venue";
       if (dateHeader) dateHeader.textContent = updated.event_date ? String(updated.event_date).split("T")[0] : (updated.start_date || "Date TBD");
       if (roundsPtsHeader) roundsPtsHeader.textContent = `${updated.num_rounds || 5} Rounds (${updated.points || 2000} pts)`;
+
+      if (formatBadge) {
+        const et = String(updated.event_type || updated.eventType || eventType).toLowerCase();
+        if (et.includes("doubles")) formatBadge.textContent = "👥 DOUBLES";
+        else if (et.includes("team")) formatBadge.textContent = `🛡️ TEAMS (${updated.team_size || teamSize}-MAN)`;
+        else formatBadge.textContent = "👤 SINGLES";
+      }
 
       closeEditTournamentModal();
       await loadTournamentWorkspace(ev.id);
@@ -1325,3 +1393,154 @@ window.bulkCheckInPlayers = bulkCheckInPlayers;
 window.filterRosterTable = filterRosterTable;
 window.toggleRoundTimer = toggleRoundTimer;
 window.exportStandingsCsv = exportStandingsCsv;
+window.openEditTournamentModal = openEditTournamentModal;
+window.closeEditTournamentModal = closeEditTournamentModal;
+window.saveEditedTournament = saveEditedTournament;
+window.toggleTeamOptions = toggleTeamOptions;
+window.openCircuitsModal = openCircuitsModal;
+window.closeCircuitsModal = closeCircuitsModal;
+window.submitLinkCircuitFromModal = submitLinkCircuitFromModal;
+
+function toggleTeamOptions(context) {
+  const typeEl = document.getElementById(`${context}-event-type`);
+  const groupEl = document.getElementById(`${context}-team-size-group`);
+  if (!typeEl || !groupEl) return;
+  if (typeEl.value === "Teams Event") {
+    groupEl.style.display = "block";
+  } else {
+    groupEl.style.display = "none";
+  }
+}
+
+async function openCircuitsModal() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+  const modal = document.getElementById("es-circuits-modal");
+  if (modal) modal.classList.add("active");
+
+  renderActiveCircuitsList();
+
+  // Load latest circuits list from BCP if available
+  try {
+    const res = await window.api.getStudioCircuits();
+    if (res && res.success && Array.isArray(res.circuits)) {
+      const select = document.getElementById("modal-circuit-select");
+      if (select) {
+        select.innerHTML = res.circuits.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
+      }
+    }
+  } catch (e) {
+    console.warn("Could not refresh circuits list from BCP:", e);
+  }
+}
+
+function closeCircuitsModal() {
+  const modal = document.getElementById("es-circuits-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+function renderActiveCircuitsList() {
+  const ev = studioState.activeTournament;
+  const listEl = document.getElementById("circuits-active-list");
+  if (!listEl) return;
+  const circuits = Array.isArray(ev?.circuits) ? ev.circuits : [];
+  if (circuits.length === 0) {
+    listEl.innerHTML = `
+      <div style="font-size: 0.82rem; color: var(--text-muted); font-style: italic; padding: 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border);">
+        No circuits linked yet. Select a circuit below to link this tournament.
+      </div>
+    `;
+    return;
+  }
+  listEl.innerHTML = circuits.map(c => `
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.65rem 0.85rem; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.25); border-radius: 6px;">
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span style="font-size: 1.1rem;">🏆</span>
+        <span style="font-size: 0.85rem; font-weight: 700; color: #facc15;">${c.name || 'Tournament Circuit'}</span>
+      </div>
+      <span class="badge badge-online" style="font-size: 0.7rem;">LINKED & SYNCED</span>
+    </div>
+  `).join("");
+}
+
+async function submitLinkCircuitFromModal() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+  const select = document.getElementById("modal-circuit-select");
+  const tokenInput = document.getElementById("modal-circuit-token");
+  const btn = document.getElementById("modal-circuit-submit-btn");
+  const statusEl = document.getElementById("modal-circuit-status");
+
+  const circuitId = select ? select.value : "";
+  if (!circuitId) {
+    alert("Please select a circuit to link.");
+    return;
+  }
+  const circuitName = select.options[select.selectedIndex]?.text || "Tournament Circuit";
+  const tokenCode = tokenInput ? tokenInput.value.trim() : "";
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⏳ Submitting to BCP Circuit...";
+  }
+  if (statusEl) {
+    statusEl.style.display = "block";
+    statusEl.style.background = "rgba(56, 189, 248, 0.1)";
+    statusEl.style.color = "#38bdf8";
+    statusEl.textContent = `Linking tournament to ${circuitName} on Best Coast Pairings...`;
+  }
+
+  try {
+    const res = await window.api.submitStudioEventCircuit(ev.id, {
+      circuit_id: circuitId,
+      token_code: tokenCode,
+      circuit_name: circuitName
+    });
+
+    if (res && res.success) {
+      if (!Array.isArray(ev.circuits)) ev.circuits = [];
+      if (!ev.circuits.some(c => c.id === circuitId)) {
+        ev.circuits.push({ id: circuitId, name: circuitName });
+      }
+      renderActiveCircuitsList();
+
+      // Update workspace circuit badges
+      const circuitBadgesEl = document.getElementById("manage-event-circuit-badges");
+      if (circuitBadgesEl) {
+        circuitBadgesEl.innerHTML = "";
+        ev.circuits.forEach(c => {
+          const badge = document.createElement("span");
+          badge.className = "badge";
+          badge.style.background = "rgba(234, 179, 8, 0.15)";
+          badge.style.color = "#facc15";
+          badge.style.border = "1px solid rgba(234, 179, 8, 0.4)";
+          badge.textContent = `🏆 ${c.name || 'Circuit'}`;
+          circuitBadgesEl.appendChild(badge);
+        });
+      }
+
+      if (statusEl) {
+        statusEl.style.background = "rgba(34, 197, 94, 0.1)";
+        statusEl.style.color = "#22c55e";
+        statusEl.textContent = `✅ Successfully linked to ${circuitName}!`;
+      }
+    } else {
+      if (statusEl) {
+        statusEl.style.background = "rgba(239, 68, 68, 0.1)";
+        statusEl.style.color = "#ef4444";
+        statusEl.textContent = res?.error || "Failed to link circuit.";
+      }
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.style.background = "rgba(239, 68, 68, 0.1)";
+      statusEl.style.color = "#ef4444";
+      statusEl.textContent = "Error: " + err.message;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "🏆 Link Tournament to Circuit";
+    }
+  }
+}

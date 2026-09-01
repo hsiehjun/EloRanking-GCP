@@ -581,7 +581,27 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Format / Tier</label>
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Event Structure</label>
+                <select id="create-event-type" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="toggleTeamOptions('create')">
+                  <option value="Singles Event" selected>👤 Singles Event (Standard 1v1)</option>
+                  <option value="Doubles Event">👥 Doubles Event (2-Player Tag Team)</option>
+                  <option value="Teams Event">🛡️ Teams Event (WTC / Multi-Player)</option>
+                </select>
+              </div>
+
+              <div class="form-group" id="create-team-size-group" style="display: none;">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Team Size</label>
+                <select id="create-event-team-size" class="form-input" style="width: 100%; box-sizing: border-box;">
+                  <option value="5" selected>5-Player Team (WTC Standard)</option>
+                  <option value="8">8-Player Team (ATC Standard)</option>
+                  <option value="3">3-Player Team (Trios)</option>
+                  <option value="4">4-Player Team</option>
+                  <option value="6">6-Player Team</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Tournament Tier</label>
                 <select id="create-event-format" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="updateDefaultRounds()">
                   <option value="GT" selected>Grand Tournament (5-6 Rounds)</option>
                   <option value="RTT">Local / RTT (3 Rounds)</option>
@@ -645,6 +665,32 @@
                 <input type="text" id="create-event-city-state" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Seattle, WA">
               </div>
 
+              <!-- Circuit Choosing -->
+              <div class="form-group" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-top: 0.25rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+                  <div style="font-weight: 700; color: #fff; font-size: 0.85rem;">🏆 Tournament Circuit / League</div>
+                  <span style="font-size: 0.75rem; color: var(--text-secondary);">Submits placings directly to official ranking circuits</span>
+                </div>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 0.75rem;">
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Select Circuit</label>
+                    <select id="create-event-circuit" class="form-input" style="width: 100%; box-sizing: border-box;">
+                      <option value="" selected>None / Standalone Tournament</option>
+                      <option value="NvjgICBwiP">Independent Tournament Circuit (ITC)</option>
+                      <option value="247D2CRUW2">The U.K. Tournament Circuit (UKTC)</option>
+                      <option value="FHM0PJHRE7">California Championship Circuit</option>
+                      <option value="D6XLCWELAP">Northeast 40k Tournament Circuit</option>
+                      <option value="0J24UL9C46">The Great Lakes 40K Circuit</option>
+                      <option value="VHAD284QP4">The France Tournament Circuit</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="form-label" style="display: block; font-size: 0.75rem; font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">Token Code (if private)</label>
+                    <input type="text" id="create-event-circuit-token" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="Optional">
+                  </div>
+                </div>
+              </div>
+
               <!-- Advanced BCP Rules & Privacy Options -->
               <div class="form-group" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-top: 0.5rem;">
                 <div style="font-weight: 700; color: #fff; font-size: 0.85rem; margin-bottom: 0.75rem;">🛡️ Army List & Player Privacy Options</div>
@@ -680,9 +726,11 @@
           <div class="es-manage-header" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
               <div>
-                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem; flex-wrap: wrap;">
                   <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.55rem;" onclick="switchStudioTab('events')">❮ Back to Directory</button>
                   <span id="manage-event-tier-badge" class="badge badge-accent">GRAND TOURNAMENT</span>
+                  <span id="manage-event-format-badge" class="badge" style="background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">SINGLES</span>
+                  <span id="manage-event-circuit-badges" style="display: inline-flex; gap: 0.35rem;"></span>
                   <span id="manage-event-bcp-badge" class="badge badge-online">BCP SYNCED</span>
                 </div>
                 <h2 id="manage-event-name" style="color: #fff; margin: 0 0 0.4rem; font-size: 1.4rem; font-family: var(--font-heading);">Tournament Name</h2>
@@ -699,6 +747,7 @@
                   <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
                   <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()">▶️</button>
                 </div>
+                <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openCircuitsModal()">🏆 Circuits</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openEditTournamentModal()">⚙️ Edit Details</button>
                 <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Open on BCP</a>
                 <button id="manage-event-end-btn" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.4);" onclick="endAndArchiveTournament()">🏆 End Event</button>
@@ -1394,19 +1443,19 @@
   </div>
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=54.0"></script>
-  <script src="/js/api.js?v=54.0"></script>
-  <script src="/js/leaderboard.js?v=54.0"></script>
-  <script src="/js/teams.js?v=54.0"></script>
-  <script src="/js/players.js?v=54.0"></script>
-  <script src="/js/tournaments.js?v=54.0"></script>
-  <script src="/js/factions.js?v=54.0"></script>
-  <script src="/js/predictor.js?v=54.0"></script>
-  <script src="/js/modals.js?v=54.0"></script>
-  <script src="/js/auth.js?v=54.0"></script>
-  <script src="/js/my_hub.js?v=54.0"></script>
-  <script src="/js/eventstudio.js?v=54.0"></script>
-  <script src="/js/app.js?v=54.0"></script>
+  <script src="/js/utils.js?v=55.0"></script>
+  <script src="/js/api.js?v=55.0"></script>
+  <script src="/js/leaderboard.js?v=55.0"></script>
+  <script src="/js/teams.js?v=55.0"></script>
+  <script src="/js/players.js?v=55.0"></script>
+  <script src="/js/tournaments.js?v=55.0"></script>
+  <script src="/js/factions.js?v=55.0"></script>
+  <script src="/js/predictor.js?v=55.0"></script>
+  <script src="/js/modals.js?v=55.0"></script>
+  <script src="/js/auth.js?v=55.0"></script>
+  <script src="/js/my_hub.js?v=55.0"></script>
+  <script src="/js/eventstudio.js?v=55.0"></script>
+  <script src="/js/app.js?v=55.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
@@ -1465,6 +1514,27 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
           <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Event Structure</label>
+            <select id="edit-event-type" class="search-input" style="width: 100%; font-size: 0.85rem;" onchange="toggleTeamOptions('edit')">
+              <option value="Singles Event">👤 Singles Event (1v1)</option>
+              <option value="Doubles Event">👥 Doubles Event (2-Player)</option>
+              <option value="Teams Event">🛡️ Teams Event (Multi-Player)</option>
+            </select>
+          </div>
+          <div id="edit-team-size-group" style="display: none;">
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Team Size</label>
+            <select id="edit-event-team-size" class="search-input" style="width: 100%; font-size: 0.85rem;">
+              <option value="5">5-Player Team (WTC Standard)</option>
+              <option value="8">8-Player Team (ATC Standard)</option>
+              <option value="3">3-Player Team (Trios)</option>
+              <option value="4">4-Player Team</option>
+              <option value="6">6-Player Team</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+          <div>
             <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Start Date</label>
             <input type="date" id="edit-event-start-date" class="search-input" style="width: 100%; font-size: 0.85rem;" required>
           </div>
@@ -1511,6 +1581,60 @@
           <button type="submit" id="edit-event-submit-btn" class="btn btn-primary" style="flex: 2; justify-content: center; padding: 0.65rem; font-weight: 700;">💾 Save Changes</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- TOURNAMENT CIRCUITS MODAL -->
+  <div id="es-circuits-modal" class="modal-backdrop" onclick="if(event.target === this) closeCircuitsModal()">
+    <div class="modal-card" style="max-width: 520px; padding: 1.75rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.5rem;">🏆</span>
+          <div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Tournament Circuits & Leagues</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Submit results directly to ranking circuits on Best Coast Pairings</div>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="closeCircuitsModal()">✕</button>
+      </div>
+
+      <div style="margin-bottom: 1.25rem;">
+        <div style="font-size: 0.82rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.5rem;">Active Linked Circuits</div>
+        <div id="circuits-active-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+          <div style="font-size: 0.82rem; color: var(--text-muted); font-style: italic; padding: 0.75rem; background: rgba(255,255,255,0.02); border-radius: 6px; border: 1px dashed var(--border);">
+            No circuits linked yet. Select a circuit below to link this tournament.
+          </div>
+        </div>
+      </div>
+
+      <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+        <div style="font-size: 0.85rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🔗 Link to a Circuit</div>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <div>
+            <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">Select Circuit / League</label>
+            <select id="modal-circuit-select" class="search-input" style="width: 100%; font-size: 0.85rem;">
+              <option value="NvjgICBwiP">Independent Tournament Circuit (ITC)</option>
+              <option value="247D2CRUW2">The U.K. Tournament Circuit (UKTC)</option>
+              <option value="FHM0PJHRE7">California Championship Circuit</option>
+              <option value="D6XLCWELAP">Northeast 40k Tournament Circuit</option>
+              <option value="0J24UL9C46">The Great Lakes 40K Circuit</option>
+              <option value="VHAD284QP4">The France Tournament Circuit</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">Token Code (if private circuit)</label>
+            <input type="text" id="modal-circuit-token" class="search-input" style="width: 100%; font-size: 0.85rem;" placeholder="Optional token code">
+          </div>
+          <button type="button" id="modal-circuit-submit-btn" class="btn btn-accent" style="width: 100%; justify-content: center; font-weight: 700; padding: 0.6rem;" onclick="submitLinkCircuitFromModal()">
+            🏆 Link Tournament to Circuit
+          </button>
+        </div>
+        <div id="modal-circuit-status" style="display: none; margin-top: 0.75rem; font-size: 0.82rem; padding: 0.5rem; border-radius: 6px;"></div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end;">
+        <button type="button" class="btn btn-outline" style="padding: 0.5rem 1.25rem;" onclick="closeCircuitsModal()">Done</button>
+      </div>
     </div>
   </div>
 

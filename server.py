@@ -197,6 +197,11 @@ if FASTAPI_AVAILABLE:
         using_online_reg: Optional[bool] = False
         time_zone: Optional[str] = "America/Los_Angeles"
         bcp_token: Optional[str] = None
+        event_type: Optional[str] = "Singles Event"  # "Singles Event", "Doubles Event", "Teams Event"
+        team_size: Optional[int] = 1
+        circuit_id: Optional[str] = None
+        circuit_token: Optional[str] = None
+        circuit_name: Optional[str] = None
 
     def execute_bcp_api_call(
         url: str,
@@ -470,11 +475,19 @@ if FASTAPI_AVAILABLE:
                 tz_str = payload.time_zone or "America/Los_Angeles"
                 round_len = int(payload.default_round_length or 9000)
 
+                is_doubles = payload.event_type == "Doubles Event"
+                is_teams = payload.event_type == "Teams Event" or is_doubles
+                team_sz = int(payload.team_size or (2 if is_doubles else (5 if is_teams else 1)))
+
                 bcp_payload = {
                     "name": payload.name,
                     "ownerId": bcp_owner_id,
                     "gameSystemId": game_sys,
-                    "gameType": "singles",
+                    "gameType": "teams" if is_teams else "singles",
+                    "eventType": payload.event_type or "Singles Event",
+                    "doublesEvent": is_doubles,
+                    "teamEvent": is_teams,
+                    "teamSize": team_sz,
                     "eventSubType": "standard",
                     "boardGameEvent": False,
                     "eventDate": event_date_iso,
@@ -518,6 +531,18 @@ if FASTAPI_AVAILABLE:
                     if new_id:
                         event_id = str(new_id)
                         bcp_created = True
+
+                        # Submit to circuit if chosen
+                        if payload.circuit_id:
+                            try:
+                                circuit_url = f"{BCP_API_BASE}/events/{event_id}/submitToLeague"
+                                c_body = {"leagueId": payload.circuit_id}
+                                if payload.circuit_token:
+                                    c_body["tokenCode"] = payload.circuit_token
+                                execute_bcp_api_call(circuit_url, method="POST", json_data=c_body, user_id=user_id)
+                                logger.info(f"✅ Submitted tournament {event_id} to circuit {payload.circuit_id}")
+                            except Exception as ce:
+                                logger.warning(f"Notice linking circuit on create: {ce}")
                 elif bcp_err:
                     bcp_error = bcp_err
             except Exception as e:
@@ -525,10 +550,25 @@ if FASTAPI_AVAILABLE:
                 bcp_error = str(e)
 
         # Save to local database
+        circuits_list = []
+        if payload.circuit_id:
+            circuits_list.append({
+                "id": payload.circuit_id,
+                "name": payload.circuit_name or "Tournament Circuit",
+                "linked_at": datetime.now(timezone.utc).isoformat()
+            })
+
+        is_doubles_local = payload.event_type == "Doubles Event"
+        is_teams_local = payload.event_type == "Teams Event" or is_doubles_local
+        team_sz_local = int(payload.team_size or (2 if is_doubles_local else (5 if is_teams_local else 1)))
+
         saved = db.save_studio_event({
             "id": event_id,
             "name": payload.name,
             "tier": payload.tier,
+            "event_type": "doubles" if is_doubles_local else ("teams" if is_teams_local else "singles"),
+            "team_size": team_sz_local,
+            "circuits": circuits_list,
             "event_date": payload.start_date or datetime.now(timezone.utc),
             "end_date": payload.end_date or payload.start_date or datetime.now(timezone.utc),
             "city": payload.city,
@@ -619,7 +659,18 @@ if FASTAPI_AVAILABLE:
             if "num_rounds" in payload or "rounds" in payload:
                 bcp_set_fields["numberOfRounds"] = int(payload.get("num_rounds") or payload.get("rounds"))
             if "tier" in payload: bcp_set_fields["eventType"] = payload["tier"]
-            if "is_ended" in payload: bcp_set_fields["ended"] = bool(payload["is_ended"])
+            if "event_type" in payload:
+                et_val = str(payload["event_type"]).lower()
+                is_doubles = "doubles" in et_val
+                is_teams = "team" in et_val or is_doubles
+                team_sz = int(payload.get("team_size") or (2 if is_doubles else (5 if is_teams else 1)))
+                bcp_set_fields["eventType"] = "Doubles Event" if is_doubles else ("Teams Event" if is_teams else "Singles Event")
+                bcp_set_fields["doublesEvent"] = is_doubles
+                bcp_set_fields["teamEvent"] = is_teams
+                bcp_set_fields["gameType"] = "teams" if is_teams else "singles"
+                bcp_set_fields["teamSize"] = team_sz
+                ev["event_type"] = "doubles" if is_doubles else ("teams" if is_teams else "singles")
+                ev["team_size"] = team_sz
 
             if bcp_set_fields:
                 bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
@@ -633,6 +684,105 @@ if FASTAPI_AVAILABLE:
             "event": saved,
             "bcp_updated": bcp_updated
         }
+
+    @app.get("/api/eventstudio/circuits", summary="Get available Warhammer 40k circuits from BCP")
+    async def api_eventstudio_get_circuits(request: Request):
+        try:
+            import urllib.request, json
+            url = f"{BCP_API_BASE}/leagues?limit=50&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&active=true"
+            headers = DEFAULT_HEADERS.copy()
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                leagues = data if isinstance(data, list) else data.get("data", [])
+                formatted = [
+                    {"id": str(l.get("id")), "name": l.get("name", "Unknown Circuit")}
+                    for l in leagues if l.get("id") and l.get("name")
+                ]
+                return {"success": True, "circuits": formatted}
+        except Exception as e:
+            logger.warning(f"Error fetching circuits from BCP: {e}")
+            return {"success": True, "circuits": [
+                {"id": "NvjgICBwiP", "name": "ITC - Independent Tournament Circuit"},
+                {"id": "247D2CRUW2", "name": "The U.K. Tournament Circuit (UKTC)"},
+                {"id": "FHM0PJHRE7", "name": "California Championship Circuit"},
+                {"id": "D6XLCWELAP", "name": "Northeast 40k Tournament Circuit"},
+                {"id": "0J24UL9C46", "name": "The Great Lakes 40K Circuit"},
+                {"id": "VHAD284QP4", "name": "The France Tournament Circuit"}
+            ]}
+
+    @app.get("/api/eventstudio/event/{event_id}/circuits", summary="Get circuits linked to this event")
+    async def api_eventstudio_get_event_circuits(event_id: str, request: Request):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        local_circuits = ev.get("circuits", []) if ev else []
+        if event_id.startswith("ES-"):
+            return {"success": True, "circuits": local_circuits}
+
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        bcp_url = f"{BCP_API_BASE}/events/{event_id}/leagues"
+        data, err = execute_bcp_api_call(bcp_url, method="GET", user_id=user_id)
+        merged = []
+        seen = set()
+        if data:
+            bcp_leagues = data if isinstance(data, list) else data.get("data", [])
+            for l in bcp_leagues:
+                lid = str(l.get("id") or l.get("leagueId") or "")
+                if lid and lid not in seen:
+                    seen.add(lid)
+                    merged.append({"id": lid, "name": l.get("name") or "Tournament Circuit", "submitted": True})
+        for lc in local_circuits:
+            if lc.get("id") not in seen:
+                seen.add(lc.get("id"))
+                merged.append(lc)
+        return {"success": True, "circuits": merged}
+
+    class SubmitCircuitPayload(BaseModel):
+        circuit_id: str
+        token_code: Optional[str] = None
+        circuit_name: Optional[str] = None
+
+    @app.post("/api/eventstudio/event/{event_id}/circuits/submit", summary="Link tournament to circuit on BCP")
+    async def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload, request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        bcp_ok = False
+        if not event_id.startswith("ES-") and user_id:
+            bcp_url = f"{BCP_API_BASE}/events/{event_id}/submitToLeague"
+            bcp_body = {"leagueId": payload.circuit_id}
+            if payload.token_code:
+                bcp_body["tokenCode"] = payload.token_code
+            res_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data=bcp_body, user_id=user_id)
+            if res_data is not None or not err_msg:
+                bcp_ok = True
+
+        circuits = ev.get("circuits") or []
+        c_name = payload.circuit_name or "Tournament Circuit"
+        if not any(c.get("id") == payload.circuit_id for c in circuits):
+            circuits.append({
+                "id": payload.circuit_id,
+                "name": c_name,
+                "token_code": payload.token_code or "",
+                "linked_at": datetime.now(timezone.utc).isoformat()
+            })
+            ev["circuits"] = circuits
+            db.save_studio_event(ev)
+
+        return {"success": True, "bcp_synced": bcp_ok, "circuits": circuits}
 
     @app.delete("/api/eventstudio/event/{event_id}", summary="Delete tournament from Event Studio and BCP")
     async def api_eventstudio_delete_event(event_id: str, request: Request):

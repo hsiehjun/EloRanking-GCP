@@ -305,25 +305,46 @@ window.api = {
 
   // EventStudio: Update Tournament
   async updateStudioEvent(eventId, payload) {
+    const token = this.getAuthToken();
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
       body: JSON.stringify(payload)
     });
   },
 
   // EventStudio: Delete Tournament
   async deleteStudioEvent(eventId) {
+    const token = this.getAuthToken();
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
     });
   },
 
-  // EventStudio: Update Event
-  async updateStudioEvent(eventId, payload) {
+  // EventStudio: Get Available Circuits
+  async getStudioCircuits() {
+    return this._fetchJson('/api/eventstudio/circuits');
+  },
+
+  // EventStudio: Get Event Linked Circuits
+  async getStudioEventCircuits(eventId) {
     const token = this.getAuthToken();
-    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
-      method: 'PUT',
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/circuits`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  // EventStudio: Submit/Link Event to Circuit
+  async submitStudioEventCircuit(eventId, payload) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/circuits/submit`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${token}`
