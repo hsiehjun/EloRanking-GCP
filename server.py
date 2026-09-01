@@ -3962,22 +3962,26 @@ if FASTAPI_AVAILABLE:
             for tok_label, tok in test_tokens:
                 if not tok: continue
                 clean_tok = tok.replace("Bearer ", "").strip()
-                for prefix in ["Bearer ", ""]:
-                    hdr_variations = [
-                        ("std", {"Authorization": f"{prefix}{clean_tok}", "client-id": "web-app", "env": "bcp", "User-Agent": "Mozilla/5.0", "Accept": "application/json"}),
-                        ("no_env", {"Authorization": f"{prefix}{clean_tok}", "client-id": "web-app", "User-Agent": "Mozilla/5.0", "Accept": "application/json"}),
-                        ("no_client_id", {"Authorization": f"{prefix}{clean_tok}", "User-Agent": "Mozilla/5.0", "Accept": "application/json"}),
-                    ]
-                    for var_name, hdrs in hdr_variations:
-                        test_key = f"{tok_label}_{'bearer' if prefix else 'raw'}_{var_name}"
-                        try:
-                            req = urllib.request.Request(url, headers=hdrs, method=meth)
-                            with urllib.request.urlopen(req, timeout=5) as resp:
-                                results[ep_name][test_key] = {"status": resp.status, "body": resp.read().decode("utf-8")[:100]}
-                        except urllib.error.HTTPError as he:
-                            results[ep_name][test_key] = {"status": he.code, "body": he.read().decode("utf-8")[:100]}
-                        except Exception as e:
-                            results[ep_name][test_key] = {"error": str(e)}
+                client_id_tests = [
+                    "web-app", "5083iih0nitpn5enl02fkpr9bc", "ios-app", "android-app", "bcp", "bcp-app", "bcp-web", "web", "app"
+                ]
+                for cid in client_id_tests:
+                    hdrs = {
+                        "Authorization": f"Bearer {clean_tok}",
+                        "client-id": cid,
+                        "env": "bcp",
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "application/json"
+                    }
+                    test_key = f"{tok_label}_{cid}"
+                    try:
+                        req = urllib.request.Request(url, headers=hdrs, method=meth)
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            results[ep_name][test_key] = {"status": resp.status, "body": resp.read().decode("utf-8")[:100]}
+                    except urllib.error.HTTPError as he:
+                        results[ep_name][test_key] = {"status": he.code, "body": he.read().decode("utf-8")[:100]}
+                    except Exception as e:
+                        results[ep_name][test_key] = {"error": str(e)}
 
         return {
             "user_id": user["id"],
