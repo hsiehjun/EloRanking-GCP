@@ -237,10 +237,15 @@ if FASTAPI_AVAILABLE:
             auth_val = f"{auth_prefix}{clean_tok}".strip()
             headers = DEFAULT_HEADERS.copy()
             headers["Authorization"] = auth_val
-            if json_data is not None:
-                headers["Content-Type"] = "application/json"
+            headers["Content-Type"] = "application/json"
 
-            body_bytes = json.dumps(json_data).encode("utf-8") if json_data is not None else None
+            if json_data is not None:
+                body_bytes = json.dumps(json_data).encode("utf-8")
+            elif method in ("POST", "PUT", "PATCH", "DELETE"):
+                body_bytes = b"{}"
+            else:
+                body_bytes = None
+
             req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
 
             try:
