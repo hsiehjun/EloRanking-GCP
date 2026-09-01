@@ -3930,6 +3930,63 @@ if FASTAPI_AVAILABLE:
 
         return get_auth_manager().unlink_bcp_account(session["id"])
 
+    @app.get("/api/debug/bcp_diag", summary="Debug BCP token and headers")
+    async def api_debug_bcp_diag(request: Request, token: Optional[str] = Query(None)):
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        user = get_auth_manager().get_session(session_token)
+        if not user or user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Admin required")
+
+        toks = get_auth_manager().get_valid_bcp_tokens(user["id"])
+        id_tok = toks.get("id_token")
+        acc_tok = toks.get("access_token")
+
+        id_claims = _decode_jwt_payload(id_tok) if id_tok else {}
+        acc_claims = _decode_jwt_payload(acc_tok) if acc_tok else {}
+
+        import urllib.request, urllib.error, json
+
+        results = {}
+        test_tokens = [("id_token", id_tok), ("access_token", acc_tok)]
+        endpoints = [
+            ("users_me", "GET", "https://newprod-api.bestcoastpairings.com/v1/users/me"),
+            ("users_sub", "GET", f"https://newprod-api.bestcoastpairings.com/v1/users/{user.get('bcp_user_id')}"),
+            ("events_organizer", "GET", "https://newprod-api.bestcoastpairings.com/v2/events?limit=5&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate=2025-09-01T07:00:00.000Z&endDate=2027-09-02T06:59:59.999Z"),
+        ]
+
+        for ep_name, meth, url in endpoints:
+            results[ep_name] = {}
+            for tok_label, tok in test_tokens:
+                if not tok: continue
+                clean_tok = tok.replace("Bearer ", "").strip()
+                for prefix in ["Bearer ", ""]:
+                    hdr_variations = [
+                        ("std", {"Authorization": f"{prefix}{clean_tok}", "client-id": "web-app", "env": "bcp", "User-Agent": "Mozilla/5.0", "Accept": "application/json"}),
+                        ("no_env", {"Authorization": f"{prefix}{clean_tok}", "client-id": "web-app", "User-Agent": "Mozilla/5.0", "Accept": "application/json"}),
+                        ("no_client_id", {"Authorization": f"{prefix}{clean_tok}", "User-Agent": "Mozilla/5.0", "Accept": "application/json"}),
+                    ]
+                    for var_name, hdrs in hdr_variations:
+                        test_key = f"{tok_label}_{'bearer' if prefix else 'raw'}_{var_name}"
+                        try:
+                            req = urllib.request.Request(url, headers=hdrs, method=meth)
+                            with urllib.request.urlopen(req, timeout=5) as resp:
+                                results[ep_name][test_key] = {"status": resp.status, "body": resp.read().decode("utf-8")[:100]}
+                        except urllib.error.HTTPError as he:
+                            results[ep_name][test_key] = {"status": he.code, "body": he.read().decode("utf-8")[:100]}
+                        except Exception as e:
+                            results[ep_name][test_key] = {"error": str(e)}
+
+        return {
+            "user_id": user["id"],
+            "bcp_user_id": user.get("bcp_user_id"),
+            "id_claims": id_claims,
+            "acc_claims": acc_claims,
+            "bcp_tests": results
+        }
+
     @app.get("/api/user/dashboard", summary="Get personalized competitor hub analytics")
     async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None)):
         auth_mgr = get_auth_manager()
