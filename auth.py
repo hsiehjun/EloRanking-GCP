@@ -436,10 +436,12 @@ class AuthManager:
                 if not row or not row.get("bcp_refresh_token"):
                     return None
 
-                # If token still valid (>5 mins remaining) and not forced, return it
-                if not force_refresh and row.get("bcp_access_token") and row.get("bcp_token_expires_at"):
-                    if row["bcp_token_expires_at"] > datetime.now(timezone.utc):
-                        return row["bcp_access_token"]
+                # If token still valid (>5 mins remaining), is an access token, and not forced, return it
+                tok = row.get("bcp_access_token")
+                if not force_refresh and tok and row.get("bcp_token_expires_at"):
+                    claims = _decode_jwt_payload(tok) if tok else {}
+                    if claims.get("token_use") == "access" and row["bcp_token_expires_at"] > datetime.now(timezone.utc):
+                        return tok
 
                 # Silent Background Refresh via Cognito REFRESH_TOKEN_AUTH
                 ref_tok = row["bcp_refresh_token"]
@@ -463,7 +465,7 @@ class AuthManager:
                     with urllib.request.urlopen(req, timeout=10) as resp:
                         data = json.loads(resp.read().decode("utf-8"))
                         auth_res = data.get("AuthenticationResult") or {}
-                        new_acc = auth_res.get("IdToken") or auth_res.get("AccessToken")
+                        new_acc = auth_res.get("AccessToken") or auth_res.get("IdToken")
                         if new_acc:
                             cur.execute("""
                             UPDATE users SET

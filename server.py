@@ -203,59 +203,59 @@ if FASTAPI_AVAILABLE:
             return {"success": True, "count": 0, "events": []}
 
         # Check BCP for any tournaments hosted by this organizer
-        if bcp_user_id or player_id:
+        if user_id:
             try:
-                import urllib.request, json
-                start_range = "2025-09-01T07:00:00.000Z"
-                end_range = "2027-09-02T06:59:59.999Z"
-                headers = DEFAULT_HEADERS.copy()
-                bcp_tok = bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+                bcp_tok = bcp_token or auth_mgr.get_valid_bcp_token(user_id)
                 if bcp_tok:
+                    import urllib.request, json
+                    start_range = "2025-09-01T07:00:00.000Z"
+                    end_range = "2027-09-02T06:59:59.999Z"
+                    headers = DEFAULT_HEADERS.copy()
                     headers["Authorization"] = f"Bearer {bcp_tok}"
-                
-                # Query official organizer endpoint BCP uses
-                sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
-                req = urllib.request.Request(sync_url, headers=headers)
-                try:
-                    resp_ctx = urllib.request.urlopen(req, timeout=10)
-                except urllib.error.HTTPError as he:
-                    if he.code == 401 and user_id:
-                        fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
-                        if fresh_tok:
-                            headers["Authorization"] = f"Bearer {fresh_tok}"
-                            req = urllib.request.Request(sync_url, headers=headers)
-                            resp_ctx = urllib.request.urlopen(req, timeout=10)
+                    
+                    # Query official organizer endpoint BCP uses
+                    sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
+                    req = urllib.request.Request(sync_url, headers=headers)
+                    try:
+                        resp_ctx = urllib.request.urlopen(req, timeout=10)
+                    except urllib.error.HTTPError as he:
+                        if he.code == 401:
+                            fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
+                            if fresh_tok:
+                                headers["Authorization"] = f"Bearer {fresh_tok}"
+                                req = urllib.request.Request(sync_url, headers=headers)
+                                resp_ctx = urllib.request.urlopen(req, timeout=10)
+                            else:
+                                resp_ctx = None
                         else:
                             resp_ctx = None
-                    else:
+                    except Exception:
                         resp_ctx = None
-                except Exception:
-                    resp_ctx = None
 
-                if resp_ctx:
-                    with resp_ctx as resp:
-                        if resp.status == 200:
-                            bcp_raw = json.loads(resp.read().decode("utf-8"))
-                            items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
-                            for item in (items if isinstance(items, list) else []):
-                                if not isinstance(item, dict): continue
-                                loc = item.get("location") if isinstance(item.get("location"), dict) else {}
-                                db.save_studio_event({
-                                    "id": str(item.get("id") or item.get("_id")),
-                                    "name": item.get("name", "BCP Tournament"),
-                                    "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
-                                    "event_date": item.get("eventDate") or item.get("startDate"),
-                                    "end_date": item.get("endDate") or item.get("eventEndDate"),
-                                    "city": item.get("city") or loc.get("city"),
-                                    "state": item.get("state") or loc.get("state"),
-                                    "country": item.get("country") or loc.get("country"),
-                                    "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
-                                    "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
-                                    "points": item.get("points") or 2000,
-                                    "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
-                                    "organizer_id": user_id,
-                                    "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id
-                                })
+                    if resp_ctx:
+                        with resp_ctx as resp:
+                            if resp.status == 200:
+                                bcp_raw = json.loads(resp.read().decode("utf-8"))
+                                items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
+                                for item in (items if isinstance(items, list) else []):
+                                    if not isinstance(item, dict): continue
+                                    loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                                    db.save_studio_event({
+                                        "id": str(item.get("id") or item.get("_id")),
+                                        "name": item.get("name", "BCP Tournament"),
+                                        "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
+                                        "event_date": item.get("eventDate") or item.get("startDate"),
+                                        "end_date": item.get("endDate") or item.get("eventEndDate"),
+                                        "city": item.get("city") or loc.get("city"),
+                                        "state": item.get("state") or loc.get("state"),
+                                        "country": item.get("country") or loc.get("country"),
+                                        "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
+                                        "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                                        "points": item.get("points") or 2000,
+                                        "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                                        "organizer_id": user_id,
+                                        "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id
+                                    })
             except Exception as se:
                 logger.info(f"Notice syncing BCP organizer events: {se}")
 
