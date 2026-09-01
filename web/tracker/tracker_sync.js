@@ -4085,12 +4085,13 @@ Space Marines - Gladius Task Force (2000 pts)
           </label>
           <textarea id="gt-fb-input-message" rows="4" placeholder="Describe the issue or suggestion... (e.g. scorecard sync, list importer, clock error)" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px 12px; color:#e2e8f0; font-size:12px; font-family:'Inter',system-ui,sans-serif; outline:none; box-sizing:border-box; line-height:1.5; resize:vertical;"></textarea>
 
-          <!-- Optional Contact -->
+          <!-- Locked Verified User Email -->
           <div style="margin-top:12px;">
-            <label style="display:block; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">
-              Your Email or Discord (optional for follow-up):
+            <label style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:700; color:#cbd5e1; margin-bottom:6px;">
+              <span>Verified Account Email:</span>
+              <span style="font-size:10.5px; color:#10b981; font-weight:600;">🔒 Locked to active account</span>
             </label>
-            <input type="text" id="gt-fb-input-contact" value="${escapeHtml(userEmail)}" placeholder="e.g. name@example.com or Discord username" style="width:100%; background:#070b14; border:1px solid #334155; border-radius:8px; padding:8px 12px; color:#e2e8f0; font-size:12px; outline:none; box-sizing:border-box;">
+            <input type="text" id="gt-fb-input-contact" value="${escapeHtml(userEmail)}" readonly disabled style="width:100%; background:#1e293b; border:1px solid #475569; border-radius:8px; padding:8px 12px; color:#94a3b8; font-size:12px; outline:none; box-sizing:border-box; cursor:not-allowed; opacity:0.85;">
           </div>
 
           <div id="gt-fb-status-msg" style="display:none; margin-top:12px; padding:9px 12px; border-radius:8px; font-size:12px; font-weight:600;"></div>
