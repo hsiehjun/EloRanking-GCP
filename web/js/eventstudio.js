@@ -59,7 +59,7 @@ function updateStudioAuthBadge() {
         dot.style.background = "#10b981";
         dot.style.boxShadow = "0 0 8px #10b981";
       }
-      statusText.innerHTML = `Connected to Best Coast Pairings as <strong style="color: #10b981;">${escapeHtml(email)}</strong>${user.player_id ? ` <span style="font-size:0.75rem; color:var(--text-muted); font-family: var(--font-mono);">(${user.player_id})</span>` : ""}`;
+      statusText.innerHTML = `Connected to Best Coast Pairings as <strong style="color: #10b981;">${escapeHtml(email)}</strong>`;
     } else if (user) {
       if (banner) {
         banner.style.background = "rgba(245, 158, 11, 0.08)";
@@ -128,12 +128,9 @@ function renderEventsDirectory() {
       <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3.5rem 1.5rem; text-align: center;">
         <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">⚔️</div>
         <h3 style="color: #fff; margin: 0 0 0.5rem; font-size: 1.3rem;">No Tournaments Directing Yet</h3>
-        <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 520px; margin: 0 auto 1.5rem; line-height: 1.6;">
+        <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 520px; margin: 0 auto; line-height: 1.6;">
           Create a new tournament to publish listings to Best Coast Pairings and manage player registrations.
         </p>
-        <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
-          <button class="btn btn-primary" onclick="switchStudioTab('create')">➕ Create Tournament</button>
-        </div>
       </div>
     `;
     return;
