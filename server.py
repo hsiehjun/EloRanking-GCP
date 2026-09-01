@@ -282,6 +282,36 @@ if FASTAPI_AVAILABLE:
 
         ev = db.get_studio_event(event_id)
         if not ev:
+            # Try direct BCP lookup and import
+            try:
+                import urllib.request, json
+                bcp_url = f"{BCP_API_BASE}/events/{event_id}"
+                req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if resp.status == 200:
+                        item = json.loads(resp.read().decode("utf-8"))
+                        if isinstance(item, dict) and item.get("name"):
+                            loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                            saved = db.save_studio_event({
+                                "id": str(item.get("id") or item.get("_id") or event_id),
+                                "name": item.get("name", "BCP Tournament"),
+                                "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
+                                "event_date": item.get("eventDate") or item.get("startDate"),
+                                "end_date": item.get("endDate") or item.get("eventEndDate"),
+                                "city": item.get("city") or loc.get("city"),
+                                "state": item.get("state") or loc.get("state"),
+                                "country": item.get("country") or loc.get("country"),
+                                "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
+                                "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                                "points": item.get("points") or 2000,
+                                "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                                "organizer_id": user["id"] if user else None,
+                                "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or (user.get("bcp_user_id") if user else None)
+                            })
+                            return {"success": True, "event": saved}
+            except Exception as fe:
+                logger.info(f"Direct BCP event fetch notice for {event_id}: {fe}")
+
             # Fallback to standard event lookup
             full_ev = db.get_tournament_details(event_id)
             if full_ev:
@@ -292,6 +322,60 @@ if FASTAPI_AVAILABLE:
             "success": True,
             "event": ev
         }
+
+    @app.post("/api/eventstudio/event/import", summary="Import tournament from Best Coast Pairings by ID or URL")
+    async def api_eventstudio_import_event(request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+
+        event_input = str(payload.get("event_id") or payload.get("url") or "").strip()
+        if not event_input:
+            raise HTTPException(status_code=400, detail="Event ID or BCP URL required")
+
+        import re
+        m = re.search(r'([A-Za-z0-9]{10,16})', event_input)
+        event_id = m.group(1) if m else event_input
+
+        import urllib.request, json
+        bcp_url = f"{BCP_API_BASE}/events/{event_id}"
+        try:
+            req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    item = json.loads(resp.read().decode("utf-8"))
+                    if isinstance(item, dict) and item.get("name"):
+                        loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                        saved = db.save_studio_event({
+                            "id": str(item.get("id") or item.get("_id") or event_id),
+                            "name": item.get("name", "BCP Tournament"),
+                            "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
+                            "event_date": item.get("eventDate") or item.get("startDate"),
+                            "end_date": item.get("endDate") or item.get("eventEndDate"),
+                            "city": item.get("city") or loc.get("city"),
+                            "state": item.get("state") or loc.get("state"),
+                            "country": item.get("country") or loc.get("country"),
+                            "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
+                            "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                            "points": item.get("points") or 2000,
+                            "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                            "organizer_id": user["id"] if user else None,
+                            "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or (user.get("bcp_user_id") if user else None)
+                        })
+                        return {"success": True, "event": saved}
+            raise HTTPException(status_code=404, detail=f"BCP Event '{event_id}' not found")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Import error for {event_id}: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to import BCP event '{event_id}': {e}")
 
     @app.post("/api/eventstudio/event/create", summary="Create new tournament and register to BCP")
     async def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):

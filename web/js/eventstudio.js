@@ -278,6 +278,23 @@ function escapeHtml(str) {
     .replace(/'/g, "&#039;");
 }
 
+async function promptImportBcpEvent() {
+  const input = prompt("Enter Best Coast Pairings Event ID or URL:\n(e.g., QEwy45HcX1Cv or https://www.bestcoastpairings.com/event/QEwy45HcX1Cv)");
+  if (!input || !input.trim()) return;
+
+  try {
+    const res = await window.api.importStudioEvent(input.trim());
+    if (res && res.success) {
+      alert(`🎉 Successfully imported "${res.event?.name || 'Tournament'}" (${res.event?.id || ''}) from Best Coast Pairings!`);
+      await loadStudioEvents();
+    } else {
+      alert(res.detail || res.error || "Failed to import tournament from BCP.");
+    }
+  } catch (err) {
+    alert(`Import failed: ${err.message || err}`);
+  }
+}
+
 // Global window bindings for Event Studio
 window.initStudio = initStudio;
 window.loadStudioEvents = loadStudioEvents;
@@ -286,3 +303,4 @@ window.renderEventsDirectory = renderEventsDirectory;
 window.submitCreateTournament = submitCreateTournament;
 window.deleteStudioTournament = deleteStudioTournament;
 window.updateDefaultRounds = updateDefaultRounds;
+window.promptImportBcpEvent = promptImportBcpEvent;

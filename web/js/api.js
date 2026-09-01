@@ -286,6 +286,15 @@ window.api = {
     });
   },
 
+  // EventStudio: Import Existing Tournament from BCP
+  async importStudioEvent(eventIdOrUrl) {
+    return this._fetchJson('/api/eventstudio/event/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_id: eventIdOrUrl })
+    });
+  },
+
 
 
   // EventStudio: Update Tournament
