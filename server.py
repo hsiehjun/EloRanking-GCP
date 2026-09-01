@@ -509,13 +509,12 @@ if FASTAPI_AVAILABLE:
             try:
                 import urllib.request
                 bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
+                headers = DEFAULT_HEADERS.copy()
+                headers["Authorization"] = f"Bearer {bcp_token}"
+                headers["Content-Type"] = "application/json"
                 req = urllib.request.Request(
                     bcp_url,
-                    headers={
-                        "Authorization": f"Bearer {bcp_token}",
-                        "client-id": "web-app",
-                        "User-Agent": BCP_USER_AGENT
-                    },
+                    headers=headers,
                     method="DELETE"
                 )
                 with urllib.request.urlopen(req, timeout=10) as resp:

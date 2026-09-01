@@ -35,8 +35,9 @@ BCP_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, lik
 
 DEFAULT_HEADERS = {
     "client-id": BCP_CLIENT_ID,
+    "env": "bcp",
     "User-Agent": BCP_USER_AGENT,
-    "Accept": "application/json, text/plain, */*",
+    "Accept": "*/*",
     "Accept-Language": "en-US,en;q=0.9",
     "Origin": "https://www.bestcoastpairings.com",
     "Referer": "https://www.bestcoastpairings.com/",
