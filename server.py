@@ -2933,12 +2933,14 @@ if FASTAPI_AVAILABLE:
         raise HTTPException(status_code=404, detail="index.html not found")
 
     @app.get("/tracker/tracker_sync.js", include_in_schema=False)
+    @app.get("/11th/tracker/tracker_sync.js", include_in_schema=False)
     async def serve_tracker_sync_js():
-        return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript")
+        return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
 
     @app.get("/tracker/tracker_sync.css", include_in_schema=False)
+    @app.get("/11th/tracker/tracker_sync.css", include_in_schema=False)
     async def serve_tracker_sync_css():
-        return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css")
+        return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css", headers={"Cache-Control": "no-cache, must-revalidate"})
 
     @app.get("/login", include_in_schema=False)
     @app.get("/tracker/login", include_in_schema=False)
