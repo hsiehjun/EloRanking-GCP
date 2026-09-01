@@ -3269,8 +3269,9 @@ if FASTAPI_AVAILABLE:
         password: str
 
     class BCPConnectPayload(BaseModel):
-        bcp_email: str
-        bcp_password: str
+        bcp_email: Optional[str] = None
+        bcp_password: Optional[str] = None
+        bcp_token: Optional[str] = None
 
     class UserSettingsPayload(BaseModel):
         display_name: Optional[str] = None
@@ -3349,7 +3350,12 @@ if FASTAPI_AVAILABLE:
         if not session:
             raise HTTPException(status_code=401, detail="Invalid session")
 
-        res = get_auth_manager().link_bcp_account(session["id"], payload.bcp_email, payload.bcp_password)
+        if payload.bcp_token:
+            res = get_auth_manager().link_bcp_token(session["id"], payload.bcp_token)
+        else:
+            if not payload.bcp_email or not payload.bcp_password:
+                raise HTTPException(status_code=400, detail="BCP email and password or token required")
+            res = get_auth_manager().link_bcp_account(session["id"], payload.bcp_email, payload.bcp_password)
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to connect BCP account"))
         return res

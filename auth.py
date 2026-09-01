@@ -405,6 +405,45 @@ class AuthManager:
             "user": updated_user
         }
 
+    def link_bcp_token(self, user_id: str, token: str, refresh_token: Optional[str] = None) -> Dict[str, Any]:
+        """Directly links a verified BCP access token to the user profile."""
+        import base64, json
+        try:
+            parts = token.split(".")
+            claims = json.loads(base64.b64decode(parts[1] + "==").decode("utf-8"))
+        except Exception:
+            claims = {}
+
+        bcp_user_id = claims.get("sub") or claims.get("username")
+        bcp_email = claims.get("email") or claims.get("bcpEmail") or ""
+        pid = claims.get("userId") or claims.get("custom:userId")
+
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                UPDATE users SET
+                    bcp_user_id = COALESCE(%s, bcp_user_id),
+                    player_id = COALESCE(%s, player_id),
+                    bcp_email = COALESCE(NULLIF(%s, ''), bcp_email),
+                    bcp_access_token = %s,
+                    bcp_refresh_token = COALESCE(%s, bcp_refresh_token),
+                    bcp_token_expires_at = (NOW() + INTERVAL '30 days'),
+                    bcp_linked_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s;
+                """, (bcp_user_id, pid, bcp_email, token, refresh_token, user_id))
+            conn.commit()
+
+        updated_user = self.get_user_by_id(user_id)
+        return {
+            "success": True,
+            "bcp_connected": True,
+            "bcp_email": bcp_email,
+            "bcp_user_id": bcp_user_id,
+            "player_id": pid,
+            "user": updated_user
+        }
+
     def unlink_bcp_account(self, user_id: str) -> Dict[str, Any]:
         """Unlinks Best Coast Pairings account from user."""
         with self.db.get_connection() as conn:
