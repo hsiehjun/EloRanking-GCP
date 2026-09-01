@@ -1399,7 +1399,7 @@
   <script src="/js/factions.js?v=49.0"></script>
   <script src="/js/predictor.js?v=49.0"></script>
   <script src="/js/modals.js?v=49.0"></script>
-  <script src="/js/auth.js?v=49.0"></script>
+  <script src="/js/auth.js?v=50.0"></script>
   <script src="/js/my_hub.js?v=49.0"></script>
   <script src="/js/eventstudio.js?v=49.0"></script>
   <script src="/js/app.js?v=49.0"></script>
@@ -1453,13 +1453,13 @@
           <b style="color: #38bdf8;">1-Line Browser Sync:</b><br>
           If you are logged into <a href="https://bestcoastpairings.com" target="_blank" style="color:#f59e0b; text-decoration:underline;">bestcoastpairings.com</a>, press <b>F12</b> &gt; <b>Console</b> and paste:
           <div style="margin-top: 6px; display: flex; gap: 4px;">
-            <input type="text" readonly id="bcp-console-snippet" value="copy(JSON.stringify({access_token:localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.'+localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.LastAuthUser')+'.accessToken'),refresh_token:localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.'+localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.LastAuthUser')+'.refreshToken')}))" style="font-family: monospace; font-size: 0.72rem; background: #070b14; color: #94a3b8; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; flex: 1;">
+            <input type="text" readonly id="bcp-console-snippet" value="copy(JSON.stringify({id_token:localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.'+localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.LastAuthUser')+'.idToken'),refresh_token:localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.'+localStorage.getItem('CognitoIdentityServiceProvider.5083iih0nitpn5enl02fkpr9bc.LastAuthUser')+'.refreshToken')}))" style="font-family: monospace; font-size: 0.72rem; background: #070b14; color: #94a3b8; border: 1px solid #334155; padding: 4px 6px; border-radius: 4px; flex: 1;">
             <button type="button" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px;" onclick="copyBcpSnippet()">Copy</button>
           </div>
         </div>
         <div style="margin-bottom: 1rem;">
           <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Paste Token or JSON Output Below</label>
-          <textarea id="bcp-link-raw-token" class="search-input" style="width: 100%; height: 75px; font-size: 0.75rem; font-family: monospace; box-sizing: border-box; resize: vertical;" placeholder='{"access_token": "...", "refresh_token": "..."} or raw token' required></textarea>
+          <textarea id="bcp-link-raw-token" class="search-input" style="width: 100%; height: 75px; font-size: 0.75rem; font-family: monospace; box-sizing: border-box; resize: vertical;" placeholder='{"id_token": "...", "refresh_token": "..."} or raw token' required></textarea>
         </div>
         <div id="bcp-token-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.5rem; background: rgba(239,68,68,0.1); border-radius: 6px;"></div>
         <button type="submit" id="bcp-token-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.7rem; font-size: 0.92rem;">

@@ -223,7 +223,7 @@ async function handleConnectBcpTokenDirect(e) {
   if (rawVal.startsWith('{') && rawVal.endsWith('}')) {
     try {
       const parsed = JSON.parse(rawVal);
-      accessToken = parsed.access_token || parsed.accessToken || parsed.token || rawVal;
+      accessToken = parsed.id_token || parsed.idToken || parsed.access_token || parsed.accessToken || parsed.token || rawVal;
       refreshToken = parsed.refresh_token || parsed.refreshToken || '';
     } catch(err) {}
   }

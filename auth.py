@@ -392,7 +392,7 @@ class AuthManager:
                     bcp_linked_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s;
-                """, (official_name, pid, bcp_user_id, bcp_email.strip(), access_token or id_token, refresh_token, user_id))
+                """, (official_name, pid, bcp_user_id, bcp_email.strip(), id_token or access_token, refresh_token, user_id))
             conn.commit()
 
         updated_user = self.get_user_by_id(user_id)
@@ -412,11 +412,11 @@ class AuthManager:
         actual_token = str(token).strip()
         actual_refresh = refresh_token
         
-        # Check if user pasted a JSON payload containing access_token & refresh_token
+        # Check if user pasted a JSON payload containing id_token, access_token & refresh_token
         if actual_token.startswith("{") and actual_token.endswith("}"):
             try:
                 parsed = json.loads(actual_token)
-                actual_token = parsed.get("access_token") or parsed.get("accessToken") or parsed.get("token") or actual_token
+                actual_token = parsed.get("id_token") or parsed.get("idToken") or parsed.get("access_token") or parsed.get("accessToken") or parsed.get("token") or actual_token
                 actual_refresh = parsed.get("refresh_token") or parsed.get("refreshToken") or actual_refresh
             except Exception:
                 pass
@@ -539,7 +539,7 @@ class AuthManager:
                         with urllib.request.urlopen(req, timeout=10) as resp:
                             data = json.loads(resp.read().decode("utf-8"))
                             auth_res = data.get("AuthenticationResult") or {}
-                            new_acc = auth_res.get("AccessToken") or auth_res.get("IdToken")
+                            new_acc = auth_res.get("IdToken") or auth_res.get("AccessToken")
                             if new_acc:
                                 cur.execute("""
                                 UPDATE users SET
