@@ -345,29 +345,44 @@ if FASTAPI_AVAILABLE:
                 e_date = payload.end_date or s_date
                 event_date_iso = f"{s_date}T09:00:00.000Z" if len(s_date) == 10 else s_date
                 end_date_iso = f"{e_date}T18:00:00.000Z" if len(e_date) == 10 else e_date
+                bcp_owner_id = user.get("player_id") or user.get("bcp_user_id") or "MEV83VFANA"
+                city_str = payload.city or "San Diego"
+                state_str = payload.state or "CA"
+                venue_str = payload.venue or f"{city_str} Venue"
+                country_str = payload.country or "United States"
 
                 bcp_payload = {
                     "name": payload.name,
-                    "ownerId": bcp_user_id,
+                    "ownerId": bcp_owner_id,
                     "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
                     "gameType": "singles",
                     "eventSubType": "standard",
-                    "eventType": payload.tier or "Grand Tournament",
+                    "boardGameEvent": False,
                     "eventDate": event_date_iso,
                     "eventEndDate": end_date_iso,
                     "endDate": end_date_iso,
-                    "city": payload.city or "",
-                    "state": payload.state or "",
-                    "country": payload.country or "United States",
-                    "venueName": payload.venue or "",
+                    "pairingStyle": "swiss",
                     "numberOfRounds": payload.rounds or 5,
-                    "numRounds": payload.rounds or 5,
-                    "totalPlayers": payload.capacity or 32,
-                    "capacity": payload.capacity or 32,
                     "points": payload.points or 2000,
+                    "startingTable": 1,
+                    "hidePlacings": False,
+                    "hideRoster": False,
+                    "hidePlayerCount": False,
+                    "defaultRoundLength": 9000,
+                    "enablePasswords": True,
+                    "passwordlessScoring": True,
+                    "hideLists": False,
+                    "listOptions": {"allowsFiles": True, "allowsImages": True, "allowsText": True},
+                    "location": {
+                        "name": venue_str,
+                        "venue": venue_str,
+                        "city": city_str,
+                        "state": state_str,
+                        "country": country_str,
+                        "timeZone": "America/Los_Angeles"
+                    },
                     "ticketPrice": 0,
                     "usingOnlineReg": False,
-                    "boardGameEvent": False,
                     "description": payload.mission_pack or "Created via OmniTactica Event Studio"
                 }
                 headers = DEFAULT_HEADERS.copy()
