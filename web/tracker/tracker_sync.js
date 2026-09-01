@@ -3263,22 +3263,34 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   // ==========================================================================
-  // 10.5. Interactive Synchronized Live Dice Roller (Multiplayer / Dual Device)
+  // 10.5. Interactive Synchronized Live Dice Tray (Tabletop Physical Dice Model)
   // ==========================================================================
   const diceRollerState = {
     visible: localStorage.getItem('gt-dice-visible') === 'true',
-    count: Math.min(100, Math.max(0, parseInt(localStorage.getItem('gt-dice-count') || '0', 10))),
     target: parseInt(localStorage.getItem('gt-dice-target') || '3', 10),
-    label: 'Dice Roll',
-    dieType: 'D6',
-    lastResults: [],
+    tray: [], // Array of { id: number, val: number, selected: boolean, rolled: boolean }
     history: []
   };
+
+  // Restore saved dice or initialize empty tray
+  try {
+    const savedTray = localStorage.getItem('gt-dice-tray');
+    if (savedTray) {
+      diceRollerState.tray = JSON.parse(savedTray);
+    }
+  } catch(e) {}
 
   try {
     const savedHistory = localStorage.getItem('gt-dice-history');
     if (savedHistory) diceRollerState.history = JSON.parse(savedHistory);
   } catch(e) {}
+
+  function saveDiceTray() {
+    try {
+      localStorage.setItem('gt-dice-tray', JSON.stringify(diceRollerState.tray));
+      localStorage.setItem('gt-dice-count', diceRollerState.tray.length);
+    } catch(e) {}
+  }
 
   window.gtToggleDiceRoller = function() {
     diceRollerState.visible = !diceRollerState.visible;
@@ -3307,40 +3319,42 @@ Space Marines - Gladius Task Force (2000 pts)
     const modal = document.getElementById('gt-dice-roller-modal');
     if (!modal || !diceRollerState.visible) return;
 
-    const count = diceRollerState.count;
+    const tray = diceRollerState.tray || [];
+    const totalInTray = tray.length;
+    const selectedCount = tray.filter(d => d.selected).length;
     const target = diceRollerState.target;
-    const last = diceRollerState.lastResults || [];
-    const lastSuccess = last.filter(v => v >= target).length;
-    const lastCrits = last.filter(v => v === 6).length;
-    const lastFails = last.filter(v => v < target).length;
-    const sum = last.reduce((a, b) => a + b, 0);
 
-    const hasResults = last.length > 0;
+    const rolledDice = tray.filter(d => d.rolled);
+    const hasRolled = rolledDice.length > 0;
+    const passCount = target > 0 ? rolledDice.filter(d => d.val >= target).length : rolledDice.length;
+    const critCount = rolledDice.filter(d => d.val === 6).length;
+    const failCount = target > 0 ? rolledDice.filter(d => d.val < target).length : 0;
+    const sum = rolledDice.reduce((a, b) => a + (b.val || 0), 0);
 
     modal.innerHTML = `
       <div class="gt-dice-header">
         <div style="display:flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:12px; color:#f59e0b;">
           <span>🎲</span>
-          <span>LIVE DICE ROLLER</span>
+          <span>DICE TRAY</span>
           <span style="background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); font-size:9px; padding:1px 5px; border-radius:4px; color:#f59e0b;">SYNCED</span>
         </div>
-        <button onclick="window.gtToggleDiceRoller()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;" title="Close Dice Roller">✕</button>
+        <button onclick="window.gtToggleDiceRoller()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px;" title="Close Dice Tray">✕</button>
       </div>
 
       <div class="gt-dice-body">
-        <!-- Dice Count Controls -->
+        <!-- Dice Addition Bar -->
         <div style="display:flex; flex-direction:column; gap:4px;">
           <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:#cbd5e1; font-weight:700;">
-            <span>NUMBER OF DICE: <b id="gt-dice-count-display" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${count}</b></span>
+            <span>DICE IN TRAY: <b id="gt-dice-count-display" style="color:#f59e0b; font-size:13px; font-family:'JetBrains Mono',monospace;">${totalInTray}</b> <span style="color:#94a3b8; font-size:10px;">(${selectedCount} selected)</span></span>
             <span style="font-size:10px; color:#64748b;">(Max: 100)</span>
           </div>
           <div style="display:flex; gap:4px; align-items:center;">
-            <input type="number" id="gt-dice-input" value="${count}" min="0" max="100" class="form-input" style="width:60px; height:28px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:6px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10))">
+            <input type="number" id="gt-dice-input" value="${totalInTray}" min="0" max="100" class="form-input" style="width:56px; height:28px; padding:2px 6px; font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; text-align:center; background:#070b14; border:1px solid #334155; color:#fff; border-radius:6px;" onchange="window.gtSetDiceCount(parseInt(this.value, 10))">
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(1)">+1</button>
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(5)">+5</button>
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(10)">+10</button>
             <button class="gt-dice-quick-btn" onclick="window.gtAddDice(20)">+20</button>
-            <button class="gt-dice-quick-btn" style="color:#ef4444;" onclick="window.gtSetDiceCount(0)">Clear (0)</button>
+            <button class="gt-dice-quick-btn" style="color:#ef4444;" onclick="window.gtClearTray()">Clear (0)</button>
           </div>
         </div>
 
@@ -3359,56 +3373,78 @@ Space Marines - Gladius Task Force (2000 pts)
           </div>
         </div>
 
-        <!-- Giant Main Action Button -->
-        <button id="btn-main-roll-dice" onclick="window.gtExecuteDiceRoll()" style="background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px; border-radius:8px; font-size:14px; font-weight:900; font-family:'Chakra Petch',sans-serif; letter-spacing:0.5px; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.4); display:flex; justify-content:center; align-items:center; gap:6px; transition:transform 0.1s ease; ${count === 0 ? 'opacity:0.6;' : ''}">
-          🎲 ROLL ${count > 0 ? `${count} ${diceRollerState.dieType}` : 'DICE'} (${target > 0 ? target + '+' : 'Raw'})
-        </button>
-
-        <!-- Live Roll Results Display -->
-        ${hasResults ? `
-          <div style="background:rgba(15,23,42,0.8); border:1px solid rgba(245,158,11,0.25); border-radius:8px; padding:8px 10px; display:flex; flex-direction:column; gap:6px;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span style="font-size:10px; font-weight:700; color:#94a3b8; text-transform:uppercase;">Roll Results:</span>
-              <span style="font-size:10px; font-family:'JetBrains Mono',monospace; color:#64748b;">Sum: ${sum}</span>
-            </div>
-
-            <!-- Stats Banner -->
-            ${target > 0 ? `
-              <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:800;">
-                <span style="color:#10b981;">✅ ${lastSuccess} Pass (${target}+)</span>
-                ${lastCrits > 0 ? `<span style="color:#f59e0b;">⭐ ${lastCrits} Crit (6s)</span>` : ''}
-                <span style="color:#ef4444;">❌ ${lastFails} Fail</span>
+        <!-- Interactive Dice Tray Display -->
+        <div class="gt-dice-tray">
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:4px;">
+            <span style="font-size:10px; font-weight:800; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">TABLETOP TRAY (${totalInTray})</span>
+            ${totalInTray > 0 ? `
+              <div style="display:flex; gap:4px; font-size:9px;">
+                <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px;" onclick="window.gtSelectAll(true)">All</button>
+                ${hasRolled && target > 0 ? `
+                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#10b981;" onclick="window.gtSelectPass()">Pass (${passCount})</button>
+                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#ef4444;" onclick="window.gtSelectFails()">Fails (${failCount})</button>
+                ` : ''}
+                ${hasRolled && rolledDice.some(d => d.val === 1) ? `
+                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#38bdf8;" onclick="window.gtSelectOnes()">1s (${rolledDice.filter(d => d.val === 1).length})</button>
+                ` : ''}
+                <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#94a3b8;" onclick="window.gtSelectAll(false)">None</button>
               </div>
             ` : ''}
+          </div>
 
-            <!-- Individual Dice Pips -->
-            <div style="display:flex; flex-wrap:wrap; gap:4px; max-height:120px; overflow-y:auto; padding:2px 0;">
-              ${last.map(v => {
-                let cls = 'gt-die-neutral';
+          <!-- Roll Results Summary Banner -->
+          ${hasRolled ? `
+            <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(0,0,0,0.35); border-radius:6px; padding:4px 8px; font-size:11px; font-weight:800;">
+              ${target > 0 ? `
+                <span style="color:#10b981;">✅ ${passCount} Pass (${target}+)</span>
+                ${critCount > 0 ? `<span style="color:#f59e0b;">⭐ ${critCount} Crit (6s)</span>` : ''}
+                <span style="color:#ef4444;">❌ ${failCount} Fail</span>
+              ` : `
+                <span style="color:#38bdf8;">🎲 ${rolledDice.length} Dice Rolled</span>
+                <span style="color:#cbd5e1;">Sum: ${sum}</span>
+              `}
+            </div>
+          ` : ''}
+
+          <!-- Grid of Clickable Dice -->
+          <div class="gt-dice-grid">
+            ${totalInTray === 0 ? `
+              <div style="width:100%; text-align:center; color:#64748b; font-size:11px; padding:16px 0;">
+                Tray is empty. Tap <b style="color:#f59e0b;">+5</b> or <b style="color:#f59e0b;">+10</b> above to add dice.
+              </div>
+            ` : tray.map((die, idx) => {
+              let cls = 'gt-die-unrolled';
+              if (die.rolled) {
                 if (target > 0) {
-                  if (v === 6) cls = 'gt-die-crit';
-                  else if (v >= target) cls = 'gt-die-success';
+                  if (die.val === 6) cls = 'gt-die-crit';
+                  else if (die.val >= target) cls = 'gt-die-success';
                   else cls = 'gt-die-fail';
                 } else {
-                  if (v === 6) cls = 'gt-die-crit';
+                  if (die.val === 6) cls = 'gt-die-crit';
+                  else cls = 'gt-die-neutral';
                 }
-                return `<span class="gt-die-pip ${cls}">${v}</span>`;
-              }).join('')}
-            </div>
-
-            <!-- Quick Re-Roll Bar -->
-            <div style="display:flex; gap:4px; margin-top:2px; flex-wrap:wrap;">
-              <button class="gt-dice-quick-btn" style="flex:1; font-size:10px;" onclick="window.gtRerollOnes()" ${!last.includes(1) ? 'disabled style="opacity:0.4;"' : ''}>
-                🔄 Re-roll 1s (${last.filter(x => x === 1).length})
-              </button>
-              ${target > 0 && lastFails > 0 ? `
-                <button class="gt-dice-quick-btn" style="flex:1; font-size:10px;" onclick="window.gtRerollFailed()">
-                  🔄 Re-roll Fails (${lastFails})
-                </button>
-              ` : ''}
-            </div>
+              }
+              const selCls = die.selected ? 'selected' : 'unselected';
+              const displayVal = die.rolled ? die.val : '•';
+              return `
+                <span class="gt-die-pip ${cls} ${selCls}" onclick="window.gtToggleDieSelection(${idx})" title="Click to ${die.selected ? 'deselect' : 'select'} (Die #${idx + 1}: ${die.rolled ? die.val : 'Unrolled'})">
+                  ${displayVal}
+                </span>
+              `;
+            }).join('')}
           </div>
-        ` : ''}
+          
+          ${totalInTray > 0 ? `
+            <div style="font-size:9px; color:#64748b; text-align:center;">
+              💡 <i>Click any die to select/deselect for next roll.</i>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Giant Single Main Action Button -->
+        <button id="btn-main-roll-dice" onclick="window.gtExecuteDiceRoll()" style="background:linear-gradient(135deg, #f59e0b, #d97706); color:#090d16; border:none; padding:10px; border-radius:8px; font-size:14px; font-weight:900; font-family:'Chakra Petch',sans-serif; letter-spacing:0.5px; cursor:pointer; box-shadow:0 4px 14px rgba(245,158,11,0.4); display:flex; justify-content:center; align-items:center; gap:6px; transition:transform 0.1s ease; ${(selectedCount === 0 && totalInTray === 0) ? 'opacity:0.6;' : ''}">
+          🎲 ${selectedCount > 0 ? `ROLL ${selectedCount} SELECTED DICE (${target > 0 ? target + '+' : 'Raw'})` : (totalInTray > 0 ? `ROLL ALL ${totalInTray} DICE (${target > 0 ? target + '+' : 'Raw'})` : 'ROLL DICE')}
+        </button>
 
         <!-- Multi-Player Roll History Feed -->
         <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:6px; display:flex; flex-direction:column; gap:4px;">
@@ -3416,7 +3452,7 @@ Space Marines - Gladius Task Force (2000 pts)
             <span>MATCH ROLL HISTORY</span>
             ${diceRollerState.history.length > 0 ? `<button onclick="window.gtClearDiceHistory()" style="background:transparent; border:none; color:#64748b; font-size:9px; cursor:pointer;">Clear</button>` : ''}
           </div>
-          <div id="gt-dice-history-list" style="display:flex; flex-direction:column; gap:4px; max-height:100px; overflow-y:auto;">
+          <div id="gt-dice-history-list" style="display:flex; flex-direction:column; gap:4px; max-height:90px; overflow-y:auto;">
             ${diceRollerState.history.length === 0 ? `
               <div style="font-size:10px; color:#475569; text-align:center; padding:4px 0;">No rolls in this match yet.</div>
             ` : diceRollerState.history.slice(-8).reverse().map(h => `
@@ -3437,20 +3473,112 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   window.gtSetDiceCount = function(count) {
-    diceRollerState.count = Math.min(100, Math.max(0, isNaN(count) ? 0 : count));
-    localStorage.setItem('gt-dice-count', diceRollerState.count);
+    const targetCount = Math.min(100, Math.max(0, isNaN(count) ? 0 : count));
+    const current = diceRollerState.tray || [];
+    
+    if (targetCount === 0) {
+      diceRollerState.tray = [];
+    } else if (targetCount > current.length) {
+      const diff = targetCount - current.length;
+      for (let i = 0; i < diff; i++) {
+        diceRollerState.tray.push({
+          id: Date.now() + Math.random(),
+          val: 0,
+          selected: true,
+          rolled: false
+        });
+      }
+    } else if (targetCount < current.length) {
+      diceRollerState.tray = current.slice(0, targetCount);
+    }
+    
+    saveDiceTray();
     renderDiceRollerContent();
   };
 
   window.gtAddDice = function(delta) {
-    diceRollerState.count = Math.min(100, Math.max(0, (diceRollerState.count || 0) + delta));
-    localStorage.setItem('gt-dice-count', diceRollerState.count);
+    const current = diceRollerState.tray || [];
+    const newTotal = Math.min(100, current.length + delta);
+    const toAdd = newTotal - current.length;
+    
+    for (let i = 0; i < toAdd; i++) {
+      diceRollerState.tray.push({
+        id: Date.now() + Math.random(),
+        val: 0,
+        selected: true,
+        rolled: false
+      });
+    }
+    
+    saveDiceTray();
+    renderDiceRollerContent();
+  };
+
+  window.gtClearTray = function() {
+    diceRollerState.tray = [];
+    saveDiceTray();
     renderDiceRollerContent();
   };
 
   window.gtSetDiceTarget = function(target) {
     diceRollerState.target = target;
     localStorage.setItem('gt-dice-target', target);
+    
+    // Auto-update selection based on new target if tray has rolled dice
+    const tray = diceRollerState.tray || [];
+    const hasRolled = tray.some(d => d.rolled);
+    if (hasRolled && target > 0) {
+      tray.forEach(d => {
+        if (d.rolled) d.selected = (d.val >= target);
+      });
+      saveDiceTray();
+    }
+    
+    renderDiceRollerContent();
+  };
+
+  window.gtToggleDieSelection = function(index) {
+    const tray = diceRollerState.tray || [];
+    if (tray[index]) {
+      tray[index].selected = !tray[index].selected;
+      saveDiceTray();
+      renderDiceRollerContent();
+    }
+  };
+
+  window.gtSelectAll = function(selectAll = true) {
+    const tray = diceRollerState.tray || [];
+    tray.forEach(d => { d.selected = selectAll; });
+    saveDiceTray();
+    renderDiceRollerContent();
+  };
+
+  window.gtSelectPass = function() {
+    const target = diceRollerState.target;
+    const tray = diceRollerState.tray || [];
+    tray.forEach(d => {
+      d.selected = d.rolled && (target > 0 ? d.val >= target : true);
+    });
+    saveDiceTray();
+    renderDiceRollerContent();
+  };
+
+  window.gtSelectFails = function() {
+    const target = diceRollerState.target;
+    const tray = diceRollerState.tray || [];
+    tray.forEach(d => {
+      d.selected = d.rolled && (target > 0 ? d.val < target : false);
+    });
+    saveDiceTray();
+    renderDiceRollerContent();
+  };
+
+  window.gtSelectOnes = function() {
+    const tray = diceRollerState.tray || [];
+    tray.forEach(d => {
+      d.selected = d.rolled && d.val === 1;
+    });
+    saveDiceTray();
     renderDiceRollerContent();
   };
 
@@ -3471,29 +3599,71 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   window.gtExecuteDiceRoll = function() {
-    const count = diceRollerState.count;
-    if (count <= 0) {
-      alert("Please add at least 1 die (+1, +5, +10) before rolling!");
+    let tray = diceRollerState.tray || [];
+    
+    // If tray is empty, prompt to add dice
+    if (tray.length === 0) {
+      alert("Please add dice to the tray (+1, +5, +10) before rolling!");
       return;
     }
+
+    // Determine which dice to roll
+    let selectedIndices = [];
+    tray.forEach((d, idx) => {
+      if (d.selected) selectedIndices.push(idx);
+    });
+
+    // If none are selected, auto-select all dice in tray and roll them
+    if (selectedIndices.length === 0) {
+      tray.forEach((d, idx) => {
+        d.selected = true;
+        selectedIndices.push(idx);
+      });
+    }
+
+    const rollCount = selectedIndices.length;
     const target = diceRollerState.target;
-    const label = diceRollerState.label;
 
     // Secure RNG
-    const results = [];
-    const array = new Uint32Array(count);
+    const array = new Uint32Array(rollCount);
     window.crypto.getRandomValues(array);
-    for (let i = 0; i < count; i++) {
-      results.push((array[i] % 6) + 1);
+    const newValues = [];
+    for (let i = 0; i < rollCount; i++) {
+      newValues.push((array[i] % 6) + 1);
     }
-    results.sort((a, b) => b - a);
+    // Sort newly rolled values descending
+    newValues.sort((a, b) => b - a);
 
-    diceRollerState.lastResults = results;
+    // Update the selected dice in the tray
+    selectedIndices.forEach((idx, i) => {
+      tray[idx].val = newValues[i];
+      tray[idx].rolled = true;
+    });
 
-    const successCount = target > 0 ? results.filter(v => v >= target).length : 0;
-    const failCount = target > 0 ? results.filter(v => v < target).length : 0;
-    const critCount = results.filter(v => v === 6).length;
-    const sum = results.reduce((a, b) => a + b, 0);
+    // Sort the entire tray descending by value
+    tray.sort((a, b) => (b.val || 0) - (a.val || 0));
+
+    // AUTOMATIC POST-ROLL PRE-SELECTION:
+    // Successes (and 6s) are pre-selected for the next roll (e.g. wound roll).
+    // Fails are unselected (player can still click them or tap "Fails"/"1s" to reroll).
+    tray.forEach(d => {
+      if (d.rolled) {
+        if (target > 0) {
+          d.selected = (d.val >= target);
+        } else {
+          d.selected = true;
+        }
+      }
+    });
+
+    diceRollerState.tray = tray;
+    saveDiceTray();
+
+    const rolledDice = tray.filter(d => d.rolled);
+    const passCount = target > 0 ? rolledDice.filter(d => d.val >= target).length : rolledDice.length;
+    const critCount = rolledDice.filter(d => d.val === 6).length;
+    const failCount = target > 0 ? rolledDice.filter(d => d.val < target).length : 0;
+    const sum = rolledDice.reduce((a, b) => a + (b.val || 0), 0);
 
     const player = getLocalPlayerInfo();
     const rollPayload = {
@@ -3501,12 +3671,11 @@ Space Marines - Gladius Task Force (2000 pts)
       client_id: clientState.clientId,
       player_name: player.name,
       player_num: player.num,
-      label: label,
-      dice_count: count,
+      dice_count: rollCount,
       die_type: 'D6',
       target: target,
-      results: results,
-      success_count: successCount,
+      results: newValues,
+      success_count: passCount,
       fail_count: failCount,
       crit_count: critCount,
       sum: sum
@@ -3518,116 +3687,6 @@ Space Marines - Gladius Task Force (2000 pts)
 
     renderDiceRollerContent();
     broadcastDiceRoll(rollPayload);
-  };
-
-  window.gtRerollOnes = function() {
-    const results = [...diceRollerState.lastResults];
-    const onesIndices = [];
-    results.forEach((v, idx) => {
-      if (v === 1) onesIndices.push(idx);
-    });
-
-    if (onesIndices.length === 0) return;
-
-    const array = new Uint32Array(onesIndices.length);
-    window.crypto.getRandomValues(array);
-    onesIndices.forEach((idx, i) => {
-      results[idx] = (array[i] % 6) + 1;
-    });
-
-    results.sort((a, b) => b - a);
-    diceRollerState.lastResults = results;
-
-    const target = diceRollerState.target;
-    const successCount = target > 0 ? results.filter(v => v >= target).length : 0;
-    const failCount = target > 0 ? results.filter(v => v < target).length : 0;
-    const critCount = results.filter(v => v === 6).length;
-    const sum = results.reduce((a, b) => a + b, 0);
-
-    const player = getLocalPlayerInfo();
-    const rollPayload = {
-      id: `roll_${Date.now()}`,
-      client_id: clientState.clientId,
-      player_name: player.name,
-      player_num: player.num,
-      label: `${diceRollerState.label} (Re-rolled 1s)`,
-      dice_count: results.length,
-      die_type: 'D6',
-      target: target,
-      results: results,
-      success_count: successCount,
-      fail_count: failCount,
-      crit_count: critCount,
-      sum: sum
-    };
-
-    diceRollerState.history.push(rollPayload);
-    if (diceRollerState.history.length > 50) diceRollerState.history.shift();
-    try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
-
-    renderDiceRollerContent();
-    broadcastDiceRoll(rollPayload);
-  };
-
-  window.gtRerollFailed = function() {
-    const target = diceRollerState.target;
-    if (target <= 0) return;
-
-    const results = [...diceRollerState.lastResults];
-    const failIndices = [];
-    results.forEach((v, idx) => {
-      if (v < target) failIndices.push(idx);
-    });
-
-    if (failIndices.length === 0) return;
-
-    const array = new Uint32Array(failIndices.length);
-    window.crypto.getRandomValues(array);
-    failIndices.forEach((idx, i) => {
-      results[idx] = (array[i] % 6) + 1;
-    });
-
-    results.sort((a, b) => b - a);
-    diceRollerState.lastResults = results;
-
-    const successCount = results.filter(v => v >= target).length;
-    const failCount = results.filter(v => v < target).length;
-    const critCount = results.filter(v => v === 6).length;
-    const sum = results.reduce((a, b) => a + b, 0);
-
-    const player = getLocalPlayerInfo();
-    const rollPayload = {
-      id: `roll_${Date.now()}`,
-      client_id: clientState.clientId,
-      player_name: player.name,
-      player_num: player.num,
-      label: `${diceRollerState.label} (Re-rolled Fails)`,
-      dice_count: results.length,
-      die_type: 'D6',
-      target: target,
-      results: results,
-      success_count: successCount,
-      fail_count: failCount,
-      crit_count: critCount,
-      sum: sum
-    };
-
-    diceRollerState.history.push(rollPayload);
-    if (diceRollerState.history.length > 50) diceRollerState.history.shift();
-    try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
-
-    renderDiceRollerContent();
-    broadcastDiceRoll(rollPayload);
-  };
-
-  window.gtRollWoundsFromHits = function(hitCount) {
-    diceRollerState.count = hitCount;
-    diceRollerState.label = 'Wound Roll';
-    diceRollerState.target = 4;
-    localStorage.setItem('gt-dice-count', hitCount);
-    localStorage.setItem('gt-dice-label', 'Wound Roll');
-    localStorage.setItem('gt-dice-target', 4);
-    renderDiceRollerContent();
   };
 
   window.gtClearDiceHistory = function() {
@@ -3653,13 +3712,6 @@ Space Marines - Gladius Task Force (2000 pts)
       diceRollerState.history.push(remoteRoll);
       if (diceRollerState.history.length > 50) diceRollerState.history.shift();
       try { localStorage.setItem('gt-dice-history', JSON.stringify(diceRollerState.history)); } catch(e) {}
-    }
-
-    if (!isSelf) {
-      diceRollerState.lastResults = remoteRoll.results || [];
-      diceRollerState.label = remoteRoll.label || 'Dice Roll';
-      diceRollerState.target = typeof remoteRoll.target === 'number' ? remoteRoll.target : 3;
-      diceRollerState.count = remoteRoll.dice_count || remoteRoll.results?.length || 10;
     }
 
     if (diceRollerState.visible) {

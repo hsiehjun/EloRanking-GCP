@@ -2761,8 +2761,8 @@ if FASTAPI_AVAILABLE:
   <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=42.0">
-  <script src="/tracker/tracker_sync.js?v=42.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=43.0">
+  <script src="/tracker/tracker_sync.js?v=43.0"></script>
   <style>
     header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
       display: none !important;
