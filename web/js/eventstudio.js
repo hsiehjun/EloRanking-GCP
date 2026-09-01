@@ -126,13 +126,16 @@ function switchStudioTab(tabName, eventId = null) {
 }
 
 function renderEventsDirectory() {
-  const container = document.getElementById("es-events-list");
-  if (!container) return;
+  const containers = document.querySelectorAll("#es-events-list, .es-events-grid");
+  if (!containers || containers.length === 0) return;
 
-  const events = studioState.eventsList;
+  const events = studioState.eventsList || [];
+  const countEls = document.querySelectorAll("#es-events-count");
+  countEls.forEach(el => { el.textContent = events.length; });
 
-  if (!events || events.length === 0) {
-    container.innerHTML = `
+  let contentHtml = '';
+  if (events.length === 0) {
+    contentHtml = `
       <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3.5rem 1.5rem; text-align: center;">
         <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">⚔️</div>
         <h3 style="color: #fff; margin: 0 0 0.5rem; font-size: 1.3rem;">No Tournaments Directing Yet</h3>
@@ -142,42 +145,45 @@ function renderEventsDirectory() {
         <button class="btn btn-primary" style="margin-top: 1rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
       </div>
     `;
-    return;
+  } else {
+    contentHtml = events.map(ev => {
+      const rounds = ev.num_rounds || ev.rounds || 5;
+      const tier = ev.tier || "Grand Tournament";
+      const roster = ev.roster || [];
+      const location = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
+      const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
+      const isBcp = ev.id && !ev.id.startsWith("ES-");
+      const bcpUrl = isBcp ? `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}` : "#";
+
+      return `
+        <div class="es-event-card" data-event-id="${escapeHtml(ev.id)}" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.35rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; transition: transform 0.2s ease, border-color 0.2s ease;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+              <span class="badge badge-accent" style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase;">${escapeHtml(tier)}</span>
+              ${isBcp ? '<span class="badge badge-online" style="font-size: 0.7rem;">BCP SYNCED</span>' : '<span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">LOCAL</span>'}
+            </div>
+            <h4 style="margin: 0 0 0.4rem; color: #fff; font-size: 1.15rem; font-family: var(--font-heading); cursor: pointer;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">${escapeHtml(ev.name)}</h4>
+            <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
+              <div>📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(location)}</div>
+              <div>👥 <b>${roster.length} / ${ev.capacity || 32}</b> Players • 🎲 <b>${rounds}</b> Rounds (${ev.points || 2000} pts)</div>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 0.85rem; margin-top: 0.25rem; gap: 0.5rem; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">👑 Direct Event</button>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              ${isBcp ? `<a href="${bcpUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none;">🔗 BCP</a>` : ''}
+              <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.35);" onclick="deleteStudioTournament('${escapeHtml(ev.id)}')">🗑️</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
   }
 
-  container.innerHTML = events.map(ev => {
-    const rounds = ev.num_rounds || ev.rounds || 5;
-    const tier = ev.tier || "Grand Tournament";
-    const roster = ev.roster || [];
-    const location = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
-    const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
-    const isBcp = ev.id && !ev.id.startsWith("ES-");
-    const bcpUrl = isBcp ? `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}` : "#";
-
-    return `
-      <div class="es-event-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.35rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1rem; transition: transform 0.2s ease, border-color 0.2s ease;">
-        <div>
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
-            <span class="badge badge-accent" style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase;">${escapeHtml(tier)}</span>
-            ${isBcp ? '<span class="badge badge-online" style="font-size: 0.7rem;">BCP SYNCED</span>' : '<span class="badge" style="font-size: 0.7rem; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3);">LOCAL</span>'}
-          </div>
-          <h4 style="margin: 0 0 0.4rem; color: #fff; font-size: 1.15rem; font-family: var(--font-heading); cursor: pointer;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">${escapeHtml(ev.name)}</h4>
-          <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
-            <div>📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(location)}</div>
-            <div>👥 <b>${roster.length} / ${ev.capacity || 32}</b> Players • 🎲 <b>${rounds}</b> Rounds (${ev.points || 2000} pts)</div>
-          </div>
-        </div>
-
-        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 0.85rem; margin-top: 0.25rem; gap: 0.5rem; flex-wrap: wrap;">
-          <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.35rem 0.85rem;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">👑 Direct Event</button>
-          <div style="display: flex; gap: 0.35rem; align-items: center;">
-            ${isBcp ? `<a href="${bcpUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; text-decoration: none;">🔗 BCP</a>` : ''}
-            <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem; color: #ef4444; border-color: rgba(239,68,68,0.35);" onclick="deleteStudioTournament('${escapeHtml(ev.id)}')">🗑️</button>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
+  containers.forEach(c => {
+    c.innerHTML = contentHtml;
+  });
 }
 
 async function submitCreateTournament() {
@@ -241,6 +247,26 @@ async function submitCreateTournament() {
     const res = await window.api.createStudioEvent(payload);
     if (res && res.success) {
       const eventId = res.event_id || res.event?.id;
+      const newEvent = res.event || {
+        id: eventId,
+        name: payload.name,
+        tier: payload.tier,
+        num_rounds: payload.rounds,
+        capacity: payload.capacity,
+        points: payload.points,
+        venue: payload.venue,
+        city: payload.city,
+        event_date: payload.start_date
+      };
+
+      // Optimistically add and re-render without requiring reload
+      studioState.eventsList = [newEvent, ...(studioState.eventsList || []).filter(e => e.id !== eventId)];
+      renderEventsDirectory();
+
+      if (typeof loadTournaments === 'function') {
+        try { loadTournaments(); } catch(e) {}
+      }
+
       if (res.bcp_registered) {
         alert(`🎉 Tournament "${name}" successfully created and registered on Best Coast Pairings!`);
       } else {
@@ -250,7 +276,6 @@ async function submitCreateTournament() {
       if (venueInput) venueInput.value = "";
       if (cityStateInput) cityStateInput.value = "";
       
-      await loadStudioEvents();
       switchStudioTab("manage", eventId);
     } else {
       alert(res.message || res.detail || "Failed to create tournament.");
@@ -848,18 +873,20 @@ async function deleteStudioTournament(eventId) {
     return;
   }
 
-  // Optimistic UI update: remove tournament immediately from list
+  // 1. Instant Optimistic UI Update: remove tournament immediately from list and DOM
   studioState.eventsList = (studioState.eventsList || []).filter(e => e.id !== eventId);
-  const countEl = document.getElementById("es-events-count");
-  if (countEl) countEl.textContent = studioState.eventsList.length;
   renderEventsDirectory();
+
+  if (typeof loadTournaments === 'function') {
+    try { loadTournaments(); } catch(e) {}
+  }
 
   try {
     const res = await window.api.deleteStudioEvent(eventId);
     if (!res || !res.success) {
       alert(res?.message || "Could not delete tournament from server.");
+      await loadStudioEvents();
     }
-    await loadStudioEvents();
   } catch (err) {
     console.error("Delete error:", err);
     alert(`Delete failed: ${err.message || err}`);

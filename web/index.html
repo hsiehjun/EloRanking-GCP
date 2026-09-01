@@ -522,12 +522,12 @@
           </div>
         </div>
 
-        <!-- SUBTAB 1: Managed Tournaments Directory -->
+        <!-- VIEW 1: Events Directory -->
         <div id="es-view-events" class="es-tab-view">
-          <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
-              <h3 style="margin: 0; font-size: 1.2rem; color: #fff;">Your Managed Tournaments</h3>
-              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.2rem;">All local and BCP-linked tournaments you direct</div>
+              <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Your Managed Tournaments</h3>
+              <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Tournaments organized by your BCP account or created in Event Studio</span>
             </div>
           </div>
           <div class="es-events-grid" id="es-events-list">
@@ -541,56 +541,115 @@
           </div>
         </div>
 
-
-
-        <!-- SUBTAB 5: Create Tournament Wizard -->
+        <!-- VIEW 2: Create Tournament Wizard (Full BCP Replication) -->
         <div id="es-view-create" class="es-tab-view" style="display: none;">
-          <div class="es-form-card" style="max-width: 800px; margin: 0 auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow-lg);">
+          <div class="es-form-card" style="max-width: 840px; margin: 0 auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow-lg);">
             <div class="es-form-header" style="margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
               <h3 style="margin: 0; font-size: 1.35rem; color: #fff;">Create New Tournament</h3>
               <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Create a tournament in Event Studio and automatically register the listing on Best Coast Pairings.</p>
             </div>
             <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <!-- Game System Picker -->
+              <div class="form-group" style="grid-column: 1 / -1;">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Game System *</label>
+                <select id="create-event-game-system" class="form-input" style="width: 100%; box-sizing: border-box;">
+                  <option value="WGMSzfKFYA" selected>Warhammer 40,000 (10th Edition)</option>
+                  <option value="dJtT7U0Wv2">Warhammer: The Old World</option>
+                  <option value="23qDprPABN">Warhammer: Age of Sigmar</option>
+                  <option value="WGMSzfKFYA">Warhammer: Horus Heresy</option>
+                  <option value="vyeOD0fcYY">Kill Team</option>
+                  <option value="starwars_legion">Star Wars: Legion</option>
+                  <option value="marvel_cp">Marvel: Crisis Protocol</option>
+                </select>
+              </div>
+
               <div class="form-group" style="grid-column: 1 / -1;">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Tournament Name *</label>
-                <input type="text" id="create-event-name" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Pacific Northwest 40K Grand Tournament 2026">
+                <input type="text" id="create-event-name" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Pacific Northwest 40K Grand Tournament 2026" required>
               </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Format / Tier</label>
                 <select id="create-event-format" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="updateDefaultRounds()">
-                  <option value="RTT">Local / RTT (3 Rounds)</option>
                   <option value="GT" selected>Grand Tournament (5-6 Rounds)</option>
-                  <option value="Major">Major (7+ Rounds)</option>
+                  <option value="RTT">Local / RTT (3 Rounds)</option>
+                  <option value="Major">Major (6-8 Rounds)</option>
                   <option value="League">League / Narrative Play</option>
                 </select>
               </div>
+
+              <div class="form-group">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Pairing Style</label>
+                <select id="create-event-pairing-style" class="form-input" style="width: 100%; box-sizing: border-box;">
+                  <option value="swiss" selected>Swiss (Standard Competitor)</option>
+                  <option value="random">Random</option>
+                  <option value="single elimination">Single Elimination</option>
+                  <option value="double elimination">Double Elimination</option>
+                </select>
+              </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Number of Rounds</label>
-                <input type="number" id="create-event-rounds" class="form-input" style="width: 100%; box-sizing: border-box;" value="5" min="1" max="10">
+                <input type="number" id="create-event-rounds" class="form-input" style="width: 100%; box-sizing: border-box;" value="5" min="1" max="12">
               </div>
+
               <div class="form-group">
-                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Start Date</label>
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Default Round Length</label>
+                <select id="create-event-round-length" class="form-input" style="width: 100%; box-sizing: border-box;">
+                  <option value="9000" selected>2 Hours 30 Minutes (Standard 40k GT)</option>
+                  <option value="10800">3 Hours 00 Minutes (Major / Extended)</option>
+                  <option value="7200">2 Hours 00 Minutes (Fast / RTT)</option>
+                  <option value="6300">1 Hour 45 Minutes (Incursion / Spearhead)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Start Date *</label>
                 <input type="date" id="create-event-start-date" class="form-input" style="width: 100%; box-sizing: border-box;">
               </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">End Date</label>
                 <input type="date" id="create-event-end-date" class="form-input" style="width: 100%; box-sizing: border-box;">
               </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Max Player Capacity</label>
-                <input type="number" id="create-event-capacity" class="form-input" style="width: 100%; box-sizing: border-box;" value="32" min="4" max="256">
+                <input type="number" id="create-event-capacity" class="form-input" style="width: 100%; box-sizing: border-box;" value="32" min="4" max="512">
               </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army Points Limit</label>
-                <input type="number" id="create-event-points" class="form-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000">
+                <input type="number" id="create-event-points" class="form-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000" step="500">
               </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Venue / Store Name</label>
                 <input type="text" id="create-event-venue" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Mox Boarding House">
               </div>
+
               <div class="form-group">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">City & State / Region</label>
                 <input type="text" id="create-event-city-state" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Seattle, WA">
+              </div>
+
+              <!-- Advanced BCP Rules & Privacy Options -->
+              <div class="form-group" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-top: 0.5rem;">
+                <div style="font-weight: 700; color: #fff; font-size: 0.85rem; margin-bottom: 0.75rem;">🛡️ Army List & Player Privacy Options</div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; font-size: 0.82rem; color: #cbd5e1;">
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="create-event-hide-lists" checked> Hide Army Lists until Round 1
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="create-event-require-lists" checked> Require Lists at Check-In
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="create-event-passwordless" checked> Passwordless Player Scoring
+                  </label>
+                  <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="create-event-hide-placings"> Hide Placings until End
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -599,6 +658,163 @@
             <div class="es-form-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
               <button class="btn btn-outline" onclick="switchStudioTab('events')">Cancel</button>
               <button class="btn btn-primary" id="btn-submit-create-event" onclick="submitCreateTournament()">🚀 Create & Register on BCP</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 3: Dedicated Tournament Management Workspace -->
+        <div id="es-view-manage" class="es-tab-view" style="display: none;">
+          <!-- Tournament Top Command Header -->
+          <div class="es-manage-header" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 1rem;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                  <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.55rem;" onclick="switchStudioTab('events')">❮ Back to Directory</button>
+                  <span id="manage-event-tier-badge" class="badge badge-accent">GRAND TOURNAMENT</span>
+                  <span id="manage-event-bcp-badge" class="badge badge-online">BCP SYNCED</span>
+                </div>
+                <h2 id="manage-event-name" style="color: #fff; margin: 0 0 0.4rem; font-size: 1.4rem; font-family: var(--font-heading);">Tournament Name</h2>
+                <div id="manage-event-meta" style="color: var(--text-secondary); font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 1rem;">
+                  <span>📅 <span id="manage-event-date">Date</span></span>
+                  <span>📍 <span id="manage-event-location">Location</span></span>
+                  <span>🎲 <span id="manage-event-rounds-pts">5 Rounds (2000 pts)</span></span>
+                </div>
+              </div>
+              <!-- Round Timer & External Link Actions -->
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.6rem;">
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">ROUND TIMER</span>
+                  <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
+                  <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()">▶️</button>
+                </div>
+                <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Open on BCP</a>
+              </div>
+            </div>
+
+            <!-- Management Navigation Sub-tabs -->
+            <div class="es-subtab-nav" style="display: flex; gap: 0.5rem; border-top: 1px solid var(--border); margin-top: 1.15rem; padding-top: 0.85rem; overflow-x: auto;">
+              <button class="es-subtab-btn active" id="btn-subtab-roster" onclick="switchManageSubtab('roster')">👥 Roster (<span id="manage-roster-count">0</span>)</button>
+              <button class="es-subtab-btn" id="btn-subtab-pairings" onclick="switchManageSubtab('pairings')">⚔️ Pairings & Scores</button>
+              <button class="es-subtab-btn" id="btn-subtab-standings" onclick="switchManageSubtab('standings')">🏆 Live Standings</button>
+              <button class="es-subtab-btn" id="btn-subtab-meta" onclick="switchManageSubtab('meta')">📊 Metagame Stats</button>
+            </div>
+          </div>
+
+          <!-- SUBTAB 1: Roster & Players -->
+          <div id="manage-subtab-roster" class="manage-subview">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <input type="text" id="roster-search-input" class="form-input" placeholder="Search roster by name or faction..." style="width: 260px; font-size: 0.82rem; padding: 0.4rem 0.75rem;" oninput="filterRosterTable()">
+                <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.75rem;" onclick="bulkCheckInPlayers()">✅ Check-in All</button>
+              </div>
+              <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.45rem 0.95rem;" onclick="openAddPlayerModal()">➕ Add Competitor</button>
+            </div>
+
+            <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                <thead>
+                  <tr style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.76rem; text-transform: uppercase;">
+                    <th style="padding: 0.75rem 1rem;">Player</th>
+                    <th style="padding: 0.75rem 1rem;">Faction / Detachment</th>
+                    <th style="padding: 0.75rem 1rem;">Team / Club</th>
+                    <th style="padding: 0.75rem 1rem;">Status</th>
+                    <th style="padding: 0.75rem 1rem; text-align: right;">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="manage-roster-tbody">
+                  <tr>
+                    <td colspan="5" style="padding: 2.5rem; text-align: center; color: var(--text-muted);">No competitors registered in roster yet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SUBTAB 2: Pairings & Scores -->
+          <div id="manage-subtab-pairings" class="manage-subview" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem; flex-wrap: wrap; gap: 0.75rem;">
+              <div id="manage-round-pills" style="display: flex; gap: 0.35rem; align-items: center;"></div>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <button class="btn btn-accent" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="triggerGenerateSwissPairings()">🎲 Generate Swiss Pairings</button>
+                <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="advanceTournamentRound()">⏩ Next Round</button>
+              </div>
+            </div>
+
+            <div id="manage-pairings-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1rem;">
+              <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3rem 1.5rem; text-align: center; color: var(--text-muted);">
+                No pairings generated for this round yet. Click <strong>"🎲 Generate Swiss Pairings"</strong> to create table matchups.
+              </div>
+            </div>
+          </div>
+
+          <!-- SUBTAB 3: Live Standings -->
+          <div id="manage-subtab-standings" class="manage-subview" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h4 style="margin: 0; color: #fff; font-size: 1.05rem;">Swiss Leaderboard & Placings</h4>
+              <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.38rem 0.8rem;" onclick="exportStandingsCsv()">📥 Export CSV</button>
+            </div>
+            <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow-x: auto;">
+              <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+                <thead>
+                  <tr style="background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase;">
+                    <th style="padding: 0.75rem 0.85rem;">Rank</th>
+                    <th style="padding: 0.75rem 1rem;">Competitor</th>
+                    <th style="padding: 0.75rem 1rem;">Faction</th>
+                    <th style="padding: 0.75rem 0.85rem; text-align: center;">Record</th>
+                    <th style="padding: 0.75rem 0.85rem; text-align: center;">Swiss Pts</th>
+                    <th style="padding: 0.75rem 0.85rem; text-align: center;">SoS (Opp %)</th>
+                    <th style="padding: 0.75rem 0.85rem; text-align: center;">Battle Pts</th>
+                  </tr>
+                </thead>
+                <tbody id="manage-standings-tbody">
+                  <tr>
+                    <td colspan="7" style="padding: 2.5rem; text-align: center; color: var(--text-muted);">Leaderboard calculates automatically as match scores are entered.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- SUBTAB 4: Metagame Stats -->
+          <div id="manage-subtab-meta" class="manage-subview" style="display: none;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem;">
+              <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem;">
+                <h4 style="color: #fff; margin: 0 0 0.85rem; font-size: 1rem;">Faction Representation</h4>
+                <div id="meta-faction-bars" style="display: flex; flex-direction: column; gap: 0.65rem;"></div>
+              </div>
+              <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem;">
+                <h4 style="color: #fff; margin: 0 0 0.85rem; font-size: 1rem;">Faction Win Rates (This Event)</h4>
+                <div id="meta-winrate-bars" style="display: flex; flex-direction: column; gap: 0.65rem;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- MODAL: Add Player to Roster -->
+        <div id="modal-add-player" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 480px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <h3 style="color: #fff; margin: 0 0 1rem; font-size: 1.15rem;">Add Competitor to Roster</h3>
+            <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+              <div>
+                <label class="form-label">Player Name *</label>
+                <input type="text" id="add-player-name" class="form-input" placeholder="e.g. John Hsieh">
+              </div>
+              <div>
+                <label class="form-label">Faction *</label>
+                <input type="text" id="add-player-faction" class="form-input" placeholder="e.g. Necrons, Dark Angels">
+              </div>
+              <div>
+                <label class="form-label">Team / Club (Optional)</label>
+                <input type="text" id="add-player-team" class="form-input" placeholder="e.g. Team Zero Comp">
+              </div>
+              <div>
+                <label class="form-label">Email (Optional)</label>
+                <input type="email" id="add-player-email" class="form-input" placeholder="competitor@gmail.com">
+              </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+              <button class="btn btn-outline" onclick="closeAddPlayerModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="submitAddPlayer()">Add Player</button>
             </div>
           </div>
         </div>
