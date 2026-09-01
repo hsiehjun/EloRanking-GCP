@@ -429,6 +429,7 @@ class AuthManager:
         actual_acc = acc_tok or primary_tok
 
         claims = _decode_jwt_payload(actual_id) or _decode_jwt_payload(actual_acc)
+        logger.info(f"🔍 [BCP Token Link] User: {user_id}, ClientID: {parsed.get('client_id')}, Aud: {claims.get('aud') or claims.get('client_id')}, Sub: {claims.get('sub')}, Email: {claims.get('email')}")
 
         bcp_user_id = claims.get("sub") or claims.get("username")
         bcp_email = claims.get("email") or claims.get("bcpEmail") or ""
