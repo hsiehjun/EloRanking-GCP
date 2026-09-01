@@ -2832,6 +2832,11 @@ if FASTAPI_AVAILABLE:
         sort_by: str = Query("date"),
         limit: int = Query(35, ge=1, le=100)
     ):
+        cache_key = f"{player_id}_{query}_{tier}_{state}_{city}_{sort_by}_{limit}"
+        cached = PostgresDatabase.get_cached(PostgresDatabase._teams_cache_dict, f"rec_ev_{cache_key}", ttl=60)
+        if cached:
+            return cached
+
         db = get_database()
         now_dt = datetime.now(timezone.utc)
         player_id_clean = player_id.strip() if player_id else None
@@ -3104,7 +3109,7 @@ if FASTAPI_AVAILABLE:
 
         sorted_events = sorted(processed_events, key=event_sort_key)
 
-        return {
+        res = {
             "detected_state": detected_state,
             "detected_city": detected_city,
             "target_state": target_state,
@@ -3112,6 +3117,8 @@ if FASTAPI_AVAILABLE:
             "events": sorted_events[:limit],
             "total": len(sorted_events)
         }
+        PostgresDatabase.set_cached(PostgresDatabase._teams_cache_dict, f"rec_ev_{cache_key}", res)
+        return res
 
     # API: Tournament Details & Round Pairings
     @app.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
