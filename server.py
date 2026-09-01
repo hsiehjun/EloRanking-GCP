@@ -366,9 +366,7 @@ if FASTAPI_AVAILABLE:
                         for ev in existing_events:
                             ev_id = ev.get("id", "")
                             if not ev_id.startswith("ES-") and ev_id not in bcp_event_ids:
-                                ev["bcp_status"] = "deleted_on_bcp"
-                                ev["bcp_synced"] = False
-                                db.save_studio_event(ev)
+                                db.delete_studio_event(ev_id, organizer_id=user_id)
             except Exception as se:
                 logger.info(f"Notice syncing BCP organizer events: {se}")
 
