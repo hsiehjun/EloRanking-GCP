@@ -2685,23 +2685,22 @@ class PostgresDatabase:
 
     def get_studio_events(self, organizer_id: Optional[str] = None, organizer_bcp_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetches all events organized by or linked to a specific user/TO."""
+        if not organizer_id and not organizer_bcp_id:
+            return []
         from psycopg2 import extras
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                     params = []
-                    query = "SELECT * FROM events WHERE 1=1"
-                    if organizer_id and organizer_bcp_id:
-                        query += " AND (organizer_id = %s OR organizer_bcp_id = %s OR id LIKE 'ES-%')"
-                        params.extend([organizer_id, organizer_bcp_id])
-                    elif organizer_id:
-                        query += " AND (organizer_id = %s OR id LIKE 'ES-%')"
+                    clauses = []
+                    if organizer_id:
+                        clauses.append("organizer_id = %s")
                         params.append(organizer_id)
-                    elif organizer_bcp_id:
-                        query += " AND (organizer_bcp_id = %s OR id LIKE 'ES-%')"
+                    if organizer_bcp_id:
+                        clauses.append("organizer_bcp_id = %s")
                         params.append(organizer_bcp_id)
 
-                    query += " ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
+                    query = "SELECT * FROM events WHERE (" + " OR ".join(clauses) + ") ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
                     cursor.execute(query, tuple(params))
                     rows = cursor.fetchall()
                     results = []
@@ -2712,12 +2711,8 @@ class PostgresDatabase:
                         results.append(item)
                     return results
         except Exception as e:
-            logger.warning(f"get_studio_events notice: {e}")
-            try:
-                events_obj = self.get_events_list(limit=50)
-                return events_obj.get("items", []) if isinstance(events_obj, dict) else []
-            except Exception:
-                return []
+            logger.warning(f"get_studio_events error: {e}")
+            return []
 
     def get_studio_event(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves full tournament details, roster, and round pairings for Event Studio."""

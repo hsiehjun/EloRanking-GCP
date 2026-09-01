@@ -111,6 +111,7 @@ async function loadStudioEvents() {
       studioState.activeTournament = savedMatch || studioState.eventsList[0];
     } else {
       studioState.activeTournament = null;
+      try { localStorage.removeItem('es_active_event_id'); } catch(e) {}
     }
     
     try { renderTournamentBanner(); } catch(e) { console.warn('banner err:', e); }
