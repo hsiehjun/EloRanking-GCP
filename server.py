@@ -221,10 +221,10 @@ if FASTAPI_AVAILABLE:
 
         if user_id:
             tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
-            if tok_dict.get("id_token"):
-                candidate_tokens.append(("id_token", tok_dict["id_token"]))
-            if tok_dict.get("access_token") and tok_dict.get("access_token") != tok_dict.get("id_token"):
+            if tok_dict.get("access_token"):
                 candidate_tokens.append(("access_token", tok_dict["access_token"]))
+            if tok_dict.get("id_token") and tok_dict.get("id_token") != tok_dict.get("access_token"):
+                candidate_tokens.append(("id_token", tok_dict["id_token"]))
 
         if not candidate_tokens:
             logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
@@ -642,26 +642,14 @@ if FASTAPI_AVAILABLE:
 
         # Delete on BCP if authenticated
         bcp_deleted = False
-        if bcp_token and not event_id.startswith("ES-"):
-            try:
-                import urllib.request
-                bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
-                headers = DEFAULT_HEADERS.copy()
-                headers["Authorization"] = f"Bearer {bcp_token}"
-                headers["Content-Type"] = "application/json"
-                req = urllib.request.Request(
-                    bcp_url,
-                    headers=headers,
-                    method="DELETE"
-                )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    if resp.status in (200, 204):
-                        bcp_deleted = True
-            except urllib.error.HTTPError as he:
-                err_body = he.read().decode("utf-8", errors="ignore")
-                logger.warning(f"BCP delete HTTP {he.code}: {err_body}")
-            except Exception as e:
-                logger.debug(f"BCP delete notice: {e}")
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="DELETE", user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_deleted = True
+                logger.info(f"✅ Successfully deleted BCP tournament {event_id}")
+            else:
+                logger.warning(f"⚠️ BCP tournament delete for {event_id} failed: {err_msg}")
 
         return {
             "success": True,
