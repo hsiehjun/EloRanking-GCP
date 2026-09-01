@@ -36,6 +36,7 @@ except ImportError:
         def add_task(self, *args, **kwargs):
             pass
     FASTAPI_AVAILABLE = False
+    app = None
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
