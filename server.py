@@ -2833,6 +2833,7 @@ if FASTAPI_AVAILABLE:
         limit: int = Query(35, ge=1, le=100)
     ):
         db = get_database()
+        now_dt = datetime.now(timezone.utc)
         player_id_clean = player_id.strip() if player_id else None
         
         # 1. Resolve user location & Elo from database
@@ -3117,12 +3118,6 @@ if FASTAPI_AVAILABLE:
                 "skill_match_badge": skill_badge,
                 "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
             })
-
-            # Async cache to DB
-            try:
-                db.upsert_event(ev)
-            except Exception:
-                pass
 
         # Filter by tier if specified
         if tier and tier.strip():
