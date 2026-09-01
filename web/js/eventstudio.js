@@ -242,17 +242,22 @@ async function deleteStudioTournament(eventId) {
     return;
   }
 
+  // Optimistic UI update: remove tournament immediately from list
+  studioState.eventsList = (studioState.eventsList || []).filter(e => e.id !== eventId);
+  const countEl = document.getElementById("es-events-count");
+  if (countEl) countEl.textContent = studioState.eventsList.length;
+  renderEventsDirectory();
+
   try {
     const res = await window.api.deleteStudioEvent(eventId);
-    if (res && res.success) {
-      alert("Tournament deleted successfully.");
-      await loadStudioEvents();
-    } else {
-      alert(res.message || "Could not delete tournament.");
+    if (!res || !res.success) {
+      alert(res?.message || "Could not delete tournament from server.");
     }
+    await loadStudioEvents();
   } catch (err) {
     console.error("Delete error:", err);
     alert(`Delete failed: ${err.message || err}`);
+    await loadStudioEvents();
   }
 }
 

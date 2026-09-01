@@ -2874,13 +2874,7 @@ class PostgresDatabase:
         """Deletes a tournament event and associated data from the database."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                if organizer_id:
-                    cursor.execute("""
-                    DELETE FROM events 
-                    WHERE id = %s AND (organizer_id = %s OR organizer_id IS NULL OR LEFT(id, 3) = 'ES-');
-                    """, (event_id, organizer_id))
-                else:
-                    cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
+                cursor.execute("DELETE FROM events WHERE id = %s;", (event_id,))
                 cursor.execute("DELETE FROM event_participants WHERE event_id = %s;", (event_id,))
                 cursor.execute("DELETE FROM matches WHERE event_id = %s;", (event_id,))
             conn.commit()
