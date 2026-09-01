@@ -198,7 +198,104 @@ if FASTAPI_AVAILABLE:
         time_zone: Optional[str] = "America/Los_Angeles"
         bcp_token: Optional[str] = None
 
-    @app.get("/api/eventstudio/events", summary="List organizer tournaments")
+    def execute_bcp_api_call(
+        url: str,
+        method: str = "GET",
+        json_data: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Robust caller for Best Coast Pairings API with:
+        1. Automatic token candidate permutation (IdToken, AccessToken)
+        2. Header permutations (Bearer prefix and raw token)
+        3. Silent AWS Cognito refresh fallback on 401
+        4. Exhaustive debug and error logging
+        """
+        import urllib.request, urllib.error, json
+        auth_mgr = get_auth_manager()
+
+        candidate_tokens = []
+        if explicit_token:
+            candidate_tokens.append(("explicit", explicit_token))
+
+        if user_id:
+            tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+            if tok_dict.get("id_token"):
+                candidate_tokens.append(("id_token", tok_dict["id_token"]))
+            if tok_dict.get("access_token") and tok_dict.get("access_token") != tok_dict.get("id_token"):
+                candidate_tokens.append(("access_token", tok_dict["access_token"]))
+
+        if not candidate_tokens:
+            logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
+            return None, "No BCP authorization token available"
+
+        last_error = None
+
+        def _try_request(tok_label: str, tok_val: str, auth_prefix: str) -> Tuple[Optional[Dict[str, Any]], Optional[int], Optional[str]]:
+            clean_tok = tok_val.replace("Bearer ", "").replace("bearer ", "").strip()
+            auth_val = f"{auth_prefix}{clean_tok}".strip()
+            headers = DEFAULT_HEADERS.copy()
+            headers["Authorization"] = auth_val
+            if json_data is not None:
+                headers["Content-Type"] = "application/json"
+
+            body_bytes = json.dumps(json_data).encode("utf-8") if json_data is not None else None
+            req = urllib.request.Request(url, data=body_bytes, headers=headers, method=method)
+
+            try:
+                with urllib.request.urlopen(req, timeout=12) as resp:
+                    raw = resp.read().decode("utf-8")
+                    data = json.loads(raw) if raw else {}
+                    logger.info(f"✅ [BCP API SUCCESS {resp.status}] {method} {url} with {tok_label} (prefix='{auth_prefix}')")
+                    return data, resp.status, None
+            except urllib.error.HTTPError as he:
+                err_body = he.read().decode("utf-8", errors="ignore")
+                logger.warning(f"⚠️ [BCP API HTTP {he.code}] {method} {url} using {tok_label} (prefix='{auth_prefix}'): {err_body}")
+                return None, he.code, f"HTTP {he.code}: {err_body}"
+            except Exception as e:
+                logger.warning(f"⚠️ [BCP API Network Error] {method} {url}: {e}")
+                return None, 0, str(e)
+
+        # Pass 1: Try candidate tokens
+        for tok_label, tok in candidate_tokens:
+            data, status, err = _try_request(tok_label, tok, "Bearer ")
+            if data is not None:
+                return data, None
+            last_error = err
+            if status != 401:
+                return None, last_error
+
+            data, status, err = _try_request(tok_label, tok, "")
+            if data is not None:
+                return data, None
+            last_error = err
+
+        # Pass 2: Force silent refresh from Cognito and retry fresh tokens
+        if user_id:
+            logger.info(f"🔄 [BCP API] Forcing Cognito token refresh for user {user_id}")
+            fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
+            fresh_candidates = []
+            if fresh_dict.get("id_token"):
+                fresh_candidates.append(("fresh_id_token", fresh_dict["id_token"]))
+            if fresh_dict.get("access_token") and fresh_dict.get("access_token") != fresh_dict.get("id_token"):
+                fresh_candidates.append(("fresh_access_token", fresh_dict["access_token"]))
+
+            for tok_label, tok in fresh_candidates:
+                data, status, err = _try_request(tok_label, tok, "Bearer ")
+                if data is not None:
+                    return data, None
+                last_error = err
+                if status != 401:
+                    return None, last_error
+
+                data, status, err = _try_request(tok_label, tok, "")
+                if data is not None:
+                    return data, None
+                last_error = err
+
+        return None, last_error
+
     @app.get("/api/eventstudio/events", summary="List organizer tournaments")
     async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None)):
         db = get_database()
@@ -214,72 +311,47 @@ if FASTAPI_AVAILABLE:
             return {"success": True, "count": 0, "events": []}
 
         # Check BCP for any tournaments hosted by this organizer
-        if user_id:
+        if user_id or bcp_token:
             try:
-                bcp_tok = bcp_token or auth_mgr.get_valid_bcp_token(user_id)
-                if bcp_tok:
-                    import urllib.request, json
-                    start_range = "2025-09-01T07:00:00.000Z"
-                    end_range = "2027-09-02T06:59:59.999Z"
-                    headers = DEFAULT_HEADERS.copy()
-                    headers["Authorization"] = f"Bearer {bcp_tok}"
-                    
-                    # Query official organizer endpoint BCP uses
-                    sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
-                    req = urllib.request.Request(sync_url, headers=headers)
-                    try:
-                        resp_ctx = urllib.request.urlopen(req, timeout=10)
-                    except urllib.error.HTTPError as he:
-                        if he.code == 401:
-                            fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
-                            if fresh_tok:
-                                headers["Authorization"] = f"Bearer {fresh_tok}"
-                                req = urllib.request.Request(sync_url, headers=headers)
-                                resp_ctx = urllib.request.urlopen(req, timeout=10)
-                            else:
-                                resp_ctx = None
-                        else:
-                            resp_ctx = None
-                    except Exception:
-                        resp_ctx = None
+                start_range = "2025-09-01T07:00:00.000Z"
+                end_range = "2027-09-02T06:59:59.999Z"
+                sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
+                bcp_raw, err = execute_bcp_api_call(sync_url, method="GET", user_id=user_id, explicit_token=bcp_token)
 
-                    bcp_event_ids = set()
-                    bcp_sync_succeeded = False
+                bcp_event_ids = set()
+                bcp_sync_succeeded = False
 
-                    if resp_ctx:
-                        with resp_ctx as resp:
-                            if resp.status == 200:
-                                bcp_sync_succeeded = True
-                                bcp_raw = json.loads(resp.read().decode("utf-8"))
-                                items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
-                                for item in (items if isinstance(items, list) else []):
-                                    if not isinstance(item, dict): continue
-                                    bcp_id = str(item.get("id") or item.get("_id"))
-                                    bcp_event_ids.add(bcp_id)
-                                    loc = item.get("location") if isinstance(item.get("location"), dict) else {}
-                                    
-                                    # Preserve existing local roster/pairings if present
-                                    existing = db.get_studio_event(bcp_id) or {}
-                                    merged = {
-                                        **existing,
-                                        "id": bcp_id,
-                                        "name": item.get("name", existing.get("name", "BCP Tournament")),
-                                        "tier": item.get("eventType") or item.get("tier") or existing.get("tier", "Grand Tournament"),
-                                        "event_date": item.get("eventDate") or item.get("startDate") or existing.get("event_date"),
-                                        "end_date": item.get("endDate") or item.get("eventEndDate") or existing.get("end_date"),
-                                        "city": item.get("city") or loc.get("city") or existing.get("city"),
-                                        "state": item.get("state") or loc.get("state") or existing.get("state"),
-                                        "country": item.get("country") or loc.get("country") or existing.get("country"),
-                                        "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or existing.get("venue"),
-                                        "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or existing.get("num_rounds", 5),
-                                        "points": item.get("points") or existing.get("points", 2000),
-                                        "capacity": item.get("totalPlayers") or item.get("capacity") or existing.get("capacity", 32),
-                                        "organizer_id": user_id,
-                                        "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
-                                        "bcp_synced": True,
-                                        "bcp_status": "synced"
-                                    }
-                                    db.save_studio_event(merged)
+                if bcp_raw:
+                    bcp_sync_succeeded = True
+                    items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
+                    for item in (items if isinstance(items, list) else []):
+                        if not isinstance(item, dict): continue
+                        bcp_id = str(item.get("id") or item.get("_id"))
+                        bcp_event_ids.add(bcp_id)
+                        loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                        
+                        # Preserve existing local roster/pairings if present
+                        existing = db.get_studio_event(bcp_id) or {}
+                        merged = {
+                            **existing,
+                            "id": bcp_id,
+                            "name": item.get("name", existing.get("name", "BCP Tournament")),
+                            "tier": item.get("eventType") or item.get("tier") or existing.get("tier", "Grand Tournament"),
+                            "event_date": item.get("eventDate") or item.get("startDate") or existing.get("event_date"),
+                            "end_date": item.get("endDate") or item.get("eventEndDate") or existing.get("end_date"),
+                            "city": item.get("city") or loc.get("city") or existing.get("city"),
+                            "state": item.get("state") or loc.get("state") or existing.get("state"),
+                            "country": item.get("country") or loc.get("country") or existing.get("country"),
+                            "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or existing.get("venue"),
+                            "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or existing.get("num_rounds", 5),
+                            "points": item.get("points") or existing.get("points", 2000),
+                            "capacity": item.get("totalPlayers") or item.get("capacity") or existing.get("capacity", 32),
+                            "organizer_id": user_id,
+                            "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
+                            "bcp_synced": True,
+                            "bcp_status": "synced"
+                        }
+                        db.save_studio_event(merged)
 
                     # If BCP sync succeeded, inspect existing tournaments in OmniTactica:
                     # If an event has a BCP ID but is no longer present in the organizer's active BCP events,
@@ -394,12 +466,12 @@ if FASTAPI_AVAILABLE:
         bcp_error = None
 
         # Attempt to register on Best Coast Pairings API if token provided
-        if bcp_token:
+        if user_id or payload.bcp_token:
             try:
-                import urllib.request, json
                 bcp_url = f"{BCP_API_BASE}/events"
                 
-                claims = _decode_jwt_payload(bcp_token) if bcp_token else {}
+                tok_check = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+                claims = _decode_jwt_payload(tok_check) if tok_check else {}
                 if not bcp_user_id:
                     bcp_user_id = claims.get("sub") or claims.get("username")
 
@@ -459,47 +531,22 @@ if FASTAPI_AVAILABLE:
                     "usingOnlineReg": bool(payload.using_online_reg),
                     "description": payload.mission_pack or "Created via OmniTactica Event Studio"
                 }
-                headers = DEFAULT_HEADERS.copy()
-                headers["Authorization"] = f"Bearer {bcp_token}"
-                headers["Content-Type"] = "application/json"
 
-                req = urllib.request.Request(
+                res_data, bcp_err = execute_bcp_api_call(
                     bcp_url,
-                    data=json.dumps(bcp_payload).encode("utf-8"),
-                    headers=headers,
-                    method="POST"
+                    method="POST",
+                    json_data=bcp_payload,
+                    user_id=user_id,
+                    explicit_token=payload.bcp_token
                 )
-                try:
-                    resp_obj = urllib.request.urlopen(req, timeout=12)
-                except urllib.error.HTTPError as he:
-                    if he.code == 401 and user_id:
-                        fresh_tok = auth_mgr.get_valid_bcp_token(user_id, force_refresh=True)
-                        if fresh_tok and fresh_tok != bcp_token:
-                            headers["Authorization"] = f"Bearer {fresh_tok}"
-                            req = urllib.request.Request(
-                                bcp_url,
-                                data=json.dumps(bcp_payload).encode("utf-8"),
-                                headers=headers,
-                                method="POST"
-                            )
-                            resp_obj = urllib.request.urlopen(req, timeout=12)
-                        else:
-                            raise
-                    else:
-                        raise
 
-                with resp_obj as resp:
-                    if resp.status in (200, 201):
-                        res_data = json.loads(resp.read().decode("utf-8"))
-                        if isinstance(res_data, dict):
-                            new_id = res_data.get("id") or res_data.get("_id") or (res_data.get("data") or {}).get("id")
-                            if new_id:
-                                event_id = str(new_id)
-                                bcp_created = True
-            except urllib.error.HTTPError as he:
-                err_body = he.read().decode("utf-8", errors="ignore")
-                logger.warning(f"BCP Event create HTTP {he.code}: {err_body}")
-                bcp_error = f"BCP API Error ({he.code}): {err_body[:120]}"
+                if res_data and isinstance(res_data, dict):
+                    new_id = res_data.get("id") or res_data.get("_id") or (res_data.get("data") or {}).get("id")
+                    if new_id:
+                        event_id = str(new_id)
+                        bcp_created = True
+                elif bcp_err:
+                    bcp_error = bcp_err
             except Exception as e:
                 logger.warning(f"BCP Event create notice: {e}")
                 bcp_error = str(e)

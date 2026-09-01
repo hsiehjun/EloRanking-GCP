@@ -89,6 +89,7 @@ class AuthManager:
                         bcp_user_id VARCHAR(64),
                         bcp_email TEXT,
                         bcp_access_token TEXT,
+                        bcp_id_token TEXT,
                         bcp_refresh_token TEXT,
                         bcp_token_expires_at TIMESTAMPTZ,
                         bcp_linked_at TIMESTAMPTZ,
@@ -96,6 +97,7 @@ class AuthManager:
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     );
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
                     -- Ensure primary administrator accounts have admin role
@@ -387,12 +389,13 @@ class AuthManager:
                     bcp_user_id = %s,
                     bcp_email = %s,
                     bcp_access_token = %s,
+                    bcp_id_token = %s,
                     bcp_refresh_token = %s,
                     bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
                     bcp_linked_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s;
-                """, (official_name, pid, bcp_user_id, bcp_email.strip(), id_token or access_token, refresh_token, user_id))
+                """, (official_name, pid, bcp_user_id, bcp_email.strip(), access_token or id_token, id_token or access_token, refresh_token, user_id))
             conn.commit()
 
         updated_user = self.get_user_by_id(user_id)
@@ -406,26 +409,26 @@ class AuthManager:
         }
 
     def link_bcp_token(self, user_id: str, token: str, refresh_token: Optional[str] = None) -> Dict[str, Any]:
-        """Directly links a verified BCP access token (or JSON bundle with refresh_token) to the user profile."""
+        """Directly links verified BCP tokens (ID token, access token, and refresh token) to the user profile."""
         import base64, json
         
-        actual_token = str(token).strip()
-        actual_refresh = refresh_token
-        
-        # Check if user pasted a JSON payload containing id_token, access_token & refresh_token
-        if actual_token.startswith("{") and actual_token.endswith("}"):
+        raw_str = str(token).strip()
+        parsed = {}
+        if raw_str.startswith("{") and raw_str.endswith("}"):
             try:
-                parsed = json.loads(actual_token)
-                actual_token = parsed.get("id_token") or parsed.get("idToken") or parsed.get("access_token") or parsed.get("accessToken") or parsed.get("token") or actual_token
-                actual_refresh = parsed.get("refresh_token") or parsed.get("refreshToken") or actual_refresh
+                parsed = json.loads(raw_str)
             except Exception:
                 pass
 
-        try:
-            parts = actual_token.split(".")
-            claims = json.loads(base64.b64decode(parts[1] + "==").decode("utf-8"))
-        except Exception:
-            claims = {}
+        id_tok = (parsed.get("id_token") or parsed.get("idToken")) if isinstance(parsed, dict) else None
+        acc_tok = (parsed.get("access_token") or parsed.get("accessToken")) if isinstance(parsed, dict) else None
+        ref_tok = ((parsed.get("refresh_token") or parsed.get("refreshToken")) if isinstance(parsed, dict) else None) or refresh_token
+
+        primary_tok = id_tok or acc_tok or raw_str
+        actual_id = id_tok or primary_tok
+        actual_acc = acc_tok or primary_tok
+
+        claims = _decode_jwt_payload(actual_id) or _decode_jwt_payload(actual_acc)
 
         bcp_user_id = claims.get("sub") or claims.get("username")
         bcp_email = claims.get("email") or claims.get("bcpEmail") or ""
@@ -438,7 +441,7 @@ class AuthManager:
                 try:
                     import urllib.request
                     u_url = f"https://newprod-api.bestcoastpairings.com/v1/users/{bcp_user_id}"
-                    req = urllib.request.Request(u_url, headers={"Authorization": f"Bearer {actual_token}", "User-Agent": "OmniTactica/1.0"})
+                    req = urllib.request.Request(u_url, headers={"Authorization": f"Bearer {actual_id}", "User-Agent": "OmniTactica/1.0"})
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         if resp.status == 200:
                             u_data = json.loads(resp.read().decode("utf-8"))
@@ -455,12 +458,13 @@ class AuthManager:
                     player_id = COALESCE(%s, player_id),
                     bcp_email = COALESCE(NULLIF(%s, ''), bcp_email),
                     bcp_access_token = %s,
+                    bcp_id_token = %s,
                     bcp_refresh_token = COALESCE(%s, bcp_refresh_token),
                     bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
                     bcp_linked_at = NOW(),
                     updated_at = NOW()
                 WHERE id = %s;
-                """, (bcp_user_id, pid, bcp_email, actual_token, actual_refresh, user_id))
+                """, (bcp_user_id, pid, bcp_email, actual_acc, actual_id, ref_tok, user_id))
             conn.commit()
 
         updated_user = self.get_user_by_id(user_id)
@@ -482,6 +486,7 @@ class AuthManager:
                     bcp_user_id = NULL,
                     bcp_email = NULL,
                     bcp_access_token = NULL,
+                    bcp_id_token = NULL,
                     bcp_refresh_token = NULL,
                     bcp_token_expires_at = NULL,
                     bcp_linked_at = NULL,
@@ -491,31 +496,33 @@ class AuthManager:
             conn.commit()
         return {"success": True}
 
-    def get_valid_bcp_token(self, user_id: str, force_refresh: bool = False) -> Optional[str]:
-        """Returns active BCP access token, silently refreshing via refresh_token if expired or forced."""
+    def get_valid_bcp_tokens(self, user_id: str, force_refresh: bool = False) -> Dict[str, Optional[str]]:
+        """Returns active BCP tokens (id_token, access_token), silently refreshing via refresh_token if needed."""
         from psycopg2 import extras
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                SELECT bcp_access_token, bcp_refresh_token, bcp_token_expires_at, bcp_user_id, bcp_email
+                SELECT bcp_access_token, bcp_id_token, bcp_refresh_token, bcp_token_expires_at, bcp_user_id, bcp_email
                 FROM users WHERE id = %s AND bcp_user_id IS NOT NULL;
                 """, (user_id,))
                 row = cur.fetchone()
                 if not row:
-                    return None
+                    return {"id_token": None, "access_token": None}
 
-                tok = row.get("bcp_access_token")
+                acc_tok = row.get("bcp_access_token")
+                id_tok = row.get("bcp_id_token") or acc_tok
                 ref_tok = row.get("bcp_refresh_token")
 
-                # If token still valid (>1 min remaining) and not forced, return it
-                if not force_refresh and tok:
-                    claims = _decode_jwt_payload(tok) if tok else {}
+                # If token still valid (>1 min remaining) and not forced, return what we have
+                if not force_refresh and (id_tok or acc_tok):
+                    check_tok = id_tok or acc_tok
+                    claims = _decode_jwt_payload(check_tok) if check_tok else {}
                     exp = claims.get("exp")
                     now_ts = datetime.now(timezone.utc).timestamp()
                     if exp and exp > (now_ts + 60):
-                        return tok
+                        return {"id_token": id_tok, "access_token": acc_tok}
                     elif not exp and row.get("bcp_token_expires_at") and row["bcp_token_expires_at"] > datetime.now(timezone.utc):
-                        return tok
+                        return {"id_token": id_tok, "access_token": acc_tok}
 
                 # Silent Background Refresh via Cognito REFRESH_TOKEN_AUTH
                 if ref_tok:
@@ -539,22 +546,28 @@ class AuthManager:
                         with urllib.request.urlopen(req, timeout=10) as resp:
                             data = json.loads(resp.read().decode("utf-8"))
                             auth_res = data.get("AuthenticationResult") or {}
-                            new_acc = auth_res.get("IdToken") or auth_res.get("AccessToken")
-                            if new_acc:
+                            new_acc = auth_res.get("AccessToken")
+                            new_id = auth_res.get("IdToken") or new_acc
+                            if new_acc or new_id:
                                 cur.execute("""
                                 UPDATE users SET
-                                    bcp_access_token = %s,
+                                    bcp_access_token = COALESCE(%s, bcp_access_token),
+                                    bcp_id_token = COALESCE(%s, bcp_id_token),
                                     bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
                                     updated_at = NOW()
                                 WHERE id = %s;
-                                """, (new_acc, user_id))
+                                """, (new_acc, new_id, user_id))
                                 conn.commit()
-                                logger.info(f"Successfully refreshed BCP access token for user {user_id}")
-                                return new_acc
+                                logger.info(f"Successfully refreshed BCP tokens (ID & Access) for user {user_id}")
+                                return {"id_token": new_id or id_tok, "access_token": new_acc or acc_tok}
                     except Exception as e:
                         logger.warning(f"Failed silent refresh for user {user_id}: {e}")
 
-                return tok if tok else None
+                return {"id_token": id_tok, "access_token": acc_tok}
+
+    def get_valid_bcp_token(self, user_id: str, force_refresh: bool = False) -> Optional[str]:
+        tokens = self.get_valid_bcp_tokens(user_id, force_refresh=force_refresh)
+        return tokens.get("id_token") or tokens.get("access_token")
 
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""
