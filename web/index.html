@@ -699,7 +699,9 @@
                   <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
                   <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()">▶️</button>
                 </div>
+                <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openEditTournamentModal()">⚙️ Edit Details</button>
                 <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Open on BCP</a>
+                <button id="manage-event-end-btn" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.4);" onclick="endAndArchiveTournament()">🏆 End Event</button>
               </div>
             </div>
 
@@ -746,9 +748,11 @@
           <div id="manage-subtab-pairings" class="manage-subview" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem; flex-wrap: wrap; gap: 0.75rem;">
               <div id="manage-round-pills" style="display: flex; gap: 0.35rem; align-items: center;"></div>
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <button class="btn btn-accent" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="triggerGenerateSwissPairings()">🎲 Generate Swiss Pairings</button>
-                <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="advanceTournamentRound()">⏩ Next Round</button>
+              <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-accent" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="triggerGenerateSwissPairings()">🎲 Generate Pairings</button>
+                <button id="btn-publish-pairings" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="togglePublishPairings()">📢 Publish Pairings</button>
+                <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="finalizeCurrentRound()">🏁 Finalize Round & Advance</button>
+                <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.75rem; color: var(--text-muted);" onclick="resetCurrentRound()">🔄 Reset</button>
               </div>
             </div>
 
@@ -1390,19 +1394,19 @@
   </div>
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=49.0"></script>
-  <script src="/js/api.js?v=49.0"></script>
-  <script src="/js/leaderboard.js?v=49.0"></script>
-  <script src="/js/teams.js?v=49.0"></script>
-  <script src="/js/players.js?v=49.0"></script>
-  <script src="/js/tournaments.js?v=49.0"></script>
-  <script src="/js/factions.js?v=49.0"></script>
-  <script src="/js/predictor.js?v=49.0"></script>
-  <script src="/js/modals.js?v=49.0"></script>
-  <script src="/js/auth.js?v=51.0"></script>
-  <script src="/js/my_hub.js?v=51.0"></script>
-  <script src="/js/eventstudio.js?v=51.0"></script>
-  <script src="/js/app.js?v=51.0"></script>
+  <script src="/js/utils.js?v=52.0"></script>
+  <script src="/js/api.js?v=52.0"></script>
+  <script src="/js/leaderboard.js?v=52.0"></script>
+  <script src="/js/teams.js?v=52.0"></script>
+  <script src="/js/players.js?v=52.0"></script>
+  <script src="/js/tournaments.js?v=52.0"></script>
+  <script src="/js/factions.js?v=52.0"></script>
+  <script src="/js/predictor.js?v=52.0"></script>
+  <script src="/js/modals.js?v=52.0"></script>
+  <script src="/js/auth.js?v=52.0"></script>
+  <script src="/js/my_hub.js?v=52.0"></script>
+  <script src="/js/eventstudio.js?v=52.0"></script>
+  <script src="/js/app.js?v=52.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
@@ -1434,6 +1438,77 @@
         </button>
         <div style="font-size: 0.74rem; color: var(--text-muted); text-align: center; margin-top: 0.85rem; line-height: 1.4;">
           ✨ Securely links to Best Coast Pairings to sync your tournaments, pairings, and results.
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- TOURNAMENT EDIT MODAL -->
+  <div id="es-edit-tournament-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditTournamentModal()">
+    <div class="modal-card" style="max-width: 540px; padding: 1.75rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.5rem;">⚙️</span>
+          <div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Edit Tournament Details</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Updates OmniTactica and syncs with Best Coast Pairings</div>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="closeEditTournamentModal()">✕</button>
+      </div>
+
+      <form id="es-edit-tournament-form" onsubmit="saveEditedTournament(event)">
+        <div style="margin-bottom: 1rem;">
+          <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Tournament Name</label>
+          <input type="text" id="edit-event-name" class="search-input" style="width: 100%; font-size: 0.9rem;" required>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Start Date</label>
+            <input type="date" id="edit-event-start-date" class="search-input" style="width: 100%; font-size: 0.85rem;" required>
+          </div>
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">End Date</label>
+            <input type="date" id="edit-event-end-date" class="search-input" style="width: 100%; font-size: 0.85rem;" required>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Venue Name</label>
+            <input type="text" id="edit-event-venue" class="search-input" style="width: 100%; font-size: 0.85rem;">
+          </div>
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">City</label>
+            <input type="text" id="edit-event-city" class="search-input" style="width: 100%; font-size: 0.85rem;">
+          </div>
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">State</label>
+            <input type="text" id="edit-event-state" class="search-input" style="width: 100%; font-size: 0.85rem;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Rounds</label>
+            <input type="number" id="edit-event-rounds" class="search-input" style="width: 100%; font-size: 0.85rem;" min="1" max="10" required>
+          </div>
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Points</label>
+            <input type="number" id="edit-event-points" class="search-input" style="width: 100%; font-size: 0.85rem;" min="500" max="5000" step="250" required>
+          </div>
+          <div>
+            <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">Capacity</label>
+            <input type="number" id="edit-event-capacity" class="search-input" style="width: 100%; font-size: 0.85rem;" min="2" max="512" required>
+          </div>
+        </div>
+
+        <div id="edit-event-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.5rem; background: rgba(239,68,68,0.1); border-radius: 6px;"></div>
+
+        <div style="display: flex; gap: 0.75rem;">
+          <button type="button" class="btn btn-outline" style="flex: 1; justify-content: center; padding: 0.65rem;" onclick="closeEditTournamentModal()">Cancel</button>
+          <button type="submit" id="edit-event-submit-btn" class="btn btn-primary" style="flex: 2; justify-content: center; padding: 0.65rem; font-weight: 700;">💾 Save Changes</button>
         </div>
       </form>
     </div>

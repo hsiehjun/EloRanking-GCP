@@ -317,6 +317,17 @@ window.api = {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
       method: 'DELETE'
     });
+  // EventStudio: Update Event
+  async updateStudioEvent(eventId, payload) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
   },
 
   // EventStudio: Save Round Pairings
@@ -325,6 +336,67 @@ window.api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Publish Pairings
+  async publishStudioPairings(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/publish`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Unpublish Pairings
+  async unpublishStudioPairings(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/unpublish`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Finalize Round & Advance
+  async finalizeStudioRound(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/round/finalize`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Reset Round
+  async resetStudioRound(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/round/reset`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: End & Archive Tournament
+  async endStudioTournament(eventId) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/end`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
     });
   },
 

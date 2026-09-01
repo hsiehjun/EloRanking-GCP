@@ -764,25 +764,205 @@ async function saveTableScore(tableNum) {
   }
 }
 
-async function advanceTournamentRound() {
+function openEditTournamentModal() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const modal = document.getElementById("es-edit-tournament-modal");
+  const nameEl = document.getElementById("edit-event-name");
+  const sDateEl = document.getElementById("edit-event-start-date");
+  const eDateEl = document.getElementById("edit-event-end-date");
+  const venueEl = document.getElementById("edit-event-venue");
+  const cityEl = document.getElementById("edit-event-city");
+  const stateEl = document.getElementById("edit-event-state");
+  const roundsEl = document.getElementById("edit-event-rounds");
+  const ptsEl = document.getElementById("edit-event-points");
+  const capEl = document.getElementById("edit-event-capacity");
+  const errEl = document.getElementById("edit-event-error");
+
+  if (errEl) errEl.style.display = "none";
+  if (nameEl) nameEl.value = ev.name || "";
+  if (sDateEl) sDateEl.value = ev.event_date ? String(ev.event_date).split("T")[0] : "";
+  if (eDateEl) eDateEl.value = ev.end_date ? String(ev.end_date).split("T")[0] : (sDateEl ? sDateEl.value : "");
+  if (venueEl) venueEl.value = ev.venue || "";
+  if (cityEl) cityEl.value = ev.city || "";
+  if (stateEl) stateEl.value = ev.state || "";
+  if (roundsEl) roundsEl.value = ev.num_rounds || ev.rounds || 5;
+  if (ptsEl) ptsEl.value = ev.points || 2000;
+  if (capEl) capEl.value = ev.capacity || 32;
+
+  if (modal) modal.classList.add("active");
+}
+
+function closeEditTournamentModal() {
+  const modal = document.getElementById("es-edit-tournament-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function saveEditedTournament(e) {
+  if (e) e.preventDefault();
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const nameEl = document.getElementById("edit-event-name");
+  const sDateEl = document.getElementById("edit-event-start-date");
+  const eDateEl = document.getElementById("edit-event-end-date");
+  const venueEl = document.getElementById("edit-event-venue");
+  const cityEl = document.getElementById("edit-event-city");
+  const stateEl = document.getElementById("edit-event-state");
+  const roundsEl = document.getElementById("edit-event-rounds");
+  const ptsEl = document.getElementById("edit-event-points");
+  const capEl = document.getElementById("edit-event-capacity");
+  const errEl = document.getElementById("edit-event-error");
+  const btn = document.getElementById("edit-event-submit-btn");
+
+  const payload = {
+    name: nameEl ? nameEl.value.trim() : ev.name,
+    start_date: sDateEl ? sDateEl.value : ev.event_date,
+    end_date: eDateEl ? eDateEl.value : ev.end_date,
+    venue: venueEl ? venueEl.value.trim() : ev.venue,
+    city: cityEl ? cityEl.value.trim() : ev.city,
+    state: stateEl ? stateEl.value.trim() : ev.state,
+    num_rounds: roundsEl ? parseInt(roundsEl.value, 10) : (ev.num_rounds || 5),
+    points: ptsEl ? parseInt(ptsEl.value, 10) : (ev.points || 2000),
+    capacity: capEl ? parseInt(capEl.value, 10) : (ev.capacity || 32)
+  };
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "Saving Changes...";
+  }
+
+  try {
+    const res = await window.api.updateStudioEvent(ev.id, payload);
+    if (res && res.success) {
+      studioState.activeTournament = res.event;
+      closeEditTournamentModal();
+      await loadTournamentWorkspace(ev.id);
+      alert("✅ Tournament details updated and synced successfully!");
+    } else {
+      if (errEl) {
+        errEl.innerText = res.error || "Failed to update tournament.";
+        errEl.style.display = "block";
+      }
+    }
+  } catch (err) {
+    if (errEl) {
+      errEl.innerText = "Error: " + err.message;
+      errEl.style.display = "block";
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = "💾 Save Changes";
+    }
+  }
+}
+
+async function togglePublishPairings() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const isCurrentlyPublished = !!ev.is_published;
+  const btn = document.getElementById("btn-publish-pairings");
+
+  try {
+    if (isCurrentlyPublished) {
+      if (!confirm(`Unpublish pairings for Round ${currentRound}? Players will not see matchups until republished.`)) return;
+      const res = await window.api.unpublishStudioPairings(ev.id, { round: currentRound });
+      if (res && res.success) {
+        ev.is_published = false;
+        if (btn) {
+          btn.innerText = "📢 Publish Pairings";
+          btn.className = "btn btn-outline";
+        }
+        alert(`🔒 Round ${currentRound} pairings unpublished.`);
+      }
+    } else {
+      const res = await window.api.publishStudioPairings(ev.id, { round: currentRound });
+      if (res && res.success) {
+        ev.is_published = true;
+        if (btn) {
+          btn.innerText = "🔒 Unpublish Pairings";
+          btn.className = "btn btn-primary";
+        }
+        alert(`📢 Round ${currentRound} pairings published live on BCP and player devices!`);
+      }
+    }
+  } catch (err) {
+    alert("Publish toggle error: " + err.message);
+  }
+}
+
+async function finalizeCurrentRound() {
   const ev = studioState.activeTournament;
   if (!ev) return;
 
   const totalRounds = ev.num_rounds || ev.rounds || 5;
   const currentRound = studioState.currentRoundView || ev.current_round || 1;
 
-  if (currentRound >= totalRounds) {
-    alert("This tournament has completed all scheduled rounds!");
+  if (!confirm(`Finalize and lock Round ${currentRound}? This will save official match results and advance to Round ${Math.min(currentRound + 1, totalRounds)}.`)) {
     return;
   }
 
-  const nextRound = currentRound + 1;
-  if (!confirm(`Ready to advance to Round ${nextRound}? This will automatically generate Round ${nextRound} Swiss pairings.`)) {
+  try {
+    const res = await window.api.finalizeStudioRound(ev.id, { round: currentRound });
+    if (res && res.success) {
+      studioState.activeTournament = res.event;
+      studioState.currentRoundView = res.current_round;
+      await loadTournamentWorkspace(ev.id);
+      renderPairingsSubtab();
+      alert(`🏁 Round ${currentRound} finalized! Now on Round ${res.current_round}.`);
+    } else {
+      alert(res.message || "Failed to finalize round.");
+    }
+  } catch (err) {
+    alert("Finalize round error: " + err.message);
+  }
+}
+
+async function resetCurrentRound() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  if (!confirm(`⚠️ Reset Round ${currentRound}? This will allow you to regenerate or modify matchups.`)) {
     return;
   }
 
-  studioState.currentRoundView = nextRound;
-  await triggerGenerateSwissPairings();
+  try {
+    const res = await window.api.resetStudioRound(ev.id, { round: currentRound });
+    if (res && res.success) {
+      studioState.activeTournament = res.event;
+      renderPairingsSubtab();
+      alert(`🔄 Round ${currentRound} reset successfully.`);
+    }
+  } catch (err) {
+    alert("Reset round error: " + err.message);
+  }
+}
+
+async function endAndArchiveTournament() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  if (!confirm(`🏆 Finalize and End "${ev.name}"? This will lock all final standings and tournament placements.`)) {
+    return;
+  }
+
+  try {
+    const res = await window.api.endStudioTournament(ev.id);
+    if (res && res.success) {
+      studioState.activeTournament = res.event;
+      switchManageSubtab("standings");
+      alert(`🏆 "${ev.name}" concluded and archived successfully! Final standings are locked.`);
+    } else {
+      alert(res.message || "Failed to conclude tournament.");
+    }
+  } catch (err) {
+    alert("End tournament error: " + err.message);
+  }
 }
 
 async function renderStandingsSubtab() {

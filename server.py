@@ -563,7 +563,6 @@ if FASTAPI_AVAILABLE:
         session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         user_id = user["id"] if user else None
-        bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -574,26 +573,32 @@ if FASTAPI_AVAILABLE:
 
         saved = db.save_studio_event(ev)
 
-        # Sync update to BCP if token available
+        # Sync update to BCP if authenticated
         bcp_updated = False
-        if bcp_token and not event_id.startswith("ES-"):
-            try:
-                import urllib.request, json
+        if user_id and not event_id.startswith("ES-"):
+            bcp_set_fields = {}
+            if "name" in payload: bcp_set_fields["name"] = payload["name"]
+            if "event_date" in payload or "start_date" in payload:
+                bcp_set_fields["eventDate"] = str(payload.get("event_date") or payload.get("start_date"))
+            if "end_date" in payload:
+                bcp_set_fields["eventEndDate"] = str(payload["end_date"])
+            if "city" in payload: bcp_set_fields["city"] = payload["city"]
+            if "state" in payload: bcp_set_fields["state"] = payload["state"]
+            if "country" in payload: bcp_set_fields["country"] = payload["country"]
+            if "venue" in payload: bcp_set_fields["venueName"] = payload["venue"]
+            if "points" in payload: bcp_set_fields["points"] = int(payload["points"])
+            if "capacity" in payload: bcp_set_fields["totalPlayers"] = int(payload["capacity"])
+            if "num_rounds" in payload or "rounds" in payload:
+                bcp_set_fields["numberOfRounds"] = int(payload.get("num_rounds") or payload.get("rounds"))
+            if "tier" in payload: bcp_set_fields["eventType"] = payload["tier"]
+            if "is_ended" in payload: bcp_set_fields["ended"] = bool(payload["is_ended"])
+
+            if bcp_set_fields:
                 bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
-                req = urllib.request.Request(
-                    bcp_url,
-                    data=json.dumps(payload).encode("utf-8"),
-                    headers={
-                        "Authorization": f"Bearer {bcp_token}",
-                        "Content-Type": "application/json"
-                    },
-                    method="PUT"
-                )
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    if resp.status in (200, 201, 204):
-                        bcp_updated = True
-            except Exception as e:
-                logger.debug(f"BCP event update notice: {e}")
+                resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"set": bcp_set_fields}, user_id=user_id)
+                if resp_data is not None or not err_msg:
+                    bcp_updated = True
+                    logger.info(f"✅ Successfully updated BCP tournament {event_id}")
 
         return {
             "success": True,
@@ -901,11 +906,201 @@ if FASTAPI_AVAILABLE:
         ev["current_round"] = target_round
         saved = db.save_studio_event(ev)
 
+        # Sync generate pairings to BCP if authenticated
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+        bcp_generated = False
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/generatePairings"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": target_round}, user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_generated = True
+                logger.info(f"✅ Generated Round {target_round} pairings on BCP for {event_id}")
+
         return {
             "success": True,
             "round": target_round,
             "pairings": generated_pairings,
+            "bcp_generated": bcp_generated,
             "event": saved
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
+    async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        round_num = int(payload.get("round") or ev.get("current_round") or 1)
+        ev["published_round"] = round_num
+        ev["is_published"] = True
+        saved = db.save_studio_event(ev)
+
+        # Sync publish to BCP
+        bcp_published = False
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/publishPairings"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": round_num}, user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_published = True
+                logger.info(f"✅ Successfully published Round {round_num} pairings on BCP for event {event_id}")
+
+        return {
+            "success": True,
+            "round": round_num,
+            "bcp_published": bcp_published,
+            "event": saved,
+            "message": f"Round {round_num} pairings published successfully."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/pairings/unpublish", summary="Unpublish tournament round pairings on OmniTactica and BCP")
+    async def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        round_num = int(payload.get("round") or ev.get("current_round") or 1)
+        ev["is_published"] = False
+        saved = db.save_studio_event(ev)
+
+        # Sync unpublish to BCP
+        bcp_unpublished = False
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/unPublishPairings"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": round_num}, user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_unpublished = True
+                logger.info(f"✅ Successfully unpublished Round {round_num} pairings on BCP for event {event_id}")
+
+        return {
+            "success": True,
+            "round": round_num,
+            "bcp_unpublished": bcp_unpublished,
+            "event": saved,
+            "message": f"Round {round_num} pairings unpublished."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/round/finalize", summary="Finalize and lock round, advancing tournament round")
+    async def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any], request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        round_num = int(payload.get("round") or ev.get("current_round") or 1)
+        total_rounds = int(ev.get("num_rounds") or 3)
+        
+        # Advance current round if not at end
+        next_round = min(round_num + 1, total_rounds)
+        ev["current_round"] = next_round
+        saved = db.save_studio_event(ev)
+
+        # Sync finalize to BCP
+        bcp_finalized = False
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/finalizeRound"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": round_num}, user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_finalized = True
+                logger.info(f"✅ Successfully finalized Round {round_num} on BCP for event {event_id}")
+
+        return {
+            "success": True,
+            "finalized_round": round_num,
+            "current_round": next_round,
+            "bcp_finalized": bcp_finalized,
+            "event": saved,
+            "message": f"Round {round_num} finalized successfully. Active round is now Round {next_round}."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/round/reset", summary="Reset a round for corrections")
+    async def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        round_num = int(payload.get("round") or ev.get("current_round") or 1)
+        ev["current_round"] = max(1, round_num)
+        saved = db.save_studio_event(ev)
+
+        # Sync reset to BCP
+        bcp_reset = False
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/resetRound"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": round_num}, user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_reset = True
+                logger.info(f"✅ Successfully reset Round {round_num} on BCP for event {event_id}")
+
+        return {
+            "success": True,
+            "round": round_num,
+            "bcp_reset": bcp_reset,
+            "event": saved,
+            "message": f"Round {round_num} has been reset."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/end", summary="End and archive tournament on OmniTactica and BCP")
+    async def api_eventstudio_end_tournament(event_id: str, request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        ev["is_ended"] = True
+        saved = db.save_studio_event(ev)
+
+        # Sync ended to BCP
+        bcp_ended = False
+        if user_id and not event_id.startswith("ES-"):
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
+            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"set": {"ended": True}}, user_id=user_id)
+            if resp_data is not None or not err_msg:
+                bcp_ended = True
+                logger.info(f"✅ Successfully marked tournament {event_id} as ended on BCP")
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "bcp_ended": bcp_ended,
+            "event": saved,
+            "message": "Tournament concluded and archived successfully."
         }
 
     @app.get("/api/eventstudio/event/{event_id}/standings", summary="Compute live Swiss standings and tiebreaker metrics")
