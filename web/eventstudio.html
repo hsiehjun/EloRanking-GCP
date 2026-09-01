@@ -30,7 +30,6 @@
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center;">
         <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="loadStudioEvents()">🔄 Sync BCP Events</button>
-        <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.7rem;" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
       </div>
     </div>
 
@@ -501,30 +500,7 @@
     </div>
   </div>
 
-  <!-- MODAL: IMPORT BCP TOURNAMENT -->
-  <div id="import-bcp-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-window" style="max-width: 520px;">
-      <div class="modal-header">
-        <h3 style="margin: 0; font-size: 1.25rem; color: #fff;">🔗 Link / Import BCP Tournament</h3>
-        <button class="modal-close" onclick="closeModal('import-bcp-modal')">✕</button>
-      </div>
-      <div class="modal-body" style="padding: 1.25rem;">
-        <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 1rem;">
-          Import any live, upcoming, or completed tournament directly from Best Coast Pairings to manage pairings, enter scores, and view live standings in Event Studio.
-        </p>
-        <div class="form-group" style="margin-bottom: 1.25rem;">
-          <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">BCP Event ID or URL *</label>
-          <input type="text" id="import-bcp-input" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. geGckT9a4pB2 or https://www.bestcoastpairings.com/event/geGckT9a4pB2">
-          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">Paste the BCP tournament link or event ID.</div>
-        </div>
-        <div id="import-bcp-status" style="display: none; padding: 0.6rem 0.8rem; border-radius: 8px; font-size: 0.8rem; margin-bottom: 1rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8;"></div>
-        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem;">
-          <button class="btn btn-outline" onclick="closeModal('import-bcp-modal')">Cancel</button>
-          <button class="btn btn-primary" id="btn-submit-import-bcp" onclick="submitImportBcpTournament()">🔗 Import & Direct</button>
-        </div>
-      </div>
-    </div>
-  </div>
+
 
   <script src="/js/api.js"></script>
   <script src="/js/eventstudio.js?v=3.0"></script>

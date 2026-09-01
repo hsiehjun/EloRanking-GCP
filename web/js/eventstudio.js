@@ -211,11 +211,10 @@ function renderEventsDirectory() {
         <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">⚔️</div>
         <h3 style="color: #fff; margin: 0 0 0.5rem; font-size: 1.3rem;">No Tournaments Directing Yet</h3>
         <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 520px; margin: 0 auto 1.5rem; line-height: 1.6;">
-          Create a new tournament from scratch, or import any live/upcoming tournament directly from Best Coast Pairings to manage Swiss pairings, rosters, and live table trackers.
+          Create a new tournament to direct Swiss pairings, manage player rosters, and sync live results with Best Coast Pairings.
         </p>
         <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
           <button class="btn btn-primary" onclick="switchStudioTab('create')">➕ Create Tournament</button>
-          <button class="btn btn-outline" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
         </div>
       </div>
     `;
@@ -293,63 +292,7 @@ async function selectStudioTournament(eventId, targetTab = 'pairings') {
   switchStudioTab(targetTab);
 }
 
-function openImportBcpModal() {
-  const modal = document.getElementById('import-bcp-modal');
-  if (modal) {
-    modal.classList.add('active');
-    const input = document.getElementById('import-bcp-input');
-    if (input) {
-      input.value = '';
-      input.focus();
-    }
-    const status = document.getElementById('import-bcp-status');
-    if (status) status.style.display = 'none';
-  }
-}
 
-async function submitImportBcpTournament() {
-  const input = document.getElementById('import-bcp-input');
-  const btn = document.getElementById('btn-submit-import-bcp');
-  const status = document.getElementById('import-bcp-status');
-
-  const val = input ? input.value.trim() : '';
-  if (!val) {
-    alert('Please enter a BCP Event ID or URL.');
-    return;
-  }
-
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = '⏳ Importing from BCP...';
-  }
-  if (status) {
-    status.style.display = 'block';
-    status.textContent = 'Fetching event details, competitor roster, and pairings from Best Coast Pairings...';
-  }
-
-  try {
-    const res = await window.api.importStudioEvent({ event_id: val });
-    if (res && res.success && res.event) {
-      alert(`🎉 Successfully imported "${res.event.name}" into Event Studio!`);
-      closeModal('import-bcp-modal');
-      studioState.activeTournament = res.event;
-      localStorage.setItem('es_active_event_id', res.event.id);
-      await loadStudioEvents();
-      switchStudioTab('pairings');
-    } else {
-      alert(res.message || 'Could not import event. Please verify the BCP ID or URL.');
-    }
-  } catch (err) {
-    console.error('Import error:', err);
-    alert(`Import failed: ${err.message || err}`);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '🔗 Import & Direct';
-    }
-    if (status) status.style.display = 'none';
-  }
-}
 
 function renderRoundButtons() {
   const container = document.getElementById('es-rounds-btn-bar');
@@ -398,7 +341,6 @@ function renderPairings() {
         <div style="font-size: 0.85rem; margin-bottom: 1.25rem;">Select or create a tournament to view and direct Swiss pairings.</div>
         <div style="display: flex; gap: 0.5rem; justify-content: center;">
           <button class="btn btn-primary" onclick="switchStudioTab('create')">➕ Create Tournament</button>
-          <button class="btn btn-outline" onclick="openImportBcpModal()">🔗 Import BCP Event</button>
         </div>
       </div>
     `;
@@ -1824,9 +1766,6 @@ window.switchStudioTab = switchStudioTab;
 window.renderEventsDirectory = renderEventsDirectory;
 window.selectStudioTournament = selectStudioTournament;
 window.deleteStudioTournament = deleteStudioTournament;
-window.openImportBcpModal = openImportBcpModal;
-window.closeImportBcpModal = closeImportBcpModal;
-window.submitImportBcpTournament = submitImportBcpTournament;
 window.submitCreateTournament = submitCreateTournament;
 window.updateDefaultRounds = updateDefaultRounds;
 window.openEditTournamentModal = openEditTournamentModal;
