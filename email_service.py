@@ -147,6 +147,9 @@ OmniTactica 40k Tournament Companion
             if secure != "none":
                 server.starttls()
 
+        if user and pwd:
+            server.login(user, pwd)
+
         import email.utils
         sender_email = email.utils.parseaddr(config["from_addr"])[1] or config["from_addr"]
         recipient_email = email.utils.parseaddr(to_email)[1] or to_email
@@ -157,7 +160,8 @@ OmniTactica 40k Tournament Companion
             # If Resend rejects unverified domain with 550, automatically retry with onboarding@resend.dev
             if resp_err.smtp_code == 550 and "resend.com" in host and sender_email != "onboarding@resend.dev":
                 logger.warning(f"⚠️ Resend domain '{sender_email}' not verified (550). Retrying with 'onboarding@resend.dev'...")
-                msg.replace_header("From", "OmniTactica <onboarding@resend.dev>")
+                del msg["From"]
+                msg["From"] = "OmniTactica <onboarding@resend.dev>"
                 server.sendmail("onboarding@resend.dev", [recipient_email], msg.as_string())
             else:
                 raise
