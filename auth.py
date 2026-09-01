@@ -525,44 +525,44 @@ class AuthManager:
                     elif not exp and row.get("bcp_token_expires_at") and row["bcp_token_expires_at"] > datetime.now(timezone.utc):
                         return {"id_token": id_tok, "access_token": acc_tok}
 
-                # Silent Background Refresh via Cognito REFRESH_TOKEN_AUTH
+                # Silent Background Refresh via BCP OAuth Token Endpoint
                 if ref_tok:
-                    payload = {
-                        "AuthFlow": "REFRESH_TOKEN_AUTH",
-                        "ClientId": BCP_COGNITO_CLIENT_ID,
-                        "AuthParameters": {
-                            "REFRESH_TOKEN": ref_tok
-                        }
+                    oauth_payload = {
+                        "grant_type": "refresh_token",
+                        "refresh_token": ref_tok
                     }
-                    req = urllib.request.Request(
-                        COGNITO_ENDPOINT,
-                        data=json.dumps(payload).encode("utf-8"),
+                    oauth_req = urllib.request.Request(
+                        "https://newprod-api.bestcoastpairings.com/oauth/token",
+                        data=json.dumps(oauth_payload).encode("utf-8"),
                         headers={
-                            "Content-Type": "application/x-amz-json-1.1",
-                            "X-Amz-Target": "AWSCognitoIdentityProviderService.InitiateAuth"
+                            "Content-Type": "application/json",
+                            "client-id": "web-app",
+                            "User-Agent": "Mozilla/5.0",
+                            "Accept": "application/json"
                         },
                         method="POST"
                     )
                     try:
-                        with urllib.request.urlopen(req, timeout=10) as resp:
+                        with urllib.request.urlopen(oauth_req, timeout=10) as resp:
                             data = json.loads(resp.read().decode("utf-8"))
-                            auth_res = data.get("AuthenticationResult") or {}
-                            new_acc = auth_res.get("AccessToken")
-                            new_id = auth_res.get("IdToken") or new_acc
+                            new_acc = data.get("accessToken") or data.get("access_token")
+                            new_id = data.get("idToken") or data.get("id_token") or new_acc
+                            new_ref = data.get("refreshToken") or data.get("refresh_token") or ref_tok
                             if new_acc or new_id:
                                 cur.execute("""
                                 UPDATE users SET
                                     bcp_access_token = COALESCE(%s, bcp_access_token),
                                     bcp_id_token = COALESCE(%s, bcp_id_token),
+                                    bcp_refresh_token = COALESCE(%s, bcp_refresh_token),
                                     bcp_token_expires_at = (NOW() + INTERVAL '1 hour'),
                                     updated_at = NOW()
                                 WHERE id = %s;
-                                """, (new_acc, new_id, user_id))
+                                """, (new_acc, new_id, new_ref, user_id))
                                 conn.commit()
-                                logger.info(f"Successfully refreshed BCP tokens (ID & Access) for user {user_id}")
+                                logger.info(f"✅ Successfully refreshed BCP tokens via /oauth/token for user {user_id}")
                                 return {"id_token": new_id or id_tok, "access_token": new_acc or acc_tok}
                     except Exception as e:
-                        logger.warning(f"Failed silent refresh for user {user_id}: {e}")
+                        logger.warning(f"BCP /oauth/token refresh notice for user {user_id}: {e}")
 
                 return {"id_token": id_tok, "access_token": acc_tok}
 
