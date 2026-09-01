@@ -305,22 +305,22 @@ if FASTAPI_AVAILABLE:
                         bcp_event_ids.add(bcp_id)
                         loc = item.get("location") if isinstance(item.get("location"), dict) else {}
                         
-                        # Preserve existing local roster/pairings if present
+                        # Preserve existing local fields/roster/pairings if present
                         existing = db.get_studio_event(bcp_id) or {}
                         merged = {
                             **existing,
                             "id": bcp_id,
-                            "name": item.get("name", existing.get("name", "BCP Tournament")),
-                            "tier": item.get("eventType") or item.get("tier") or existing.get("tier", "Grand Tournament"),
-                            "event_date": item.get("eventDate") or item.get("startDate") or existing.get("event_date"),
-                            "end_date": item.get("endDate") or item.get("eventEndDate") or existing.get("end_date"),
-                            "city": item.get("city") or loc.get("city") or existing.get("city"),
-                            "state": item.get("state") or loc.get("state") or existing.get("state"),
-                            "country": item.get("country") or loc.get("country") or existing.get("country"),
-                            "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or existing.get("venue"),
-                            "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or existing.get("num_rounds", 5),
-                            "points": item.get("points") or existing.get("points", 2000),
-                            "capacity": item.get("totalPlayers") or item.get("capacity") or existing.get("capacity", 32),
+                            "name": existing.get("name") or item.get("name", "BCP Tournament"),
+                            "tier": existing.get("tier") or item.get("eventType") or item.get("tier") or "Grand Tournament",
+                            "event_date": existing.get("event_date") or item.get("eventDate") or item.get("startDate"),
+                            "end_date": existing.get("end_date") or item.get("endDate") or item.get("eventEndDate"),
+                            "city": existing.get("city") or item.get("city") or loc.get("city"),
+                            "state": existing.get("state") or item.get("state") or loc.get("state"),
+                            "country": existing.get("country") or item.get("country") or loc.get("country"),
+                            "venue": existing.get("venue") or item.get("venueName") or loc.get("venueName") or loc.get("name"),
+                            "num_rounds": existing.get("num_rounds") or item.get("numberOfRounds") or item.get("numRounds") or 5,
+                            "points": existing.get("points") or item.get("points") or 2000,
+                            "capacity": existing.get("capacity") or item.get("totalPlayers") or item.get("capacity") or 32,
                             "organizer_id": user_id,
                             "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
                             "bcp_synced": True,
@@ -568,8 +568,16 @@ if FASTAPI_AVAILABLE:
         if not ev:
             raise HTTPException(status_code=404, detail="Event not found")
 
+        # Map date fields
+        if "start_date" in payload and "event_date" not in payload:
+            payload["event_date"] = payload["start_date"]
+
         for k, v in payload.items():
             ev[k] = v
+
+        if "raw_json" in ev and isinstance(ev["raw_json"], dict):
+            for k, v in payload.items():
+                ev["raw_json"][k] = v
 
         saved = db.save_studio_event(ev)
 
@@ -579,13 +587,33 @@ if FASTAPI_AVAILABLE:
             bcp_set_fields = {}
             if "name" in payload: bcp_set_fields["name"] = payload["name"]
             if "event_date" in payload or "start_date" in payload:
-                bcp_set_fields["eventDate"] = str(payload.get("event_date") or payload.get("start_date"))
+                dt_val = str(payload.get("event_date") or payload.get("start_date"))
+                if len(dt_val) == 10:
+                    dt_val = f"{dt_val}T09:00:00.000Z"
+                bcp_set_fields["eventDate"] = dt_val
             if "end_date" in payload:
-                bcp_set_fields["eventEndDate"] = str(payload["end_date"])
-            if "city" in payload: bcp_set_fields["city"] = payload["city"]
-            if "state" in payload: bcp_set_fields["state"] = payload["state"]
-            if "country" in payload: bcp_set_fields["country"] = payload["country"]
-            if "venue" in payload: bcp_set_fields["venueName"] = payload["venue"]
+                edt_val = str(payload["end_date"])
+                if len(edt_val) == 10:
+                    edt_val = f"{edt_val}T18:00:00.000Z"
+                bcp_set_fields["eventEndDate"] = edt_val
+
+            venue = payload.get("venue", ev.get("venue", ""))
+            city = payload.get("city", ev.get("city", ""))
+            state = payload.get("state", ev.get("state", ""))
+            country = payload.get("country", ev.get("country", "United States"))
+
+            if any(k in payload for k in ["venue", "city", "state", "country"]):
+                bcp_set_fields["venueName"] = venue
+                bcp_set_fields["city"] = city
+                bcp_set_fields["state"] = state
+                bcp_set_fields["country"] = country
+                bcp_set_fields["location"] = {
+                    "name": venue,
+                    "venueName": venue,
+                    "city": city,
+                    "state": state,
+                    "country": country
+                }
             if "points" in payload: bcp_set_fields["points"] = int(payload["points"])
             if "capacity" in payload: bcp_set_fields["totalPlayers"] = int(payload["capacity"])
             if "num_rounds" in payload or "rounds" in payload:

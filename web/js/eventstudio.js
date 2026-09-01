@@ -818,6 +818,7 @@ async function saveEditedTournament(e) {
 
   const payload = {
     name: nameEl ? nameEl.value.trim() : ev.name,
+    event_date: sDateEl ? sDateEl.value : ev.event_date,
     start_date: sDateEl ? sDateEl.value : ev.event_date,
     end_date: eDateEl ? eDateEl.value : ev.end_date,
     venue: venueEl ? venueEl.value.trim() : ev.venue,
@@ -836,7 +837,28 @@ async function saveEditedTournament(e) {
   try {
     const res = await window.api.updateStudioEvent(ev.id, payload);
     if (res && res.success) {
-      studioState.activeTournament = res.event;
+      const updated = res.event || payload;
+      studioState.activeTournament = { ...ev, ...updated };
+      
+      // Update in studioState.eventsList
+      if (Array.isArray(studioState.eventsList)) {
+        const idx = studioState.eventsList.findIndex(e => e.id === ev.id);
+        if (idx >= 0) {
+          studioState.eventsList[idx] = { ...studioState.eventsList[idx], ...updated };
+        }
+      }
+
+      // Immediately reflect updated values in the DOM
+      const nameHeader = document.getElementById("manage-event-name");
+      const locHeader = document.getElementById("manage-event-location");
+      const dateHeader = document.getElementById("manage-event-date");
+      const roundsPtsHeader = document.getElementById("manage-event-rounds-pts");
+
+      if (nameHeader) nameHeader.textContent = updated.name || ev.name;
+      if (locHeader) locHeader.textContent = [updated.venue, updated.city, updated.state].filter(Boolean).join(", ") || "Local Venue";
+      if (dateHeader) dateHeader.textContent = updated.event_date ? String(updated.event_date).split("T")[0] : (updated.start_date || "Date TBD");
+      if (roundsPtsHeader) roundsPtsHeader.textContent = `${updated.num_rounds || 5} Rounds (${updated.points || 2000} pts)`;
+
       closeEditTournamentModal();
       await loadTournamentWorkspace(ev.id);
       alert("✅ Tournament details updated and synced successfully!");
