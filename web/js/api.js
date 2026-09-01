@@ -317,6 +317,8 @@ window.api = {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`, {
       method: 'DELETE'
     });
+  },
+
   // EventStudio: Update Event
   async updateStudioEvent(eventId, payload) {
     const token = this.getAuthToken();
