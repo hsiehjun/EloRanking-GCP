@@ -192,12 +192,13 @@ if FASTAPI_AVAILABLE:
         user = auth_mgr.get_session(session_token) if session_token else None
         user_id = user["id"] if user else None
         bcp_user_id = user.get("bcp_user_id") if user else None
+        player_id = user.get("player_id") if user else None
 
-        if not user_id and not bcp_user_id:
+        if not user_id and not bcp_user_id and not player_id:
             return {"success": True, "count": 0, "events": []}
 
         # Check BCP for any tournaments hosted by this organizer
-        if bcp_user_id:
+        if bcp_user_id or player_id:
             try:
                 import urllib.request, json
                 start_range = (datetime.now(timezone.utc) - timedelta(days=365)).strftime("%Y-%m-%dT00:00:00.000Z")
@@ -221,8 +222,8 @@ if FASTAPI_AVAILABLE:
                                 items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
                                 for item in (items if isinstance(items, list) else []):
                                     if not isinstance(item, dict): continue
-                                    owner = item.get("ownerId") or item.get("userId") or (item.get("user") or {}).get("id") or (item.get("owner") or {}).get("id") or item.get("organizerId")
-                                    if owner == bcp_user_id or "organizer" in sync_url:
+                                    owner = item.get("ownerId") or item.get("owner_Id") or item.get("userId") or (item.get("user") or {}).get("id") or (item.get("owner") or {}).get("id") or item.get("organizerId")
+                                    if owner in (bcp_user_id, player_id) or "organizer" in sync_url:
                                         loc = item.get("location") if isinstance(item.get("location"), dict) else {}
                                         db.save_studio_event({
                                             "id": str(item.get("id") or item.get("_id")),
@@ -238,7 +239,7 @@ if FASTAPI_AVAILABLE:
                                             "points": item.get("points") or 2000,
                                             "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
                                             "organizer_id": user_id,
-                                            "organizer_bcp_id": bcp_user_id
+                                            "organizer_bcp_id": bcp_user_id or player_id
                                         })
                     except Exception as loop_err:
                         logger.debug(f"Sync attempt {sync_url}: {loop_err}")
@@ -246,7 +247,7 @@ if FASTAPI_AVAILABLE:
                 logger.info(f"Notice syncing BCP organizer events: {se}")
 
         # Fetch tournaments created by or explicitly linked to this user/TO
-        events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id)
+        events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
 
         return {
             "success": True,

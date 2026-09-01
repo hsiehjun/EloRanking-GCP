@@ -2683,9 +2683,9 @@ class PostgresDatabase:
     # EVENT STUDIO: TOURNAMENT MANAGEMENT & BCP TWO-WAY SYNC
     # =========================================================================
 
-    def get_studio_events(self, organizer_id: Optional[str] = None, organizer_bcp_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_studio_events(self, organizer_id: Optional[str] = None, organizer_bcp_id: Optional[str] = None, player_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Fetches all events organized by or linked to a specific user/TO."""
-        if not organizer_id and not organizer_bcp_id:
+        if not organizer_id and not organizer_bcp_id and not player_id:
             return []
         from psycopg2 import extras
         try:
@@ -2699,6 +2699,9 @@ class PostgresDatabase:
                     if organizer_bcp_id:
                         clauses.append("organizer_bcp_id = %s")
                         params.append(organizer_bcp_id)
+                    if player_id and player_id != organizer_bcp_id:
+                        clauses.append("organizer_bcp_id = %s")
+                        params.append(player_id)
 
                     query = "SELECT * FROM events WHERE (" + " OR ".join(clauses) + ") ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
                     cursor.execute(query, tuple(params))
