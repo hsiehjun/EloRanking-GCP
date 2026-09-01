@@ -66,7 +66,7 @@ except ImportError:
         from database import Database, get_db
         from scraper import BestCoastPairingsScraper
         from elo import EloEngine
-        from auth import get_auth_manager
+        from auth import get_auth_manager, _decode_jwt_payload
         from army_list_parser import get_parser as get_army_parser
         from firestore_db import get_firestore_engine
 
