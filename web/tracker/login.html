@@ -449,7 +449,13 @@
         if (data.dev_code) {
           // In development simulation mode, show code banner for convenient testing
           if (successEl) {
-            successEl.innerHTML = `⚡ [DEV MODE SIMULATION] Your 6-digit code is: <strong style="font-family:'JetBrains Mono',monospace; font-size:14px; letter-spacing:2px;">${data.dev_code}</strong>`;
+            let detail = '';
+            if (data.mail_error) {
+              detail = `<div style="font-size:11px; color:#fca5a5; margin-top:6px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.3); padding:6px 10px; border-radius:6px; text-align:left;">⚠️ SMTP Notice: ${escapeHtml(data.mail_error)}</div>`;
+            } else if (!data.smtp_configured) {
+              detail = `<div style="font-size:11px; color:#94a3b8; margin-top:4px;">(SMTP_HOST not detected on Cloud Run yet)</div>`;
+            }
+            successEl.innerHTML = `⚡ [DEV MODE SIMULATION] Your 6-digit code is: <strong style="font-family:'JetBrains Mono',monospace; font-size:14px; letter-spacing:2px;">${data.dev_code}</strong>${detail}`;
             successEl.style.display = 'block';
           }
           const codeInput = document.getElementById('reset-code');

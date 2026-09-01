@@ -298,7 +298,9 @@ class AuthManager:
             "message": "If this email is registered, a password reset link and verification code has been dispatched.",
             "email": email,
             "simulated": mail_res.get("simulated", False),
-            "dev_code": code if mail_res.get("simulated") else None
+            "dev_code": code if mail_res.get("simulated") else None,
+            "mail_error": mail_res.get("error") if mail_res.get("error") else None,
+            "smtp_configured": bool(os.environ.get("SMTP_HOST", "").strip())
         }
 
     def validate_reset_token(self, token: Optional[str] = None, code: Optional[str] = None, email: Optional[str] = None) -> Dict[str, Any]:
