@@ -185,6 +185,17 @@ if FASTAPI_AVAILABLE:
         points: Optional[int] = 2000
         capacity: Optional[int] = 32
         mission_pack: Optional[str] = "11th Edition Core"
+        game_system_id: Optional[str] = None
+        pairing_style: Optional[str] = "swiss"
+        default_round_length: Optional[int] = 9000
+        hide_lists: Optional[bool] = False
+        hide_roster: Optional[bool] = False
+        hide_placings: Optional[bool] = False
+        require_lists: Optional[bool] = False
+        passwordless_scoring: Optional[bool] = True
+        ticket_price: Optional[int] = 0
+        using_online_reg: Optional[bool] = False
+        time_zone: Optional[str] = "America/Los_Angeles"
         bcp_token: Optional[str] = None
 
     @app.get("/api/eventstudio/events", summary="List organizer tournaments")
@@ -351,27 +362,31 @@ if FASTAPI_AVAILABLE:
                 venue_str = payload.venue or f"{city_str} Venue"
                 country_str = payload.country or "United States"
 
+                game_sys = payload.game_system_id or DEFAULT_GAME_SYSTEM_ID
+                tz_str = payload.time_zone or "America/Los_Angeles"
+                round_len = int(payload.default_round_length or 9000)
+
                 bcp_payload = {
                     "name": payload.name,
                     "ownerId": bcp_owner_id,
-                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                    "gameSystemId": game_sys,
                     "gameType": "singles",
                     "eventSubType": "standard",
                     "boardGameEvent": False,
                     "eventDate": event_date_iso,
                     "eventEndDate": end_date_iso,
                     "endDate": end_date_iso,
-                    "pairingStyle": "swiss",
+                    "pairingStyle": payload.pairing_style or "swiss",
                     "numberOfRounds": payload.rounds or 5,
                     "points": payload.points or 2000,
                     "startingTable": 1,
-                    "hidePlacings": False,
-                    "hideRoster": False,
+                    "hidePlacings": bool(payload.hide_placings),
+                    "hideRoster": bool(payload.hide_roster),
                     "hidePlayerCount": False,
-                    "defaultRoundLength": 9000,
+                    "defaultRoundLength": round_len,
                     "enablePasswords": True,
-                    "passwordlessScoring": True,
-                    "hideLists": False,
+                    "passwordlessScoring": bool(payload.passwordless_scoring if payload.passwordless_scoring is not None else True),
+                    "hideLists": bool(payload.hide_lists),
                     "listOptions": {"allowsFiles": True, "allowsImages": True, "allowsText": True},
                     "location": {
                         "name": venue_str,
@@ -379,10 +394,10 @@ if FASTAPI_AVAILABLE:
                         "city": city_str,
                         "state": state_str,
                         "country": country_str,
-                        "timeZone": "America/Los_Angeles"
+                        "timeZone": tz_str
                     },
-                    "ticketPrice": 0,
-                    "usingOnlineReg": False,
+                    "ticketPrice": int(payload.ticket_price or 0),
+                    "usingOnlineReg": bool(payload.using_online_reg),
                     "description": payload.mission_pack or "Created via OmniTactica Event Studio"
                 }
                 headers = DEFAULT_HEADERS.copy()
@@ -652,6 +667,290 @@ if FASTAPI_AVAILABLE:
             "success": True,
             "roster_count": len(roster),
             "event": saved
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round")
+    async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        target_round = int(payload.get("round") or payload.get("round_num") or (ev.get("current_round") or 1))
+        roster = [p for p in (ev.get("roster") or []) if not p.get("dropped")]
+        if not roster or len(roster) < 2:
+            raise HTTPException(status_code=400, detail="At least 2 active players required in roster to generate pairings")
+
+        pairings_map = ev.get("pairings") or {}
+        
+        # Calculate historical records and past opponents
+        records = {}
+        past_opponents = {}
+        for p in roster:
+            pid = str(p.get("id") or p.get("player_id") or p.get("name"))
+            records[pid] = {
+                "player": p,
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+                "points": 0,
+                "battle_points": 0,
+                "path_to_victory": 0,
+                "byes": 0
+            }
+            past_opponents[pid] = set()
+
+        for r_str, r_pairings in pairings_map.items():
+            try:
+                r_num = int(r_str)
+            except Exception:
+                continue
+            if r_num >= target_round:
+                continue
+            for match in (r_pairings or []):
+                p1_id = str(match.get("p1_id") or match.get("p1_name") or "")
+                p2_id = str(match.get("p2_id") or match.get("p2_name") or "")
+                p1_s = int(match.get("p1_score") or 0)
+                p2_s = int(match.get("p2_score") or 0)
+                is_bye = bool(match.get("is_bye") or not p2_id)
+
+                if p1_id in records:
+                    records[p1_id]["battle_points"] += p1_s
+                    if is_bye:
+                        records[p1_id]["wins"] += 1
+                        records[p1_id]["points"] += 3
+                        records[p1_id]["byes"] += 1
+                    elif p1_s > p2_s:
+                        records[p1_id]["wins"] += 1
+                        records[p1_id]["points"] += 3
+                        records[p1_id]["path_to_victory"] += (10 ** (10 - r_num))
+                    elif p1_s < p2_s:
+                        records[p1_id]["losses"] += 1
+                    else:
+                        records[p1_id]["draws"] += 1
+                        records[p1_id]["points"] += 1
+
+                if p2_id and p2_id in records and not is_bye:
+                    records[p2_id]["battle_points"] += p2_s
+                    past_opponents[p1_id].add(p2_id)
+                    past_opponents[p2_id].add(p1_id)
+                    if p2_s > p1_s:
+                        records[p2_id]["wins"] += 1
+                        records[p2_id]["points"] += 3
+                        records[p2_id]["path_to_victory"] += (10 ** (10 - r_num))
+                    elif p2_s < p1_s:
+                        records[p2_id]["losses"] += 1
+                    else:
+                        records[p2_id]["draws"] += 1
+                        records[p2_id]["points"] += 1
+
+        # Sort players by Swiss Points -> Path to Victory -> Battle Points -> Elo / Seed
+        sorted_players = sorted(
+            roster,
+            key=lambda p: (
+                -records.get(str(p.get("id") or p.get("player_id") or p.get("name")), {}).get("points", 0),
+                -records.get(str(p.get("id") or p.get("player_id") or p.get("name")), {}).get("path_to_victory", 0),
+                -records.get(str(p.get("id") or p.get("player_id") or p.get("name")), {}).get("battle_points", 0),
+                -float(p.get("elo") or p.get("current_elo") or 1500)
+            )
+        )
+
+        # Handle Bye for odd players count
+        bye_player = None
+        if len(sorted_players) % 2 != 0:
+            for candidate in reversed(sorted_players):
+                cid = str(candidate.get("id") or candidate.get("player_id") or candidate.get("name"))
+                if records.get(cid, {}).get("byes", 0) == 0:
+                    bye_player = candidate
+                    sorted_players.remove(candidate)
+                    break
+            if not bye_player and sorted_players:
+                bye_player = sorted_players.pop()
+
+        # Swiss pairing algorithm (greedy with rematch avoidance)
+        pairs = []
+        unpaired = list(sorted_players)
+        
+        while unpaired:
+            p1 = unpaired.pop(0)
+            p1_id = str(p1.get("id") or p1.get("player_id") or p1.get("name"))
+            p1_team = (p1.get("team") or p1.get("club") or "").strip().lower()
+
+            best_idx = 0
+            for i, p2 in enumerate(unpaired):
+                p2_id = str(p2.get("id") or p2.get("player_id") or p2.get("name"))
+                p2_team = (p2.get("team") or p2.get("club") or "").strip().lower()
+                is_rematch = p2_id in past_opponents.get(p1_id, set())
+                same_team = bool(p1_team and p2_team and p1_team == p2_team)
+                if not is_rematch and not same_team:
+                    best_idx = i
+                    break
+                elif not is_rematch:
+                    best_idx = i
+
+            p2 = unpaired.pop(best_idx)
+            pairs.append((p1, p2))
+
+        # Format pairings list
+        generated_pairings = []
+        table_num = int(ev.get("startingTable") or 1)
+        for p1, p2 in pairs:
+            generated_pairings.append({
+                "table": table_num,
+                "p1_id": str(p1.get("id") or p1.get("player_id") or p1.get("name")),
+                "p1_name": p1.get("name") or "Player 1",
+                "p1_faction": p1.get("faction") or "Unknown Faction",
+                "p1_army_list": p1.get("army_list") or "",
+                "p1_score": 0,
+                "p2_id": str(p2.get("id") or p2.get("player_id") or p2.get("name")),
+                "p2_name": p2.get("name") or "Player 2",
+                "p2_faction": p2.get("faction") or "Unknown Faction",
+                "p2_army_list": p2.get("army_list") or "",
+                "p2_score": 0,
+                "is_done": False,
+                "is_bye": False
+            })
+            table_num += 1
+
+        if bye_player:
+            generated_pairings.append({
+                "table": table_num,
+                "p1_id": str(bye_player.get("id") or bye_player.get("player_id") or bye_player.get("name")),
+                "p1_name": bye_player.get("name") or "Player",
+                "p1_faction": bye_player.get("faction") or "Unknown Faction",
+                "p1_army_list": bye_player.get("army_list") or "",
+                "p1_score": 100,
+                "p2_id": None,
+                "p2_name": "BYE",
+                "p2_faction": "",
+                "p2_army_list": "",
+                "p2_score": 0,
+                "is_done": True,
+                "is_bye": True
+            })
+
+        pairings_map[str(target_round)] = generated_pairings
+        ev["pairings"] = pairings_map
+        ev["current_round"] = target_round
+        saved = db.save_studio_event(ev)
+
+        return {
+            "success": True,
+            "round": target_round,
+            "pairings": generated_pairings,
+            "event": saved
+        }
+
+    @app.get("/api/eventstudio/event/{event_id}/standings", summary="Compute live Swiss standings and tiebreaker metrics")
+    async def api_eventstudio_get_standings(event_id: str, request: Request):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        roster = ev.get("roster") or []
+        pairings_map = ev.get("pairings") or {}
+
+        # 1. Compute round-by-round statistics
+        player_stats = {}
+        for p in roster:
+            pid = str(p.get("id") or p.get("player_id") or p.get("name"))
+            player_stats[pid] = {
+                "id": pid,
+                "name": p.get("name") or "Player",
+                "faction": p.get("faction") or "Unknown Faction",
+                "team": p.get("team") or p.get("club") or "",
+                "dropped": bool(p.get("dropped")),
+                "checked_in": bool(p.get("checked_in")),
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+                "swiss_points": 0,
+                "path_to_victory": 0,
+                "battle_points": 0,
+                "battle_points_diff": 0,
+                "opponents": [],
+                "rounds_played": 0
+            }
+
+        for r_str, r_pairings in sorted(pairings_map.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else 0):
+            try:
+                r_num = int(r_str)
+            except Exception:
+                continue
+            for match in (r_pairings or []):
+                p1_id = str(match.get("p1_id") or match.get("p1_name") or "")
+                p2_id = str(match.get("p2_id") or match.get("p2_name") or "")
+                p1_s = int(match.get("p1_score") or 0)
+                p2_s = int(match.get("p2_score") or 0)
+                is_done = bool(match.get("is_done") or p1_s > 0 or p2_s > 0)
+                is_bye = bool(match.get("is_bye") or not p2_id)
+
+                if is_done and p1_id in player_stats:
+                    player_stats[p1_id]["rounds_played"] += 1
+                    player_stats[p1_id]["battle_points"] += p1_s
+                    player_stats[p1_id]["battle_points_diff"] += (p1_s - p2_s)
+                    if is_bye:
+                        player_stats[p1_id]["wins"] += 1
+                        player_stats[p1_id]["swiss_points"] += 3
+                        player_stats[p1_id]["path_to_victory"] += (10 ** (10 - r_num))
+                    elif p1_s > p2_s:
+                        player_stats[p1_id]["wins"] += 1
+                        player_stats[p1_id]["swiss_points"] += 3
+                        player_stats[p1_id]["path_to_victory"] += (10 ** (10 - r_num))
+                    elif p1_s < p2_s:
+                        player_stats[p1_id]["losses"] += 1
+                    else:
+                        player_stats[p1_id]["draws"] += 1
+                        player_stats[p1_id]["swiss_points"] += 1
+
+                if is_done and p2_id and p2_id in player_stats and not is_bye:
+                    player_stats[p1_id]["opponents"].append(p2_id)
+                    player_stats[p2_id]["opponents"].append(p1_id)
+                    player_stats[p2_id]["rounds_played"] += 1
+                    player_stats[p2_id]["battle_points"] += p2_s
+                    player_stats[p2_id]["battle_points_diff"] += (p2_s - p1_s)
+                    if p2_s > p1_s:
+                        player_stats[p2_id]["wins"] += 1
+                        player_stats[p2_id]["swiss_points"] += 3
+                        player_stats[p2_id]["path_to_victory"] += (10 ** (10 - r_num))
+                    elif p2_s < p1_s:
+                        player_stats[p2_id]["losses"] += 1
+                    else:
+                        player_stats[p2_id]["draws"] += 1
+                        player_stats[p2_id]["swiss_points"] += 1
+
+        # 2. Compute Opponent Win % (Strength of Schedule)
+        for pid, stats in player_stats.items():
+            opp_win_rates = []
+            for opp_id in stats["opponents"]:
+                if opp_id in player_stats:
+                    opp = player_stats[opp_id]
+                    tot = max(1, opp["rounds_played"])
+                    wr = (opp["wins"] + (0.5 * opp["draws"])) / tot
+                    opp_win_rates.append(max(0.33, wr))
+            stats["opp_win_rate_sos"] = round((sum(opp_win_rates) / max(1, len(opp_win_rates))) * 100.0, 1) if opp_win_rates else 33.0
+
+        # 3. Sort Standings by Swiss Points -> Path to Victory -> SoS -> Battle Points
+        standings = sorted(
+            player_stats.values(),
+            key=lambda s: (
+                -s["swiss_points"],
+                -s["path_to_victory"],
+                -s["opp_win_rate_sos"],
+                -s["battle_points"],
+                -s["battle_points_diff"]
+            )
+        )
+
+        for idx, item in enumerate(standings, 1):
+            item["rank"] = idx
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "total_players": len(standings),
+            "standings": standings
         }
 
     @app.post("/api/eventstudio/submit_score", summary="Submit table match score and sync with BCP")

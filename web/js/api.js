@@ -324,6 +324,29 @@ window.api = {
     });
   },
 
+  // EventStudio: Generate Swiss Pairings
+  async generateStudioPairings(eventId, payload = {}) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Get Standings
+  async getStudioStandings(eventId) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/standings`);
+  },
+
+  // EventStudio: Submit Score
+  async submitStudioScore(payload) {
+    return this._fetchJson('/api/eventstudio/submit_score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  },
+
   // EventStudio: Create Judge Call (from Game Room)
   async createJudgeCall(payload) {
     return this._fetchJson('/api/eventstudio/judge_call', {
