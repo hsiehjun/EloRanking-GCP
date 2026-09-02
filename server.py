@@ -7,6 +7,7 @@ import json
 import secrets
 import asyncio
 import re
+import time
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -44,7 +45,7 @@ try:
         MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
         BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
     )
-    from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db, PostgresDatabase
+    from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db
     from google3.experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
     from google3.experimental.users.hsiehjun.EloRanking.elo import EloEngine
 except ImportError:
@@ -54,7 +55,7 @@ except ImportError:
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
         )
-        from experimental.users.hsiehjun.EloRanking.database import Database, get_db, PostgresDatabase
+        from experimental.users.hsiehjun.EloRanking.database import Database, get_db
         from experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
         from experimental.users.hsiehjun.EloRanking.elo import EloEngine
     except ImportError:
@@ -63,7 +64,7 @@ except ImportError:
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
         )
-        from database import Database, get_db, PostgresDatabase
+        from database import Database, get_db
         from scraper import BestCoastPairingsScraper
         from elo import EloEngine
         from auth import get_auth_manager, _decode_jwt_payload
@@ -3748,11 +3749,6 @@ if FASTAPI_AVAILABLE:
         sort_by: str = Query("date"),
         limit: int = Query(35, ge=1, le=100)
     ):
-        cache_key = f"{player_id}_{query}_{tier}_{state}_{city}_{lat}_{lng}_{radius_miles}_{sort_by}_{limit}"
-        cached = PostgresDatabase.get_cached(PostgresDatabase._teams_cache_dict, f"rec_ev_{cache_key}", ttl=60)
-        if cached:
-            return cached
-
         db = get_database()
         now_dt = datetime.now(timezone.utc)
         player_id_clean = player_id.strip() if player_id else None
@@ -3808,29 +3804,69 @@ if FASTAPI_AVAILABLE:
         if not user_lat and target_city and target_city.strip().lower() in KNOWN_CITIES:
             user_lat, user_lng = KNOWN_CITIES[target_city.strip().lower()]
 
-        # 2. Query upcoming & recent events directly from PostgreSQL database (<10ms)
-        with db.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                cursor.execute("""
-                SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
-                FROM events
-                WHERE event_date >= CURRENT_DATE - INTERVAL '14 days' AND event_date <= CURRENT_DATE + INTERVAL '120 days'
-                ORDER BY event_date ASC
-                LIMIT 300;
-                """)
-                bcp_events = [dict(r) for r in cursor.fetchall()]
+        # 2. Query live upcoming events from BCP API
+        bcp_events = []
+        now_ts = time.time()
+        if not hasattr(api_events_recommended, "_cache"):
+            api_events_recommended._cache = {"timestamp": 0, "events": []}
 
-        # Fallback to recent events if 0 upcoming
-        if not bcp_events:
-            with db.get_connection() as conn:
-                with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                    cursor.execute("""
-                    SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
-                    FROM events
-                    ORDER BY event_date DESC
-                    LIMIT 100;
-                    """)
-                    bcp_events = [dict(r) for r in cursor.fetchall()]
+        if now_ts - api_events_recommended._cache["timestamp"] < 90 and api_events_recommended._cache["events"]:
+            bcp_events = list(api_events_recommended._cache["events"])
+        else:
+            headers = DEFAULT_HEADERS.copy()
+            windows = [
+                (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=35)).strftime("%Y-%m-%dT23:59:59.999Z")),
+                ((now_dt + timedelta(days=36)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=75)).strftime("%Y-%m-%dT23:59:59.999Z")),
+                ((now_dt + timedelta(days=76)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59.999Z"))
+            ]
+            fetched_bcp = []
+            for s_iso, e_iso in windows:
+                next_key = None
+                for _ in range(4):  # Up to 200 events per window
+                    params = {
+                        "limit": 50,
+                        "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                        "startDate": s_iso,
+                        "endDate": e_iso
+                    }
+                    if next_key:
+                        params["nextKey"] = next_key
+                    url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
+                    try:
+                        req = urllib.request.Request(url, headers=headers)
+                        with urllib.request.urlopen(req, timeout=3.5) as resp:
+                            data = json.loads(resp.read().decode())
+                            evs = data.get("data", [])
+                            fetched_bcp.extend(evs)
+                            next_key = data.get("nextKey")
+                            if not next_key:
+                                break
+                    except Exception as e:
+                        logger.warning(f"Live BCP query error: {e}")
+                        break
+
+            if fetched_bcp:
+                api_events_recommended._cache = {"timestamp": now_ts, "events": fetched_bcp}
+                bcp_events = list(fetched_bcp)
+
+            # Also merge with events already synced in local database
+            try:
+                with db.get_connection() as conn:
+                    with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                        cursor.execute("""
+                        SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
+                        FROM events
+                        WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
+                        ORDER BY event_date ASC
+                        LIMIT 150;
+                        """)
+                        db_evs = [dict(r) for r in cursor.fetchall()]
+                        seen_ids_temp = {e.get("id") or e.get("objectId") for e in bcp_events if e.get("id") or e.get("objectId")}
+                        for dbev in db_evs:
+                            if dbev.get("id") not in seen_ids_temp:
+                                bcp_events.append(dbev)
+            except Exception as e:
+                logger.warning(f"Database query notice: {e}")
 
         def haversine_miles(lat1, lon1, lat2, lon2):
             R = 3958.8
@@ -4033,7 +4069,6 @@ if FASTAPI_AVAILABLE:
             "events": sorted_events[:limit],
             "total": len(sorted_events)
         }
-        PostgresDatabase.set_cached(PostgresDatabase._teams_cache_dict, f"rec_ev_{cache_key}", res)
         return res
 
     # API: Tournament Details & Round Pairings
