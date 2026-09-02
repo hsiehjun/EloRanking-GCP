@@ -3865,14 +3865,7 @@ if FASTAPI_AVAILABLE:
     @app.get("/connect", include_in_schema=False)
     @app.get("/sparring", include_in_schema=False)
     async def serve_connect_page():
-        connect_file = web_dir / "connect.html"
-        if connect_file.exists():
-            return FileResponse(
-                str(connect_file),
-                media_type="text/html",
-                headers={"Cache-Control": "no-cache, must-revalidate"}
-            )
-        raise HTTPException(status_code=404, detail="connect.html not found")
+        return RedirectResponse(url="/#connect", status_code=303)
 
     @app.get("/my-hub", include_in_schema=False)
     @app.get("/hub", include_in_schema=False)
@@ -4215,6 +4208,7 @@ if FASTAPI_AVAILABLE:
         lat: Optional[float] = Query(None),
         lng: Optional[float] = Query(None),
         radius_miles: Optional[float] = Query(None),
+        months_ahead: int = Query(2, ge=1, le=12),
         sort_by: str = Query("date"),
         limit: int = Query(35, ge=1, le=100)
     ):
@@ -4277,7 +4271,8 @@ if FASTAPI_AVAILABLE:
         bcp_events = []
         now_ts = time.time()
         effective_radius = int(radius_miles) if radius_miles and radius_miles > 0 else 50
-        geo_key = f"{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}"
+        days_ahead = max(30, int(months_ahead * 30.5))
+        geo_key = f"{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}_{months_ahead}"
         
         if not hasattr(api_events_recommended, "_cache"):
             api_events_recommended._cache = {}
@@ -4295,7 +4290,7 @@ if FASTAPI_AVAILABLE:
                     "limit": 50,
                     "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
                     "startDate": now_dt.strftime("%Y-%m-%dT00:00:00.000Z"),
-                    "endDate": (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59.999Z"),
+                    "endDate": (now_dt + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z"),
                     "excludeOnline": "true",
                     "sortKey": "eventDate",
                     "sortAscending": "true",
@@ -4369,9 +4364,10 @@ if FASTAPI_AVAILABLE:
                         SELECT id, name, event_date, city, state, country, total_players, num_rounds, is_ended, raw_json
                         FROM events
                         WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
+                          AND event_date <= CURRENT_DATE + (INTERVAL '1 day' * %s)
                         ORDER BY event_date ASC
                         LIMIT 150;
-                        """)
+                        """, (days_ahead,))
                         db_evs = [dict(r) for r in cursor.fetchall()]
                         seen_ids_temp = {e.get("id") or e.get("objectId") for e in bcp_events if e.get("id") or e.get("objectId")}
                         for dbev in db_evs:

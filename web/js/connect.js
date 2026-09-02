@@ -1,26 +1,24 @@
 /* ==========================================================================
-   OMNICONNECT: LOCAL SPARRING RADAR & MATCH CHAT CLIENT
+   OMNICONNECT: LOCAL SPARRING RADAR & MATCH CHAT (TAB MODULE)
    ========================================================================== */
 
 const connectState = {
-  activeTab: 'players',
+  activeSubtab: 'players',
   userProfile: null,
   activeRequestId: null,
   playersList: [],
   requestsList: [],
   tournamentsList: [],
   chatPollInterval: null,
-  placesAutocomplete: null
+  placesAutocomplete: null,
+  initialized: false
 };
 
-document.addEventListener('DOMContentLoaded', async () => {
-  await initConnect();
-});
-
-async function initConnect() {
+// Global entry point called when switching to 'connect' tab
+async function initConnectTab() {
   const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
   if (!token) {
-    window.location.href = '/login?redirect=/connect';
+    window.location.href = '/login?redirect=' + encodeURIComponent('/#connect');
     return;
   }
 
@@ -28,35 +26,189 @@ async function initConnect() {
     const res = await window.api.getConnectProfile();
     if (res && res.success) {
       connectState.userProfile = res.profile;
-      renderUserStatusHero(res.profile);
+      renderTopBarOptions(res.profile);
     }
   } catch (err) {
     console.warn("Failed to load LFG profile:", err);
   }
 
-  // Load Google Places SDK dynamically for venue inputs
   initConnectGooglePlaces();
 
-  // Load initial tab
-  const urlParams = new URLSearchParams(window.location.search);
-  const initialTab = urlParams.get('tab') || 'players';
-  switchConnectTab(initialTab);
+  // Load current subtab
+  switchConnectSubtab(connectState.activeSubtab || 'players');
 
-  // Load unread badge
+  // Update unread badge
   updateUnreadCountBadge();
-  setInterval(updateUnreadCountBadge, 15000);
+  if (!connectState.initialized) {
+    connectState.initialized = true;
+    setInterval(updateUnreadCountBadge, 15000);
+  }
+}
+
+// Keep backwards-compat alias
+window.initConnect = initConnectTab;
+
+/* --------------------------------------------------------------------------
+   TOP BAR: THE 2 CORE OPTIONS (Status & Location)
+   -------------------------------------------------------------------------- */
+function renderTopBarOptions(profile) {
+  if (!profile) return;
+  const dot = document.getElementById('user-status-dot');
+  const text = document.getElementById('user-status-text');
+  const btn = document.getElementById('btn-toggle-lfg');
+  const locText = document.getElementById('user-location-text');
+
+  const isActive = Boolean(profile.is_active);
+  if (isActive) {
+    if (dot) {
+      dot.style.background = '#10b981';
+      dot.style.boxShadow = '0 0 8px #10b981';
+    }
+    if (text) text.textContent = 'Available for Games';
+    if (btn) {
+      btn.style.background = 'rgba(16,185,129,0.15)';
+      btn.style.color = '#10b981';
+      btn.style.borderColor = 'rgba(16,185,129,0.35)';
+      btn.title = 'Click to switch to Off Duty';
+    }
+  } else {
+    if (dot) {
+      dot.style.background = '#64748b';
+      dot.style.boxShadow = 'none';
+    }
+    if (text) text.textContent = 'Off Duty (Hidden)';
+    if (btn) {
+      btn.style.background = 'rgba(100,116,139,0.15)';
+      btn.style.color = '#94a3b8';
+      btn.style.borderColor = 'rgba(100,116,139,0.3)';
+      btn.title = 'Click to broadcast you are looking for games';
+    }
+  }
+
+  if (locText) {
+    const venue = profile.home_venue_name || `${profile.city || 'San Diego'}, ${profile.state || 'CA'}`;
+    const radius = profile.radius_miles || 30;
+    locText.textContent = `${venue} (${radius} mi)`;
+  }
+}
+
+async function toggleUserLfgStatus() {
+  if (!connectState.userProfile) {
+    connectState.userProfile = { is_active: false, radius_miles: 30, latitude: 32.7157, longitude: -117.1611 };
+  }
+  const newStatus = !connectState.userProfile.is_active;
+
+  try {
+    const payload = {
+      ...connectState.userProfile,
+      is_active: newStatus
+    };
+    const res = await window.api.saveConnectProfile(payload);
+    if (res && res.success) {
+      connectState.userProfile.is_active = newStatus;
+      renderTopBarOptions(connectState.userProfile);
+      if (connectState.activeSubtab === 'players') {
+        loadNearbyPlayers();
+      }
+    }
+  } catch (err) {
+    alert('Failed to update status: ' + err.message);
+  }
 }
 
 /* --------------------------------------------------------------------------
-   TAB NAVIGATION
+   LOCATION MODAL (SET LOCATION & RADIUS)
    -------------------------------------------------------------------------- */
-function switchConnectTab(tabName) {
-  connectState.activeTab = tabName;
+function openEditLocationModal() {
+  const p = connectState.userProfile || {};
+  const modal = document.getElementById('edit-location-modal');
+  if (!modal) return;
+
+  const venue = document.getElementById('modal-lfg-venue');
+  const addr = document.getElementById('modal-lfg-address');
+  const city = document.getElementById('modal-lfg-city');
+  const state = document.getElementById('modal-lfg-state');
+  const country = document.getElementById('modal-lfg-country');
+  const lat = document.getElementById('modal-lfg-lat');
+  const lng = document.getElementById('modal-lfg-lng');
+  const rad = document.getElementById('modal-lfg-radius');
+  const pts = document.getElementById('modal-lfg-points');
+  const style = document.getElementById('modal-lfg-style');
+
+  if (venue) venue.value = p.home_venue_name || (p.city ? `${p.city}, ${p.state || ''}` : '');
+  if (addr) addr.value = p.address || '';
+  if (city) city.value = p.city || 'San Diego';
+  if (state) state.value = p.state || 'CA';
+  if (country) country.value = p.country || 'United States';
+  if (lat) lat.value = p.latitude || 32.7157;
+  if (lng) lng.value = p.longitude || -117.1611;
+  if (rad) rad.value = p.radius_miles || 30;
+  if (pts) pts.value = p.preferred_points || 2000;
+  if (style) style.value = p.play_style || 'Competitive';
+
+  modal.style.display = 'flex';
+  setTimeout(attachModalPlacesAutocomplete, 100);
+}
+
+function closeEditLocationModal() {
+  const modal = document.getElementById('edit-location-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleSaveLocation(e) {
+  e.preventDefault();
+  const venue = document.getElementById('modal-lfg-venue');
+  const addr = document.getElementById('modal-lfg-address');
+  const city = document.getElementById('modal-lfg-city');
+  const state = document.getElementById('modal-lfg-state');
+  const country = document.getElementById('modal-lfg-country');
+  const lat = document.getElementById('modal-lfg-lat');
+  const lng = document.getElementById('modal-lfg-lng');
+  const rad = document.getElementById('modal-lfg-radius');
+  const pts = document.getElementById('modal-lfg-points');
+  const style = document.getElementById('modal-lfg-style');
+
+  const payload = {
+    ...(connectState.userProfile || {}),
+    is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
+    home_venue_name: venue ? venue.value.trim() : '',
+    address: addr ? addr.value.trim() : '',
+    city: city ? city.value.trim() : 'San Diego',
+    state: state ? state.value.trim() : 'CA',
+    country: country ? country.value.trim() : 'United States',
+    latitude: lat && lat.value ? parseFloat(lat.value) : 32.7157,
+    longitude: lng && lng.value ? parseFloat(lng.value) : -117.1611,
+    radius_miles: rad ? parseInt(rad.value, 10) : 30,
+    preferred_points: pts ? parseInt(pts.value, 10) : 2000,
+    play_style: style ? style.value : 'Competitive'
+  };
+
+  try {
+    const res = await window.api.saveConnectProfile(payload);
+    if (res && res.success) {
+      connectState.userProfile = { ...connectState.userProfile, ...payload };
+      renderTopBarOptions(connectState.userProfile);
+      closeEditLocationModal();
+      if (connectState.activeSubtab === 'players') loadNearbyPlayers();
+      if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
+    } else {
+      alert('Failed to save location: ' + (res?.error || 'Unknown error'));
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   SUBTAB NAVIGATION
+   -------------------------------------------------------------------------- */
+function switchConnectSubtab(tabName) {
+  connectState.activeSubtab = tabName;
 
   const tabs = ['players', 'tournaments', 'chats'];
   tabs.forEach(t => {
-    const btn = document.getElementById(`tab-btn-${t}`);
-    const view = document.getElementById(`view-${t}`);
+    const btn = document.getElementById(`subtab-btn-${t}`);
+    const view = document.getElementById(`subview-${t}`);
     if (btn) btn.classList.toggle('active', t === tabName);
     if (view) view.style.display = (t === tabName) ? 'block' : 'none';
   });
@@ -74,176 +226,7 @@ function switchConnectTab(tabName) {
 }
 
 /* --------------------------------------------------------------------------
-   HERO STATUS & LFG TOGGLE
-   -------------------------------------------------------------------------- */
-function renderUserStatusHero(profile) {
-  if (!profile) return;
-  const dot = document.getElementById('user-status-dot');
-  const title = document.getElementById('user-status-title');
-  const pill = document.getElementById('user-status-pill');
-  const desc = document.getElementById('user-status-desc');
-  const btn = document.getElementById('btn-toggle-lfg');
-
-  const isActive = Boolean(profile.is_active);
-  const venue = profile.home_venue_name || `${profile.city || 'Local Area'}, ${profile.state || ''}`;
-
-  if (isActive) {
-    if (dot) {
-      dot.style.background = '#10b981';
-      dot.style.boxShadow = '0 0 12px #10b981';
-    }
-    if (title) title.textContent = '🟢 Visible on Sparring Radar';
-    if (pill) {
-      pill.textContent = 'LOOKING FOR GAMES';
-      pill.style.background = 'rgba(16,185,129,0.15)';
-      pill.style.color = '#10b981';
-      pill.style.borderColor = 'rgba(16,185,129,0.3)';
-    }
-    if (desc) desc.textContent = `Broadcasting to opponents within ${profile.radius_miles || 30} miles of ${venue} • Preferred: ${profile.preferred_points || 2000} pts (${profile.play_style || 'Competitive'})`;
-    if (btn) {
-      btn.textContent = '⏸️ Set to Off Duty';
-      btn.style.background = 'rgba(239, 68, 68, 0.15)';
-      btn.style.color = '#ef4444';
-      btn.style.borderColor = 'rgba(239, 68, 68, 0.35)';
-    }
-  } else {
-    if (dot) {
-      dot.style.background = '#64748b';
-      dot.style.boxShadow = 'none';
-    }
-    if (title) title.textContent = '⚪ Sparring Radar Off Duty';
-    if (pill) {
-      pill.textContent = 'HIDDEN / OFF DUTY';
-      pill.style.background = 'rgba(100,116,139,0.2)';
-      pill.style.color = '#94a3b8';
-      pill.style.borderColor = 'rgba(100,116,139,0.3)';
-    }
-    if (desc) desc.textContent = 'Turn on "Available for Games" to let nearby players find you for competitive & practice matches.';
-    if (btn) {
-      btn.textContent = '🟢 Available for Games';
-      btn.style.background = 'rgba(16,185,129,0.15)';
-      btn.style.color = '#10b981';
-      btn.style.borderColor = 'rgba(16,185,129,0.35)';
-    }
-  }
-}
-
-async function toggleUserLfgStatus() {
-  if (!connectState.userProfile) return;
-  const newStatus = !connectState.userProfile.is_active;
-
-  try {
-    const payload = {
-      ...connectState.userProfile,
-      is_active: newStatus
-    };
-    const res = await window.api.saveConnectProfile(payload);
-    if (res && res.success) {
-      connectState.userProfile.is_active = newStatus;
-      renderUserStatusHero(connectState.userProfile);
-      if (connectState.activeTab === 'players') {
-        loadNearbyPlayers();
-      }
-    }
-  } catch (err) {
-    alert('Failed to update status: ' + err.message);
-  }
-}
-
-/* --------------------------------------------------------------------------
-   EDIT LFG PREFERENCES MODAL
-   -------------------------------------------------------------------------- */
-function openEditLfgModal() {
-  const p = connectState.userProfile || {};
-  const modal = document.getElementById('edit-lfg-modal');
-  if (!modal) return;
-
-  const chk = document.getElementById('modal-lfg-active');
-  const venue = document.getElementById('modal-lfg-venue');
-  const addr = document.getElementById('modal-lfg-address');
-  const city = document.getElementById('modal-lfg-city');
-  const state = document.getElementById('modal-lfg-state');
-  const country = document.getElementById('modal-lfg-country');
-  const lat = document.getElementById('modal-lfg-lat');
-  const lng = document.getElementById('modal-lfg-lng');
-  const rad = document.getElementById('modal-lfg-radius');
-  const pts = document.getElementById('modal-lfg-points');
-  const style = document.getElementById('modal-lfg-style');
-  const facs = document.getElementById('modal-lfg-factions');
-  const notes = document.getElementById('modal-lfg-notes');
-
-  if (chk) chk.checked = Boolean(p.is_active);
-  if (venue) venue.value = p.home_venue_name || (p.city ? `${p.city}, ${p.state || ''}` : '');
-  if (addr) addr.value = p.address || '';
-  if (city) city.value = p.city || 'San Diego';
-  if (state) state.value = p.state || 'CA';
-  if (country) country.value = p.country || 'United States';
-  if (lat) lat.value = p.latitude || 32.7157;
-  if (lng) lng.value = p.longitude || -117.1611;
-  if (rad) rad.value = p.radius_miles || 30;
-  if (pts) pts.value = p.preferred_points || 2000;
-  if (style) style.value = p.play_style || 'Competitive';
-  if (facs) facs.value = p.factions || '';
-  if (notes) notes.value = p.availability_notes || '';
-
-  modal.style.display = 'flex';
-  setTimeout(attachModalPlacesAutocomplete, 100);
-}
-
-function closeEditLfgModal() {
-  const modal = document.getElementById('edit-lfg-modal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function handleSaveLfgProfile(e) {
-  e.preventDefault();
-  const chk = document.getElementById('modal-lfg-active');
-  const venue = document.getElementById('modal-lfg-venue');
-  const addr = document.getElementById('modal-lfg-address');
-  const city = document.getElementById('modal-lfg-city');
-  const state = document.getElementById('modal-lfg-state');
-  const country = document.getElementById('modal-lfg-country');
-  const lat = document.getElementById('modal-lfg-lat');
-  const lng = document.getElementById('modal-lfg-lng');
-  const rad = document.getElementById('modal-lfg-radius');
-  const pts = document.getElementById('modal-lfg-points');
-  const style = document.getElementById('modal-lfg-style');
-  const facs = document.getElementById('modal-lfg-factions');
-  const notes = document.getElementById('modal-lfg-notes');
-
-  const payload = {
-    is_active: chk ? chk.checked : false,
-    home_venue_name: venue ? venue.value.trim() : '',
-    address: addr ? addr.value.trim() : '',
-    city: city ? city.value.trim() : 'San Diego',
-    state: state ? state.value.trim() : 'CA',
-    country: country ? country.value.trim() : 'United States',
-    latitude: lat && lat.value ? parseFloat(lat.value) : 32.7157,
-    longitude: lng && lng.value ? parseFloat(lng.value) : -117.1611,
-    radius_miles: rad ? parseInt(rad.value, 10) : 30,
-    preferred_points: pts ? parseInt(pts.value, 10) : 2000,
-    play_style: style ? style.value : 'Competitive',
-    factions: facs ? facs.value.trim() : '',
-    availability_notes: notes ? notes.value.trim() : ''
-  };
-
-  try {
-    const res = await window.api.saveConnectProfile(payload);
-    if (res && res.success) {
-      connectState.userProfile = { ...connectState.userProfile, ...payload };
-      renderUserStatusHero(connectState.userProfile);
-      closeEditLfgModal();
-      loadNearbyPlayers();
-    } else {
-      alert('Failed to save profile: ' + (res.error || 'Unknown error'));
-    }
-  } catch (err) {
-    alert('Error saving preferences: ' + err.message);
-  }
-}
-
-/* --------------------------------------------------------------------------
-   TAB 1: LOAD NEARBY LFG PLAYERS
+   SUBVIEW 1: SPARRING PARTNERS (LFG RADAR)
    -------------------------------------------------------------------------- */
 async function loadNearbyPlayers() {
   const container = document.getElementById('players-grid');
@@ -274,9 +257,9 @@ async function loadNearbyPlayers() {
       container.innerHTML = `
         <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);">
           <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">🛡️</div>
-          <h3 style="color: #fff; font-size: 1.15rem; margin-bottom: 0.4rem;">No Active Players Within ${radius} Miles</h3>
+          <h3 style="color: #fff; font-size: 1.15rem; margin-bottom: 0.4rem;">No Active Opponents Found Within ${radius} Miles</h3>
           <p style="color: #94a3b8; font-size: 0.85rem; max-width: 480px; margin: 0 auto 1.25rem;">
-            Be the first in your area to activate your radar! Or try expanding your search radius to 50 or 100 miles.
+            Make sure your status is set to "Available for Games" above! Or try expanding your search radius to 50 or 100 miles.
           </p>
           <button onclick="document.getElementById('filter-radius').value='50'; loadNearbyPlayers();" class="btn btn-primary" style="padding: 0.55rem 1.2rem;">
             Expand Search Radius to 50 Miles
@@ -295,19 +278,19 @@ async function loadNearbyPlayers() {
       let actionHtml = '';
       if (player.existing_request_status === 'accepted') {
         actionHtml = `
-          <button onclick="openChatWithRequest('${player.existing_request_id}')" class="btn" style="width: 100%; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-weight: 700; padding: 0.55rem;">
+          <button onclick="openChatWithRequest('${player.existing_request_id}')" class="btn" style="width: 100%; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-weight: 700; padding: 0.5rem; font-size: 0.82rem;">
             💬 Open Chat & Match Room
           </button>
         `;
       } else if (player.existing_request_status === 'pending') {
         actionHtml = `
-          <div style="text-align: center; font-size: 0.82rem; font-weight: 700; color: #f59e0b; padding: 0.55rem; background: rgba(245,158,11,0.1); border-radius: 6px; border: 1px solid rgba(245,158,11,0.25);">
+          <div style="text-align: center; font-size: 0.8rem; font-weight: 700; color: #f59e0b; padding: 0.5rem; background: rgba(245,158,11,0.1); border-radius: 6px; border: 1px solid rgba(245,158,11,0.25);">
             ⏳ Sparring Request Pending
           </div>
         `;
       } else {
         actionHtml = `
-          <button onclick="openProposeMatchModal('${player.player_id}', '${escapeHtml(player.display_name)}', '${escapeHtml(venueStr)}')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700;">
+          <button onclick="openProposeMatchModal('${player.player_id}', '${escapeHtml(player.display_name)}', '${escapeHtml(venueStr)}')" class="btn btn-primary" style="width: 100%; padding: 0.5rem; font-weight: 700; font-size: 0.82rem;">
             ⚔️ Propose Sparring Match
           </button>
         `;
@@ -332,8 +315,8 @@ async function loadNearbyPlayers() {
 
             <div style="background: rgba(15,23,42,0.6); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.85rem; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;">
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-muted);">Home Store:</span>
-                <span style="font-weight: 600; color: #cbd5e1; max-width: 180px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(venueStr)}</span>
+                <span style="color: var(--text-muted);">Home Venue:</span>
+                <span style="font-weight: 600; color: #cbd5e1; max-width: 170px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(venueStr)}</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
                 <span style="color: var(--text-muted);">Faction:</span>
@@ -346,7 +329,7 @@ async function loadNearbyPlayers() {
             </div>
 
             ${player.availability_notes ? `
-              <div style="font-size: 0.78rem; color: #94a3b8; line-height: 1.4; margin-bottom: 1rem; font-style: italic;">
+              <div style="font-size: 0.76rem; color: #94a3b8; line-height: 1.4; margin-bottom: 0.85rem; font-style: italic;">
                 "${escapeHtml(player.availability_notes)}"
               </div>
             ` : ''}
@@ -372,71 +355,7 @@ function getEloTierBadge(elo) {
 }
 
 /* --------------------------------------------------------------------------
-   PROPOSE MATCH MODAL
-   -------------------------------------------------------------------------- */
-function openProposeMatchModal(playerId, playerName, defaultVenue) {
-  const modal = document.getElementById('propose-match-modal');
-  if (!modal) return;
-
-  const idEl = document.getElementById('propose-target-id');
-  const nameEl = document.getElementById('propose-target-name');
-  const venueEl = document.getElementById('propose-venue');
-
-  if (idEl) idEl.value = playerId;
-  if (nameEl) nameEl.textContent = playerName;
-  if (venueEl) venueEl.value = defaultVenue || (connectState.userProfile?.home_venue_name || '');
-
-  modal.style.display = 'flex';
-}
-
-function closeProposeMatchModal() {
-  const modal = document.getElementById('propose-match-modal');
-  if (modal) modal.style.display = 'none';
-}
-
-async function handleSubmitMatchProposal(e) {
-  e.preventDefault();
-  const idEl = document.getElementById('propose-target-id');
-  const venueEl = document.getElementById('propose-venue');
-  const ptsEl = document.getElementById('propose-points');
-  const dateEl = document.getElementById('propose-date');
-  const noteEl = document.getElementById('propose-note');
-  const btn = document.getElementById('btn-submit-proposal');
-
-  const receiverId = idEl ? idEl.value : '';
-  const venue = venueEl ? venueEl.value.trim() : '';
-  const points = ptsEl ? parseInt(ptsEl.value, 10) : 2000;
-  const date = dateEl ? dateEl.value.trim() : '';
-  const note = noteEl ? noteEl.value.trim() : '';
-
-  if (!receiverId) return;
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Sending Challenge...';
-  }
-
-  try {
-    const res = await window.api.createConnectRequest(receiverId, venue, points, date, note);
-    if (res && res.success) {
-      alert('⚔️ Sparring request sent! Once the player accepts, you can chat and coordinate match rooms.');
-      closeProposeMatchModal();
-      loadNearbyPlayers();
-      updateUnreadCountBadge();
-    } else {
-      alert(res?.error || 'Failed to send request');
-    }
-  } catch (err) {
-    alert('Error: ' + err.message);
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = '⚔️ Send Sparring Request';
-    }
-  }
-}
-
-/* --------------------------------------------------------------------------
-   TAB 2: TOURNAMENT RADAR
+   SUBVIEW 2: TOURNAMENT RADAR (WITH CONFIGURABLE HORIZON)
    -------------------------------------------------------------------------- */
 async function loadNearbyTournaments() {
   const container = document.getElementById('tournaments-grid');
@@ -451,11 +370,12 @@ async function loadNearbyTournaments() {
 
   const p = connectState.userProfile || {};
   const radius = document.getElementById('tourney-filter-radius')?.value || 50;
+  const monthsAhead = document.getElementById('tourney-filter-months')?.value || 2;
   const lat = p.latitude || 32.7157;
   const lng = p.longitude || -117.1611;
 
   try {
-    const res = await window.api.getRecommendedEvents('', '', '', lat, lng, radius, 30);
+    const res = await window.api.getRecommendedEvents('', '', '', lat, lng, radius, 35, '', 'date', monthsAhead);
     const events = (res && res.events) ? res.events : [];
     connectState.tournamentsList = events;
 
@@ -465,7 +385,7 @@ async function loadNearbyTournaments() {
           <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📅</div>
           <h3 style="color: #fff; font-size: 1.15rem; margin-bottom: 0.4rem;">No Upcoming Tournaments Within ${radius} Miles</h3>
           <p style="color: #94a3b8; font-size: 0.85rem; max-width: 480px; margin: 0 auto;">
-            Try widening your search radius, or check back soon as local stores publish new BCP listings.
+            Try widening your distance or extending the time horizon to 3 or 6 months.
           </p>
         </div>
       `;
@@ -496,10 +416,10 @@ async function loadNearbyTournaments() {
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-            <a href="/eventstudio" class="btn" style="background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid var(--border); font-size: 0.8rem; text-align: center; text-decoration: none; padding: 0.5rem;">
+            <button onclick="switchTab('event-studio')" class="btn" style="background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid var(--border); font-size: 0.78rem; text-align: center; padding: 0.45rem;">
               Event Studio
-            </a>
-            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-primary" style="font-size: 0.8rem; text-align: center; text-decoration: none; padding: 0.5rem;">
+            </button>
+            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-primary" style="font-size: 0.78rem; text-align: center; text-decoration: none; padding: 0.45rem;">
               BCP Listing ↗
             </a>
           </div>
@@ -513,7 +433,7 @@ async function loadNearbyTournaments() {
 }
 
 /* --------------------------------------------------------------------------
-   TAB 3: MATCH CHATS & REQUESTS
+   SUBVIEW 3: MATCH CHATS & REQUESTS
    -------------------------------------------------------------------------- */
 async function loadUserRequests() {
   try {
@@ -527,7 +447,6 @@ async function loadUserRequests() {
     const pendingCount = document.getElementById('pending-count');
     const convoList = document.getElementById('chat-conversations-list');
 
-    // Filter pending incoming requests
     const incomingPending = requests.filter(r => r.status === 'pending' && r.receiver_id === myId);
     const acceptedConvos = requests.filter(r => r.status === 'accepted');
 
@@ -543,12 +462,12 @@ async function loadUserRequests() {
             <div style="font-size: 0.74rem; color: #94a3b8; margin-bottom: 6px;">
               🏪 ${escapeHtml(req.proposed_venue || 'Local Store')} • ${req.proposed_points || 2000} pts
             </div>
-            ${req.note ? `<div style="font-size: 0.75rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px;">"${escapeHtml(req.note)}"</div>` : ''}
+            ${req.note ? `<div style="font-size: 0.74rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px;">"${escapeHtml(req.note)}"</div>` : ''}
             <div style="display: flex; gap: 0.5rem;">
-              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; padding: 0.35rem; font-size: 0.75rem;">
+              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; padding: 0.32rem; font-size: 0.75rem;">
                 ✓ Accept & Chat
               </button>
-              <button onclick="respondToRequest('${req.id}', 'decline')" class="btn btn-outline" style="padding: 0.35rem 0.6rem; font-size: 0.75rem;">
+              <button onclick="respondToRequest('${req.id}', 'decline')" class="btn btn-outline" style="padding: 0.32rem 0.6rem; font-size: 0.75rem;">
                 ✕
               </button>
             </div>
@@ -577,11 +496,11 @@ async function loadUserRequests() {
           const unread = parseInt(req.unread_count || 0, 10);
 
           return `
-            <div onclick="selectConversation('${req.id}')" style="padding: 0.75rem 0.85rem; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; transition: background 0.15s; background: ${isSelected ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.02)'}; border: 1px solid ${isSelected ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.05)'};">
-              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0;">
-                <div class="oc-player-avatar" style="width: 34px; height: 34px; font-size: 0.85rem; flex-shrink: 0;">${initials}</div>
+            <div onclick="selectConversation('${req.id}')" style="padding: 0.65rem 0.75rem; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; transition: background 0.15s; background: ${isSelected ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.02)'}; border: 1px solid ${isSelected ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.05)'};">
+              <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+                <div class="oc-player-avatar" style="width: 32px; height: 32px; font-size: 0.82rem; flex-shrink: 0;">${initials}</div>
                 <div style="min-width: 0;">
-                  <div style="font-weight: 700; color: #fff; font-size: 0.86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(otherName)}</div>
+                  <div style="font-weight: 700; color: #fff; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(otherName)}</div>
                   <div style="font-size: 0.72rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(req.last_message || req.proposed_venue || 'Connected')}</div>
                 </div>
               </div>
@@ -595,7 +514,6 @@ async function loadUserRequests() {
       }
     }
 
-    // Auto-select first conversation if none selected
     if (!connectState.activeRequestId && acceptedConvos.length > 0) {
       selectConversation(acceptedConvos[0].id);
     }
@@ -622,26 +540,19 @@ async function respondToRequest(requestId, action) {
 
 function openChatWithRequest(requestId) {
   connectState.activeRequestId = requestId;
-  switchConnectTab('chats');
+  switchConnectSubtab('chats');
   selectConversation(requestId);
 }
 
 async function selectConversation(requestId) {
   connectState.activeRequestId = requestId;
-  const req = connectState.requestsList.find(r => r.id === requestId);
 
   const header = document.getElementById('chat-active-header');
   const inputForm = document.getElementById('chat-input-form');
-  const nameEl = document.getElementById('chat-active-name');
-  const eloEl = document.getElementById('chat-active-elo');
-  const subEl = document.getElementById('chat-active-sub');
-  const avatarEl = document.getElementById('chat-active-avatar');
-  const msgContainer = document.getElementById('chat-messages-container');
 
   if (header) header.style.display = 'flex';
   if (inputForm) inputForm.style.display = 'flex';
 
-  // Highlight selected in sidebar
   const convoList = document.getElementById('chat-conversations-list');
   if (convoList) {
     Array.from(convoList.children).forEach(child => {
@@ -666,9 +577,7 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
     const otherName = res.other_user_name || 'Opponent';
     const myId = connectState.userProfile?.player_id;
 
-    // Update Header
     const nameEl = document.getElementById('chat-active-name');
-    const eloEl = document.getElementById('chat-active-elo');
     const subEl = document.getElementById('chat-active-sub');
     const avatarEl = document.getElementById('chat-active-avatar');
 
@@ -680,9 +589,9 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
     if (messages.length === 0) {
       msgContainer.innerHTML = `
         <div style="text-align: center; margin: auto; color: #64748b;">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">🤝</div>
-          <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Match Challenge Accepted!</div>
-          <div style="font-size: 0.8rem; margin-top: 4px;">Say hi and coordinate your battle round timing, store location, or share a live match room code.</div>
+          <div style="font-size: 2rem; margin-bottom: 0.4rem;">🤝</div>
+          <div style="font-weight: 700; color: #fff; font-size: 0.92rem;">Match Challenge Accepted!</div>
+          <div style="font-size: 0.78rem; margin-top: 4px;">Coordinate your game timing, store table, or share a live match room code.</div>
         </div>
       `;
       return;
@@ -697,13 +606,13 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
       let roomCard = '';
       if (m.room_key) {
         roomCard = `
-          <div style="margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(56,189,248,0.4); border-radius: 8px; padding: 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div style="margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(56,189,248,0.4); border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
             <div>
-              <div style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">🎲 Live Game Tracker Room</div>
-              <div style="font-family: monospace; font-size: 1rem; font-weight: 800; color: #fff;">${m.room_key}</div>
+              <div style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">🎲 Live Game Tracker Room</div>
+              <div style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #fff;">${m.room_key}</div>
             </div>
-            <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.75rem; text-decoration: none;">
-              Join Match Room ↗
+            <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.72rem; text-decoration: none;">
+              Join Room ↗
             </a>
           </div>
         `;
@@ -751,14 +660,13 @@ async function handleSendChatMessage(e) {
 async function createGameTrackerRoomForChat() {
   if (!connectState.activeRequestId) return;
 
-  // Generate random 6-character room code
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let roomCode = "";
   for (let i = 0; i < 6; i++) {
     roomCode += chars.charAt(Math.floor(Math.random() * chars.length));
   }
 
-  const msg = `🎲 I generated an OmniTactica Game Tracker match room for our game! Click the button below to join the digital scoreboard.`;
+  const msg = `🎲 I generated an OmniTactica Game Tracker match room! Click the button below to join the digital scorecard.`;
 
   try {
     const res = await window.api.sendConnectMessage(connectState.activeRequestId, msg, roomCode);
@@ -773,7 +681,7 @@ async function createGameTrackerRoomForChat() {
 function startChatPolling() {
   stopChatPolling();
   connectState.chatPollInterval = setInterval(() => {
-    if (connectState.activeTab === 'chats') {
+    if (connectState.activeSubtab === 'chats') {
       refreshActiveMessages(true);
       loadUserRequests();
     }
@@ -787,9 +695,6 @@ function stopChatPolling() {
   }
 }
 
-/* --------------------------------------------------------------------------
-   UNREAD COUNT NOTIFICATION BADGE
-   -------------------------------------------------------------------------- */
 async function updateUnreadCountBadge() {
   try {
     const res = await window.api.getConnectUnreadCount();
@@ -807,7 +712,7 @@ async function updateUnreadCountBadge() {
 }
 
 /* --------------------------------------------------------------------------
-   GOOGLE PLACES AUTOCOMPLETE FOR MODAL
+   GOOGLE PLACES AUTOCOMPLETE
    -------------------------------------------------------------------------- */
 async function initConnectGooglePlaces() {
   try {
@@ -881,6 +786,70 @@ function attachModalPlacesAutocomplete() {
 }
 
 window.attachModalPlacesAutocomplete = attachModalPlacesAutocomplete;
+
+/* --------------------------------------------------------------------------
+   PROPOSE MATCH MODAL
+   -------------------------------------------------------------------------- */
+function openProposeMatchModal(playerId, playerName, defaultVenue) {
+  const modal = document.getElementById('propose-match-modal');
+  if (!modal) return;
+
+  const idEl = document.getElementById('propose-target-id');
+  const nameEl = document.getElementById('propose-target-name');
+  const venueEl = document.getElementById('propose-venue');
+
+  if (idEl) idEl.value = playerId;
+  if (nameEl) nameEl.textContent = playerName;
+  if (venueEl) venueEl.value = defaultVenue || (connectState.userProfile?.home_venue_name || '');
+
+  modal.style.display = 'flex';
+}
+
+function closeProposeMatchModal() {
+  const modal = document.getElementById('propose-match-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleSubmitMatchProposal(e) {
+  e.preventDefault();
+  const idEl = document.getElementById('propose-target-id');
+  const venueEl = document.getElementById('propose-venue');
+  const ptsEl = document.getElementById('propose-points');
+  const dateEl = document.getElementById('propose-date');
+  const noteEl = document.getElementById('propose-note');
+  const btn = document.getElementById('btn-submit-proposal');
+
+  const receiverId = idEl ? idEl.value : '';
+  const venue = venueEl ? venueEl.value.trim() : '';
+  const points = ptsEl ? parseInt(ptsEl.value, 10) : 2000;
+  const date = dateEl ? dateEl.value.trim() : '';
+  const note = noteEl ? noteEl.value.trim() : '';
+
+  if (!receiverId) return;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+  }
+
+  try {
+    const res = await window.api.createConnectRequest(receiverId, venue, points, date, note);
+    if (res && res.success) {
+      alert('⚔️ Sparring request sent! When the opponent accepts, you can chat directly.');
+      closeProposeMatchModal();
+      loadNearbyPlayers();
+      updateUnreadCountBadge();
+    } else {
+      alert(res?.error || 'Failed to send request');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚔️ Send Sparring Request';
+    }
+  }
+}
 
 function escapeHtml(str) {
   if (!str) return '';

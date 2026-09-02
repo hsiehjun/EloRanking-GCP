@@ -427,7 +427,7 @@ window.api = {
   },
 
   // Recommended Events for User & Geo-Search
-  async getRecommendedEvents(playerId = '', query = '', tier = '', lat = null, lng = null, radius = null, limit = 35, state = '', sortBy = 'date') {
+  async getRecommendedEvents(playerId = '', query = '', tier = '', lat = null, lng = null, radius = null, limit = 35, state = '', sortBy = 'date', monthsAhead = 2) {
     const params = new URLSearchParams();
     if (playerId) params.append('player_id', playerId);
     if (query) params.append('query', query);
@@ -438,6 +438,7 @@ window.api = {
     if (radius !== null && radius !== undefined && radius !== '') params.append('radius_miles', radius);
     if (sortBy) params.append('sort_by', sortBy);
     if (limit) params.append('limit', limit);
+    if (monthsAhead) params.append('months_ahead', monthsAhead);
     return this._fetchJson(`/api/events/recommended?${params}`);
   },
 

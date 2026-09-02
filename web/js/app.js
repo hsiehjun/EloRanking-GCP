@@ -11,7 +11,7 @@ function switchTab(tabName) {
   }
 
   // Normalize alias names
-  if (tabName === 'tournaments') tabName = 'events';
+  if (tabName === 'tournaments' || tabName === 'events' || tabName === 'sparring') tabName = 'connect';
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
 
@@ -45,9 +45,12 @@ function switchTab(tabName) {
     loadLeaderboard();
   } else if (tabName === 'search') {
     switchSearchSubtab('players');
-  } else if (tabName === 'events') {
-    if (typeof loadEvents === 'function') loadEvents();
-    if (typeof loadTournaments === 'function') loadTournaments();
+  } else if (tabName === 'connect') {
+    if (!currentUser) {
+      window.location.href = '/login?redirect=' + encodeURIComponent('/#connect');
+      return;
+    }
+    if (typeof initConnectTab === 'function') initConnectTab();
   } else if (tabName === 'event-studio') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
@@ -323,7 +326,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal || params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
-  if (targetTab === 'tournaments') targetTab = 'events';
+  if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring') targetTab = 'connect';
   if (targetTab === 'eventstudio') targetTab = 'event-studio';
   if (targetTab) {
     switchTab(targetTab);

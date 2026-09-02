@@ -117,10 +117,6 @@ function renderMyHub(data) {
       </div>
 
       <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.75rem; width:100%; max-width:480px;">
-        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
-          <button class="subtab-btn" onclick="openUserSettingsModal()" style="font-size:0.8rem; padding:0.3rem 0.75rem;">⚙️ Account & Devices</button>
-          <button class="subtab-btn" onclick="handleLogout()" style="font-size:0.8rem; padding:0.3rem 0.75rem;">🚪 Sign Out</button>
-        </div>
         <div class="competitor-stat-grid">
           <div class="c-stat-box">
             <div class="c-stat-val" style="color: var(--accent);">${currentElo}</div>
