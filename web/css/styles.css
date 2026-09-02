@@ -2795,3 +2795,13 @@ input, select, textarea {
   gap: 0.75rem;
   background: rgba(15, 23, 42, 0.6);
 }
+
+/* Google Places Autocomplete dropdown over modals */
+.pac-container {
+  z-index: 100005 !important;
+  border-radius: 8px;
+  margin-top: 4px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  font-family: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}

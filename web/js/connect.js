@@ -883,7 +883,7 @@ async function initConnectGooglePlaces() {
     const apiKey = data?.key;
     if (apiKey && typeof google === 'undefined') {
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=attachModalPlacesAutocomplete`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=attachAllPlacesAutocompletes`;
       script.async = true;
       script.defer = true;
       document.head.appendChild(script);
@@ -891,9 +891,17 @@ async function initConnectGooglePlaces() {
   } catch (e) {}
 }
 
+function attachAllPlacesAutocompletes() {
+  attachModalPlacesAutocomplete();
+  attachProposeVenueAutocomplete();
+}
+window.attachAllPlacesAutocompletes = attachAllPlacesAutocompletes;
+
 function attachModalPlacesAutocomplete() {
   const venueInput = document.getElementById('modal-lfg-venue');
   if (!venueInput || typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+  if (venueInput._autocompleteAttached) return;
+  venueInput._autocompleteAttached = true;
 
   try {
     const autocomplete = new google.maps.places.Autocomplete(venueInput, {
@@ -948,6 +956,45 @@ function attachModalPlacesAutocomplete() {
 
 window.attachModalPlacesAutocomplete = attachModalPlacesAutocomplete;
 
+function attachProposeVenueAutocomplete() {
+  const venueInput = document.getElementById('propose-venue');
+  if (!venueInput || typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+  if (venueInput._autocompleteAttached) return;
+  venueInput._autocompleteAttached = true;
+
+  try {
+    const autocomplete = new google.maps.places.Autocomplete(venueInput, {
+      types: ['establishment', 'geocode'],
+      fields: ['name', 'formatted_address', 'geometry', 'address_components']
+    });
+
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (!place) return;
+
+      const placeName = place.name || '';
+      const formattedAddr = place.formatted_address || '';
+      const badge = document.getElementById('propose-loc-badge');
+
+      if (placeName && formattedAddr && !formattedAddr.startsWith(placeName)) {
+        venueInput.value = `${placeName} (${formattedAddr})`;
+      } else {
+        venueInput.value = placeName || formattedAddr || venueInput.value;
+      }
+
+      if (badge) {
+        badge.textContent = '✓ Venue Selected';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        badge.style.color = '#10b981';
+      }
+    });
+  } catch (err) {
+    console.warn("Notice attaching propose autocomplete:", err);
+  }
+}
+
+window.attachProposeVenueAutocomplete = attachProposeVenueAutocomplete;
+
 /* --------------------------------------------------------------------------
    PROPOSE MATCH MODAL
    -------------------------------------------------------------------------- */
@@ -958,12 +1005,19 @@ function openProposeMatchModal(playerId, playerName, defaultVenue) {
   const idEl = document.getElementById('propose-target-id');
   const nameEl = document.getElementById('propose-target-name');
   const venueEl = document.getElementById('propose-venue');
+  const badge = document.getElementById('propose-loc-badge');
 
   if (idEl) idEl.value = playerId;
   if (nameEl) nameEl.textContent = playerName;
   if (venueEl) venueEl.value = defaultVenue || (connectState.userProfile?.home_venue_name || '');
+  if (badge) {
+    badge.textContent = 'Google Places';
+    badge.style.background = 'rgba(56,189,248,0.18)';
+    badge.style.color = '#38bdf8';
+  }
 
   modal.style.display = 'flex';
+  setTimeout(attachProposeVenueAutocomplete, 100);
 }
 
 function closeProposeMatchModal() {

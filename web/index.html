@@ -2017,8 +2017,14 @@
         <input type="hidden" id="propose-target-id">
 
         <div class="form-group" style="margin-bottom: 1rem;">
-          <label class="form-label">Proposed Store / Club Venue</label>
-          <input type="text" id="propose-venue" class="search-input" style="width: 100%;" placeholder="e.g. The Dice Dojo or Mox Boarding House" required>
+          <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Proposed Store / Club Venue *</span>
+            <span id="propose-loc-badge" class="oc-badge" style="font-size: 0.7rem;">Google Places</span>
+          </label>
+          <div style="position: relative;">
+            <input type="text" id="propose-venue" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 36px;" placeholder="Search store, club, or address (e.g. Mox Boarding House)..." autocomplete="off" required>
+            <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 15px; pointer-events: none; opacity: 0.8;">📍</span>
+          </div>
         </div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
