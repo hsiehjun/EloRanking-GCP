@@ -1680,12 +1680,13 @@ class PostgresDatabase:
                 cursor.execute("""
                 SELECT 
                     ep.event_id,
-                    ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
-                    MAX(COALESCE(pr.current_elo, 1500.0)) as top_seed_elo,
-                    COUNT(ep.player_id) as total_enrolled,
-                    COUNT(pr.player_id) as rated_players_count
+                    ROUND(AVG(COALESCE(pr.current_elo, pr_name.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
+                    MAX(COALESCE(pr.current_elo, pr_name.current_elo, 1500.0)) as top_seed_elo,
+                    COUNT(DISTINCT ep.player_id) as total_enrolled,
+                    COUNT(DISTINCT COALESCE(pr.player_id, pr_name.player_id)) as rated_players_count
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                LEFT JOIN player_ratings pr_name ON LOWER(ep.full_name) = LOWER(pr_name.player_name)
                 WHERE ep.event_id = ANY(%s)
                 GROUP BY ep.event_id;
                 """, (event_ids,))

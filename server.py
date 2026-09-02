@@ -3923,7 +3923,87 @@ if FASTAPI_AVAILABLE:
 
         processed_events = []
         seen_ids = set()
-        field_stats = {}
+
+        # Batch query enrolled player stats from DB for all incoming events
+        ev_all_ids = [str(ev.get("id") or ev.get("objectId")) for ev in bcp_events if (ev.get("id") or ev.get("objectId"))]
+        try:
+            field_stats = db.get_events_field_stats(ev_all_ids)
+        except Exception as e:
+            logger.warning(f"Notice querying field stats: {e}")
+            field_stats = {}
+
+        if not hasattr(api_events_recommended, "_roster_cache"):
+            api_events_recommended._roster_cache = {}
+
+        # For nearby upcoming events with enrolled players not yet in DB, fetch live roster from BCP
+        headers = DEFAULT_HEADERS.copy()
+        for ev in bcp_events[:20]:
+            eid = str(ev.get("id") or ev.get("objectId") or "")
+            enrolled_cnt = int(ev.get("totalPlayers") or ev.get("total_players") or ev.get("enrolled_count") or 0)
+            if not eid or enrolled_cnt <= 0:
+                continue
+
+            # Check in-memory roster cache first (15-min TTL)
+            roster_cached = api_events_recommended._roster_cache.get(eid)
+            if roster_cached and (now_ts - roster_cached["timestamp"] < 900):
+                field_stats[eid] = roster_cached["stats"]
+                continue
+
+            if eid not in field_stats or not field_stats[eid].get("avg_field_elo"):
+                try:
+                    p_url = f"{BCP_API_BASE}/events/{eid}/players"
+                    p_req = urllib.request.Request(p_url, headers=headers)
+                    with urllib.request.urlopen(p_req, timeout=1.8) as p_resp:
+                        p_data = json.loads(p_resp.read().decode())
+                        active_p = p_data.get("active", [])
+                        if active_p:
+                            p_ids = []
+                            p_names = []
+                            for p in active_p:
+                                u = p.get("user") or {}
+                                fn = u.get("firstName") or p.get("firstName") or ""
+                                ln = u.get("lastName") or p.get("lastName") or ""
+                                nm = f"{fn} {ln}".strip() or p.get("name")
+                                pid = u.get("id") or p.get("userId") or p.get("id")
+                                if pid: p_ids.append(pid)
+                                if nm: p_names.append(nm.lower())
+
+                            # Query ratings from PostgreSQL for these enrolled players
+                            with db.get_connection() as conn:
+                                with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cur:
+                                    cur.execute("""
+                                        SELECT player_id, LOWER(player_name) as player_name, current_elo
+                                        FROM player_ratings
+                                        WHERE player_id = ANY(%s) OR LOWER(player_name) = ANY(%s);
+                                    """, (p_ids, p_names))
+                                    rated_rows = cur.fetchall()
+                                    found_ratings = {r["player_id"]: float(r["current_elo"]) for r in rated_rows if r.get("player_id")}
+                                    name_ratings = {r["player_name"]: float(r["current_elo"]) for r in rated_rows if r.get("player_name")}
+
+                            elos = []
+                            for p in active_p:
+                                u = p.get("user") or {}
+                                fn = u.get("firstName") or p.get("firstName") or ""
+                                ln = u.get("lastName") or p.get("lastName") or ""
+                                nm = f"{fn} {ln}".strip().lower()
+                                pid = u.get("id") or p.get("userId") or p.get("id")
+                                p_elo = found_ratings.get(pid) or name_ratings.get(nm)
+                                elos.append(p_elo if p_elo else 1500.0)
+
+                            if elos:
+                                calculated_stats = {
+                                    "avg_field_elo": round(sum(elos) / len(elos), 1),
+                                    "top_seed_elo": round(max(elos), 1),
+                                    "total_enrolled": len(active_p),
+                                    "rated_players_count": sum(1 for e in elos if e != 1500.0)
+                                }
+                                field_stats[eid] = calculated_stats
+                                api_events_recommended._roster_cache[eid] = {
+                                    "timestamp": now_ts,
+                                    "stats": calculated_stats
+                                }
+                except Exception as pe:
+                    logger.debug(f"Live roster fetch notice for {eid}: {pe}")
 
         for ev in bcp_events:
             ev_id = ev.get("id") or ev.get("objectId")
@@ -4021,20 +4101,22 @@ if FASTAPI_AVAILABLE:
                 else:
                     rounds = 3
 
-            if rounds >= 7:
+            # Tier strictly based on number of rounds: <=3 RTT/Local, 4-6 GT, >=7 Major, with capacity sanity check
+            tp = max(enrolled, cap)
+            if rounds >= 7 or tp >= 60:
                 tier = "Major"
                 tier_badge = "tier-S"
-                tier_baseline = 1680.0
-            elif rounds >= 4:
+                tier_baseline = 1720.0
+            elif rounds >= 4 or tp >= 28:
                 tier = "Grand Tournament"
                 tier_badge = "tier-A"
-                tier_baseline = 1580.0
+                tier_baseline = 1620.0
             else:
                 tier = "RTT / Local"
                 tier_badge = "tier-B"
-                tier_baseline = 1500.0
+                tier_baseline = 1530.0
 
-            # Dynamic Field Avg Elo from Enrolled Roster in PostgreSQL
+            # Dynamic Field Avg Elo from Enrolled Roster in PostgreSQL / BCP
             stats_entry = field_stats.get(str(ev_id)) or field_stats.get(ev_id)
             if stats_entry and stats_entry.get("avg_field_elo"):
                 avg_elo_val = float(stats_entry["avg_field_elo"])
@@ -4043,7 +4125,10 @@ if FASTAPI_AVAILABLE:
 
             if user_elo:
                 diff = avg_elo_val - user_elo
-                if abs(diff) <= 35:
+                if enrolled <= 1:
+                    skill_label = f"👥 {enrolled} Registered ({round(diff):+d} Elo)" if enrolled == 1 else "👥 Registration Open"
+                    skill_badge = "badge-match-prime"
+                elif abs(diff) <= 35:
                     skill_label = "🎯 Prime Skill Match"
                     skill_badge = "badge-match-prime"
                 elif diff > 35 and diff <= 110:
@@ -4056,7 +4141,10 @@ if FASTAPI_AVAILABLE:
                     skill_label = f"🏆 Favorable Match ({round(diff)} Elo)"
                     skill_badge = "badge-match-favorable"
             else:
-                skill_label = f"⭐ Field Avg: {round(avg_elo_val)} Elo"
+                if enrolled <= 1:
+                    skill_label = f"👥 {enrolled} Registered" if enrolled == 1 else "👥 Registration Open"
+                else:
+                    skill_label = f"⭐ Field Avg: {round(avg_elo_val)} Elo"
                 skill_badge = "badge-match-prime"
 
             processed_events.append({
