@@ -117,6 +117,167 @@ async function toggleUserLfgStatus() {
 }
 
 /* --------------------------------------------------------------------------
+   GPS GEOLOCATION SHARING
+   -------------------------------------------------------------------------- */
+async function shareCurrentLocation(inModalOnly = false) {
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported by your device or browser.");
+    return;
+  }
+
+  const btnTop = document.getElementById('btn-share-location');
+  const btnModal = document.getElementById('modal-btn-share-location');
+  const iconTop = document.getElementById('share-loc-icon');
+  const textTop = document.getElementById('share-loc-text');
+
+  if (iconTop) iconTop.textContent = '⏳';
+  if (textTop) textTop.textContent = 'Detecting...';
+  if (btnModal) {
+    btnModal.disabled = true;
+    btnModal.textContent = '⏳ Detecting GPS...';
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      let city = 'Local Tabletop';
+      let state = '';
+      let country = 'United States';
+      let venueName = 'Current Location';
+
+      // 1. Try reverse geocode with Google Maps Geocoder if loaded
+      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+        try {
+          const geocoder = new google.maps.Geocoder();
+          const response = await new Promise((resolve) => {
+            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+              if (status === 'OK' && results && results[0]) {
+                resolve(results[0]);
+              } else {
+                resolve(null);
+              }
+            });
+          });
+
+          if (response && response.address_components) {
+            for (const comp of response.address_components) {
+              const types = comp.types || [];
+              if (types.includes('locality')) city = comp.long_name;
+              if (types.includes('administrative_area_level_1')) state = comp.short_name || comp.long_name;
+              if (types.includes('country')) country = comp.long_name;
+            }
+            venueName = state ? `${city}, ${state}` : city;
+          }
+        } catch (e) {
+          console.warn("Google geocode notice:", e);
+        }
+      }
+
+      // 2. Fallback to OpenStreetMap reverse geocode
+      if (city === 'Local Tabletop') {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            city = addr.city || addr.town || addr.village || addr.suburb || addr.county || 'Nearby Area';
+            state = addr.state || '';
+            country = addr.country || 'United States';
+            venueName = state ? `${city}, ${state}` : city;
+          }
+        } catch (e) {
+          console.warn("Reverse geocode notice:", e);
+        }
+      }
+
+      // Fill in modal inputs if modal exists
+      const modal = document.getElementById('edit-location-modal');
+      const isModalOpen = modal && modal.style.display === 'flex';
+
+      const venueInput = document.getElementById('modal-lfg-venue');
+      const latEl = document.getElementById('modal-lfg-lat');
+      const lngEl = document.getElementById('modal-lfg-lng');
+      const cityEl = document.getElementById('modal-lfg-city');
+      const stateEl = document.getElementById('modal-lfg-state');
+      const countryEl = document.getElementById('modal-lfg-country');
+      const badge = document.getElementById('modal-loc-badge');
+
+      if (venueInput) venueInput.value = venueName;
+      if (latEl) latEl.value = lat;
+      if (lngEl) lngEl.value = lng;
+      if (cityEl) cityEl.value = city;
+      if (stateEl) stateEl.value = state;
+      if (countryEl) countryEl.value = country;
+      if (badge) {
+        badge.textContent = '✓ GPS Locked';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        badge.style.color = '#10b981';
+      }
+
+      // Reset button states
+      if (iconTop) iconTop.textContent = '🛰️';
+      if (textTop) textTop.textContent = 'Share My Location';
+      if (btnModal) {
+        btnModal.disabled = false;
+        btnModal.textContent = '✓ GPS Locked';
+      }
+
+      // If called from the top bar (not purely modal editing), auto-save and refresh!
+      if (!isModalOpen || !inModalOnly) {
+        const radius = connectState.userProfile?.radius_miles || 30;
+        const payload = {
+          ...(connectState.userProfile || {}),
+          is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
+          home_venue_name: venueName,
+          city: city,
+          state: state,
+          country: country,
+          latitude: lat,
+          longitude: lng,
+          radius_miles: radius
+        };
+
+        try {
+          const res = await window.api.saveConnectProfile(payload);
+          if (res && res.success) {
+            connectState.userProfile = { ...connectState.userProfile, ...payload };
+            renderTopBarOptions(connectState.userProfile);
+            closeEditLocationModal();
+            if (connectState.activeSubtab === 'players') loadNearbyPlayers();
+            if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
+          }
+        } catch (err) {
+          console.error("Auto-save GPS notice:", err);
+        }
+      }
+    },
+    (error) => {
+      console.warn("Geolocation error:", error);
+      if (iconTop) iconTop.textContent = '🛰️';
+      if (textTop) textTop.textContent = 'Share My Location';
+      if (btnModal) {
+        btnModal.disabled = false;
+        btnModal.textContent = '📍 Use Current GPS';
+      }
+      let msg = "Could not retrieve your location.";
+      if (error.code === error.PERMISSION_DENIED) {
+        msg = "Location permission was denied. Please allow location access in your browser or search for your city/store.";
+      } else if (error.code === error.TIMEOUT) {
+        msg = "Location request timed out. Please try again or type your city/store.";
+      }
+      alert(msg);
+    },
+    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+  );
+}
+
+window.shareCurrentLocation = shareCurrentLocation;
+
+/* --------------------------------------------------------------------------
    LOCATION MODAL (SET LOCATION & RADIUS)
    -------------------------------------------------------------------------- */
 function openEditLocationModal() {
