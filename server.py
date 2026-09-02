@@ -3807,34 +3807,46 @@ if FASTAPI_AVAILABLE:
         # 2. Query live upcoming events from BCP API
         bcp_events = []
         now_ts = time.time()
+        effective_radius = int(radius_miles) if radius_miles and radius_miles > 0 else 50
+        geo_key = f"{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}"
+        
         if not hasattr(api_events_recommended, "_cache"):
-            api_events_recommended._cache = {"timestamp": 0, "events": []}
+            api_events_recommended._cache = {}
 
-        if now_ts - api_events_recommended._cache["timestamp"] < 90 and api_events_recommended._cache["events"]:
-            bcp_events = list(api_events_recommended._cache["events"])
+        cached_entry = api_events_recommended._cache.get(geo_key)
+        if cached_entry and (now_ts - cached_entry["timestamp"] < 90) and cached_entry["events"]:
+            bcp_events = list(cached_entry["events"])
         else:
             headers = DEFAULT_HEADERS.copy()
-            windows = [
-                (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=35)).strftime("%Y-%m-%dT23:59:59.999Z")),
-                ((now_dt + timedelta(days=36)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=75)).strftime("%Y-%m-%dT23:59:59.999Z")),
-                ((now_dt + timedelta(days=76)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59.999Z"))
-            ]
             fetched_bcp = []
-            for s_iso, e_iso in windows:
+
+            if user_lat and user_lng:
+                # Direct BCP API server-side geospatial query (exact matching BCP web app)
+                params = {
+                    "limit": 50,
+                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                    "startDate": now_dt.strftime("%Y-%m-%dT00:00:00.000Z"),
+                    "endDate": (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59.999Z"),
+                    "excludeOnline": "true",
+                    "sortKey": "eventDate",
+                    "sortAscending": "true",
+                    "location": json.dumps({
+                        "distance": effective_radius,
+                        "distanceType": "miles",
+                        "center": {
+                            "lat": str(user_lat),
+                            "long": str(user_lng)
+                        }
+                    })
+                }
                 next_key = None
-                for _ in range(4):  # Up to 200 events per window
-                    params = {
-                        "limit": 50,
-                        "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
-                        "startDate": s_iso,
-                        "endDate": e_iso
-                    }
+                for _ in range(4):  # Up to 200 events
                     if next_key:
                         params["nextKey"] = next_key
                     url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
                     try:
                         req = urllib.request.Request(url, headers=headers)
-                        with urllib.request.urlopen(req, timeout=3.5) as resp:
+                        with urllib.request.urlopen(req, timeout=4.5) as resp:
                             data = json.loads(resp.read().decode())
                             evs = data.get("data", [])
                             fetched_bcp.extend(evs)
@@ -3842,11 +3854,42 @@ if FASTAPI_AVAILABLE:
                             if not next_key:
                                 break
                     except Exception as e:
-                        logger.warning(f"Live BCP query error: {e}")
+                        logger.warning(f"Live BCP geo query error: {e}")
                         break
+            else:
+                # Global / multi-window query when no GPS coordinates are active
+                windows = [
+                    (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=35)).strftime("%Y-%m-%dT23:59:59.999Z")),
+                    ((now_dt + timedelta(days=36)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=75)).strftime("%Y-%m-%dT23:59:59.999Z")),
+                    ((now_dt + timedelta(days=76)).strftime("%Y-%m-%dT00:00:00.000Z"), (now_dt + timedelta(days=120)).strftime("%Y-%m-%dT23:59:59.999Z"))
+                ]
+                for s_iso, e_iso in windows:
+                    next_key = None
+                    params = {
+                        "limit": 50,
+                        "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                        "startDate": s_iso,
+                        "endDate": e_iso
+                    }
+                    for _ in range(3):
+                        if next_key:
+                            params["nextKey"] = next_key
+                        url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
+                        try:
+                            req = urllib.request.Request(url, headers=headers)
+                            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                                data = json.loads(resp.read().decode())
+                                evs = data.get("data", [])
+                                fetched_bcp.extend(evs)
+                                next_key = data.get("nextKey")
+                                if not next_key:
+                                    break
+                        except Exception as e:
+                            logger.warning(f"Live BCP query error: {e}")
+                            break
 
             if fetched_bcp:
-                api_events_recommended._cache = {"timestamp": now_ts, "events": fetched_bcp}
+                api_events_recommended._cache[geo_key] = {"timestamp": now_ts, "events": fetched_bcp}
                 bcp_events = list(fetched_bcp)
 
             # Also merge with events already synced in local database
