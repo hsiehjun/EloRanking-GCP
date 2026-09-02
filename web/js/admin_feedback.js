@@ -102,23 +102,17 @@ async function fetchFeedbacks() {
     userDisplayName = u.display_name || u.email || 'Admin';
   }
 
-  const isAdmin = currentAdminUser && (
-    ['admin', 'superuser', 'developer', 'owner', 'to', 'referee'].includes(userRole) ||
-    userEmail === 'swimgeek751@gmail.com'
-  );
+  const isAdmin = currentAdminUser && userEmail === 'swimgeek751@gmail.com';
 
   if (!isAdmin) {
-    if (authGate) authGate.style.display = 'block';
-    if (mainContent) mainContent.style.display = 'none';
-    if (userBadge) {
-      userBadge.innerHTML = currentAdminUser ? 
-        `<span style="color:#ef4444; font-size:12px; font-weight:700;">⛔ ${escapeHtml(userEmail || 'User')} (Role: ${escapeHtml(userRole || 'player')})</span>` : 
-        `<a href="/login?redirect=${encodeURIComponent('/admin/feedback')}" class="nav-btn" style="color:#38bdf8;">🔑 Sign In as Admin</a>`;
-    }
+    window.location.replace('/');
     return;
   }
 
-  // User is authorized admin
+  // User is authorized admin: reveal UI
+  const guard = document.getElementById('admin-feedback-guard-style');
+  if (guard) guard.remove();
+
   if (authGate) authGate.style.display = 'none';
   if (mainContent) mainContent.style.display = 'block';
   if (userBadge) {

@@ -3818,7 +3818,17 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/admin/feedback", include_in_schema=False)
     @app.get("/admin/feedback.html", include_in_schema=False)
-    async def serve_admin_feedback():
+    async def serve_admin_feedback(request: Request, token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return RedirectResponse(url="/login?redirect=/admin/feedback", status_code=303)
+        user_role = (user.get("role") or "player").strip().lower()
+        user_email = (user.get("email") or "").strip().lower()
+        if user_role not in ("admin", "superuser", "developer", "owner") or user_email != "swimgeek751@gmail.com":
+            return RedirectResponse(url="/", status_code=303)
         af_file = web_dir / "admin_feedback.html"
         if af_file.exists():
             return FileResponse(str(af_file), media_type="text/html")
@@ -3835,9 +3845,8 @@ if FASTAPI_AVAILABLE:
             return RedirectResponse(url="/login?redirect=/admin", status_code=303)
         user_role = (user.get("role") or "player").strip().lower()
         user_email = (user.get("email") or "").strip().lower()
-        admin_emails = ('swimgeek751@gmail.com',)
-        if user_role not in ("admin", "superuser", "developer", "owner") or user_email not in admin_emails:
-            return RedirectResponse(url="/?error=unauthorized_admin", status_code=303)
+        if user_role not in ("admin", "superuser", "developer", "owner") or user_email != "swimgeek751@gmail.com":
+            return RedirectResponse(url="/", status_code=303)
         adm_file = web_dir / "admin.html"
         if adm_file.exists():
             return FileResponse(str(adm_file), media_type="text/html")
