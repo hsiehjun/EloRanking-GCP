@@ -21,8 +21,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=62.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=16.0">
+  <link rel="stylesheet" href="/css/styles.css?v=63.0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=17.0">
 
   <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
   <script>
@@ -142,17 +142,17 @@
 
           <div class="landing-auth-body">
             <!-- VIEW 1: SIGN IN -->
-            <form id="auth-form-login" onsubmit="handleNativeLogin(event)">
+            <form id="auth-form-login" onsubmit="handleNativeLogin(event)" autocomplete="off">
               <div style="margin-bottom: 1rem;">
                 <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
-                <input type="email" id="login-email" class="form-input" placeholder="commander@example.com" required autocomplete="username" style="width: 100%;">
+                <input type="email" id="login-email" class="form-input" placeholder="commander@example.com" required autocomplete="off" style="width: 100%;">
               </div>
               <div style="margin-bottom: 0.5rem;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
                   <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Password</label>
                   <a href="#" onclick="setAuthCardTab('forgot'); return false;" style="font-size: 0.74rem; color: #38bdf8; text-decoration: none;">Forgot?</a>
                 </div>
-                <input type="password" id="login-password" class="form-input" placeholder="••••••••••••" required autocomplete="current-password" style="width: 100%;">
+                <input type="password" id="login-password" class="form-input" placeholder="••••••••••••" required autocomplete="new-password" style="width: 100%;">
               </div>
 
               <div id="login-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
@@ -167,19 +167,19 @@
             </form>
 
             <!-- VIEW 2: CREATE ACCOUNT (Initiates 2FA) -->
-            <form id="auth-form-register" onsubmit="handleNativeRegister(event)" style="display: none;">
+            <form id="auth-form-register" onsubmit="handleNativeRegister(event)" autocomplete="off" style="display: none;">
               <div style="margin-bottom: 0.85rem;">
                 <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Competitor / Display Name</label>
-                <input type="text" id="reg-name" class="form-input" placeholder="e.g. Captain Titus" required style="width: 100%;">
+                <input type="text" id="reg-name" class="form-input" placeholder="e.g. Captain Titus" required autocomplete="off" style="width: 100%;">
                 <span style="font-size: 0.7rem; color: #64748b; margin-top: 2px; display: block;">Automatically matches your historical tournament ratings</span>
               </div>
               <div style="margin-bottom: 0.85rem;">
                 <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
-                <input type="email" id="reg-email" class="form-input" placeholder="commander@example.com" required style="width: 100%;">
+                <input type="email" id="reg-email" class="form-input" placeholder="commander@example.com" required autocomplete="off" style="width: 100%;">
               </div>
               <div style="margin-bottom: 0.5rem;">
                 <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Password (Min 6 chars)</label>
-                <input type="password" id="reg-password" class="form-input" placeholder="••••••••••••" minlength="6" required style="width: 100%;">
+                <input type="password" id="reg-password" class="form-input" placeholder="••••••••••••" minlength="6" required autocomplete="new-password" style="width: 100%;">
               </div>
 
               <div id="reg-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
@@ -1762,19 +1762,19 @@
   </div> <!-- #app-shell -->
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=62.0"></script>
-  <script src="/js/api.js?v=62.0"></script>
-  <script src="/js/leaderboard.js?v=62.0"></script>
-  <script src="/js/teams.js?v=62.0"></script>
-  <script src="/js/players.js?v=62.0"></script>
-  <script src="/js/tournaments.js?v=62.0"></script>
-  <script src="/js/factions.js?v=62.0"></script>
-  <script src="/js/predictor.js?v=62.0"></script>
-  <script src="/js/modals.js?v=62.0"></script>
-  <script src="/js/auth.js?v=62.0"></script>
-  <script src="/js/my_hub.js?v=62.0"></script>
-  <script src="/js/eventstudio.js?v=62.0"></script>
-  <script src="/js/app.js?v=62.0"></script>
+  <script src="/js/utils.js?v=63.0"></script>
+  <script src="/js/api.js?v=63.0"></script>
+  <script src="/js/leaderboard.js?v=63.0"></script>
+  <script src="/js/teams.js?v=63.0"></script>
+  <script src="/js/players.js?v=63.0"></script>
+  <script src="/js/tournaments.js?v=63.0"></script>
+  <script src="/js/factions.js?v=63.0"></script>
+  <script src="/js/predictor.js?v=63.0"></script>
+  <script src="/js/modals.js?v=63.0"></script>
+  <script src="/js/auth.js?v=63.0"></script>
+  <script src="/js/my_hub.js?v=63.0"></script>
+  <script src="/js/eventstudio.js?v=63.0"></script>
+  <script src="/js/app.js?v=63.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

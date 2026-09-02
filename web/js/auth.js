@@ -87,6 +87,12 @@ function setAuthCardTab(tab) {
   if (formVerify) formVerify.style.display = (tab === 'verify') ? 'block' : 'none';
   if (formForgot) formForgot.style.display = (tab === 'forgot') ? 'block' : 'none';
 
+  // Always wipe passwords when switching auth modes
+  const passInput = document.getElementById('login-password');
+  if (passInput) passInput.value = '';
+  const regPass = document.getElementById('reg-password');
+  if (regPass) regPass.value = '';
+
   if (tab === 'verify') {
     const codeInput = document.getElementById('verify-code-input');
     if (codeInput) {
@@ -123,6 +129,10 @@ async function handleNativeLogin(e) {
   try {
     const res = await window.api.login(email, password);
     if (res && res.success) {
+      if (passInput) passInput.value = '';
+      if (emailInput) emailInput.value = '';
+      const loginForm = document.getElementById('auth-form-login');
+      if (loginForm) loginForm.reset();
       localStorage.setItem('native_session_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
@@ -389,6 +399,18 @@ async function handleLogout() {
   localStorage.removeItem('bcp_session_token');
   document.cookie = 'session_token=; path=/; max-age=0';
   
+  // Wipe all form inputs and reset auth forms to ensure zero cached credentials
+  try {
+    const loginForm = document.getElementById('auth-form-login');
+    if (loginForm) loginForm.reset();
+    const regForm = document.getElementById('auth-form-register');
+    if (regForm) regForm.reset();
+    ['login-email', 'login-password', 'reg-name', 'reg-email', 'reg-password', 'verify-code-input', 'forgot-email'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  } catch (e) {}
+
   try {
     const url = new URL(window.location.href);
     url.search = '';
