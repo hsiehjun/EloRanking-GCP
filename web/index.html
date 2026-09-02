@@ -21,8 +21,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=60.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=14.0">
+  <link rel="stylesheet" href="/css/styles.css?v=61.0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=15.0">
 </head>
 <body>
 
@@ -34,7 +34,7 @@
     <header class="landing-nav">
       <div class="landing-nav-inner">
         <a href="#" class="logo-group">
-          <img src="/assets/logo.svg" alt="OmniTactica" style="width:38px; height:38px; border-radius:8px; border:1px solid rgba(56,189,248,0.3);" onerror="this.onerror=null; this.src='/logo-mark.svg';">
+          <img src="/assets/logo.svg" alt="OmniTactica" style="width:40px; height:40px; border-radius:10px; border:1px solid rgba(56,189,248,0.4); box-shadow: 0 0 14px rgba(56,189,248,0.25);" onerror="this.onerror=null; this.src='/logo-mark.svg';">
           <div>
             <div class="logo-title" style="display:flex; align-items:center; gap:6px;">
               <span style="font-weight:900; letter-spacing:0.04em; background: linear-gradient(135deg, #ffffff 0%, #38bdf8 60%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">OmniTactica</span>
@@ -45,8 +45,9 @@
 
         <div class="landing-nav-links">
           <a href="#features" class="landing-nav-link">Intelligence Features</a>
+          <a href="#tracker" class="landing-nav-link">Live Game Tracker</a>
           <a href="#tournaments" class="landing-nav-link">Tournament Radar</a>
-          <a href="#eventstudio" class="landing-nav-link">Event Studio & BCP</a>
+          <a href="#eventstudio" class="landing-nav-link">Event Studio</a>
           <a href="#predictor" class="landing-nav-link">Match Predictor</a>
         </div>
 
@@ -54,7 +55,7 @@
           <button onclick="setAuthCardTab('login'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="nav-btn" style="padding: 6px 14px; font-size: 0.82rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(15,23,42,0.6); cursor: pointer;">
             Sign In
           </button>
-          <button onclick="setAuthCardTab('register'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="bcp-login-btn" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800;">
+          <button onclick="setAuthCardTab('register'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="auth-submit-btn" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800;">
             ⚡ Create Account
           </button>
         </div>
@@ -64,16 +65,22 @@
     <!-- Hero Section -->
     <section class="landing-hero" id="landing-auth-card-anchor">
       <div class="landing-hero-left">
-        <div class="landing-badge">
-          <span>⚔️</span>
-          <span>Imperial Cogitator // Warhammer 40,000 Elo Network</span>
+        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 1.5rem;">
+          <img src="/assets/logo.svg" alt="OmniTactica" style="width: 58px; height: 58px; border-radius: 14px; border: 1.5px solid rgba(56, 189, 248, 0.5); box-shadow: 0 0 28px rgba(56, 189, 248, 0.35); flex-shrink: 0;" onerror="this.onerror=null; this.src='/logo-mark.svg';">
+          <div>
+            <div class="landing-badge" style="margin-bottom: 0;">
+              <span>🛡️</span>
+              <span>OmniTactica &bull; 40K Tournament Intelligence & Game Tracker</span>
+            </div>
+          </div>
         </div>
+
         <h1 class="landing-title">
           Quantify The Meta.<br>
           <span style="background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Dominate Every Matchup.</span>
         </h1>
         <p class="landing-subtitle">
-          The unified intelligence platform for Warhammer 40k tournament competitors and organizers. Real-time Elo tracking across <strong>92,100+</strong> rated players, 50-mile GPS tournament discovery, algorithmic win prediction, and dual-sync Event Studio with Best Coast Pairings.
+          The unified competitive intelligence platform for Warhammer 40k players and tournament organizers. Real-time Elo tracking across <strong>92,100+</strong> rated competitors, interactive live match scorekeeping, 50-mile GPS tournament radar, algorithmic win prediction, and tournament event management.
         </p>
 
         <!-- Stats Bar -->
@@ -84,15 +91,15 @@
           </div>
           <div>
             <div class="landing-stat-val">150,000+</div>
-            <div class="landing-stat-lbl">40k Matches Analyzed</div>
+            <div class="landing-stat-lbl">Matches Analyzed</div>
           </div>
           <div>
             <div class="landing-stat-val">50 mi</div>
-            <div class="landing-stat-lbl">GPS Tournament Radar</div>
+            <div class="landing-stat-lbl">Tournament Radar</div>
           </div>
           <div>
-            <div class="landing-stat-val">1-Click</div>
-            <div class="landing-stat-lbl">BCP Live Sync</div>
+            <div class="landing-stat-val">Real-Time</div>
+            <div class="landing-stat-lbl">Live Game Tracker</div>
           </div>
         </div>
       </div>
@@ -127,7 +134,7 @@
 
               <div id="login-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
 
-              <button type="submit" id="login-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
+              <button type="submit" id="login-submit-btn" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
                 Sign In to OmniTactica
               </button>
               
@@ -154,7 +161,7 @@
 
               <div id="reg-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
 
-              <button type="submit" id="reg-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
+              <button type="submit" id="reg-submit-btn" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
                 ⚡ Create Account (Send 2FA Code)
               </button>
 
@@ -180,7 +187,7 @@
 
               <div id="verify-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
 
-              <button type="button" id="btn-submit-verify" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleVerifyRegistrationCode()">
+              <button type="button" id="btn-submit-verify" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleVerifyRegistrationCode()">
                 ✓ Activate Account & Enter
               </button>
 
@@ -203,7 +210,7 @@
               <div id="forgot-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
               <div id="forgot-success" style="display: none; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
 
-              <button type="button" id="btn-submit-forgot" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleForgotPasswordSubmit()">
+              <button type="button" id="btn-submit-forgot" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleForgotPasswordSubmit()">
                 Send Password Reset Code
               </button>
 
@@ -225,7 +232,31 @@
       </div>
 
       <div class="landing-grid-4">
-        <!-- Feature 1 -->
+        <!-- Feature 1: Live Game Tracker (Flagship Spotlight) -->
+        <div class="landing-feat-card" id="tracker" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(14, 23, 42, 0.95) 0%, rgba(15, 30, 55, 0.85) 100%); border: 1.5px solid rgba(56, 189, 248, 0.4); box-shadow: 0 10px 30px rgba(56, 189, 248, 0.1);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.85rem;">
+              <div class="landing-feat-icon" style="margin-bottom: 0; background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); font-size: 1.5rem;">🎲</div>
+              <div>
+                <h3 class="landing-feat-title" style="margin-bottom: 0.2rem; font-size: 1.3rem;">Interactive Live Game Tracker</h3>
+                <span style="font-size: 0.75rem; color: #38bdf8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">Tabletop Digital Scoreboard & Rules Companion</span>
+              </div>
+            </div>
+            <span style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.3); padding: 3px 10px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.5px;">🔥 Flagship Feature</span>
+          </div>
+          <p class="landing-feat-desc" style="font-size: 0.92rem; line-height: 1.6; margin-bottom: 1rem;">
+            Track your matches live on the tabletop. Features full battle round turn progression, automated primary mission scoring, Tactical & Fixed secondary objective calculation, Command Points (CP) and Battle-shock tracking, instant P2P opponent room synchronization, and integrated Wahapedia stratagem and datasheet lookup.
+          </p>
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.75rem;">
+            <span style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; color: #cbd5e1;">⏱️ Turn Progression (R1-R5)</span>
+            <span style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; color: #cbd5e1;">🎯 Primary & Secondary VP Math</span>
+            <span style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; color: #cbd5e1;">⚡ CP & Battle-shock Tracker</span>
+            <span style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; color: #cbd5e1;">🔄 Real-Time Opponent Room Sync</span>
+            <span style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 4px 10px; border-radius: 6px; color: #cbd5e1;">📖 Direct Wahapedia Stratagem Intel</span>
+          </div>
+        </div>
+
+        <!-- Feature 2: Tournament Radar -->
         <div class="landing-feat-card" id="tournaments">
           <div class="landing-feat-icon">🎯</div>
           <h3 class="landing-feat-title">50-Mile Tournament Radar</h3>
@@ -234,16 +265,16 @@
           </p>
         </div>
 
-        <!-- Feature 2 -->
+        <!-- Feature 3: Event Studio -->
         <div class="landing-feat-card" id="eventstudio">
           <div class="landing-feat-icon">🛠️</div>
-          <h3 class="landing-feat-title">Event Studio & BCP Dual Publishing</h3>
+          <h3 class="landing-feat-title">Event Studio & Tournament Platform</h3>
           <p class="landing-feat-desc">
-            The modern Tournament Organizer suite. Create and manage tournaments with verified city/state geocoding, publish directly to Best Coast Pairings with 1 click, automate Swiss round pairings, and track live table scores.
+            The modern Tournament Organizer suite. Create and manage tournaments with verified city/state geocoding, automate Swiss round pairings, organize competitor rosters, and track live table scores.
           </p>
         </div>
 
-        <!-- Feature 3 -->
+        <!-- Feature 4: Elo Leaderboard -->
         <div class="landing-feat-card">
           <div class="landing-feat-icon">👑</div>
           <h3 class="landing-feat-title">92,100+ Player Global Elo Leaderboard</h3>
@@ -252,7 +283,7 @@
           </p>
         </div>
 
-        <!-- Feature 4 -->
+        <!-- Feature 5: Matchup Predictor -->
         <div class="landing-feat-card" id="predictor">
           <div class="landing-feat-icon">🔮</div>
           <h3 class="landing-feat-title">Algorithmic Matchup Predictor</h3>
@@ -267,7 +298,7 @@
     <footer class="landing-footer">
       <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem;">OMNITACTICA &bull; Warhammer 40k Competitor Network</div>
       <div style="color: #64748b; font-size: 0.75rem;">
-        An independent competitive platform not affiliated with Games Workshop or Best Coast Pairings.
+        An independent competitive platform not affiliated with Games Workshop.
       </div>
     </footer>
   </div>
@@ -1708,19 +1739,19 @@
   </div> <!-- #app-shell -->
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=60.0"></script>
-  <script src="/js/api.js?v=60.0"></script>
-  <script src="/js/leaderboard.js?v=60.0"></script>
-  <script src="/js/teams.js?v=60.0"></script>
-  <script src="/js/players.js?v=60.0"></script>
-  <script src="/js/tournaments.js?v=60.0"></script>
-  <script src="/js/factions.js?v=60.0"></script>
-  <script src="/js/predictor.js?v=60.0"></script>
-  <script src="/js/modals.js?v=60.0"></script>
-  <script src="/js/auth.js?v=60.0"></script>
-  <script src="/js/my_hub.js?v=60.0"></script>
-  <script src="/js/eventstudio.js?v=60.0"></script>
-  <script src="/js/app.js?v=60.0"></script>
+  <script src="/js/utils.js?v=61.0"></script>
+  <script src="/js/api.js?v=61.0"></script>
+  <script src="/js/leaderboard.js?v=61.0"></script>
+  <script src="/js/teams.js?v=61.0"></script>
+  <script src="/js/players.js?v=61.0"></script>
+  <script src="/js/tournaments.js?v=61.0"></script>
+  <script src="/js/factions.js?v=61.0"></script>
+  <script src="/js/predictor.js?v=61.0"></script>
+  <script src="/js/modals.js?v=61.0"></script>
+  <script src="/js/auth.js?v=61.0"></script>
+  <script src="/js/my_hub.js?v=61.0"></script>
+  <script src="/js/eventstudio.js?v=61.0"></script>
+  <script src="/js/app.js?v=61.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

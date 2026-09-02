@@ -1265,7 +1265,7 @@ input, select, textarea {
 /* ==========================================================================
    AUTHENTICATION & COMPETITOR HUB STYLES
    ========================================================================== */
-.bcp-login-btn {
+.bcp-login-btn, .auth-submit-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -1280,7 +1280,7 @@ input, select, textarea {
   transition: all var(--transition-fast);
 }
 
-.bcp-login-btn:hover {
+.bcp-login-btn:hover, .auth-submit-btn:hover {
   background: linear-gradient(135deg, #0369a1, #075985);
   box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
 }
