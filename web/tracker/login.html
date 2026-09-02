@@ -390,7 +390,19 @@
       const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
       if (token) {
         document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
-        window.location.replace(redirectUrl);
+        let target = redirectUrl;
+        if (target.startsWith('/admin')) {
+          try {
+            const p = JSON.parse(localStorage.getItem('native_user_profile') || '{}');
+            const email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
+            if (email !== 'swimgeek751@gmail.com') {
+              target = '/';
+            }
+          } catch(e) {
+            target = '/';
+          }
+        }
+        window.location.replace(target);
       }
     })();
 

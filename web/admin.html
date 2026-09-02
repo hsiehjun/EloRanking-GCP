@@ -10,6 +10,30 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <script>
+    (function() {
+      try {
+        var token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token');
+        var profileStr = localStorage.getItem('native_user_profile');
+        if (!token) {
+          document.documentElement.style.display = 'none';
+          window.location.replace('/');
+          return;
+        }
+        if (profileStr) {
+          var p = JSON.parse(profileStr);
+          var email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
+          if (email && email !== 'swimgeek751@gmail.com') {
+            document.documentElement.style.display = 'none';
+            window.location.replace('/');
+          }
+        }
+      } catch(e) {}
+    })();
+  </script>
   <style>
     :root {
       --bg: #070b14;

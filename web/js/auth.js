@@ -434,7 +434,7 @@ function renderHeaderAuth() {
 
   if (currentUser) {
     const name = currentUser.display_name || currentUser.email || 'Player';
-    const isAdmin = currentUser.role === 'admin';
+    const isAdmin = currentUser.role === 'admin' && (currentUser.email || '').toLowerCase() === 'swimgeek751@gmail.com';
     const adminLink = isAdmin ? `
       <a href="/admin" style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; font-weight:800; font-size:0.75rem; padding:3px 8px; border-radius:6px; text-decoration:none;" title="Admin Governance Dashboard">
         <span>🛡️</span> Admin

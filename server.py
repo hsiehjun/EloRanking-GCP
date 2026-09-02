@@ -3816,22 +3816,25 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(es_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="eventstudio.html not found")
 
+    NO_CACHE_HEADERS = {
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, proxy-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
     @app.get("/admin/feedback", include_in_schema=False)
     @app.get("/admin/feedback.html", include_in_schema=False)
     async def serve_admin_feedback(request: Request, token: Optional[str] = Query(None)):
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
-        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = token or request.cookies.get("session_token") or request.cookies.get("elo_auth_token") or request.cookies.get("native_session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
-        if not user:
-            return RedirectResponse(url="/login?redirect=/admin/feedback", status_code=303)
-        user_role = (user.get("role") or "player").strip().lower()
-        user_email = (user.get("email") or "").strip().lower()
-        if user_role not in ("admin", "superuser", "developer", "owner") or user_email != "swimgeek751@gmail.com":
-            return RedirectResponse(url="/", status_code=303)
+        user_email = ((user.get("email") or "") if user else "").strip().lower()
+        if not user or user_email != "swimgeek751@gmail.com":
+            return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
         af_file = web_dir / "admin_feedback.html"
         if af_file.exists():
-            return FileResponse(str(af_file), media_type="text/html")
+            return FileResponse(str(af_file), media_type="text/html", headers=NO_CACHE_HEADERS)
         raise HTTPException(status_code=404, detail="admin_feedback.html not found")
 
     @app.get("/admin", include_in_schema=False)
@@ -3839,17 +3842,14 @@ if FASTAPI_AVAILABLE:
     async def serve_admin_dashboard(request: Request, token: Optional[str] = Query(None)):
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
-        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = token or request.cookies.get("session_token") or request.cookies.get("elo_auth_token") or request.cookies.get("native_session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
-        if not user:
-            return RedirectResponse(url="/login?redirect=/admin", status_code=303)
-        user_role = (user.get("role") or "player").strip().lower()
-        user_email = (user.get("email") or "").strip().lower()
-        if user_role not in ("admin", "superuser", "developer", "owner") or user_email != "swimgeek751@gmail.com":
-            return RedirectResponse(url="/", status_code=303)
+        user_email = ((user.get("email") or "") if user else "").strip().lower()
+        if not user or user_email != "swimgeek751@gmail.com":
+            return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
         adm_file = web_dir / "admin.html"
         if adm_file.exists():
-            return FileResponse(str(adm_file), media_type="text/html")
+            return FileResponse(str(adm_file), media_type="text/html", headers=NO_CACHE_HEADERS)
         raise HTTPException(status_code=404, detail="admin.html not found")
 
 
