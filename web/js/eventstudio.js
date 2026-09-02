@@ -204,6 +204,10 @@ function switchStudioTab(tabName, eventId = null) {
 
   if (studioState.activeTab === "events") {
     renderEventsDirectory();
+  } else if (studioState.activeTab === "create") {
+    if (typeof initGooglePlaces === 'function') {
+      setTimeout(initGooglePlaces, 50);
+    }
   } else if (studioState.activeTab === "manage" && eventId) {
     loadTournamentWorkspace(eventId);
   }
@@ -314,27 +318,22 @@ async function submitCreateTournament() {
 
   const selectedCircuitName = circuitInput && circuitInput.selectedIndex >= 0 && circuitInput.value ? circuitInput.options[circuitInput.selectedIndex].text : "";
 
-  const verifiedEl = document.getElementById("create-event-loc-verified");
-  if (!verifiedEl || verifiedEl.value !== "true") {
-    const val = cityStateInput ? cityStateInput.value.trim() : "";
-    const match = findLocalHubMatch(val) || (studioLocCurrentMatches && studioLocCurrentMatches[0]);
-    if (match && val) {
-      selectStudioVerifiedLocation(match);
-    } else {
-      alert("⚠️ Please select a verified city from the location search dropdown to ensure your event appears accurately on Best Coast Pairings and nearby tournament discovery.");
-      if (cityStateInput) {
-        cityStateInput.focus();
-        handleStudioLocationInput(cityStateInput.value);
-      }
-      return;
-    }
-  }
-
+  const elAddress = document.getElementById("create-event-loc-address");
   const elCity = document.getElementById("create-event-loc-city");
   const elState = document.getElementById("create-event-loc-state");
   const elCountry = document.getElementById("create-event-loc-country");
+  const elPostal = document.getElementById("create-event-loc-postal");
   const elLat = document.getElementById("create-event-loc-lat");
   const elLng = document.getElementById("create-event-loc-lng");
+  const elPlaceId = document.getElementById("create-event-loc-place-id");
+  const verifiedEl = document.getElementById("create-event-loc-verified");
+
+  const venueStr = venueInput ? venueInput.value.trim() : "";
+  if (!venueStr) {
+    alert("⚠️ Please enter a venue or store location for your tournament.");
+    if (venueInput) venueInput.focus();
+    return;
+  }
 
   const payload = {
     name: name,
@@ -352,13 +351,16 @@ async function submitCreateTournament() {
     end_date: endInput ? endInput.value : (startInput ? startInput.value : ""),
     capacity: capacityInput ? parseInt(capacityInput.value, 10) : 32,
     points: pointsInput ? parseInt(pointsInput.value, 10) : 2000,
-    venue: venueInput ? venueInput.value.trim() : "",
-    city: elCity ? elCity.value.trim() : (cityStateInput ? cityStateInput.value.trim() : ""),
-    state: elState ? elState.value.trim() : "",
-    country: elCountry ? elCountry.value.trim() : "United States",
-    lat: elLat && elLat.value ? parseFloat(elLat.value) : null,
-    lng: elLng && elLng.value ? parseFloat(elLng.value) : null,
-    location_verified: true,
+    venue: venueStr,
+    address: elAddress && elAddress.value ? elAddress.value.trim() : venueStr,
+    postal_code: elPostal && elPostal.value ? elPostal.value.trim() : "",
+    place_id: elPlaceId && elPlaceId.value ? elPlaceId.value.trim() : "",
+    city: elCity && elCity.value ? elCity.value.trim() : (cityStateInput ? cityStateInput.value.trim() : "San Diego"),
+    state: elState && elState.value ? elState.value.trim() : "CA",
+    country: elCountry && elCountry.value ? elCountry.value.trim() : "United States",
+    lat: elLat && elLat.value ? parseFloat(elLat.value) : 32.7157,
+    lng: elLng && elLng.value ? parseFloat(elLng.value) : -117.1611,
+    location_verified: verifiedEl ? verifiedEl.value === "true" : true,
     hide_lists: hideListsInput ? hideListsInput.checked : true,
     require_lists: requireListsInput ? requireListsInput.checked : true,
     passwordless_scoring: passwordlessInput ? passwordlessInput.checked : true,
@@ -1903,3 +1905,163 @@ document.addEventListener("click", (e) => {
     dropdown.style.display = "none";
   }
 });
+
+/* ==========================================================================
+   GOOGLE MAPS PLACES AUTOCOMPLETE INTEGRATION FOR VENUE & COORDINATES
+   ========================================================================== */
+
+let googlePlacesAutocomplete = null;
+
+function initGooglePlaces() {
+  const venueInput = document.getElementById("create-event-venue");
+  if (!venueInput) return;
+  if (typeof google === "undefined" || !google.maps || !google.maps.places) {
+    console.warn("Google Maps Places API not yet loaded.");
+    return;
+  }
+  if (googlePlacesAutocomplete) {
+    return; // Already initialized
+  }
+
+  try {
+    googlePlacesAutocomplete = new google.maps.places.Autocomplete(venueInput, {
+      types: ["establishment", "geocode"],
+      fields: ["name", "formatted_address", "geometry", "address_components", "place_id"]
+    });
+
+    // Prevent submitting tournament creation form when user presses Enter to choose a prediction
+    venueInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const pacContainer = document.querySelector(".pac-container");
+        if (pacContainer && pacContainer.style.display !== "none") {
+          e.preventDefault();
+        }
+      }
+    });
+
+    googlePlacesAutocomplete.addListener("place_changed", () => {
+      const place = googlePlacesAutocomplete.getPlace();
+      if (!place || !place.geometry || !place.geometry.location) {
+        return;
+      }
+
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const placeName = place.name || venueInput.value;
+      const fullAddress = place.formatted_address || "";
+
+      // Fill hidden elements
+      const elAddress = document.getElementById("create-event-loc-address");
+      const elCity = document.getElementById("create-event-loc-city");
+      const elState = document.getElementById("create-event-loc-state");
+      const elCountry = document.getElementById("create-event-loc-country");
+      const elPostal = document.getElementById("create-event-loc-postal");
+      const elLat = document.getElementById("create-event-loc-lat");
+      const elLng = document.getElementById("create-event-loc-lng");
+      const elPlaceId = document.getElementById("create-event-loc-place-id");
+      const elVerified = document.getElementById("create-event-loc-verified");
+      const cityStateInput = document.getElementById("create-event-city-state");
+
+      if (elAddress) elAddress.value = fullAddress;
+      if (elLat) elLat.value = lat;
+      if (elLng) elLng.value = lng;
+      if (elPlaceId) elPlaceId.value = place.place_id || "";
+      if (elVerified) elVerified.value = "true";
+
+      // Parse address components
+      let city = "";
+      let state = "";
+      let country = "United States";
+      let postalCode = "";
+
+      if (place.address_components) {
+        for (const comp of place.address_components) {
+          const types = comp.types || [];
+          if (types.includes("locality")) {
+            city = comp.long_name;
+          } else if (!city && types.includes("sublocality")) {
+            city = comp.long_name;
+          } else if (!city && types.includes("postal_town")) {
+            city = comp.long_name;
+          }
+          if (types.includes("administrative_area_level_1")) {
+            state = comp.short_name || comp.long_name;
+          }
+          if (types.includes("country")) {
+            country = comp.long_name;
+          }
+          if (types.includes("postal_code")) {
+            postalCode = comp.long_name;
+          }
+        }
+      }
+
+      if (elCity) elCity.value = city;
+      if (elState) elState.value = state;
+      if (elCountry) elCountry.value = country;
+      if (elPostal) elPostal.value = postalCode;
+
+      const displayLoc = [city, state, country].filter(Boolean).join(", ");
+      if (cityStateInput) cityStateInput.value = displayLoc;
+
+      // Render verified venue confirmation card
+      const card = document.getElementById("create-event-selected-place");
+      const pName = document.getElementById("selected-place-name");
+      const pAddr = document.getElementById("selected-place-address");
+      const pCoords = document.getElementById("selected-place-coords");
+      if (card && pName && pAddr && pCoords) {
+        pName.textContent = placeName;
+        pAddr.textContent = fullAddress || displayLoc;
+        pCoords.textContent = `📍 Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}${postalCode ? " • Zip: " + postalCode : ""}`;
+        card.style.display = "block";
+      }
+
+      const badge = document.getElementById("create-event-loc-badge");
+      if (badge) {
+        badge.style.background = "rgba(16,185,129,0.15)";
+        badge.style.color = "#10b981";
+        badge.style.borderColor = "rgba(16,185,129,0.3)";
+        badge.textContent = "✓ Coordinates Locked";
+      }
+    });
+
+    console.log("✅ Google Maps Places Autocomplete attached to Venue input.");
+  } catch (err) {
+    console.error("Failed to initialize Google Maps Places:", err);
+  }
+}
+
+window.initGooglePlaces = initGooglePlaces;
+
+async function loadGoogleMapsSdk() {
+  if (typeof google !== "undefined" && google.maps && google.maps.places) {
+    initGooglePlaces();
+    return;
+  }
+  try {
+    const res = await fetch("/api/config/maps-key");
+    if (!res.ok) return;
+    const data = await res.json();
+    const apiKey = (data && data.key) ? data.key.trim() : "";
+    if (!apiKey) {
+      console.info("Google Maps API key not yet set in environment.");
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=initGooglePlaces`;
+    script.async = true;
+    script.defer = true;
+    document.head.appendChild(script);
+  } catch (err) {
+    console.warn("Notice loading Google Maps SDK:", err);
+  }
+}
+
+window.loadGoogleMapsSdk = loadGoogleMapsSdk;
+
+// Automatically load Google Maps SDK
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", loadGoogleMapsSdk);
+} else {
+  loadGoogleMapsSdk();
+}

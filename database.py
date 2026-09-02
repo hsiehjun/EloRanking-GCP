@@ -173,6 +173,14 @@ class PostgresDatabase:
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS event_type VARCHAR(32) DEFAULT 'singles';
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS team_size INT DEFAULT 1;
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS circuits JSONB DEFAULT '[]'::jsonb;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS venue TEXT;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS venue_name TEXT;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS address TEXT;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS postal_code VARCHAR(32);
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS place_id VARCHAR(128);
+                CREATE INDEX IF NOT EXISTS idx_events_lat_lng ON events (latitude, longitude) WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 
                 CREATE TABLE IF NOT EXISTS players (
                     id VARCHAR(64) PRIMARY KEY,
@@ -650,13 +658,25 @@ class PostgresDatabase:
             return
 
         with self.get_connection() as conn:
+            loc_obj = event_data.get("location") if isinstance(event_data.get("location"), dict) else {}
+            venue_val = event_data.get("venue_name") or event_data.get("venue") or loc_obj.get("name") or loc_obj.get("venue")
+            addr_val = event_data.get("address") or loc_obj.get("address")
+            zip_val = event_data.get("postal_code") or event_data.get("postalCode") or loc_obj.get("postalCode")
+            place_id_val = event_data.get("place_id") or loc_obj.get("placeId") or loc_obj.get("place_id")
+            lat_val = event_data.get("latitude") if event_data.get("latitude") is not None else event_data.get("lat")
+            lng_val = event_data.get("longitude") if event_data.get("longitude") is not None else event_data.get("lng")
+            if (lat_val is None or lng_val is None) and isinstance(loc_obj.get("coordinate"), list) and len(loc_obj["coordinate"]) >= 2:
+                lng_val = loc_obj["coordinate"][0]
+                lat_val = loc_obj["coordinate"][1]
+
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO events (
                     id, name, event_date, end_date, city, state, country,
                     total_players, num_rounds, current_round, is_ended,
-                    game_system_id, raw_json, scraped_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    game_system_id, raw_json, scraped_at,
+                    venue_name, address, postal_code, latitude, longitude, place_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
                     event_date = EXCLUDED.event_date,
@@ -670,22 +690,34 @@ class PostgresDatabase:
                     is_ended = EXCLUDED.is_ended,
                     game_system_id = EXCLUDED.game_system_id,
                     raw_json = EXCLUDED.raw_json,
-                    scraped_at = EXCLUDED.scraped_at;
+                    scraped_at = EXCLUDED.scraped_at,
+                    venue_name = COALESCE(EXCLUDED.venue_name, events.venue_name),
+                    address = COALESCE(EXCLUDED.address, events.address),
+                    postal_code = COALESCE(EXCLUDED.postal_code, events.postal_code),
+                    latitude = COALESCE(EXCLUDED.latitude, events.latitude),
+                    longitude = COALESCE(EXCLUDED.longitude, events.longitude),
+                    place_id = COALESCE(EXCLUDED.place_id, events.place_id);
                 """, (
                     event_id,
                     event_data.get("name") or "Unnamed Tournament",
                     event_data.get("eventDate") or event_data.get("event_date"),
                     event_data.get("endDate") or event_data.get("end_date"),
-                    event_data.get("city"),
-                    event_data.get("state"),
-                    event_data.get("country"),
+                    event_data.get("city") or loc_obj.get("city"),
+                    event_data.get("state") or loc_obj.get("state"),
+                    event_data.get("country") or loc_obj.get("country"),
                     event_data.get("totalPlayers", event_data.get("total_players", 0)),
                     event_data.get("numberOfRounds", event_data.get("num_rounds", 0)),
                     event_data.get("currentRound", event_data.get("current_round", 0)),
                     bool(event_data.get("isEnded", event_data.get("is_ended", False))),
                     event_data.get("gameSystemId", event_data.get("game_system_id")),
                     json.dumps(event_data.get("raw_json", event_data)),
-                    datetime.now(timezone.utc)
+                    datetime.now(timezone.utc),
+                    venue_val,
+                    addr_val,
+                    zip_val,
+                    float(lat_val) if lat_val is not None else None,
+                    float(lng_val) if lng_val is not None else None,
+                    place_id_val
                 ))
             conn.commit()
 
@@ -2833,7 +2865,13 @@ class PostgresDatabase:
         city = event_data.get("city") or ""
         state = event_data.get("state") or ""
         country = event_data.get("country") or "United States"
-        venue = event_data.get("venue") or ""
+        venue = event_data.get("venue") or event_data.get("venue_name") or ""
+        venue_name = event_data.get("venue_name") or venue
+        address = event_data.get("address") or ""
+        postal_code = event_data.get("postal_code") or event_data.get("postalCode") or ""
+        latitude = event_data.get("latitude") if event_data.get("latitude") is not None else event_data.get("lat")
+        longitude = event_data.get("longitude") if event_data.get("longitude") is not None else event_data.get("lng")
+        place_id = event_data.get("place_id") or ""
         total_players = int(event_data.get("total_players") or len(event_data.get("roster") or []) or 0)
         num_rounds = int(event_data.get("num_rounds") or event_data.get("rounds") or 5)
         current_round = int(event_data.get("current_round") or 1)
@@ -2869,12 +2907,14 @@ class PostgresDatabase:
                     id, name, event_date, end_date, city, state, country, venue,
                     tier, total_players, num_rounds, current_round, points, capacity,
                     mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
-                    raw_json, scraped_at, event_type, team_size, circuits
+                    raw_json, scraped_at, event_type, team_size, circuits,
+                    venue_name, address, postal_code, latitude, longitude, place_id
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s::jsonb, %s::jsonb,
-                    %s::jsonb, NOW(), %s, %s, %s::jsonb
+                    %s::jsonb, NOW(), %s, %s, %s::jsonb,
+                    %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -2899,12 +2939,22 @@ class PostgresDatabase:
                     roster = COALESCE(EXCLUDED.roster, events.roster),
                     pairings = COALESCE(EXCLUDED.pairings, events.pairings),
                     raw_json = COALESCE(EXCLUDED.raw_json, events.raw_json),
+                    venue_name = COALESCE(EXCLUDED.venue_name, events.venue_name),
+                    address = COALESCE(EXCLUDED.address, events.address),
+                    postal_code = COALESCE(EXCLUDED.postal_code, events.postal_code),
+                    latitude = COALESCE(EXCLUDED.latitude, events.latitude),
+                    longitude = COALESCE(EXCLUDED.longitude, events.longitude),
+                    place_id = COALESCE(EXCLUDED.place_id, events.place_id),
                     scraped_at = NOW();
                 """, (
                     event_id, name, event_date, end_date, city, state, country, venue,
                     tier, total_players, num_rounds, current_round, points, capacity,
                     mission_pack, organizer_id, organizer_bcp_id, roster_json, pairings_json,
-                    raw_json, event_type, team_size, circuits_json
+                    raw_json, event_type, team_size, circuits_json,
+                    venue_name, address, postal_code,
+                    float(latitude) if latitude is not None else None,
+                    float(longitude) if longitude is not None else None,
+                    place_id
                 ))
             conn.commit()
 

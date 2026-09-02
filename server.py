@@ -43,7 +43,8 @@ try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
         DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
         MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
-        BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
+        BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
+        GOOGLE_MAPS_API_KEY
     )
     from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db
     from google3.experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
@@ -53,7 +54,8 @@ except ImportError:
         from experimental.users.hsiehjun.EloRanking.config import (
             DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
-            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
+            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
+            GOOGLE_MAPS_API_KEY
         )
         from experimental.users.hsiehjun.EloRanking.database import Database, get_db
         from experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
@@ -62,7 +64,8 @@ except ImportError:
         from config import (
             DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
-            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
+            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
+            GOOGLE_MAPS_API_KEY
         )
         from database import Database, get_db
         from scraper import BestCoastPairingsScraper
@@ -186,6 +189,9 @@ if FASTAPI_AVAILABLE:
         lng: Optional[float] = None
         location_verified: Optional[bool] = False
         venue: Optional[str] = ""
+        address: Optional[str] = ""
+        postal_code: Optional[str] = ""
+        place_id: Optional[str] = ""
         points: Optional[int] = 2000
         capacity: Optional[int] = 32
         mission_pack: Optional[str] = "11th Edition Core"
@@ -556,9 +562,11 @@ if FASTAPI_AVAILABLE:
                     "location": {
                         "name": venue_str,
                         "venue": venue_str,
+                        "address": payload.address or venue_str,
                         "city": city_str,
                         "state": state_str,
                         "country": country_str,
+                        "postalCode": payload.postal_code or "",
                         "timeZone": tz_str,
                         **({"coordinate": [float(payload.lng), float(payload.lat)]} if payload.lat is not None and payload.lng is not None else {})
                     },
@@ -641,6 +649,12 @@ if FASTAPI_AVAILABLE:
             "state": payload.state,
             "country": payload.country,
             "venue": payload.venue,
+            "venue_name": payload.venue,
+            "address": payload.address or payload.venue,
+            "postal_code": payload.postal_code,
+            "lat": payload.lat,
+            "lng": payload.lng,
+            "place_id": payload.place_id,
             "num_rounds": payload.rounds,
             "points": payload.points,
             "capacity": payload.capacity,
@@ -815,6 +829,11 @@ if FASTAPI_AVAILABLE:
         {"city": "Madrid", "state": "Community of Madrid", "country": "Spain", "lat": 40.4168, "lng": -3.7038, "label": "Madrid, Spain"},
         {"city": "Rome", "state": "Lazio", "country": "Italy", "lat": 41.9028, "lng": 12.4964, "label": "Rome, Italy"}
     ]
+
+    @app.get("/api/config/maps-key", summary="Get Google Maps client API key for Places Autocomplete")
+    async def api_get_maps_key():
+        key = os.environ.get("GOOGLE_MAPS_API_KEY", GOOGLE_MAPS_API_KEY)
+        return {"key": key}
 
     @app.get("/api/eventstudio/locations/search", summary="Search verified cities for event creation")
     async def api_eventstudio_search_locations(q: str = Query("")):
