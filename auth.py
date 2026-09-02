@@ -141,49 +141,15 @@ class AuthManager:
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     );
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
-                    ALTER TABLE users ALTER COLUMN role SET DEFAULT 'player';
-                    UPDATE users SET role = 'player' WHERE LOWER(email) != 'swimgeek751@gmail.com';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
-                    -- Deduplicate any existing multi-linked BCP accounts (keep most recent)
-                    WITH dup_bcp_user AS (
-                        SELECT id, ROW_NUMBER() OVER (PARTITION BY bcp_user_id ORDER BY bcp_linked_at DESC NULLS LAST, updated_at DESC) as rn
-                        FROM users
-                        WHERE bcp_user_id IS NOT NULL AND bcp_user_id != ''
-                    )
-                    UPDATE users SET
-                        bcp_user_id = NULL,
-                        bcp_email = NULL,
-                        bcp_access_token = NULL,
-                        bcp_id_token = NULL,
-                        bcp_refresh_token = NULL,
-                        bcp_token_expires_at = NULL,
-                        bcp_linked_at = NULL
-                    WHERE id IN (SELECT id FROM dup_bcp_user WHERE rn > 1);
-
-                    WITH dup_bcp_email AS (
-                        SELECT id, ROW_NUMBER() OVER (PARTITION BY LOWER(bcp_email) ORDER BY bcp_linked_at DESC NULLS LAST, updated_at DESC) as rn
-                        FROM users
-                        WHERE bcp_email IS NOT NULL AND bcp_email != ''
-                    )
-                    UPDATE users SET
-                        bcp_user_id = NULL,
-                        bcp_email = NULL,
-                        bcp_access_token = NULL,
-                        bcp_id_token = NULL,
-                        bcp_refresh_token = NULL,
-                        bcp_token_expires_at = NULL,
-                        bcp_linked_at = NULL
-                    WHERE id IN (SELECT id FROM dup_bcp_email WHERE rn > 1);
 
                     -- Enforce unique BCP link constraints
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
 
-                    -- Ensure only the single administrator account has admin role
+                    -- Ensure administrator account has admin role in database
                     UPDATE users SET role = 'admin' WHERE LOWER(email) = 'swimgeek751@gmail.com';
-                    UPDATE users SET role = 'player' WHERE LOWER(email) != 'swimgeek751@gmail.com';
 
                     CREATE TABLE IF NOT EXISTS user_sessions (
                         session_token VARCHAR(64) PRIMARY KEY,
@@ -717,26 +683,7 @@ class AuthManager:
                     data = dict(row)
                     data["session_token"] = session_token
                     user_email = (data.get("email") or "").strip().lower()
-                    admin_emails = ('swimgeek751@gmail.com',)
-                    original_role = str(row.get("role") or "").strip().lower()
-                    if user_email in admin_emails:
-                        data["role"] = "admin"
-                        if original_role != "admin":
-                            try:
-                                with conn.cursor() as up_cur:
-                                    up_cur.execute("UPDATE users SET role = 'admin' WHERE id = %s;", (data.get("id"),))
-                                    conn.commit()
-                            except Exception:
-                                pass
-                    else:
-                        data["role"] = "player"
-                        if original_role != "player":
-                            try:
-                                with conn.cursor() as up_cur:
-                                    up_cur.execute("UPDATE users SET role = 'player' WHERE id = %s;", (data.get("id"),))
-                                    conn.commit()
-                            except Exception:
-                                pass
+                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else "player"
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
 
                     # Touch last_active_at periodically (at most once every 5 minutes)
@@ -770,26 +717,7 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     user_email = (data.get("email") or "").strip().lower()
-                    admin_emails = ('swimgeek751@gmail.com',)
-                    original_role = str(row.get("role") or "").strip().lower()
-                    if user_email in admin_emails:
-                        data["role"] = "admin"
-                        if original_role != "admin":
-                            try:
-                                with conn.cursor() as up_cur:
-                                    up_cur.execute("UPDATE users SET role = 'admin' WHERE id = %s;", (data.get("id"),))
-                                    conn.commit()
-                            except Exception:
-                                pass
-                    else:
-                        data["role"] = "player"
-                        if original_role != "player":
-                            try:
-                                with conn.cursor() as up_cur:
-                                    up_cur.execute("UPDATE users SET role = 'player' WHERE id = %s;", (data.get("id"),))
-                                    conn.commit()
-                            except Exception:
-                                pass
+                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else "player"
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
@@ -1232,19 +1160,6 @@ class AuthManager:
         admin_email = 'swimgeek751@gmail.com'
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                try:
-                    cur.execute("""
-                    UPDATE users 
-                    SET role = 'player' 
-                    WHERE LOWER(email) != 'swimgeek751@gmail.com' AND role != 'player';
-                    UPDATE users
-                    SET role = 'admin'
-                    WHERE LOWER(email) = 'swimgeek751@gmail.com' AND role != 'admin';
-                    """)
-                    conn.commit()
-                except Exception:
-                    pass
-
                 cur.execute("""
                 SELECT 
                     u.id,
