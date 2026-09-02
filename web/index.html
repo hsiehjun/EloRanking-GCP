@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=64.0">
+  <link rel="stylesheet" href="/css/styles.css?v=65.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
 
   <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
@@ -88,16 +88,6 @@
     <!-- Hero Section -->
     <section class="landing-hero" id="landing-auth-card-anchor">
       <div class="landing-hero-left">
-        <div style="display: flex; align-items: center; gap: 14px; margin-bottom: 1.5rem;">
-          <img src="/assets/logo.svg" alt="OmniTactica" style="width: 58px; height: 58px; border-radius: 14px; border: 1.5px solid rgba(56, 189, 248, 0.5); box-shadow: 0 0 28px rgba(56, 189, 248, 0.35); flex-shrink: 0;" onerror="this.onerror=null; this.src='/logo-mark.svg';">
-          <div>
-            <div class="landing-badge" style="margin-bottom: 0;">
-              <span>🛡️</span>
-              <span>OmniTactica &bull; 40K Tournament Intelligence & Game Tracker</span>
-            </div>
-          </div>
-        </div>
-
         <h1 class="landing-title">
           Quantify The Meta.<br>
           <span style="background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Dominate Every Matchup.</span>
@@ -107,7 +97,7 @@
         </p>
 
         <!-- Stats Bar -->
-        <div class="landing-stats-bar">
+        <div class="landing-stats-bar" style="margin-bottom: 0;">
           <div>
             <div class="landing-stat-val">92,100+</div>
             <div class="landing-stat-lbl">Rated Competitors</div>
@@ -125,86 +115,28 @@
             <div class="landing-stat-lbl">Live Game Tracker</div>
           </div>
         </div>
-
-        <!-- Call-to-Action Buttons -->
-        <div style="display: flex; gap: 0.85rem; align-items: center; margin-top: 1.75rem; flex-wrap: wrap;">
-          <a href="/login?mode=register&redirect=/" class="auth-submit-btn" style="padding: 0.75rem 1.6rem; font-size: 0.92rem; font-weight: 800; text-decoration: none; border-radius: 10px; box-shadow: 0 4px 20px rgba(56,189,248,0.3);">
-            ⚡ Create Free Account
-          </a>
-          <a href="/login?redirect=/" class="nav-btn" style="padding: 0.75rem 1.4rem; font-size: 0.88rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(15,23,42,0.7); text-decoration: none;">
-            🔑 Sign In to OmniTactica
-          </a>
-        </div>
       </div>
 
-      <!-- Hero Right: Tactical Intelligence Cockpit Showcase Preview -->
+      <!-- Hero Right: Game Tracker Match Room Showcase -->
       <div class="landing-hero-right">
-        <div style="background: linear-gradient(180deg, #0d1527 0%, #080d1a 100%); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 20px; padding: 1.75rem; box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 40px rgba(56,189,248,0.1); position: relative; overflow: hidden;">
-          <!-- Glowing decorative accent -->
-          <div style="position: absolute; top: 0; right: 0; width: 140px; height: 140px; background: radial-gradient(circle, rgba(56,189,248,0.18) 0%, transparent 70%); pointer-events: none;"></div>
-
-          <!-- Header badge of preview -->
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.85rem;">
+        <div style="background: linear-gradient(180deg, #0d1527 0%, #080d1a 100%); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 18px; padding: 1.25rem; box-shadow: 0 25px 60px rgba(0,0,0,0.85), 0 0 35px rgba(56,189,248,0.12); position: relative; overflow: hidden;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 1.2rem;">📡</span>
-              <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 800; color: #38bdf8; letter-spacing: 0.08em; text-transform: uppercase;">Live Meta Telemetry</span>
+              <span style="font-size: 1.1rem;">🎲</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; font-weight: 800; color: #38bdf8; letter-spacing: 0.06em; text-transform: uppercase;">Match Lobby &bull; Live Room Creation</span>
             </div>
             <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); padding: 2px 8px; border-radius: 9999px; font-family: 'JetBrains Mono', monospace;">
-              <span style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e;"></span> ONLINE
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e;"></span> LIVE SYNC
             </span>
           </div>
 
-          <!-- Card Item 1: Competitor Profile Preview -->
-          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1rem; margin-bottom: 0.85rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Competitor Dossier</div>
-                <div style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-top: 2px;">Chapter Master Titus</div>
-                <div style="font-size: 0.75rem; color: #38bdf8;">Space Marines (Gladius Task Force)</div>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 900; color: #38bdf8;">1,842</div>
-                <div style="font-size: 0.68rem; color: #22c55e; font-weight: 700;">▲ World Rank #142</div>
-              </div>
-            </div>
+          <div style="border-radius: 10px; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 10px 30px rgba(0,0,0,0.6);">
+            <img src="/assets/room-creation.png?v=65.0" alt="OmniTactica Game Tracker Match Lobby & Room Creation" style="width: 100%; height: auto; display: block; border-radius: 9px;">
           </div>
-
-          <!-- Card Item 2: Live Game Tracker State -->
-          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1rem; margin-bottom: 0.85rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-              <span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">🎲 Live Game Tracker</span>
-              <span style="font-size: 0.72rem; color: #f59e0b; font-weight: 700; font-family: 'JetBrains Mono', monospace;">ROUND 3 // TURN 1</span>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; text-align: center;">
-              <div style="background: rgba(2, 132, 199, 0.12); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 6px;">
-                <div style="font-size: 0.68rem; color: #94a3b8;">Primary VP</div>
-                <div style="font-size: 1.15rem; font-weight: 800; color: #fff;">28 / 50</div>
-              </div>
-              <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 6px;">
-                <div style="font-size: 0.68rem; color: #94a3b8;">Secondary VP</div>
-                <div style="font-size: 1.15rem; font-weight: 800; color: #fff;">16 / 40</div>
-              </div>
-            </div>
+          <div style="margin-top: 0.75rem; display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: #94a3b8; font-family: 'Inter', sans-serif;">
+            <span>⚡ Host or join live 40k matches with instant room keys</span>
+            <span style="color: #38bdf8; font-weight: 600;">11th Edition Ready</span>
           </div>
-
-          <!-- Card Item 3: Radar & Predictive Analysis -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
-            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem;">
-              <div style="font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Tournament Radar</div>
-              <div style="font-size: 0.88rem; font-weight: 800; color: #fff; margin-top: 2px;">3 Events &lt; 50 mi</div>
-              <div style="font-size: 0.68rem; color: #38bdf8;">Avg Field: 1,640 Elo</div>
-            </div>
-            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem;">
-              <div style="font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Win Prediction</div>
-              <div style="font-size: 0.88rem; font-weight: 800; color: #22c55e; margin-top: 2px;">64.2% Expected</div>
-              <div style="font-size: 0.68rem; color: #94a3b8;">vs Aeldari (Warhost)</div>
-            </div>
-          </div>
-
-          <!-- Action CTA inside Showcase Card -->
-          <a href="/login?mode=register&redirect=/" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.88rem; font-weight: 800; text-decoration: none; border-radius: 10px;">
-            ⚡ Launch Your Competitive Profile
-          </a>
         </div>
       </div>
     </section>
