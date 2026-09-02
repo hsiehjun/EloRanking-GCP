@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Governance & Invite Center | OmniTactica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#070b14">
+  <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+  <style>
+    :root {
+      --bg: #070b14;
+      --card: #0b1120;
+      --card-header: #0f172a;
+      --border: #1e293b;
+      --border-focus: #38bdf8;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #0284c7;
+      --accent: #38bdf8;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --purple: #c084fc;
+      --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 24px;
+    }
+
+    .header-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .logo-badge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nav-btn {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .nav-btn:hover {
+      background: rgba(56,189,248,0.1);
+      border-color: rgba(56,189,248,0.4);
+      color: var(--accent);
+    }
+
+    main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 24px;
+      flex: 1;
+      width: 100%;
+    }
+
+    /* Kill Switch Banner */
+    .governance-banner {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kpi-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, #38bdf8, transparent);
+    }
+    .kpi-val {
+      font-size: 1.8rem;
+      font-weight: 900;
+      font-family: var(--font-mono);
+      color: #fff;
+      margin-bottom: 4px;
+    }
+    .kpi-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+    .kpi-sub {
+      font-size: 0.72rem;
+      color: #38bdf8;
+      margin-top: 4px;
+    }
+
+    /* Tab navigation */
+    .admin-tabs {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .admin-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 10px 16px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.2s;
+    }
+    .admin-tab-btn.active {
+      color: var(--accent);
+    }
+    .admin-tab-btn.active::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; left: 0; right: 0; height: 2px;
+      background: var(--accent);
+    }
+
+    /* Panel Card */
+    .panel-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .panel-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #fff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Data Table */
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      background: rgba(15, 23, 42, 0.7);
+      color: var(--text-muted);
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      color: var(--text);
+    }
+    tr:hover td {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .pill {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+      display: inline-block;
+      font-family: var(--font-mono);
+    }
+    .pill-active { background: rgba(16,185,129,0.15); color: var(--success); border: 1px solid rgba(16,185,129,0.3); }
+    .pill-expired { background: rgba(239,68,68,0.15); color: var(--danger); border: 1px solid rgba(239,68,68,0.3); }
+    .pill-admin { background: rgba(168,85,247,0.15); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+    .pill-user { background: rgba(56,189,248,0.15); color: var(--accent); border: 1px solid rgba(56,189,248,0.3); }
+
+    .btn-action {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-action:hover {
+      background: rgba(56,189,248,0.2);
+      border-color: #38bdf8;
+      color: #38bdf8;
+    }
+    .btn-delete:hover {
+      background: rgba(239,68,68,0.2);
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      gap: 10px;
+      align-items: flex-end;
+    }
+    @media (max-width: 768px) {
+      .form-row { grid-template-columns: 1fr; }
+    }
+    .input-field {
+      width: 100%;
+      padding: 10px 12px;
+      background: #070b14;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #fff;
+      font-size: 0.86rem;
+      outline: none;
+    }
+    .input-field:focus {
+      border-color: var(--accent);
+    }
+    .btn-create {
+      padding: 10px 18px;
+      background: #0284c7;
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.84rem;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+    .btn-create:hover {
+      background: #0369a1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="header-container">
+      <a href="/" class="logo-badge">
+        <img src="/assets/logo.svg" alt="OmniTactica" style="width: 32px; height: 32px; border-radius: 6px;">
+        <div>
+          <div style="font-weight: 900; font-size: 1.05rem; letter-spacing: 0.5px; color: #fff;">OMNITACTICA</div>
+          <div style="font-size: 0.68rem; color: #38bdf8; font-weight: 700; text-transform: uppercase;">ADMIN GOVERNANCE COCKPIT</div>
+        </div>
+      </a>
+
+      <div class="nav-links">
+        <a href="/" class="nav-btn">🏠 Return to App</a>
+        <a href="/admin/feedback" class="nav-btn">💬 Feedback Center</a>
+        <button onclick="handleAdminLogout()" class="nav-btn" style="color: #ef4444; border-color: rgba(239,68,68,0.3);">🚪 Sign Out</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Master Kill Switch Banner -->
+    <div class="governance-banner">
+      <div style="display: flex; align-items: center; gap: 14px;">
+        <div id="status-icon" style="font-size: 2rem;">🟢</div>
+        <div>
+          <div style="font-size: 0.72rem; font-weight: 800; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Global Registration Status</div>
+          <div id="status-text" style="font-size: 1.15rem; font-weight: 900; color: #fff;">REGISTRATION OPEN (INVITE-ONLY)</div>
+          <div id="status-sub" style="font-size: 0.76rem; color: #94a3b8;">Users with a valid 24h pass or admin code can register.</div>
+        </div>
+      </div>
+      <div>
+        <button id="btn-toggle-invites" onclick="toggleGlobalInvites()" style="padding: 10px 18px; border-radius: 8px; font-weight: 800; font-size: 0.82rem; cursor: pointer; transition: all 0.2s; border: none;">
+          LOCK REGISTRATION
+        </button>
+      </div>
+    </div>
+
+    <!-- Platform KPI Cards -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div id="kpi-users" class="kpi-val">-</div>
+        <div class="kpi-label">Total Users</div>
+        <div id="kpi-users-sub" class="kpi-sub">+0 today</div>
+      </div>
+      <div class="kpi-card">
+        <div id="kpi-bcp" class="kpi-val">-</div>
+        <div class="kpi-label">BCP Linked Ratio</div>
+        <div id="kpi-bcp-sub" class="kpi-sub">-</div>
+      </div>
+      <div class="kpi-card">
+        <div id="kpi-sessions" class="kpi-val">-</div>
+        <div class="kpi-label">Active Sessions</div>
+        <div class="kpi-sub">Real-time device tokens</div>
+      </div>
+      <div class="kpi-card">
+        <div id="kpi-games" class="kpi-val">-</div>
+        <div class="kpi-label">Tracked Matches</div>
+        <div class="kpi-sub">Tabletop games recorded</div>
+      </div>
+      <div class="kpi-card">
+        <div id="kpi-redemptions" class="kpi-val">-</div>
+        <div class="kpi-label">Invite Redemptions</div>
+        <div id="kpi-active-codes" class="kpi-sub">- active codes</div>
+      </div>
+    </div>
+
+    <!-- Tab Selection -->
+    <div class="admin-tabs">
+      <button class="admin-tab-btn active" onclick="switchAdminTab('invites')">🎟️ Invitation Codes</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('referrals')">🌳 Referral Lineage & Redemptions</button>
+      <button class="admin-tab-btn" onclick="switchAdminTab('users')">👥 User Directory</button>
+    </div>
+
+    <!-- TAB 1: INVITATION CODES -->
+    <div id="tab-panel-invites">
+      <!-- Create Persistent Code Box -->
+      <div class="panel-box">
+        <div class="panel-title">
+          <span>Create Persistent Admin Invitation Code</span>
+          <span style="font-size: 0.72rem; font-weight: 500; color: var(--text-muted);">Codes created here can be unlimited or capped</span>
+        </div>
+        <form onsubmit="handleCreateAdminCode(event)" class="form-row">
+          <div>
+            <label style="display:block; font-size: 0.72rem; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; text-transform: uppercase;">Code String *</label>
+            <input type="text" id="new-code-str" class="input-field" placeholder="e.g. LVO-2026, WARHAMMER-WORLD" required style="text-transform: uppercase; font-family: var(--font-mono); font-weight: 700;">
+          </div>
+          <div>
+            <label style="display:block; font-size: 0.72rem; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; text-transform: uppercase;">Max Redemptions</label>
+            <input type="number" id="new-code-max" class="input-field" placeholder="Unlimited (blank)" min="1">
+          </div>
+          <div>
+            <label style="display:block; font-size: 0.72rem; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; text-transform: uppercase;">Expires In (Days)</label>
+            <input type="number" id="new-code-days" class="input-field" placeholder="Never (blank)" min="1">
+          </div>
+          <button type="submit" class="btn-create">+ Create Code</button>
+        </form>
+      </div>
+
+      <!-- Codes Table -->
+      <div class="panel-box">
+        <div class="panel-title">
+          <span>Active & Historical Invitation Codes</span>
+          <button class="nav-btn" onclick="loadCodesList()">🔄 Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Type</th>
+                <th>Creator</th>
+                <th>Status</th>
+                <th>Uses / Limit</th>
+                <th>Expires</th>
+                <th>Created</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="codes-tbody">
+              <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading codes...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: REFERRAL LINEAGE -->
+    <div id="tab-panel-referrals" style="display: none;">
+      <div class="panel-box">
+        <div class="panel-title">
+          <span>Who Invited Who & Redemptions Audit Log</span>
+          <button class="nav-btn" onclick="loadReferralsList()">🔄 Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Redeemed At</th>
+                <th>New Player Joined</th>
+                <th>Email</th>
+                <th>Invited By</th>
+                <th>Code Used</th>
+                <th>BCP Linked</th>
+                <th>IP Address</th>
+              </tr>
+            </thead>
+            <tbody id="referrals-tbody">
+              <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">Loading referral genealogy...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: USER DIRECTORY -->
+    <div id="tab-panel-users" style="display: none;">
+      <div class="panel-box">
+        <div class="panel-title">
+          <span>User Directory & Lineage</span>
+          <input type="text" id="user-search-input" oninput="filterUsersTable(this.value)" placeholder="Search users by name, email, or inviter..." class="input-field" style="max-width: 320px; font-size: 0.8rem; padding: 6px 12px;">
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Player / Display Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>BCP Status</th>
+                <th>Invited By</th>
+                <th>Code Used</th>
+                <th>Friends Invited</th>
+                <th>Joined</th>
+              </tr>
+            </thead>
+            <tbody id="users-tbody">
+              <tr><td colspan="8" style="text-align: center; color: var(--text-muted);">Loading users...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/api.js?v=68.0"></script>
+  <script>
+    let globalInvitesEnabled = true;
+    let allUsersCache = [];
+
+    // Check admin authentication on load
+    (async function initAdmin() {
+      const token = API.getAuthToken();
+      if (!token) {
+        window.location.replace('/login?redirect=/admin');
+        return;
+      }
+
+      await refreshMetrics();
+      await loadCodesList();
+    })();
+
+    async function refreshMetrics() {
+      try {
+        const metrics = await API.getAdminMetrics();
+        if (metrics.detail || metrics.error) {
+          alert("Admin privileges required.");
+          window.location.replace('/');
+          return;
+        }
+
+        document.getElementById('kpi-users').textContent = metrics.total_users || 0;
+        document.getElementById('kpi-users-sub').textContent = `+${metrics.signups_today || 0} today • +${metrics.signups_week || 0} this wk`;
+
+        document.getElementById('kpi-bcp').textContent = `${metrics.bcp_percent || 0}%`;
+        document.getElementById('kpi-bcp-sub').textContent = `${metrics.bcp_linked || 0} of ${metrics.total_users || 0} players`;
+
+        document.getElementById('kpi-sessions').textContent = metrics.active_sessions || 0;
+        document.getElementById('kpi-games').textContent = metrics.games_tracked || 0;
+
+        document.getElementById('kpi-redemptions').textContent = metrics.total_redemptions || 0;
+        document.getElementById('kpi-active-codes').textContent = `${metrics.active_codes_count || 0} active codes`;
+
+        // Update Kill Switch UI
+        globalInvitesEnabled = !!metrics.invites_enabled;
+        updateKillSwitchUI(globalInvitesEnabled);
+
+      } catch (err) {
+        console.error("Failed to load metrics", err);
+      }
+    }
+
+    function updateKillSwitchUI(enabled) {
+      const icon = document.getElementById('status-icon');
+      const text = document.getElementById('status-text');
+      const sub = document.getElementById('status-sub');
+      const btn = document.getElementById('btn-toggle-invites');
+
+      if (enabled) {
+        icon.textContent = '🟢';
+        text.textContent = 'REGISTRATION OPEN (INVITE-ONLY)';
+        text.style.color = '#10b981';
+        sub.textContent = 'Users with a valid 24h pass or persistent admin code can register.';
+        btn.textContent = '🔒 PAUSE ALL REGISTRATIONS';
+        btn.style.background = 'rgba(239, 68, 68, 0.2)';
+        btn.style.color = '#ef4444';
+        btn.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+      } else {
+        icon.textContent = '🔴';
+        text.textContent = 'REGISTRATION LOCKED';
+        text.style.color = '#ef4444';
+        sub.textContent = 'Account registration is completely shut off. All invitation codes are paused.';
+        btn.textContent = '🟢 RE-OPEN REGISTRATION';
+        btn.style.background = 'rgba(16, 185, 129, 0.2)';
+        btn.style.color = '#10b981';
+        btn.style.border = '1px solid rgba(16, 185, 129, 0.5)';
+      }
+    }
+
+    async function toggleGlobalInvites() {
+      const newStatus = !globalInvitesEnabled;
+      const confirmMsg = newStatus 
+        ? "Re-open account registration for players with valid invitation codes?" 
+        : "Are you sure you want to LOCK account registration? No new users will be able to register even if they have an invite code.";
+
+      if (!confirm(confirmMsg)) return;
+
+      try {
+        const res = await API.toggleAdminInvites(newStatus);
+        if (res.success) {
+          globalInvitesEnabled = res.invites_enabled;
+          updateKillSwitchUI(globalInvitesEnabled);
+          refreshMetrics();
+        } else {
+          alert(res.error || "Failed to toggle registration status.");
+        }
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    }
+
+    function switchAdminTab(tab) {
+      const tabs = document.querySelectorAll('.admin-tab-btn');
+      tabs.forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+
+      document.getElementById('tab-panel-invites').style.display = tab === 'invites' ? 'block' : 'none';
+      document.getElementById('tab-panel-referrals').style.display = tab === 'referrals' ? 'block' : 'none';
+      document.getElementById('tab-panel-users').style.display = tab === 'users' ? 'block' : 'none';
+
+      if (tab === 'invites') loadCodesList();
+      if (tab === 'referrals') loadReferralsList();
+      if (tab === 'users') loadUsersList();
+    }
+
+    async function loadCodesList() {
+      const tbody = document.getElementById('codes-tbody');
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading codes...</td></tr>`;
+
+      try {
+        const res = await API.getAdminInvites();
+        const codes = res.codes || [];
+        if (codes.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No invitation codes found.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = codes.map(c => {
+          const typeClass = c.is_admin_code ? 'pill-admin' : 'pill-user';
+          const typeLabel = c.is_admin_code ? 'Admin Persistent' : 'Player 24h Pass';
+          const statusClass = c.status_label === 'Active' && c.is_active ? 'pill-active' : 'pill-expired';
+          const statusText = !c.is_active ? 'Disabled' : c.status_label;
+          const limitStr = c.max_uses ? `${c.use_count} / ${c.max_uses}` : `${c.use_count} (Unlimited)`;
+          const expiresStr = c.expires_at ? new Date(c.expires_at).toLocaleString() : 'Never (Persistent)';
+          const createdStr = c.created_at ? new Date(c.created_at).toLocaleDateString() : '-';
+          const creatorStr = c.creator_name ? `${c.creator_name} (${c.creator_email})` : 'System Admin';
+
+          return `
+            <tr>
+              <td><strong style="font-family: var(--font-mono); color: #38bdf8; font-size: 0.95rem;">${escapeHtml(c.code)}</strong></td>
+              <td><span class="pill ${typeClass}">${typeLabel}</span></td>
+              <td style="color: var(--text-muted);">${escapeHtml(creatorStr)}</td>
+              <td><span class="pill ${statusClass}">${statusText}</span></td>
+              <td><strong style="color:#fff;">${limitStr}</strong></td>
+              <td style="color: var(--text-muted); font-size: 0.78rem;">${expiresStr}</td>
+              <td style="color: var(--text-muted); font-size: 0.78rem;">${createdStr}</td>
+              <td>
+                <div style="display:flex; gap:6px;">
+                  <button onclick="handleToggleCode('${escapeHtml(c.code)}', ${!c.is_active})" class="btn-action">
+                    ${c.is_active ? 'Pause' : 'Resume'}
+                  </button>
+                  <button onclick="handleDeleteCode('${escapeHtml(c.code)}')" class="btn-action btn-delete">
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger);">Error loading codes: ${err.message}</td></tr>`;
+      }
+    }
+
+    async function handleCreateAdminCode(e) {
+      e.preventDefault();
+      const code = document.getElementById('new-code-str').value.trim().toUpperCase();
+      const maxUses = document.getElementById('new-code-max').value;
+      const days = document.getElementById('new-code-days').value;
+
+      try {
+        const res = await API.createAdminInvite(code, maxUses, days);
+        if (res.success) {
+          document.getElementById('new-code-str').value = '';
+          document.getElementById('new-code-max').value = '';
+          document.getElementById('new-code-days').value = '';
+          loadCodesList();
+          refreshMetrics();
+        } else {
+          alert(res.error || "Failed to create code");
+        }
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+
+    async function handleToggleCode(code, activate) {
+      try {
+        await API.toggleAdminInvite(code, activate);
+        loadCodesList();
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+
+    async function handleDeleteCode(code) {
+      if (!confirm(`Are you sure you want to permanently delete invite code '${code}'?`)) return;
+      try {
+        await API.deleteAdminInvite(code);
+        loadCodesList();
+        refreshMetrics();
+      } catch (err) {
+        alert("Error: " + err.message);
+      }
+    }
+
+    async function loadReferralsList() {
+      const tbody = document.getElementById('referrals-tbody');
+      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Loading referral audit log...</td></tr>`;
+
+      try {
+        const res = await API.getAdminReferrals();
+        const referrals = res.referrals || [];
+        if (referrals.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">No invite redemptions recorded yet.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = referrals.map(r => {
+          const inviterStr = r.inviter_name ? `${escapeHtml(r.inviter_name)} (${escapeHtml(r.inviter_email || '')})` : '<span style="color:var(--text-muted);">System / Direct Admin Code</span>';
+          const bcpBadge = r.new_user_bcp ? '<span class="pill pill-active">🟢 Linked</span>' : '<span style="color:var(--text-muted);">⚪ None</span>';
+          const dtStr = r.redeemed_at ? new Date(r.redeemed_at).toLocaleString() : '-';
+
+          return `
+            <tr>
+              <td style="color: var(--text-muted); font-size: 0.78rem;">${dtStr}</td>
+              <td><strong style="color: #fff;">${escapeHtml(r.new_user_name || 'Player')}</strong></td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(r.new_user_email || '-')}</td>
+              <td>${inviterStr}</td>
+              <td><span class="pill pill-admin">${escapeHtml(r.code)}</span></td>
+              <td>${bcpBadge}</td>
+              <td style="color: var(--text-muted); font-family: var(--font-mono); font-size: 0.76rem;">${escapeHtml(r.ip_address || 'Unknown')}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--danger);">Error loading referrals: ${err.message}</td></tr>`;
+      }
+    }
+
+    async function loadUsersList() {
+      const tbody = document.getElementById('users-tbody');
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading user directory...</td></tr>`;
+
+      try {
+        const res = await API.getAdminUsers();
+        allUsersCache = res.users || [];
+        renderUsersTable(allUsersCache);
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger);">Error loading users: ${err.message}</td></tr>`;
+      }
+    }
+
+    function renderUsersTable(users) {
+      const tbody = document.getElementById('users-tbody');
+      if (!users || users.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No users found.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = users.map(u => {
+        const rolePill = u.role === 'admin' 
+          ? '<span class="pill pill-admin">🛡️ ADMIN</span>' 
+          : '<span class="pill pill-user">PLAYER</span>';
+        const bcpStr = u.bcp_user_id 
+          ? `<span class="pill pill-active">🟢 Linked</span>` 
+          : `<span style="color:var(--text-muted);">⚪ None</span>`;
+        const inviterStr = u.invited_by_name ? `${escapeHtml(u.invited_by_name)}` : '<span style="color:var(--text-muted);">Direct / Alpha</span>';
+        const codeStr = u.invite_code_used ? `<span class="pill pill-admin">${escapeHtml(u.invite_code_used)}</span>` : '<span style="color:var(--text-muted);">-</span>';
+        const joinDate = u.created_at ? new Date(u.created_at).toLocaleDateString() : '-';
+
+        return `
+          <tr>
+            <td><strong style="color:#fff;">${escapeHtml(u.display_name || 'Player')}</strong></td>
+            <td style="font-family: var(--font-mono); color: var(--text-muted);">${escapeHtml(u.email)}</td>
+            <td>${rolePill}</td>
+            <td>${bcpStr}</td>
+            <td>${inviterStr}</td>
+            <td>${codeStr}</td>
+            <td><strong style="color:#38bdf8;">${u.invite_count || 0}</strong> players</td>
+            <td style="color:var(--text-muted); font-size:0.78rem;">${joinDate}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function filterUsersTable(query) {
+      query = (query || '').toLowerCase().trim();
+      if (!query) {
+        renderUsersTable(allUsersCache);
+        return;
+      }
+      const filtered = allUsersCache.filter(u => 
+        (u.display_name && u.display_name.toLowerCase().includes(query)) ||
+        (u.email && u.email.toLowerCase().includes(query)) ||
+        (u.invited_by_name && u.invited_by_name.toLowerCase().includes(query)) ||
+        (u.invite_code_used && u.invite_code_used.toLowerCase().includes(query))
+      );
+      renderUsersTable(filtered);
+    }
+
+    function handleAdminLogout() {
+      API.clearAuth();
+      window.location.href = '/login';
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>

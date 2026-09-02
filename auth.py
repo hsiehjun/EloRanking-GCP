@@ -219,16 +219,132 @@ class AuthManager:
                     );
                     CREATE INDEX IF NOT EXISTS idx_pending_reg_email ON pending_registrations(email);
                     CREATE INDEX IF NOT EXISTS idx_pending_reg_code ON pending_registrations(verify_code);
+
+                    -- User lineage columns
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL;
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code_used VARCHAR(64);
+                    ALTER TABLE pending_registrations ADD COLUMN IF NOT EXISTS invite_code VARCHAR(64);
+
+                    -- Invitation Codes Table
+                    CREATE TABLE IF NOT EXISTS invitation_codes (
+                        code VARCHAR(64) PRIMARY KEY,
+                        created_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                        is_admin_code BOOLEAN DEFAULT FALSE,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        max_uses INTEGER DEFAULT NULL,
+                        use_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMPTZ DEFAULT NOW(),
+                        expires_at TIMESTAMPTZ
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_invitation_codes_creator ON invitation_codes(created_by_user_id);
+                    CREATE INDEX IF NOT EXISTS idx_invitation_codes_active ON invitation_codes(is_active);
+
+                    -- Invite Redemptions Table
+                    CREATE TABLE IF NOT EXISTS invite_redemptions (
+                        id VARCHAR(64) PRIMARY KEY,
+                        code VARCHAR(64) REFERENCES invitation_codes(code) ON DELETE CASCADE,
+                        invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+                        new_user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                        ip_address TEXT,
+                        redeemed_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_redemptions_inviter ON invite_redemptions(invited_by_user_id);
+                    CREATE INDEX IF NOT EXISTS idx_redemptions_new_user ON invite_redemptions(new_user_id);
+                    CREATE INDEX IF NOT EXISTS idx_redemptions_code ON invite_redemptions(code);
+
+                    -- System Settings Table
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        key VARCHAR(64) PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_by_user_id VARCHAR(64) REFERENCES users(id)
+                    );
+                    INSERT INTO system_settings (key, value) VALUES ('invites_enabled', 'true') ON CONFLICT (key) DO NOTHING;
+
+                    -- Seed default persistent code if none exists
+                    INSERT INTO invitation_codes (code, is_admin_code, is_active, created_at, expires_at)
+                    VALUES ('ALPHA-2026', TRUE, TRUE, NOW(), NULL)
+                    ON CONFLICT (code) DO NOTHING;
                     """)
                 conn.commit()
         except Exception as e:
             logger.debug(f"Ensure tables notice: {e}")
 
-    def register(self, email: str, password: str, display_name: str) -> Dict[str, Any]:
-        """Registers a new native user account with 2FA email verification."""
-        return self.initiate_registration(email, password, display_name)
+    def get_system_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        from psycopg2 import extras
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("SELECT value FROM system_settings WHERE key = %s;", (key,))
+                    row = cur.fetchone()
+                    return row["value"] if row else default
+        except Exception:
+            return default
 
-    def initiate_registration(self, email: str, password: str, display_name: str) -> Dict[str, Any]:
+    def set_system_setting(self, key: str, value: str, user_id: Optional[str] = None) -> bool:
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                    INSERT INTO system_settings (key, value, updated_at, updated_by_user_id)
+                    VALUES (%s, %s, NOW(), %s)
+                    ON CONFLICT (key) DO UPDATE SET
+                        value = EXCLUDED.value,
+                        updated_at = NOW(),
+                        updated_by_user_id = EXCLUDED.updated_by_user_id;
+                    """, (key, str(value), user_id))
+                conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to set system setting {key}: {e}")
+            return False
+
+    def validate_invite_code(self, code_str: str) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """Validates an invitation code against global settings, expiry, active status, and use limits."""
+        # 1. Global kill switch check
+        invites_enabled = self.get_system_setting("invites_enabled", "true")
+        if invites_enabled == "false":
+            return False, "Account registration is currently closed by the administrator.", None
+
+        code_clean = (code_str or "").strip().upper()
+        if not code_clean:
+            return False, "An invitation code is required to register an account.", None
+
+        from psycopg2 import extras
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT code, created_by_user_id, is_admin_code, is_active, max_uses, use_count, expires_at
+                    FROM invitation_codes
+                    WHERE code = %s;
+                    """, (code_clean,))
+                    row = cur.fetchone()
+                    if not row:
+                        return False, f"Invalid invitation code '{code_clean}'. Please obtain a valid invite code from a current member.", None
+
+                    if not row["is_active"]:
+                        return False, f"Invitation code '{code_clean}' has been deactivated.", None
+
+                    exp = row.get("expires_at")
+                    if exp and exp < datetime.now(timezone.utc):
+                        return False, f"Invitation code '{code_clean}' has expired.", None
+
+                    max_u = row.get("max_uses")
+                    use_c = row.get("use_count") or 0
+                    if max_u is not None and use_c >= max_u:
+                        return False, f"Invitation code '{code_clean}' has reached its maximum registration limit.", None
+
+                    return True, None, dict(row)
+        except Exception as e:
+            logger.error(f"Error validating invite code: {e}")
+            return False, "Error validating invitation code. Please try again.", None
+
+    def register(self, email: str, password: str, display_name: str, invite_code: Optional[str] = None) -> Dict[str, Any]:
+        """Registers a new native user account with 2FA email verification."""
+        return self.initiate_registration(email, password, display_name, invite_code)
+
+    def initiate_registration(self, email: str, password: str, display_name: str, invite_code: Optional[str] = None) -> Dict[str, Any]:
         """Initiates account registration and sends a 6-digit email verification code."""
         email = email.strip().lower()
         display_name = display_name.strip()
@@ -238,6 +354,12 @@ class AuthManager:
             return {"success": False, "error": "Password must be at least 6 characters."}
         if not display_name:
             display_name = email.split("@")[0]
+
+        # Validate Invitation Code
+        invite_code_clean = (invite_code or "").strip().upper()
+        is_valid, err_msg, code_rec = self.validate_invite_code(invite_code_clean)
+        if not is_valid:
+            return {"success": False, "error": err_msg}
 
         from psycopg2 import extras
         with self.db.get_connection() as conn:
@@ -251,16 +373,17 @@ class AuthManager:
                 pw_hash = _hash_password(password)
 
                 cur.execute("""
-                INSERT INTO pending_registrations (email, password_hash, display_name, verify_code, registration_token, expires_at, created_at)
-                VALUES (%s, %s, %s, %s, %s, NOW() + INTERVAL '15 minutes', NOW())
+                INSERT INTO pending_registrations (email, password_hash, display_name, verify_code, registration_token, invite_code, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW() + INTERVAL '15 minutes', NOW())
                 ON CONFLICT (email) DO UPDATE SET
                     password_hash = EXCLUDED.password_hash,
                     display_name = EXCLUDED.display_name,
                     verify_code = EXCLUDED.verify_code,
                     registration_token = EXCLUDED.registration_token,
+                    invite_code = EXCLUDED.invite_code,
                     expires_at = NOW() + INTERVAL '15 minutes',
                     created_at = NOW();
-                """, (email, pw_hash, display_name, verify_code, reg_token))
+                """, (email, pw_hash, display_name, verify_code, reg_token, invite_code_clean))
             conn.commit()
 
         # Dispatch email
@@ -286,7 +409,7 @@ class AuthManager:
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute("""
-                SELECT email, password_hash, display_name, verify_code, expires_at
+                SELECT email, password_hash, display_name, verify_code, invite_code, expires_at
                 FROM pending_registrations
                 WHERE email = %s;
                 """, (email,))
@@ -315,10 +438,27 @@ class AuthManager:
                 match_p = cur.fetchone()
                 player_id = match_p["player_id"] if match_p else None
 
+                # Extract invite_code and resolve inviter_id
+                invite_code = row.get("invite_code")
+                inviter_id = None
+                if invite_code:
+                    cur.execute("SELECT created_by_user_id FROM invitation_codes WHERE code = %s;", (invite_code,))
+                    c_row = cur.fetchone()
+                    if c_row:
+                        inviter_id = c_row.get("created_by_user_id")
+
                 cur.execute("""
-                INSERT INTO users (id, email, password_hash, display_name, player_id, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, NOW(), NOW());
-                """, (user_id, email, pw_hash, display_name, player_id))
+                INSERT INTO users (id, email, password_hash, display_name, player_id, invited_by_user_id, invite_code_used, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW());
+                """, (user_id, email, pw_hash, display_name, player_id, inviter_id, invite_code))
+
+                # Track redemption and increment count
+                if invite_code:
+                    cur.execute("UPDATE invitation_codes SET use_count = use_count + 1 WHERE code = %s;", (invite_code,))
+                    cur.execute("""
+                    INSERT INTO invite_redemptions (id, code, invited_by_user_id, new_user_id, ip_address, redeemed_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW());
+                    """, (str(uuid.uuid4()), invite_code, inviter_id, user_id, ip_address))
 
                 session_token = str(uuid.uuid4())
                 cur.execute("""
@@ -331,7 +471,7 @@ class AuthManager:
             conn.commit()
 
         user_info = self.get_user_by_id(user_id)
-        logger.info(f"🎉 User {email} successfully registered and verified (ID: {user_id})")
+        logger.info(f"🎉 User {email} successfully registered and verified (ID: {user_id}, Code: {invite_code})")
         return {
             "success": True,
             "session_token": session_token,
@@ -755,6 +895,292 @@ class AuthManager:
                         "last_active_at": (row.get("last_active_at") or row["created_at"]).isoformat() if (row.get("last_active_at") or row.get("created_at")) else None,
                     })
         return sessions
+
+    # =========================================================================
+    # INVITATION CODES & REFERRAL MANAGEMENT
+    # =========================================================================
+
+    def generate_user_invite_code(self, user_id: str) -> Dict[str, Any]:
+        """Generates a 24-hour multi-use invitation code for an authenticated user (or retrieves their active one)."""
+        if not user_id:
+            return {"success": False, "error": "Authentication required."}
+
+        invites_enabled = self.get_system_setting("invites_enabled", "true")
+        if invites_enabled == "false":
+            return {"success": False, "error": "Account registration is currently suspended by the administrator."}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                # Check for an active, non-expired 24h code for this user
+                cur.execute("""
+                SELECT code, created_at, expires_at, use_count, is_active
+                FROM invitation_codes
+                WHERE created_by_user_id = %s 
+                  AND is_active = TRUE
+                  AND expires_at IS NOT NULL 
+                  AND expires_at > NOW()
+                ORDER BY created_at DESC
+                LIMIT 1;
+                """, (user_id,))
+                active = cur.fetchone()
+                if active:
+                    exp = active["expires_at"]
+                    remaining_secs = max(0, int((exp - datetime.now(timezone.utc)).total_seconds())) if exp else 0
+                    return {
+                        "success": True,
+                        "code": active["code"],
+                        "expires_at": exp.isoformat() if exp else None,
+                        "remaining_seconds": remaining_secs,
+                        "use_count": active["use_count"] or 0,
+                        "is_new": False,
+                        "message": "Existing active 24-hour invite code retrieved."
+                    }
+
+                # Generate new code: TAC-XXXX
+                chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+                rand_suffix = "".join(secrets.choice(chars) for _ in range(4))
+                new_code = f"TAC-{rand_suffix}"
+
+                # Ensure unique
+                cur.execute("SELECT code FROM invitation_codes WHERE code = %s;", (new_code,))
+                if cur.fetchone():
+                    new_code = f"TAC-{secrets.randbelow(8999) + 1000}"
+
+                cur.execute("""
+                INSERT INTO invitation_codes (code, created_by_user_id, is_admin_code, is_active, max_uses, use_count, created_at, expires_at)
+                VALUES (%s, %s, FALSE, TRUE, NULL, 0, NOW(), NOW() + INTERVAL '24 hours');
+                """, (new_code, user_id))
+            conn.commit()
+
+        exp_dt = datetime.now(timezone.utc) + timedelta(hours=24)
+        return {
+            "success": True,
+            "code": new_code,
+            "expires_at": exp_dt.isoformat(),
+            "remaining_seconds": 86400,
+            "use_count": 0,
+            "is_new": True,
+            "message": "Generated 24-hour multi-use invite code. Multiple players can use this code today."
+        }
+
+    def get_user_active_invite_code(self, user_id: str) -> Dict[str, Any]:
+        """Returns the user's current active 24-hour invite code if any."""
+        if not user_id:
+            return {"success": False, "has_code": False}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT code, created_at, expires_at, use_count, is_active
+                FROM invitation_codes
+                WHERE created_by_user_id = %s 
+                  AND is_active = TRUE
+                  AND expires_at IS NOT NULL 
+                  AND expires_at > NOW()
+                ORDER BY created_at DESC
+                LIMIT 1;
+                """, (user_id,))
+                active = cur.fetchone()
+                if not active:
+                    return {"success": True, "has_code": False}
+
+                exp = active["expires_at"]
+                remaining_secs = max(0, int((exp - datetime.now(timezone.utc)).total_seconds())) if exp else 0
+                return {
+                    "success": True,
+                    "has_code": True,
+                    "code": active["code"],
+                    "expires_at": exp.isoformat() if exp else None,
+                    "remaining_seconds": remaining_secs,
+                    "use_count": active["use_count"] or 0
+                }
+
+    def create_admin_invite_code(self, admin_user_id: str, code_str: str, max_uses: Optional[int] = None, expires_in_days: Optional[int] = None) -> Dict[str, Any]:
+        """Creates an admin persistent invitation code (or time-bounded)."""
+        code_str = code_str.strip().upper().replace(" ", "-")
+        if not code_str or len(code_str) < 3:
+            return {"success": False, "error": "Code must be at least 3 characters long."}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT code FROM invitation_codes WHERE code = %s;", (code_str,))
+                if cur.fetchone():
+                    return {"success": False, "error": f"Code '{code_str}' already exists."}
+
+                expires_at = None
+                if expires_in_days and int(expires_in_days) > 0:
+                    expires_at = datetime.now(timezone.utc) + timedelta(days=int(expires_in_days))
+
+                cur.execute("""
+                INSERT INTO invitation_codes (code, created_by_user_id, is_admin_code, is_active, max_uses, use_count, created_at, expires_at)
+                VALUES (%s, %s, TRUE, TRUE, %s, 0, NOW(), %s);
+                """, (code_str, admin_user_id, max_uses, expires_at))
+            conn.commit()
+
+        return {
+            "success": True,
+            "code": code_str,
+            "is_persistent": expires_at is None,
+            "max_uses": max_uses,
+            "message": f"Admin invite code '{code_str}' successfully created."
+        }
+
+    def delete_admin_invite_code(self, code_str: str) -> Dict[str, Any]:
+        code_str = code_str.strip().upper()
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM invitation_codes WHERE code = %s;", (code_str,))
+            conn.commit()
+        return {"success": True, "message": f"Code '{code_str}' deleted."}
+
+    def toggle_invite_code(self, code_str: str, is_active: bool) -> Dict[str, Any]:
+        code_str = code_str.strip().upper()
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("UPDATE invitation_codes SET is_active = %s WHERE code = %s;", (is_active, code_str))
+            conn.commit()
+        return {"success": True, "is_active": is_active}
+
+    def get_admin_dashboard_metrics(self) -> Dict[str, Any]:
+        """Calculates system health, registration metrics, and referral velocity."""
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT COUNT(*) as c FROM users;")
+                total_users = cur.fetchone()["c"]
+
+                cur.execute("SELECT COUNT(*) as c FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';")
+                bcp_linked = cur.fetchone()["c"]
+
+                cur.execute("SELECT COUNT(*) as c FROM user_sessions WHERE expires_at > NOW();")
+                active_sessions = cur.fetchone()["c"]
+
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM game_matches;")
+                    games_tracked = cur.fetchone()["c"]
+                except Exception:
+                    games_tracked = 0
+
+                cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '24 hours';")
+                signups_today = cur.fetchone()["c"]
+
+                cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '7 days';")
+                signups_week = cur.fetchone()["c"]
+
+                cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '30 days';")
+                signups_month = cur.fetchone()["c"]
+
+                cur.execute("SELECT value FROM system_settings WHERE key = 'invites_enabled';")
+                s_row = cur.fetchone()
+                invites_enabled = s_row["value"] == "true" if s_row else True
+
+                cur.execute("SELECT COUNT(*) as c FROM invite_redemptions;")
+                total_redemptions = cur.fetchone()["c"]
+
+                cur.execute("SELECT COUNT(*) as c FROM invitation_codes WHERE is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW());")
+                active_codes_count = cur.fetchone()["c"]
+
+        return {
+            "total_users": total_users,
+            "bcp_linked": bcp_linked,
+            "bcp_percent": round((bcp_linked / total_users * 100), 1) if total_users > 0 else 0,
+            "active_sessions": active_sessions,
+            "games_tracked": games_tracked,
+            "signups_today": signups_today,
+            "signups_week": signups_week,
+            "signups_month": signups_month,
+            "invites_enabled": invites_enabled,
+            "total_redemptions": total_redemptions,
+            "active_codes_count": active_codes_count
+        }
+
+    def get_admin_invite_codes(self) -> List[Dict[str, Any]]:
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT 
+                    ic.code,
+                    ic.is_admin_code,
+                    ic.is_active,
+                    ic.max_uses,
+                    ic.use_count,
+                    ic.created_at,
+                    ic.expires_at,
+                    u.email as creator_email,
+                    u.display_name as creator_name,
+                    CASE 
+                        WHEN ic.expires_at IS NULL THEN 'Never (Persistent)'
+                        WHEN ic.expires_at < NOW() THEN 'Expired'
+                        ELSE 'Active'
+                    END as status_label
+                FROM invitation_codes ic
+                LEFT JOIN users u ON ic.created_by_user_id = u.id
+                ORDER BY ic.created_at DESC;
+                """)
+                rows = cur.fetchall()
+                for r in rows:
+                    if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
+                    if r.get("expires_at"): r["expires_at"] = r["expires_at"].isoformat()
+                return rows
+
+    def get_admin_referrals(self) -> List[Dict[str, Any]]:
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT 
+                    r.id,
+                    r.code,
+                    r.redeemed_at,
+                    r.ip_address,
+                    u_new.id as new_user_id,
+                    u_new.display_name as new_user_name,
+                    u_new.email as new_user_email,
+                    u_new.bcp_user_id as new_user_bcp,
+                    u_inv.id as inviter_id,
+                    u_inv.display_name as inviter_name,
+                    u_inv.email as inviter_email
+                FROM invite_redemptions r
+                JOIN users u_new ON r.new_user_id = u_new.id
+                LEFT JOIN users u_inv ON r.invited_by_user_id = u_inv.id
+                ORDER BY r.redeemed_at DESC
+                LIMIT 250;
+                """)
+                rows = cur.fetchall()
+                for r in rows:
+                    if r.get("redeemed_at"): r["redeemed_at"] = r["redeemed_at"].isoformat()
+                return rows
+
+    def get_admin_users(self) -> List[Dict[str, Any]]:
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT 
+                    u.id,
+                    u.email,
+                    u.display_name,
+                    u.role,
+                    u.bcp_user_id,
+                    u.bcp_email,
+                    u.created_at,
+                    u.invite_code_used,
+                    inv.display_name as invited_by_name,
+                    inv.email as invited_by_email,
+                    (SELECT COUNT(*) FROM invite_redemptions WHERE invited_by_user_id = u.id) as invite_count
+                FROM users u
+                LEFT JOIN users inv ON u.invited_by_user_id = inv.id
+                ORDER BY u.created_at DESC
+                LIMIT 500;
+                """)
+                rows = cur.fetchall()
+                for r in rows:
+                    if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
+                return rows
 
     # =========================================================================
     # BEST COAST PAIRINGS ACCOUNT LINKING & SILENT REFRESH

@@ -3821,6 +3821,24 @@ if FASTAPI_AVAILABLE:
             return FileResponse(str(af_file), media_type="text/html")
         raise HTTPException(status_code=404, detail="admin_feedback.html not found")
 
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin.html", include_in_schema=False)
+    async def serve_admin_dashboard(request: Request, token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return RedirectResponse(url="/login?redirect=/admin", status_code=303)
+        user_role = (user.get("role") or "player").strip().lower()
+        if user_role not in ("admin", "superuser", "developer", "owner"):
+            return RedirectResponse(url="/?error=unauthorized_admin", status_code=303)
+        adm_file = web_dir / "admin.html"
+        if adm_file.exists():
+            return FileResponse(str(adm_file), media_type="text/html")
+        raise HTTPException(status_code=404, detail="admin.html not found")
+
+
 
     # Global Structured Error Handler
     @app.exception_handler(Exception)
@@ -4544,6 +4562,7 @@ if FASTAPI_AVAILABLE:
         email: str
         password: str
         display_name: Optional[str] = None
+        invite_code: Optional[str] = None
 
     class LoginPayload(BaseModel):
         email: str
@@ -4576,10 +4595,27 @@ if FASTAPI_AVAILABLE:
     class ResendVerificationPayload(BaseModel):
         email: str
 
+    @app.get("/api/auth/invite/validate", summary="Validate invitation code status")
+    async def api_auth_validate_invite(code: str):
+        auth_mgr = get_auth_manager()
+        is_valid, err_msg, rec = auth_mgr.validate_invite_code(code)
+        if not is_valid:
+            return {"valid": False, "error": err_msg}
+        return {
+            "valid": True,
+            "code": code.strip().upper(),
+            "is_admin_code": rec.get("is_admin_code", False) if rec else False
+        }
+
     @app.post("/api/auth/register", summary="Register a new native user account with 2FA email verification")
     async def api_auth_register(payload: RegisterPayload, response: Response):
         auth_mgr = get_auth_manager()
-        res = auth_mgr.initiate_registration(payload.email, payload.password, payload.display_name or "")
+        res = auth_mgr.initiate_registration(
+            payload.email, 
+            payload.password, 
+            payload.display_name or "", 
+            invite_code=payload.invite_code
+        )
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Registration failed"))
         return res
@@ -4896,6 +4932,120 @@ if FASTAPI_AVAILABLE:
         if not ok:
             raise HTTPException(status_code=404, detail="Feedback entry not found")
         return {"success": True, "message": "Feedback deleted successfully"}
+
+    # =========================================================================
+    # INVITATION CODES & PLATFORM GOVERNANCE (USER & ADMIN)
+    # =========================================================================
+
+    def _get_admin_session_or_403(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid session")
+        user_role = (session.get("role") or "player").strip().lower()
+        if user_role not in ("admin", "superuser", "developer", "owner"):
+            raise HTTPException(status_code=403, detail="Administrator privileges required")
+        return session
+
+    def _get_user_session_or_401(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        return session
+
+    @app.get("/api/auth/invite/my-code", summary="Get or generate user's active 24-hour invitation code")
+    async def api_auth_my_invite_code(request: Request, token: Optional[str] = Query(None)):
+        session = _get_user_session_or_401(request, token)
+        auth_mgr = get_auth_manager()
+        return auth_mgr.generate_user_invite_code(session["id"])
+
+    @app.post("/api/auth/invite/generate", summary="Generate a fresh 24-hour invitation code")
+    async def api_auth_generate_invite_code(request: Request, token: Optional[str] = Query(None)):
+        session = _get_user_session_or_401(request, token)
+        auth_mgr = get_auth_manager()
+        return auth_mgr.generate_user_invite_code(session["id"])
+
+    # --- ADMIN GOVERNANCE SCHEMAS & ROUTES ---
+    class AdminCreateInvitePayload(BaseModel):
+        code: str
+        max_uses: Optional[int] = None
+        expires_in_days: Optional[int] = None
+
+    class AdminToggleInvitePayload(BaseModel):
+        is_active: bool
+
+    class AdminToggleSystemInvitesPayload(BaseModel):
+        enabled: bool
+
+    @app.get("/api/admin/metrics", summary="Platform KPIs & Registration Metrics (Admin)")
+    async def api_admin_metrics(request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        return get_auth_manager().get_admin_dashboard_metrics()
+
+    @app.get("/api/admin/settings", summary="Get System Settings (Admin)")
+    async def api_admin_get_settings(request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        auth_mgr = get_auth_manager()
+        return {
+            "invites_enabled": auth_mgr.get_system_setting("invites_enabled", "true") == "true"
+        }
+
+    @app.post("/api/admin/settings/toggle-invites", summary="Global Master Kill Switch for Registrations (Admin)")
+    async def api_admin_toggle_invites(payload: AdminToggleSystemInvitesPayload, request: Request, token: Optional[str] = Query(None)):
+        admin = _get_admin_session_or_403(request, token)
+        auth_mgr = get_auth_manager()
+        val_str = "true" if payload.enabled else "false"
+        ok = auth_mgr.set_system_setting("invites_enabled", val_str, user_id=admin.get("id"))
+        return {"success": ok, "invites_enabled": payload.enabled}
+
+    @app.get("/api/admin/invites", summary="List All Invitation Codes (Admin)")
+    async def api_admin_get_invites(request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        return {"codes": get_auth_manager().get_admin_invite_codes()}
+
+    @app.post("/api/admin/invites/create", summary="Create Persistent / Custom Invitation Code (Admin)")
+    async def api_admin_create_invite(payload: AdminCreateInvitePayload, request: Request, token: Optional[str] = Query(None)):
+        admin = _get_admin_session_or_403(request, token)
+        res = get_auth_manager().create_admin_invite_code(
+            admin_user_id=admin.get("id"),
+            code_str=payload.code,
+            max_uses=payload.max_uses,
+            expires_in_days=payload.expires_in_days
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to create code"))
+        return res
+
+    @app.delete("/api/admin/invites/{code}", summary="Delete Invitation Code (Admin)")
+    async def api_admin_delete_invite(code: str, request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        return get_auth_manager().delete_admin_invite_code(code)
+
+    @app.post("/api/admin/invites/{code}/toggle", summary="Toggle Active Status of Invitation Code (Admin)")
+    async def api_admin_toggle_invite(code: str, payload: AdminToggleInvitePayload, request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        return get_auth_manager().toggle_invite_code(code, payload.is_active)
+
+    @app.get("/api/admin/referrals", summary="Get Referral Audit Log & Who-Invited-Who (Admin)")
+    async def api_admin_get_referrals(request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        return {"referrals": get_auth_manager().get_admin_referrals()}
+
+    @app.get("/api/admin/users", summary="Get User Directory with Inviter Lineage (Admin)")
+    async def api_admin_get_users(request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        return {"users": get_auth_manager().get_admin_users()}
+
+
 
 def start_server(port: int = 8080, host: str = "0.0.0.0"):
     """Starts the FastAPI Uvicorn ASGI server."""

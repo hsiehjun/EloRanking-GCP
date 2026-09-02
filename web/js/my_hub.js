@@ -117,7 +117,8 @@ function renderMyHub(data) {
       </div>
 
       <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.75rem; width:100%; max-width:480px;">
-        <div style="display:flex; gap:0.5rem; align-items:center;">
+        <div style="display:flex; gap:0.5rem; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+          <button class="subtab-btn" onclick="openInviteModal()" style="font-size:0.8rem; padding:0.3rem 0.75rem; background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.35);">🎟️ Invite Players</button>
           <button class="subtab-btn" onclick="openUserSettingsModal()" style="font-size:0.8rem; padding:0.3rem 0.75rem;">⚙️ Account & Devices</button>
           <button class="subtab-btn" onclick="handleLogout()" style="font-size:0.8rem; padding:0.3rem 0.75rem;">🚪 Sign Out</button>
         </div>

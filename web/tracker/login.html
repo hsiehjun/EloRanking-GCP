@@ -195,6 +195,20 @@
         <input id="auth-name" type="text" placeholder="e.g. Captain Titus" autocomplete="off" />
       </div>
 
+      <div id="invite-group" class="form-group" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="margin-bottom: 0;">Invitation Code *</label>
+          <span id="invite-code-status" style="font-size: 10px; font-weight: 800; color: #f59e0b; text-transform: uppercase; letter-spacing: 0.05em;">Invite Required</span>
+        </div>
+        <div style="position: relative;">
+          <input id="auth-invite-code" type="text" placeholder="e.g. TAC-XXXX or Event Code" autocomplete="off" style="text-transform: uppercase; font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; padding-right: 36px;" oninput="handleInviteCodeInput(this.value)" />
+          <span id="invite-code-icon" style="display: none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); font-size: 15px; font-weight: bold;"></span>
+        </div>
+        <div id="invite-code-hint" style="font-size: 11px; color: #64748b; margin-top: 5px; line-height: 1.3;">
+          Account creation is invite-only. Request a code from an active OmniTactica player or tournament organizer.
+        </div>
+      </div>
+
       <div class="form-group">
         <label>Email Address</label>
         <input id="auth-email" type="email" required placeholder="player@chapter.com" autocomplete="off" />
@@ -334,8 +348,16 @@
 
     (function checkExistingSession() {
       const mode = params.get('mode') || params.get('auth');
-      if (mode === 'register') {
+      const urlInvite = params.get('invite') || params.get('code');
+      if (mode === 'register' || urlInvite) {
         switchTab('register');
+        if (urlInvite) {
+          const inviteInput = document.getElementById('auth-invite-code');
+          if (inviteInput) {
+            inviteInput.value = urlInvite.trim().toUpperCase();
+            handleInviteCodeInput(urlInvite);
+          }
+        }
       }
 
       // Check if user came from a password reset email link
@@ -368,12 +390,56 @@
       }
     })();
 
+    let inviteValidateTimer = null;
+    function handleInviteCodeInput(val) {
+      val = (val || '').trim().toUpperCase();
+      const icon = document.getElementById('invite-code-icon');
+      const status = document.getElementById('invite-code-status');
+      if (!val) {
+        if (icon) icon.style.display = 'none';
+        if (status) {
+          status.textContent = 'Invite Required';
+          status.style.color = '#f59e0b';
+        }
+        return;
+      }
+      clearTimeout(inviteValidateTimer);
+      inviteValidateTimer = setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/auth/invite/validate?code=${encodeURIComponent(val)}`);
+          const data = await res.json();
+          if (data.valid) {
+            if (icon) {
+              icon.textContent = '✓';
+              icon.style.color = '#10b981';
+              icon.style.display = 'block';
+            }
+            if (status) {
+              status.textContent = '✓ Verified Code';
+              status.style.color = '#10b981';
+            }
+          } else {
+            if (icon) {
+              icon.textContent = '✕';
+              icon.style.color = '#ef4444';
+              icon.style.display = 'block';
+            }
+            if (status) {
+              status.textContent = 'Invalid / Expired';
+              status.style.color = '#ef4444';
+            }
+          }
+        } catch (e) {}
+      }, 300);
+    }
+
     function switchTab(tab) {
       activeTab = tab;
       const tabLog = document.getElementById('tab-login');
       const tabReg = document.getElementById('tab-register');
       const tabForg = document.getElementById('tab-forgot');
       const nameGroup = document.getElementById('name-group');
+      const inviteGroup = document.getElementById('invite-group');
       const forgotRow = document.getElementById('forgot-link-row');
       const mainForm = document.getElementById('main-auth-form');
       const forgotForm = document.getElementById('forgot-auth-form');
@@ -405,6 +471,7 @@
         if (mainForm) mainForm.style.display = 'block';
         if (forgotForm) forgotForm.style.display = 'none';
         nameGroup.style.display = 'none';
+        if (inviteGroup) inviteGroup.style.display = 'none';
         if (forgotRow) forgotRow.style.display = 'flex';
         btn.textContent = 'LOGIN';
       } else if (tab === 'register') {
@@ -414,6 +481,7 @@
         if (mainForm) mainForm.style.display = 'block';
         if (forgotForm) forgotForm.style.display = 'none';
         nameGroup.style.display = 'block';
+        if (inviteGroup) inviteGroup.style.display = 'block';
         if (forgotRow) forgotRow.style.display = 'none';
         btn.textContent = 'CREATE ACCOUNT';
       } else if (tab === 'forgot') {
@@ -631,10 +699,20 @@
       const email = document.getElementById('auth-email').value.trim();
       const password = document.getElementById('auth-password').value;
       const name = (document.getElementById('auth-name').value || '').trim();
+      const inviteCode = (document.getElementById('auth-invite-code') ? document.getElementById('auth-invite-code').value : '').trim().toUpperCase();
       const errEl = document.getElementById('auth-error');
       const btn = document.getElementById('btn-submit');
 
       errEl.style.display = 'none';
+
+      if (activeTab === 'register' && !inviteCode) {
+        errEl.textContent = '⚠️ An invitation code is required to register. Please enter a valid invite code from a member or organizer.';
+        errEl.style.display = 'block';
+        const inviteInput = document.getElementById('auth-invite-code');
+        if (inviteInput) inviteInput.focus();
+        return;
+      }
+
       btn.disabled = true;
       btn.textContent = 'AUTHENTICATING...';
 
@@ -642,7 +720,7 @@
         const endpoint = activeTab === 'login' ? '/api/auth/login' : '/api/auth/register';
         const payload = activeTab === 'login' 
           ? { email, password }
-          : { email, password, display_name: name || email.split('@')[0] };
+          : { email, password, display_name: name || email.split('@')[0], invite_code: inviteCode };
 
         const resp = await fetch(endpoint, {
           method: 'POST',

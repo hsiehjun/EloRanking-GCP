@@ -271,6 +271,104 @@ window.api = {
     });
   },
 
+  // Get or Generate User's 24-hour Invite Code
+  async getMyInviteCode() {
+    const token = this.getAuthToken();
+    if (!token) return { success: false, error: 'Authentication required' };
+    return this._fetchJson(`/api/auth/invite/my-code?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  async generateInviteCode() {
+    const token = this.getAuthToken();
+    if (!token) return { success: false, error: 'Authentication required' };
+    return this._fetchJson(`/api/auth/invite/generate?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  // Admin Governance Methods
+  async getAdminMetrics() {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/metrics?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  async getAdminSettings() {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/settings?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  async toggleAdminInvites(enabled) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/settings/toggle-invites?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ enabled })
+    });
+  },
+
+  async getAdminInvites() {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/invites?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  async createAdminInvite(code, maxUses = null, expiresInDays = null) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/invites/create?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ code, max_uses: maxUses ? parseInt(maxUses, 10) : null, expires_in_days: expiresInDays ? parseInt(expiresInDays, 10) : null })
+    });
+  },
+
+  async deleteAdminInvite(code) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/invites/${encodeURIComponent(code)}?token=${encodeURIComponent(token)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  async toggleAdminInvite(code, isActive) {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/invites/${encodeURIComponent(code)}/toggle?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ is_active: isActive })
+    });
+  },
+
+  async getAdminReferrals() {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/referrals?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  async getAdminUsers() {
+    const token = this.getAuthToken();
+    return this._fetchJson(`/api/admin/users?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
   // Personalized Competitor Hub
   async getUserDashboard(playerId = null) {
     const token = this.getAuthToken();

@@ -1245,6 +1245,57 @@
     </div>
   </div>
 
+  <!-- INVITE PLAYERS MODAL -->
+  <div id="invite-players-modal" class="modal-backdrop" onclick="if(event.target === this) closeInviteModal()">
+    <div class="modal-card" style="max-width: 480px; padding: 1.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <span style="font-size: 1.4rem;">🎟️</span>
+          <div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Invite Competitors</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Generate a 24-hour multi-player invitation pass</div>
+          </div>
+        </div>
+        <button class="modal-close-btn" onclick="closeInviteModal()">✕</button>
+      </div>
+
+      <div id="invite-modal-loading" style="text-align: center; padding: 24px; color: var(--text-muted); font-size: 0.88rem;">
+        Generating your 24-hour invitation code...
+      </div>
+
+      <div id="invite-modal-body" style="display: none;">
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 16px;">
+          <div style="font-size: 0.72rem; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Your 24-Hour Multi-Use Pass</div>
+          <div id="invite-display-code" style="font-size: 2rem; font-weight: 900; font-family: monospace; color: #38bdf8; letter-spacing: 2px; margin-bottom: 8px;">
+            TAC-XXXX
+          </div>
+          <div id="invite-time-remaining" style="font-size: 0.82rem; color: #f59e0b; font-weight: 700;">
+            ⏳ Expires in 24 hours
+          </div>
+        </div>
+
+        <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px; line-height: 1.45;">
+          Multiple players can register using this code or your direct link before it expires. When friends join with your code, they are linked to your competitor lineage.
+        </div>
+
+        <!-- Copy Link Field -->
+        <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+          <input type="text" id="invite-direct-link" readonly style="flex: 1; padding: 10px 12px; background: #070b14; border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 0.82rem; font-family: monospace; outline: none;">
+          <button id="btn-copy-invite" onclick="copyInviteLink()" class="btn btn-primary" style="padding: 10px 16px; font-weight: 700; white-space: nowrap;">
+            📋 Copy Link
+          </button>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; color: var(--text-muted); border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px;">
+          <span>Registered with this code: <strong id="invite-usage-count" style="color: #10b981;">0 players</strong></span>
+          <button onclick="refreshUserInviteCode(true)" style="background: transparent; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; font-size: 0.78rem;">
+            🔄 Refresh Code
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Location Picker Modal -->
   <div id="hub-location-picker-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window" style="max-width: 620px;">
@@ -1697,7 +1748,7 @@
 
   <!-- Modular Scripts -->
   <script src="/js/utils.js?v=64.0"></script>
-  <script src="/js/api.js?v=66.0"></script>
+  <script src="/js/api.js?v=69.0"></script>
   <script src="/js/leaderboard.js?v=64.0"></script>
   <script src="/js/teams.js?v=64.0"></script>
   <script src="/js/players.js?v=64.0"></script>
@@ -1705,8 +1756,8 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=64.0"></script>
-  <script src="/js/auth.js?v=66.0"></script>
-  <script src="/js/my_hub.js?v=66.0"></script>
+  <script src="/js/auth.js?v=69.0"></script>
+  <script src="/js/my_hub.js?v=69.0"></script>
   <script src="/js/eventstudio.js?v=68.0"></script>
   <script src="/js/app.js?v=68.0"></script>
 

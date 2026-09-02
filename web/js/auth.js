@@ -434,6 +434,12 @@ function renderHeaderAuth() {
 
   if (currentUser) {
     const name = currentUser.display_name || currentUser.email || 'Player';
+    const isAdmin = currentUser.role === 'admin';
+    const adminLink = isAdmin ? `
+      <a href="/admin" style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; font-weight:800; font-size:0.75rem; padding:3px 8px; border-radius:6px; text-decoration:none;" title="Admin Governance Dashboard">
+        <span>🛡️</span> Admin
+      </a>
+    ` : '';
     container.innerHTML = `
       <div style="display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.85); border:1px solid var(--border); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif;">
         <span style="width:8px; height:8px; border-radius:50%; background:#10b981; box-shadow:0 0 8px rgba(16,185,129,0.5);"></span>
@@ -441,6 +447,7 @@ function renderHeaderAuth() {
           <span>${escapeHtml(name)}</span>
           <span style="color:#94a3b8; font-size:11px;">⚙️</span>
         </button>
+        ${adminLink}
         <span style="color:var(--border-color, #334155); font-size:12px;">|</span>
         <button onclick="handleLogout()" style="background:transparent; border:none; color:#ef4444; font-size:0.78rem; font-weight:700; cursor:pointer; padding:0;">Logout</button>
       </div>
@@ -736,4 +743,101 @@ window.handleLogout = handleLogout;
 window.loadActiveSessionsList = loadActiveSessionsList;
 window.handleRevokeSession = handleRevokeSession;
 window.handleSignOutAllDevices = handleSignOutAllDevices;
+
+// =========================================================================
+// 24-HOUR PLAYER INVITATION PASS
+// =========================================================================
+
+async function openInviteModal() {
+  const modal = document.getElementById('invite-players-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  await refreshUserInviteCode(false);
+}
+
+function closeInviteModal() {
+  const modal = document.getElementById('invite-players-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+async function refreshUserInviteCode(forceNew = false) {
+  const loading = document.getElementById('invite-modal-loading');
+  const body = document.getElementById('invite-modal-body');
+  const codeEl = document.getElementById('invite-display-code');
+  const timeEl = document.getElementById('invite-time-remaining');
+  const countEl = document.getElementById('invite-usage-count');
+  const linkEl = document.getElementById('invite-direct-link');
+
+  if (loading) {
+    loading.textContent = forceNew ? 'Generating fresh 24-hour pass...' : 'Retrieving your 24-hour invite pass...';
+    loading.style.color = 'var(--text-muted)';
+    loading.style.display = 'block';
+  }
+  if (body) body.style.display = 'none';
+
+  try {
+    const res = forceNew ? await window.api.generateInviteCode() : await window.api.getMyInviteCode();
+    if (res && res.success) {
+      if (codeEl) codeEl.textContent = res.code;
+      
+      const secs = res.remaining_seconds || 86400;
+      const hrs = Math.floor(secs / 3600);
+      const mins = Math.floor((secs % 3600) / 60);
+      if (timeEl) {
+        timeEl.textContent = `⏳ Expires in ${hrs}h ${mins}m`;
+      }
+      if (countEl) {
+        countEl.textContent = `${res.use_count || 0} players`;
+      }
+      
+      const origin = window.location.origin;
+      const inviteUrl = `${origin}/login?invite=${encodeURIComponent(res.code)}`;
+      if (linkEl) linkEl.value = inviteUrl;
+
+      if (loading) loading.style.display = 'none';
+      if (body) body.style.display = 'block';
+    } else {
+      if (loading) {
+        loading.textContent = res?.error || 'Registration is currently closed by the administrator.';
+        loading.style.color = '#ef4444';
+      }
+    }
+  } catch (err) {
+    if (loading) {
+      loading.textContent = 'Failed to retrieve invite code: ' + err.message;
+      loading.style.color = '#ef4444';
+    }
+  }
+}
+
+function copyInviteLink() {
+  const linkEl = document.getElementById('invite-direct-link');
+  const btn = document.getElementById('btn-copy-invite');
+  if (!linkEl || !linkEl.value) return;
+
+  navigator.clipboard.writeText(linkEl.value).then(() => {
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '✓ Copied!';
+      btn.style.background = '#10b981';
+      setTimeout(() => {
+        btn.innerHTML = orig;
+        btn.style.background = '';
+      }, 2000);
+    }
+  }).catch(() => {
+    linkEl.select();
+    document.execCommand('copy');
+    if (btn) {
+      btn.textContent = '✓ Copied!';
+      setTimeout(() => btn.textContent = '📋 Copy Link', 2000);
+    }
+  });
+}
+
+window.openInviteModal = openInviteModal;
+window.closeInviteModal = closeInviteModal;
+window.refreshUserInviteCode = refreshUserInviteCode;
+window.copyInviteLink = copyInviteLink;
+
 
