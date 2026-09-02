@@ -123,7 +123,7 @@ function renderLeaderboardRows() {
         </span>
       </td>
       <td class="col-faction">
-        <span class="faction-pill" title="${escapeHtml(p.top_faction || 'Various')}">${escapeHtml(p.top_faction || 'Various')}</span>
+        ${(p.top_faction || 'Various').split(',').map(f => `<span class="faction-pill" title="${escapeHtml(f.trim())}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f.trim())}</span>`).join('')}
       </td>
       <td class="col-last-active" style="font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
         ${(p.last_active_date || '').slice(0, 10) || '-'}

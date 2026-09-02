@@ -127,9 +127,16 @@ async function loadGlobalStats() {
     const dirFactionSelect = document.getElementById('dir-faction-filter');
 
     if (stats.factions && stats.factions.length > 0) {
+      // Ensure completely flat, distinct, single factions without any compound comma strings
+      const flatFactions = Array.from(new Set(
+        stats.factions.flatMap(f => (typeof f === 'string' ? f.split(',') : [f]))
+          .map(f => f.trim())
+          .filter(f => f && f !== 'Unknown' && f !== 'Unknown Faction')
+      )).sort();
+
       if (factionSelect) {
         factionSelect.innerHTML = '<option value="All">All Factions</option>';
-        stats.factions.forEach(f => {
+        flatFactions.forEach(f => {
           const opt = document.createElement('option');
           opt.value = f;
           opt.innerText = f;
@@ -138,7 +145,7 @@ async function loadGlobalStats() {
       }
       if (dirFactionSelect) {
         dirFactionSelect.innerHTML = '<option value="All">All Factions</option>';
-        stats.factions.forEach(f => {
+        flatFactions.forEach(f => {
           const opt = document.createElement('option');
           opt.value = f;
           opt.innerText = f;

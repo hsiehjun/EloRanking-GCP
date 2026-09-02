@@ -87,7 +87,7 @@ function renderPlayersDirectoryRows() {
         </div>
       </td>
       <td class="col-faction">
-        <span class="faction-pill" title="${escapeHtml(p.top_faction || 'Various')}">${escapeHtml(p.top_faction || 'Various')}</span>
+        ${(p.top_faction || 'Various').split(',').map(f => `<span class="faction-pill" title="${escapeHtml(f.trim())}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f.trim())}</span>`).join('')}
       </td>
       <td class="elo-badge ${eloBadgeClass}">
         ${Number(p.current_elo || 1500).toFixed(1)}

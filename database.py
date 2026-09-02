@@ -908,10 +908,14 @@ class PostgresDatabase:
                 top_p = cursor.fetchone() or {"player_name": "None", "current_elo": 1500.0}
 
                 cursor.execute("""
-                SELECT DISTINCT top_faction as f 
-                FROM player_ratings 
-                WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
-                ORDER BY f;
+                SELECT DISTINCT TRIM(fac) as f 
+                FROM (
+                    SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
+                    FROM player_ratings
+                    WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
+                ) sub
+                WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
+                ORDER BY f ASC;
                 """)
                 factions = [r["f"] for r in cursor.fetchall() if r["f"]]
 
@@ -963,25 +967,28 @@ class PostgresDatabase:
                     # Faction isolated aggregation
                     count_sql = """
                     WITH faction_player_matches AS (
-                        SELECT player1_id as p_id, (player1_faction ILIKE %s) as is_match_fac
+                        SELECT player1_id as p_id
                         FROM matches
                         WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
                           AND player1_faction ILIKE %s
                         UNION ALL
-                        SELECT player2_id as p_id, (player2_faction ILIKE %s) as is_match_fac
+                        SELECT player2_id as p_id
                         FROM matches
                         WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
                           AND player2_faction ILIKE %s
-                    )
-                    SELECT COUNT(DISTINCT fpm.p_id) as total_count
-                    FROM faction_player_matches fpm
-                    LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
-                    WHERE 1=1
+                    ),
+                    qualifying_players AS (
+                        SELECT fpm.p_id
+                        FROM faction_player_matches fpm
+                        LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
+                        WHERE 1=1
                     """
-                    count_params = [f"%{faction}%", f"%{faction}%", f"%{faction}%", f"%{faction}%"]
+                    count_params = [f"%{faction}%", f"%{faction}%"]
                     if query:
                         count_sql += " AND (r.player_name ILIKE %s OR fpm.p_id = %s)"
                         count_params.extend([f"%{query}%", query])
+                    count_sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s ) SELECT COUNT(*) as total_count FROM qualifying_players;"
+                    count_params.append(min_matches)
 
                     cursor.execute(count_sql, count_params)
                     total_count = cursor.fetchone()["total_count"] or 0

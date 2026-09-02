@@ -284,7 +284,7 @@ class ArmyListParser:
                 res = self._parse_newrecruit_text(content)
             elif "++ Army Roster" in content or "+ Epic Hero +" in content or "+ Character +" in content:
                 res = self._parse_battlescribe_text(content)
-            elif "CHARACTERS" in content or "BATTLELINE" in content or "OTHER DATASHEETS" in content:
+            elif "CHARACTERS" in content or "BATTLELINE" in content or "OTHER DATASHEETS" in content or "ATTACHED UNITS" in content.upper() or "Exported with App Version" in content:
                 res = self._parse_warhammer_app_text(content)
             else:
                 res = self._parse_generic_text(content)
@@ -1136,11 +1136,14 @@ class ArmyListParser:
             "OTHER DATASHEETS": "Infantry",
             "ALLIED UNITS": "Allied",
             "FORTIFICATIONS": "Fortification",
+            "ATTACHED UNITS": "Character",
+            "UNATTACHED UNITS": "Infantry",
         }
 
         first_cat_idx = len(lines)
         for i, l in non_empty_lines:
-            if l.upper() in header_roles:
+            upper = l.upper()
+            if upper in header_roles or re.match(r"^ATTACHED\s+UNIT(S)?(\s+\d+)?$", upper):
                 first_cat_idx = i
                 break
 
@@ -1161,7 +1164,7 @@ class ArmyListParser:
             "Drukhari", "Leagues of Votann", "Imperial Agents", "Emperor's Children"
         ]
 
-        battle_sizes = ["strike force", "incursion", "combat patrol", "onslaught", "boarding patrol", "reconnaissance"]
+        battle_sizes = ["strike force", "incursion", "combat patrol", "onslaught", "boarding patrol", "reconnaissance", "priority assets", "crusade"]
 
         if header_lines:
             first_line = header_lines[0]
@@ -1170,23 +1173,39 @@ class ArmyListParser:
                 roster_name = m_pts.group(1).replace("’", "'").strip()
                 points = int(m_pts.group(2) or m_pts.group(3) or 2000)
 
+            # 1. Match Faction
             for hl in header_lines[1:]:
                 hl_clean = hl.strip()
                 hl_lower = hl_clean.lower()
-                if any(bs in hl_lower for bs in battle_sizes):
-                    continue
-                matched_fac = False
                 for kf in known_factions:
                     if kf.lower() in hl_lower:
                         faction = kf
-                        matched_fac = True
                         break
-                if matched_fac:
-                    continue
-                det_clean = re.sub(r"\(\s*\d+\s*Detachment\s*Points\s*\)", "", hl_clean, flags=re.IGNORECASE).strip()
-                det_clean = re.sub(r"\(.*?\)", "", det_clean).strip()
-                if det_clean and not any(bs in det_clean.lower() for bs in battle_sizes):
-                    detachment = det_clean
+
+            # 2. Match Detachment (prioritize lines with explicit Detachment / Detachment Points)
+            found_explicit_det = False
+            for hl in header_lines[1:]:
+                hl_clean = hl.strip()
+                if re.search(r"\bDetachment(?:\s+Points)?\b", hl_clean, re.IGNORECASE):
+                    det_clean = re.sub(r"\(\s*\d+\s*Detachment\s*Points\s*\)", "", hl_clean, flags=re.IGNORECASE).strip()
+                    det_clean = re.sub(r"\(.*?\)", "", det_clean).strip()
+                    if det_clean:
+                        detachment = det_clean
+                        found_explicit_det = True
+                        break
+
+            if not found_explicit_det:
+                for hl in header_lines[1:]:
+                    hl_clean = hl.strip()
+                    hl_lower = hl_clean.lower()
+                    if any(bs in hl_lower for bs in battle_sizes):
+                        continue
+                    if any(kf.lower() in hl_lower for kf in known_factions):
+                        continue
+                    det_clean = re.sub(r"\(.*?\)", "", hl_clean).strip()
+                    if det_clean and not any(bs in det_clean.lower() for bs in battle_sizes):
+                        detachment = det_clean
+                        break
 
         parsed_units = []
         current_unit = None
@@ -1216,6 +1235,11 @@ class ArmyListParser:
                 current_unit = None
                 continue
 
+            # Subgroup separators inside attached units
+            if re.match(r"^ATTACHED\s+UNIT\s+\d+$", upper) or re.match(r"^UNATTACHED\s+UNIT\s+\d+$", upper):
+                current_unit = None
+                continue
+
             is_indented = line.startswith(" ") or line.startswith("\t")
             u_m = unit_line_re.match(trimmed)
             if u_m and not is_indented and not trimmed.startswith("•") and not trimmed.startswith("-"):
@@ -1236,6 +1260,14 @@ class ArmyListParser:
                 continue
 
             if current_unit:
+                # Handle '• Attached as: Leader (Character)' or '• Attached as: Bodyguard'
+                if "attached as:" in trimmed.lower() or "attached to:" in trimmed.lower():
+                    if "character" in trimmed.lower() or "leader" in trimmed.lower():
+                        current_unit["role"] = "Character"
+                    elif "bodyguard" in trimmed.lower():
+                        current_unit["role"] = "Infantry"
+                    continue
+
                 enh_m = enh_re.match(trimmed)
                 if enh_m:
                     enh_name = enh_m.group(1).replace("’", "'").strip()

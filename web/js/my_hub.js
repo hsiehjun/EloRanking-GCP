@@ -725,6 +725,14 @@ function getDeviceCoordinates() {
     if (userDeviceGeo) {
       return resolve(userDeviceGeo);
     }
+    try {
+      const cached = sessionStorage.getItem('omni_user_geo');
+      if (cached) {
+        userDeviceGeo = JSON.parse(cached);
+        return resolve(userDeviceGeo);
+      }
+    } catch (e) {}
+
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -732,12 +740,13 @@ function getDeviceCoordinates() {
             lat: Number(pos.coords.latitude.toFixed(4)),
             lng: Number(pos.coords.longitude.toFixed(4))
           };
+          try { sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo)); } catch (e) {}
           resolve(userDeviceGeo);
         },
         () => {
           resolve(null);
         },
-        { timeout: 2000, maximumAge: 600000 }
+        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
       );
     } else {
       resolve(null);
@@ -746,23 +755,73 @@ function getDeviceCoordinates() {
 }
 
 function requestUserDeviceLocationPrompt() {
-  if (typeof navigator !== 'undefined' && navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        userDeviceGeo = {
-          lat: Number(pos.coords.latitude.toFixed(4)),
-          lng: Number(pos.coords.longitude.toFixed(4))
-        };
-        loadHubRecommendedEvents();
-      },
-      (err) => {
-        alert('Location access was not granted. You can select your state or region from the Region dropdown above.');
-      },
-      { enableHighAccuracy: true, timeout: 6000 }
-    );
-  } else {
-    alert('Geolocation is not supported by your browser. Please choose a region from the dropdown.');
+  if (typeof navigator === 'undefined' || !navigator.geolocation) {
+    alert('Geolocation is not supported by your browser. Please choose your city manually.');
+    openLocationPickerModal();
+    return;
   }
+
+  const btn = document.getElementById('hub-enable-loc-btn') || (typeof event !== 'undefined' && event && event.target ? event.target : null);
+  const origHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; margin-right:6px; vertical-align:middle;"></span> Finding Location...';
+  }
+
+  const handleSuccess = (pos) => {
+    userDeviceGeo = {
+      lat: Number(pos.coords.latitude.toFixed(4)),
+      lng: Number(pos.coords.longitude.toFixed(4))
+    };
+    try { sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo)); } catch (e) {}
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+    loadHubRecommendedEvents();
+  };
+
+  const handleError = (err) => {
+    // If high accuracy timed out on mobile, try fast low accuracy (cell/Wi-Fi)
+    if (err && err.code === 3) {
+      navigator.geolocation.getCurrentPosition(
+        handleSuccess,
+        (fallbackErr) => {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+          }
+          handleFinalFailure(fallbackErr);
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
+      return;
+    }
+
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    }
+    handleFinalFailure(err);
+  };
+
+  function handleFinalFailure(err) {
+    if (err && err.code === 1) {
+      alert('Location access was denied in browser settings. Please enable location permissions for this site, or select your city from the list.');
+    } else if (err && err.code === 3) {
+      alert('GPS location request timed out. Please choose your city from the list.');
+    } else {
+      alert('Could not acquire your device location. Please choose your city from the list.');
+    }
+    openLocationPickerModal();
+  }
+
+  // Fast low-accuracy first (instant resolution on mobile networks / Wi-Fi)
+  navigator.geolocation.getCurrentPosition(
+    handleSuccess,
+    handleError,
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+  );
 }
 window.requestUserDeviceLocationPrompt = requestUserDeviceLocationPrompt;
 
@@ -820,9 +879,14 @@ async function loadHubRecommendedEvents() {
           <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1.15rem;">
             Allow device location access to automatically find tournaments within 50 miles of your current location.
           </p>
-          <button class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="requestUserDeviceLocationPrompt()">
-            📍 Enable Location Sharing
-          </button>
+          <div style="display:flex; justify-content:center; gap:0.6rem; flex-wrap:wrap;">
+            <button id="hub-enable-loc-btn" class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="requestUserDeviceLocationPrompt()">
+              📍 Enable Location Sharing
+            </button>
+            <button class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700; background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" onclick="openLocationPickerModal()">
+              ✏️ Choose City Manually
+            </button>
+          </div>
         </div>
       `;
       return;
