@@ -44,7 +44,7 @@ try:
         MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
         BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
     )
-    from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db
+    from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db, PostgresDatabase
     from google3.experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
     from google3.experimental.users.hsiehjun.EloRanking.elo import EloEngine
 except ImportError:
@@ -54,7 +54,7 @@ except ImportError:
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
         )
-        from experimental.users.hsiehjun.EloRanking.database import Database, get_db
+        from experimental.users.hsiehjun.EloRanking.database import Database, get_db, PostgresDatabase
         from experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
         from experimental.users.hsiehjun.EloRanking.elo import EloEngine
     except ImportError:
@@ -63,7 +63,7 @@ except ImportError:
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
         )
-        from database import Database, get_db
+        from database import Database, get_db, PostgresDatabase
         from scraper import BestCoastPairingsScraper
         from elo import EloEngine
         from auth import get_auth_manager, _decode_jwt_payload
@@ -3748,7 +3748,7 @@ if FASTAPI_AVAILABLE:
         sort_by: str = Query("date"),
         limit: int = Query(35, ge=1, le=100)
     ):
-        cache_key = f"{player_id}_{query}_{tier}_{state}_{city}_{sort_by}_{limit}"
+        cache_key = f"{player_id}_{query}_{tier}_{state}_{city}_{lat}_{lng}_{radius_miles}_{sort_by}_{limit}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._teams_cache_dict, f"rec_ev_{cache_key}", ttl=60)
         if cached:
             return cached
