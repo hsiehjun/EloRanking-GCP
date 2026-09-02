@@ -224,9 +224,8 @@ function renderEventsDirectory() {
         <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">⚔️</div>
         <h3 style="color: #fff; margin: 0 0 0.5rem; font-size: 1.3rem;">No Tournaments Directing Yet</h3>
         <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 520px; margin: 0 auto; line-height: 1.6;">
-          Create a new tournament to publish listings to Best Coast Pairings and manage player registrations.
+          Create a new tournament using the top button to publish listings to Best Coast Pairings and manage player registrations.
         </p>
-        <button class="btn btn-primary" style="margin-top: 1rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
       </div>
     `;
   } else {
@@ -1390,7 +1389,10 @@ window.loadTournamentWorkspace = loadTournamentWorkspace;
 window.switchManageSubtab = switchManageSubtab;
 window.triggerGenerateSwissPairings = triggerGenerateSwissPairings;
 window.saveTableScore = saveTableScore;
+const advanceTournamentRound = (typeof finalizeCurrentRound === 'function') ? finalizeCurrentRound : () => {};
 window.advanceTournamentRound = advanceTournamentRound;
+window.finalizeCurrentRound = finalizeCurrentRound;
+window.resetCurrentRound = resetCurrentRound;
 window.selectRoundView = selectRoundView;
 window.openAddPlayerModal = openAddPlayerModal;
 window.closeAddPlayerModal = closeAddPlayerModal;
