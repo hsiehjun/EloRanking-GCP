@@ -1630,7 +1630,6 @@ function findLocalHubMatch(text) {
   return null;
 }
 
-let studioLocCurrentMatches = [];
 let studioLocHighlightedIdx = -1;
 
 function handleStudioLocationFocus() {
