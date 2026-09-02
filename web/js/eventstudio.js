@@ -1820,6 +1820,7 @@ function selectStudioVerifiedLocation(item) {
   const badge = document.getElementById("create-event-loc-badge");
   const dropdown = document.getElementById("create-event-loc-dropdown");
   const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
+  const select = document.getElementById("create-event-city-select");
 
   const elCity = document.getElementById("create-event-loc-city");
   const elState = document.getElementById("create-event-loc-state");
@@ -1836,6 +1837,20 @@ function selectStudioVerifiedLocation(item) {
   if (elLng) elLng.value = item.lng;
   if (elVerified) elVerified.value = "true";
 
+  if (select) {
+    let found = false;
+    for (let i = 0; i < select.options.length; i++) {
+      if (select.options[i].value === item.label || (item.city && select.options[i].text.includes(item.city))) {
+        select.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      select.value = "__custom__";
+    }
+  }
+
   if (badge) {
     badge.style.background = "rgba(16,185,129,0.15)";
     badge.style.color = "#10b981";
@@ -1845,6 +1860,56 @@ function selectStudioVerifiedLocation(item) {
 
   if (dropdown) dropdown.style.display = "none";
   if (suggestionBar) suggestionBar.style.display = "none";
+}
+
+function handleStudioCitySelectChange(val) {
+  const customWrap = document.getElementById("create-event-custom-loc-wrap");
+  const customInput = document.getElementById("create-event-city-state");
+  const badge = document.getElementById("create-event-loc-badge");
+  const verifiedEl = document.getElementById("create-event-loc-verified");
+
+  if (val === "__custom__") {
+    if (customWrap) customWrap.style.display = "block";
+    if (customInput) {
+      customInput.value = "";
+      customInput.focus();
+    }
+    if (badge) {
+      badge.style.background = "rgba(245,158,11,0.15)";
+      badge.style.color = "#f59e0b";
+      badge.style.borderColor = "rgba(245,158,11,0.3)";
+      badge.textContent = "Type City Name";
+    }
+    if (verifiedEl) verifiedEl.value = "false";
+    return;
+  }
+
+  if (customWrap) customWrap.style.display = "none";
+  
+  const match = POPULAR_STUDIO_HUBS.find(h => h.label === val || h.city === val) || findLocalHubMatch(val);
+  if (match) {
+    selectStudioVerifiedLocation(match);
+  } else {
+    const parts = val.split(",").map(s => s.trim());
+    selectStudioVerifiedLocation({
+      city: parts[0] || "",
+      state: parts[1] || "",
+      country: parts[2] || "United States",
+      lat: 32.7157,
+      lng: -117.1611,
+      label: val
+    });
+  }
+}
+
+function revertToCitySelect() {
+  const select = document.getElementById("create-event-city-select");
+  const customWrap = document.getElementById("create-event-custom-loc-wrap");
+  if (select) {
+    select.value = "San Diego, CA, United States";
+    handleStudioCitySelectChange(select.value);
+  }
+  if (customWrap) customWrap.style.display = "none";
 }
 
 function selectBestMatchLocation() {
@@ -1872,6 +1937,8 @@ function handleStudioLocationBlur() {
   }, 250);
 }
 
+window.handleStudioCitySelectChange = handleStudioCitySelectChange;
+window.revertToCitySelect = revertToCitySelect;
 window.handleStudioLocationInput = handleStudioLocationInput;
 window.handleStudioLocationFocus = handleStudioLocationFocus;
 window.handleStudioLocationBlur = handleStudioLocationBlur;
