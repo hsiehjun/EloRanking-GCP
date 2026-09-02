@@ -1070,41 +1070,89 @@ class AuthManager:
     def get_admin_dashboard_metrics(self) -> Dict[str, Any]:
         """Calculates system health, registration metrics, and referral velocity."""
         from psycopg2 import extras
+        total_users = 0
+        bcp_linked = 0
+        active_sessions = 0
+        games_tracked = 0
+        signups_today = 0
+        signups_week = 0
+        signups_month = 0
+        invites_enabled = True
+        total_redemptions = 0
+        active_codes_count = 0
+
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute("SELECT COUNT(*) as c FROM users;")
-                total_users = cur.fetchone()["c"]
-
-                cur.execute("SELECT COUNT(*) as c FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';")
-                bcp_linked = cur.fetchone()["c"]
-
-                cur.execute("SELECT COUNT(*) as c FROM user_sessions WHERE expires_at > NOW();")
-                active_sessions = cur.fetchone()["c"]
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM users;")
+                    row = cur.fetchone()
+                    if row: total_users = row["c"]
+                except Exception:
+                    conn.rollback()
 
                 try:
-                    cur.execute("SELECT COUNT(*) as c FROM game_matches;")
-                    games_tracked = cur.fetchone()["c"]
+                    cur.execute("SELECT COUNT(*) as c FROM users WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';")
+                    row = cur.fetchone()
+                    if row: bcp_linked = row["c"]
                 except Exception:
-                    games_tracked = 0
+                    conn.rollback()
 
-                cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '24 hours';")
-                signups_today = cur.fetchone()["c"]
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM user_sessions WHERE expires_at > NOW();")
+                    row = cur.fetchone()
+                    if row: active_sessions = row["c"]
+                except Exception:
+                    conn.rollback()
 
-                cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '7 days';")
-                signups_week = cur.fetchone()["c"]
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM matches;")
+                    row = cur.fetchone()
+                    if row: games_tracked = row["c"]
+                except Exception:
+                    conn.rollback()
 
-                cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '30 days';")
-                signups_month = cur.fetchone()["c"]
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '24 hours';")
+                    row = cur.fetchone()
+                    if row: signups_today = row["c"]
+                except Exception:
+                    conn.rollback()
 
-                cur.execute("SELECT value FROM system_settings WHERE key = 'invites_enabled';")
-                s_row = cur.fetchone()
-                invites_enabled = s_row["value"] == "true" if s_row else True
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '7 days';")
+                    row = cur.fetchone()
+                    if row: signups_week = row["c"]
+                except Exception:
+                    conn.rollback()
 
-                cur.execute("SELECT COUNT(*) as c FROM invite_redemptions;")
-                total_redemptions = cur.fetchone()["c"]
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM users WHERE created_at >= NOW() - INTERVAL '30 days';")
+                    row = cur.fetchone()
+                    if row: signups_month = row["c"]
+                except Exception:
+                    conn.rollback()
 
-                cur.execute("SELECT COUNT(*) as c FROM invitation_codes WHERE is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW());")
-                active_codes_count = cur.fetchone()["c"]
+                try:
+                    cur.execute("SELECT value FROM system_settings WHERE key = 'invites_enabled';")
+                    s_row = cur.fetchone()
+                    if s_row and s_row.get("value") is not None:
+                        invites_enabled = str(s_row["value"]).lower() == "true"
+                except Exception:
+                    conn.rollback()
+
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM invite_redemptions;")
+                    row = cur.fetchone()
+                    if row: total_redemptions = row["c"]
+                except Exception:
+                    conn.rollback()
+
+                try:
+                    cur.execute("SELECT COUNT(*) as c FROM invitation_codes WHERE is_active = TRUE AND (expires_at IS NULL OR expires_at > NOW());")
+                    row = cur.fetchone()
+                    if row: active_codes_count = row["c"]
+                except Exception:
+                    conn.rollback()
 
         return {
             "total_users": total_users,

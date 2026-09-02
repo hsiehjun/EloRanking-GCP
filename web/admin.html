@@ -514,9 +514,13 @@
     async function refreshMetrics() {
       try {
         const metrics = await API.getAdminMetrics();
-        if (metrics.detail || metrics.error) {
+        if (metrics.status === 401 || metrics.status === 403 || (typeof metrics.detail === 'string' && metrics.detail.toLowerCase().includes('privileges'))) {
           alert("Admin privileges required.");
           window.location.replace('/');
+          return;
+        }
+        if (metrics.error || metrics.detail) {
+          console.error("Error loading metrics:", metrics.error || metrics.detail);
           return;
         }
 
