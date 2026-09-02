@@ -544,6 +544,48 @@
       }
     }
 
+    function showAdminToast(msg, type = 'success') {
+      let container = document.getElementById('admin-toast-container');
+      if (!container) {
+        container = document.createElement('div');
+        container.id = 'admin-toast-container';
+        container.style.cssText = 'position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none;';
+        document.body.appendChild(container);
+      }
+      const toast = document.createElement('div');
+      const bg = type === 'error' ? 'rgba(239, 68, 68, 0.95)' : 'rgba(16, 185, 129, 0.95)';
+      const border = type === 'error' ? '#ef4444' : '#10b981';
+      const icon = type === 'error' ? '⚠️' : '✓';
+      toast.style.cssText = `
+        background: ${bg};
+        color: #fff;
+        padding: 10px 16px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+        border: 1px solid ${border};
+        opacity: 0;
+        transform: translateY(10px);
+        transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        pointer-events: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      `;
+      toast.innerHTML = `<span>${icon}</span> <span>${escapeHtml(msg)}</span>`;
+      container.appendChild(toast);
+      requestAnimationFrame(() => {
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+      });
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px)';
+        setTimeout(() => toast.remove(), 250);
+      }, 2500);
+    }
+
     function updateKillSwitchUI(enabled) {
       const icon = document.getElementById('status-icon');
       const text = document.getElementById('status-text');
@@ -551,45 +593,59 @@
       const btn = document.getElementById('btn-toggle-invites');
 
       if (enabled) {
-        icon.textContent = '🟢';
-        text.textContent = 'REGISTRATION OPEN (INVITE-ONLY)';
-        text.style.color = '#10b981';
-        sub.textContent = 'Users with a valid 24h pass or persistent admin code can register.';
-        btn.textContent = '🔒 PAUSE ALL REGISTRATIONS';
-        btn.style.background = 'rgba(239, 68, 68, 0.2)';
-        btn.style.color = '#ef4444';
-        btn.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+        if (icon) icon.textContent = '🟢';
+        if (text) {
+          text.textContent = 'REGISTRATION OPEN (INVITE-ONLY)';
+          text.style.color = '#10b981';
+        }
+        if (sub) sub.textContent = 'Users with a valid 24h pass or persistent admin code can register.';
+        if (btn) {
+          btn.textContent = '🔒 PAUSE INVITES';
+          btn.style.background = 'rgba(239, 68, 68, 0.2)';
+          btn.style.color = '#ef4444';
+          btn.style.border = '1px solid rgba(239, 68, 68, 0.5)';
+        }
       } else {
-        icon.textContent = '🔴';
-        text.textContent = 'REGISTRATION LOCKED';
-        text.style.color = '#ef4444';
-        sub.textContent = 'Account registration is completely shut off. All invitation codes are paused.';
-        btn.textContent = '🟢 RE-OPEN REGISTRATION';
-        btn.style.background = 'rgba(16, 185, 129, 0.2)';
-        btn.style.color = '#10b981';
-        btn.style.border = '1px solid rgba(16, 185, 129, 0.5)';
+        if (icon) icon.textContent = '🔴';
+        if (text) {
+          text.textContent = 'REGISTRATION LOCKED';
+          text.style.color = '#ef4444';
+        }
+        if (sub) sub.textContent = 'Account registration is completely shut off. All invitation codes are paused.';
+        if (btn) {
+          btn.textContent = '🟢 ALLOW INVITES';
+          btn.style.background = 'rgba(16, 185, 129, 0.2)';
+          btn.style.color = '#10b981';
+          btn.style.border = '1px solid rgba(16, 185, 129, 0.5)';
+        }
       }
     }
 
     async function toggleGlobalInvites() {
-      const newStatus = !globalInvitesEnabled;
-      const confirmMsg = newStatus 
-        ? "Re-open account registration for players with valid invitation codes?" 
-        : "Are you sure you want to LOCK account registration? No new users will be able to register even if they have an invite code.";
+      const btn = document.getElementById('btn-toggle-invites');
+      const targetState = !globalInvitesEnabled;
 
-      if (!confirm(confirmMsg)) return;
+      // 1. Optimistic UI update instantly (0ms latency!)
+      globalInvitesEnabled = targetState;
+      updateKillSwitchUI(targetState);
+      if (btn) btn.disabled = true;
 
       try {
-        const res = await API.toggleAdminInvites(newStatus);
-        if (res.success) {
-          globalInvitesEnabled = res.invites_enabled;
+        const res = await API.toggleAdminInvites(targetState);
+        if (res && res.success !== false) {
+          globalInvitesEnabled = !!res.invites_enabled;
           updateKillSwitchUI(globalInvitesEnabled);
-          refreshMetrics();
+          showAdminToast(globalInvitesEnabled ? 'Account registration is now OPEN' : 'Account registration is now LOCKED', 'success');
         } else {
-          alert(res.error || "Failed to toggle registration status.");
+          throw new Error(res.detail || res.error || 'Failed to toggle registration status.');
         }
       } catch (e) {
-        alert("Error: " + e.message);
+        // Rollback on error
+        globalInvitesEnabled = !targetState;
+        updateKillSwitchUI(globalInvitesEnabled);
+        showAdminToast('Error toggling registration: ' + e.message, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
       }
     }
 
@@ -607,9 +663,11 @@
       if (tab === 'users') loadUsersList();
     }
 
-    async function loadCodesList() {
+    async function loadCodesList(silent = false) {
       const tbody = document.getElementById('codes-tbody');
-      tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading codes...</td></tr>`;
+      if (!silent) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">Loading codes...</td></tr>`;
+      }
 
       try {
         const res = await API.getAdminInvites();
@@ -630,20 +688,20 @@
           const creatorStr = c.creator_name ? `${c.creator_name} (${c.creator_email})` : 'System Admin';
 
           return `
-            <tr>
+            <tr id="invite-row-${escapeHtml(c.code)}" style="transition: all 0.25s ease;">
               <td><strong style="font-family: var(--font-mono); color: #38bdf8; font-size: 0.95rem;">${escapeHtml(c.code)}</strong></td>
               <td><span class="pill ${typeClass}">${typeLabel}</span></td>
               <td style="color: var(--text-muted);">${escapeHtml(creatorStr)}</td>
-              <td><span class="pill ${statusClass}">${statusText}</span></td>
+              <td class="col-status"><span class="pill ${statusClass}">${statusText}</span></td>
               <td><strong style="color:#fff;">${limitStr}</strong></td>
               <td style="color: var(--text-muted); font-size: 0.78rem;">${expiresStr}</td>
               <td style="color: var(--text-muted); font-size: 0.78rem;">${createdStr}</td>
               <td>
                 <div style="display:flex; gap:6px;">
-                  <button onclick="handleToggleCode('${escapeHtml(c.code)}', ${!c.is_active})" class="btn-action">
-                    ${c.is_active ? 'Pause' : 'Resume'}
+                  <button onclick="handleToggleCode('${escapeHtml(c.code)}', this)" data-active="${c.is_active ? 'true' : 'false'}" class="btn-action">
+                    ${c.is_active ? 'Pause' : 'Allow'}
                   </button>
-                  <button onclick="handleDeleteCode('${escapeHtml(c.code)}')" class="btn-action btn-delete">
+                  <button onclick="handleDeleteCode('${escapeHtml(c.code)}', this)" class="btn-action btn-delete">
                     Delete
                   </button>
                 </div>
@@ -658,43 +716,133 @@
 
     async function handleCreateAdminCode(e) {
       e.preventDefault();
-      const code = document.getElementById('new-code-str').value.trim().toUpperCase();
-      const maxUses = document.getElementById('new-code-max').value;
-      const days = document.getElementById('new-code-days').value;
+      const codeInput = document.getElementById('new-code-str');
+      const maxInput = document.getElementById('new-code-max');
+      const daysInput = document.getElementById('new-code-days');
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+
+      const code = codeInput.value.trim().toUpperCase();
+      const maxUses = maxInput.value;
+      const days = daysInput.value;
+
+      if (!code) {
+        showAdminToast('Please enter an invitation code', 'error');
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'CREATING...';
+      }
 
       try {
         const res = await API.createAdminInvite(code, maxUses, days);
-        if (res.success) {
-          document.getElementById('new-code-str').value = '';
-          document.getElementById('new-code-max').value = '';
-          document.getElementById('new-code-days').value = '';
-          loadCodesList();
+        if (res && res.success) {
+          codeInput.value = '';
+          maxInput.value = '';
+          daysInput.value = '';
+          showAdminToast(`Invite code '${code}' created!`, 'success');
+          await loadCodesList(true); // silent re-fetch without table wipeout
           refreshMetrics();
         } else {
-          alert(res.error || "Failed to create code");
+          showAdminToast(res.error || res.detail || 'Failed to create code', 'error');
         }
       } catch (err) {
-        alert("Error: " + err.message);
+        showAdminToast('Error: ' + err.message, 'error');
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'CREATE CODE';
+        }
       }
     }
 
-    async function handleToggleCode(code, activate) {
+    async function handleToggleCode(code, btn) {
+      const row = btn ? btn.closest('tr') : document.getElementById(`invite-row-${code}`);
+      const isCurrentlyActive = btn.getAttribute('data-active') === 'true';
+      const targetState = !isCurrentlyActive;
+
+      // 1. Optimistic UI update immediately (0ms!)
+      btn.setAttribute('data-active', targetState ? 'true' : 'false');
+      btn.textContent = targetState ? 'Pause' : 'Allow';
+      btn.disabled = true;
+      if (row) {
+        const statusCell = row.querySelector('.col-status');
+        if (statusCell) {
+          statusCell.innerHTML = targetState 
+            ? '<span class="pill pill-active">Active</span>' 
+            : '<span class="pill pill-expired">Disabled</span>';
+        }
+      }
+
       try {
-        await API.toggleAdminInvite(code, activate);
-        loadCodesList();
+        const res = await API.toggleAdminInvite(code, targetState);
+        if (res && res.success !== false) {
+          showAdminToast(`Invite code '${code}' is now ${targetState ? 'active' : 'paused'}.`, 'success');
+        } else {
+          throw new Error((res && (res.detail || res.error)) || 'Failed to update code');
+        }
       } catch (err) {
-        alert("Error: " + err.message);
+        // Rollback on failure
+        btn.setAttribute('data-active', isCurrentlyActive ? 'true' : 'false');
+        btn.textContent = isCurrentlyActive ? 'Pause' : 'Allow';
+        if (row) {
+          const statusCell = row.querySelector('.col-status');
+          if (statusCell) {
+            statusCell.innerHTML = isCurrentlyActive 
+              ? '<span class="pill pill-active">Active</span>' 
+              : '<span class="pill pill-expired">Disabled</span>';
+          }
+        }
+        showAdminToast('Error toggling code: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
       }
     }
 
-    async function handleDeleteCode(code) {
-      if (!confirm(`Are you sure you want to permanently delete invite code '${code}'?`)) return;
+    async function handleDeleteCode(code, btn) {
+      const row = btn ? btn.closest('tr') : document.getElementById(`invite-row-${code}`);
+      
+      // Optimistic Visual feedback: fade out row
+      if (row) {
+        row.style.opacity = '0.3';
+        row.style.pointerEvents = 'none';
+      }
+
       try {
-        await API.deleteAdminInvite(code);
-        loadCodesList();
-        refreshMetrics();
+        const res = await API.deleteAdminInvite(code);
+        if (res && res.success !== false) {
+          if (row) {
+            row.style.transform = 'translateX(25px)';
+            row.style.opacity = '0';
+            setTimeout(() => {
+              row.remove();
+              const tbody = document.getElementById('codes-tbody');
+              if (tbody && tbody.children.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted);">No invitation codes found.</td></tr>`;
+              }
+            }, 250);
+          }
+          // Optimistically decrement active code KPI counter
+          const kpiActive = document.getElementById('kpi-active-codes');
+          if (kpiActive && kpiActive.textContent) {
+            const match = kpiActive.textContent.match(/(\d+)/);
+            if (match) {
+              const currentVal = Math.max(0, parseInt(match[1], 10) - 1);
+              kpiActive.textContent = `${currentVal} active codes`;
+            }
+          }
+          showAdminToast(`Invite code '${code}' deleted.`, 'success');
+        } else {
+          throw new Error((res && (res.detail || res.error)) || 'Failed to delete code');
+        }
       } catch (err) {
-        alert("Error: " + err.message);
+        if (row) {
+          row.style.opacity = '1';
+          row.style.pointerEvents = 'auto';
+          row.style.transform = 'none';
+        }
+        showAdminToast('Error deleting code: ' + err.message, 'error');
       }
     }
 
