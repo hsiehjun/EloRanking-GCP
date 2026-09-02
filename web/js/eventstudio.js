@@ -20,11 +20,11 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function getBcpToken() {
-  return localStorage.getItem("bcp_jwt") || 
-         localStorage.getItem("bcp_token") || 
-         localStorage.getItem("bcp_organizer_token") || 
-         localStorage.getItem("bcp_user_token") || 
-         localStorage.getItem("auth_token") || "";
+  const tok = localStorage.getItem("bcp_jwt") || 
+              localStorage.getItem("bcp_token") || 
+              localStorage.getItem("bcp_organizer_token") || 
+              localStorage.getItem("bcp_user_token") || "";
+  return (tok && tok.split(".").length === 3) ? tok : "";
 }
 
 async function initStudio() {

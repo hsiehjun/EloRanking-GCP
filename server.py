@@ -220,6 +220,11 @@ if FASTAPI_AVAILABLE:
         auth_mgr = get_auth_manager()
 
         tok = explicit_token
+        # If explicit token is missing or not a 3-part JWT, pull valid BCP tokens from DB
+        if (not tok or len(str(tok).strip().split(".")) != 3) and user_id:
+            tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+            tok = tok_dict.get("access_token") or tok_dict.get("id_token")
+
         if not tok and user_id:
             tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
             tok = tok_dict.get("access_token") or tok_dict.get("id_token")
@@ -261,15 +266,22 @@ if FASTAPI_AVAILABLE:
         if data is not None:
             return data, None
 
-        # 2. If 401 Unauthorized, refresh token once and retry
-        if status == 401 and user_id:
-            logger.info(f"🔄 [BCP API] Token expired on {method} {url}. Refreshing BCP token...")
-            fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
-            fresh_tok = fresh_dict.get("access_token") or fresh_dict.get("id_token")
-            if fresh_tok and fresh_tok != tok:
-                data, status, err = _do_request(fresh_tok)
+        # 2. If 401 or 403, retry with alternate token (id_token vs access_token) or refresh
+        if status in (401, 403) and user_id:
+            logger.info(f"🔄 [BCP API] Status {status} on {method} {url}. Attempting token retry / refresh...")
+            tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+            alt_tok = tok_dict.get("id_token") if tok == tok_dict.get("access_token") else tok_dict.get("access_token")
+            if alt_tok and alt_tok != tok:
+                data, status, err = _do_request(alt_tok)
                 if data is not None:
                     return data, None
+
+            fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
+            for cand_tok in [fresh_dict.get("access_token"), fresh_dict.get("id_token")]:
+                if cand_tok and cand_tok != tok and cand_tok != alt_tok:
+                    data, status, err = _do_request(cand_tok)
+                    if data is not None:
+                        return data, None
 
         if err:
             logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
@@ -460,14 +472,45 @@ if FASTAPI_AVAILABLE:
                 event_date_iso = f"{s_date}T09:00:00.000Z" if len(s_date) == 10 else s_date
                 end_date_iso = f"{e_date}T18:00:00.000Z" if len(e_date) == 10 else e_date
                 
-                # BCP ownerId MUST be the Cognito user UUID (sub), NEVER a player Elo ID like MEV83VFANA
+                tok_dict = auth_mgr.get_valid_bcp_tokens(user_id) if user_id else {}
+                id_tok = tok_dict.get("id_token") or payload.bcp_token
+                acc_tok = tok_dict.get("access_token") or payload.bcp_token or id_tok
+                
+                id_claims = _decode_jwt_payload(id_tok) if id_tok else {}
+                acc_claims = _decode_jwt_payload(acc_tok) if acc_tok else {}
+
+                # In BCP, ownerId must be the BCP userId attribute from the ID token or BCP profile
                 bcp_owner_id = (
-                    bcp_user_id
-                    or claims.get("sub")
-                    or claims.get("userId")
-                    or claims.get("custom:userId")
-                    or (user.get("bcp_user_id") if user else None)
+                    id_claims.get("userId")
+                    or id_claims.get("custom:userId")
+                    or acc_claims.get("userId")
+                    or acc_claims.get("custom:userId")
                 )
+
+                sub_uuid = id_claims.get("sub") or acc_claims.get("sub") or (user.get("bcp_user_id") if user else None)
+
+                # If no direct userId in claims, fetch BCP user profile
+                if not bcp_owner_id and sub_uuid:
+                    try:
+                        u_url = f"https://newprod-api.bestcoastpairings.com/v1/users/{sub_uuid}"
+                        u_req = urllib.request.Request(
+                            u_url,
+                            headers={
+                                "Authorization": f"Bearer {acc_tok or id_tok}",
+                                "client-id": "web-app",
+                                "User-Agent": "Mozilla/5.0"
+                            }
+                        )
+                        with urllib.request.urlopen(u_req, timeout=5) as u_resp:
+                            if u_resp.status == 200:
+                                u_data = json.loads(u_resp.read().decode("utf-8"))
+                                if isinstance(u_data, dict) and u_data.get("id"):
+                                    bcp_owner_id = str(u_data["id"])
+                    except Exception as ue:
+                        logger.debug(f"Fetch BCP user profile notice: {ue}")
+
+                if not bcp_owner_id:
+                    bcp_owner_id = sub_uuid
 
                 city_str = payload.city or "San Diego"
                 state_str = payload.state or "CA"
@@ -527,8 +570,20 @@ if FASTAPI_AVAILABLE:
                     method="POST",
                     json_data=bcp_payload,
                     user_id=user_id,
-                    explicit_token=payload.bcp_token
+                    explicit_token=acc_tok
                 )
+
+                # If 403 Access Denied, attempt retry with alternate sub_uuid or bcp_owner_id
+                if not res_data and bcp_err and ("403" in str(bcp_err) or "access denied" in str(bcp_err).lower()) and sub_uuid and bcp_owner_id != sub_uuid:
+                    logger.info(f"🔄 Retrying BCP event create with alternate ownerId: {sub_uuid}")
+                    bcp_payload["ownerId"] = sub_uuid
+                    res_data, bcp_err = execute_bcp_api_call(
+                        bcp_url,
+                        method="POST",
+                        json_data=bcp_payload,
+                        user_id=user_id,
+                        explicit_token=acc_tok
+                    )
 
                 if res_data and isinstance(res_data, dict):
                     new_id = res_data.get("id") or res_data.get("_id") or (res_data.get("data") or {}).get("id")
