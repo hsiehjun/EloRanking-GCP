@@ -234,10 +234,8 @@ class AuthManager:
                     ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_by_user_id VARCHAR(64);
                     INSERT INTO system_settings (key, value) VALUES ('invites_enabled', 'true') ON CONFLICT (key) DO NOTHING;
 
-                    -- Seed default persistent code if none exists
-                    INSERT INTO invitation_codes (code, is_admin_code, is_active, created_at, expires_at)
-                    VALUES ('ALPHA-2026', TRUE, TRUE, NOW(), NULL)
-                    ON CONFLICT (code) DO NOTHING;
+                    -- Clean up any residual auto-seeded ALPHA-2026 code
+                    DELETE FROM invitation_codes WHERE code = 'ALPHA-2026';
                     """)
                 conn.commit()
         except Exception as e:
