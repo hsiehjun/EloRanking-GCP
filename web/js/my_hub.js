@@ -77,6 +77,12 @@ function renderMyHub(data) {
   const isBcpConnected = currentUser && currentUser.bcp_connected;
   const bcpEmail = currentUser && currentUser.bcp_email;
 
+  const competitorName = (currentUser && currentUser.display_name && currentUser.display_name.trim() !== '' && currentUser.display_name.toLowerCase() !== 'competitor')
+    ? currentUser.display_name
+    : (p.player_name && p.player_name.toLowerCase() !== 'competitor'
+        ? p.player_name
+        : (currentUser && currentUser.display_name) || (currentUser && currentUser.email ? currentUser.email.split('@')[0] : 'Competitor'));
+
   let html = `
     <!-- Top Competitor Banner -->
     <div class="competitor-banner">
@@ -84,7 +90,8 @@ function renderMyHub(data) {
         <div class="competitor-avatar">🏆</div>
         <div>
           <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-            <h2 style="font-size: 1.5rem; font-weight: 800; color: #fff; margin: 0;">${escapeHtml(p.player_name || currentUser.display_name || 'Competitor')}</h2>
+            <h2 style="font-size: 1.5rem; font-weight: 800; color: #fff; margin: 0;">${escapeHtml(competitorName)}</h2>
+            ${p.player_name && p.player_name !== competitorName && p.player_name.toLowerCase() !== 'competitor' ? `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">(Ranked as: ${escapeHtml(p.player_name)})</span>` : ''}
             ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.82rem; padding: 0.2rem 0.6rem;">World Rank #${rankings.global_rank}</span>` : ''}
             ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.82rem; padding: 0.2rem 0.6rem;">${escapeHtml(p.top_faction || '')} Rank #${rankings.faction_rank}</span>` : ''}
           </div>

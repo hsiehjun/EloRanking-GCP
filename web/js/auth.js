@@ -483,6 +483,7 @@ async function handleSaveDisplayName(e) {
       currentUser = res.user || { ...currentUser, display_name: newName };
       localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
       renderHeaderAuth();
+      if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
       if (successDiv) {
         successDiv.innerText = 'Gamer tag updated successfully!';
         successDiv.style.display = 'block';

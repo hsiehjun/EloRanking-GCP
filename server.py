@@ -4576,7 +4576,7 @@ if FASTAPI_AVAILABLE:
     async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None)):
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
-        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
         
         target_pid = player_id
         target_uid = None

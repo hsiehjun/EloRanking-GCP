@@ -241,8 +241,11 @@ window.api = {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const validPid = (playerId && playerId !== 'undefined' && playerId !== 'null') ? playerId : null;
-    const url = validPid ? `/api/user/dashboard?player_id=${encodeURIComponent(validPid)}` : `/api/user/dashboard?token=${encodeURIComponent(token)}`;
-    return this._fetchJson(url, { headers });
+    const params = new URLSearchParams();
+    if (validPid) params.append('player_id', validPid);
+    if (token) params.append('token', token);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return this._fetchJson(`/api/user/dashboard${qs}`, { headers });
   },
 
   // Global Summary Stats

@@ -1008,14 +1008,29 @@ class AuthManager:
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""
         target_pid = player_id
-        if not target_pid and user_id:
-            u = self.get_user_by_id(user_id)
-            if u:
-                target_pid = u.get("player_id")
+        user_info = None
+        if user_id:
+            user_info = self.get_user_by_id(user_id)
+            if user_info:
+                target_pid = target_pid or user_info.get("player_id")
+
+        display_name = (user_info and user_info.get("display_name")) or "Competitor"
 
         if not target_pid:
             return {
-                "player": {"player_name": "Competitor", "current_elo": 1500.0, "peak_elo": 1500.0, "win_rate": 0.0},
+                "player": {
+                    "player_name": display_name,
+                    "display_name": display_name,
+                    "current_elo": 1500.0,
+                    "peak_elo": 1500.0,
+                    "win_rate": 0.0,
+                    "matches_played": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "top_faction": "General",
+                    "team": ""
+                },
                 "rankings": {},
                 "history": [],
                 "faction_mastery": [],
@@ -1037,7 +1052,7 @@ class AuthManager:
                 """, (target_pid,))
                 p_stat = cur.fetchone() or {
                     "player_id": target_pid,
-                    "player_name": "Competitor",
+                    "player_name": display_name,
                     "current_elo": 1500.0,
                     "peak_elo": 1500.0,
                     "matches_played": 0,
@@ -1048,6 +1063,11 @@ class AuthManager:
                     "top_faction": "",
                     "team": ""
                 }
+
+                if display_name and display_name != "Competitor":
+                    p_stat["display_name"] = display_name
+                    if p_stat.get("player_name") == "Competitor" or not p_stat.get("player_name"):
+                        p_stat["player_name"] = display_name
 
                 # Calculate Global & Faction Rank
                 cur.execute("SELECT COUNT(*) + 1 as rank FROM player_ratings WHERE current_elo > %s AND matches_played >= 3;", (p_stat["current_elo"],))
