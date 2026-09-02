@@ -4609,12 +4609,27 @@ if FASTAPI_AVAILABLE:
     class ResendVerificationPayload(BaseModel):
         email: str
 
+    @app.get("/api/auth/registration-status", summary="Public check if account registrations are currently open")
+    async def api_auth_registration_status():
+        auth_mgr = get_auth_manager()
+        is_open = auth_mgr.are_registrations_open()
+        return {
+            "registrations_open": is_open,
+            "message": "Registration open" if is_open else "Account registration is currently locked by the administrator. All invitation codes are suspended."
+        }
+
     @app.get("/api/auth/invite/validate", summary="Validate invitation code status")
     async def api_auth_validate_invite(code: str):
         auth_mgr = get_auth_manager()
+        if not auth_mgr.are_registrations_open():
+            return {
+                "valid": False,
+                "error": "Account registration is currently locked by the administrator. All invitation codes are suspended.",
+                "registration_locked": True
+            }
         is_valid, err_msg, rec = auth_mgr.validate_invite_code(code)
         if not is_valid:
-            return {"valid": False, "error": err_msg}
+            return {"valid": False, "error": err_msg, "registration_locked": not auth_mgr.are_registrations_open()}
         return {
             "valid": True,
             "code": code.strip().upper(),
@@ -4624,6 +4639,8 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/auth/register", summary="Register a new native user account with 2FA email verification")
     async def api_auth_register(payload: RegisterPayload, response: Response):
         auth_mgr = get_auth_manager()
+        if not auth_mgr.are_registrations_open():
+            raise HTTPException(status_code=403, detail="Account registration is currently locked by the administrator. All invitation codes are suspended.")
         res = auth_mgr.initiate_registration(
             payload.email, 
             payload.password, 
@@ -4637,6 +4654,8 @@ if FASTAPI_AVAILABLE:
     @app.post("/api/auth/verify-registration", summary="Verify 6-digit email code to activate account")
     async def api_auth_verify_registration(request: Request, payload: VerifyRegistrationPayload, response: Response):
         auth_mgr = get_auth_manager()
+        if not auth_mgr.are_registrations_open():
+            raise HTTPException(status_code=403, detail="Account registration is currently locked by the administrator. All invitation codes are suspended.")
         ua = request.headers.get("User-Agent")
         ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
         if ip and "," in ip:
@@ -5012,7 +5031,7 @@ if FASTAPI_AVAILABLE:
         _get_admin_session_or_403(request, token)
         auth_mgr = get_auth_manager()
         return {
-            "invites_enabled": auth_mgr.get_system_setting("invites_enabled", "true") == "true"
+            "invites_enabled": auth_mgr.are_registrations_open()
         }
 
     @app.post("/api/admin/settings/toggle-invites", summary="Global Master Kill Switch for Registrations (Admin)")
@@ -5021,7 +5040,9 @@ if FASTAPI_AVAILABLE:
         auth_mgr = get_auth_manager()
         val_str = "true" if payload.enabled else "false"
         ok = auth_mgr.set_system_setting("invites_enabled", val_str, user_id=admin.get("id"))
-        return {"success": ok, "invites_enabled": payload.enabled}
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to save registration lock state to database.")
+        return {"success": True, "invites_enabled": auth_mgr.are_registrations_open()}
 
     @app.get("/api/admin/invites", summary="List All Invitation Codes (Admin)")
     async def api_admin_get_invites(request: Request, token: Optional[str] = Query(None)):

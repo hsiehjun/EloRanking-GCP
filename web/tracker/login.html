@@ -190,6 +190,10 @@
       <div id="auth-error" class="alert-error"></div>
       <div id="auth-success" class="alert-success"></div>
 
+      <div id="reg-locked-banner" style="display: none; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 8px; padding: 12px 14px; margin-bottom: 16px; color: #fca5a5; font-size: 13px; line-height: 1.4; text-align: left;">
+        🔒 <strong>Registration Closed:</strong> Account registration is currently closed by the administrator. All invitation codes are suspended.
+      </div>
+
       <div id="name-group" class="form-group" style="display: none;">
         <label>Player Handle / Display Name</label>
         <input id="auth-name" type="text" placeholder="e.g. Captain Titus" autocomplete="off" />
@@ -390,6 +394,22 @@
       }
     })();
 
+    let isRegistrationLocked = false;
+    async function checkRegistrationStatus() {
+      try {
+        const res = await fetch('/api/auth/registration-status');
+        const data = await res.json();
+        if (data && data.registrations_open === false) {
+          isRegistrationLocked = true;
+          const banner = document.getElementById('reg-locked-banner');
+          if (banner && activeTab === 'register') banner.style.display = 'block';
+          const tabReg = document.getElementById('tab-register');
+          if (tabReg) tabReg.title = 'Account registration is currently locked';
+        }
+      } catch (e) {}
+    }
+    checkRegistrationStatus();
+
     let inviteValidateTimer = null;
     function handleInviteCodeInput(val) {
       val = (val || '').trim().toUpperCase();
@@ -398,8 +418,8 @@
       if (!val) {
         if (icon) icon.style.display = 'none';
         if (status) {
-          status.textContent = 'Invite Required';
-          status.style.color = '#f59e0b';
+          status.textContent = isRegistrationLocked ? '🔒 Locked' : 'Invite Required';
+          status.style.color = isRegistrationLocked ? '#ef4444' : '#f59e0b';
         }
         return;
       }
@@ -425,8 +445,18 @@
               icon.style.display = 'block';
             }
             if (status) {
-              status.textContent = 'Invalid / Expired';
+              status.textContent = data.registration_locked ? '🔒 Registration Locked' : (data.error || 'Invalid / Expired');
               status.style.color = '#ef4444';
+            }
+            if (data.registration_locked) {
+              isRegistrationLocked = true;
+              const banner = document.getElementById('reg-locked-banner');
+              if (banner) banner.style.display = 'block';
+              const btn = document.getElementById('btn-submit');
+              if (btn && activeTab === 'register') {
+                btn.disabled = true;
+                btn.textContent = 'REGISTRATION LOCKED';
+              }
             }
           }
         } catch (e) {}
@@ -483,7 +513,16 @@
         nameGroup.style.display = 'block';
         if (inviteGroup) inviteGroup.style.display = 'block';
         if (forgotRow) forgotRow.style.display = 'none';
-        btn.textContent = 'CREATE ACCOUNT';
+        const banner = document.getElementById('reg-locked-banner');
+        if (isRegistrationLocked) {
+          if (banner) banner.style.display = 'block';
+          btn.disabled = true;
+          btn.textContent = 'REGISTRATION LOCKED';
+        } else {
+          if (banner) banner.style.display = 'none';
+          btn.disabled = false;
+          btn.textContent = 'CREATE ACCOUNT';
+        }
       } else if (tab === 'forgot') {
         if (tabForg) {
           tabForg.style.display = 'block';
@@ -704,6 +743,12 @@
       const btn = document.getElementById('btn-submit');
 
       errEl.style.display = 'none';
+
+      if (activeTab === 'register' && isRegistrationLocked) {
+        errEl.textContent = '🔒 Account registration is currently closed by the administrator. Invitation codes are suspended.';
+        errEl.style.display = 'block';
+        return;
+      }
 
       if (activeTab === 'register' && !inviteCode) {
         errEl.textContent = '⚠️ An invitation code is required to register. Please enter a valid invite code from a member or organizer.';

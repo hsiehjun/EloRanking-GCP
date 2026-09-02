@@ -227,8 +227,11 @@ class AuthManager:
                         key VARCHAR(64) PRIMARY KEY,
                         value TEXT NOT NULL,
                         updated_at TIMESTAMPTZ DEFAULT NOW(),
-                        updated_by_user_id VARCHAR(64) REFERENCES users(id)
+                        updated_by_user_id VARCHAR(64)
                     );
+                    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS value TEXT;
+                    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+                    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_by_user_id VARCHAR(64);
                     INSERT INTO system_settings (key, value) VALUES ('invites_enabled', 'true') ON CONFLICT (key) DO NOTHING;
 
                     -- Seed default persistent code if none exists
@@ -247,11 +250,13 @@ class AuthManager:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                     cur.execute("SELECT value FROM system_settings WHERE key = %s;", (key,))
                     row = cur.fetchone()
-                    return row["value"] if row else default
+                    return str(row["value"]) if (row and row.get("value") is not None) else default
         except Exception:
             return default
 
     def set_system_setting(self, key: str, value: str, user_id: Optional[str] = None) -> bool:
+        key = str(key).strip()
+        val = str(value).strip().lower()
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -262,19 +267,42 @@ class AuthManager:
                         value = EXCLUDED.value,
                         updated_at = NOW(),
                         updated_by_user_id = EXCLUDED.updated_by_user_id;
-                    """, (key, str(value), user_id))
+                    """, (key, val, user_id))
                 conn.commit()
+            logger.info(f"⚙️ System setting updated: {key} = {val}")
             return True
         except Exception as e:
-            logger.error(f"Failed to set system setting {key}: {e}")
-            return False
+            logger.error(f"Failed to set system setting {key} with user_id: {e}")
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        INSERT INTO system_settings (key, value, updated_at)
+                        VALUES (%s, %s, NOW())
+                        ON CONFLICT (key) DO UPDATE SET
+                            value = EXCLUDED.value,
+                            updated_at = NOW();
+                        """, (key, val))
+                    conn.commit()
+                logger.info(f"⚙️ System setting updated via fallback: {key} = {val}")
+                return True
+            except Exception as e2:
+                logger.error(f"Fallback failed to set system setting {key}: {e2}")
+                return False
+
+    def are_registrations_open(self) -> bool:
+        """Returns False if registrations have been locked by the administrator."""
+        val = self.get_system_setting("invites_enabled", "true")
+        if val is None:
+            return True
+        val_clean = str(val).strip().lower()
+        return val_clean not in ("false", "0", "no", "off", "disabled")
 
     def validate_invite_code(self, code_str: str) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """Validates an invitation code against global settings, expiry, active status, and use limits."""
         # 1. Global kill switch check
-        invites_enabled = self.get_system_setting("invites_enabled", "true")
-        if invites_enabled == "false":
-            return False, "Account registration is currently closed by the administrator.", None
+        if not self.are_registrations_open():
+            return False, "Account registration is currently locked by the administrator. All invitation codes are suspended.", None
 
         code_clean = (code_str or "").strip().upper()
         if not code_clean:
@@ -370,6 +398,9 @@ class AuthManager:
 
     def verify_registration_code(self, email: str, code: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
         """Verifies the 6-digit code and creates the active user account."""
+        if not self.are_registrations_open():
+            return {"success": False, "error": "Account registration is currently locked by the administrator. All invitation codes are suspended."}
+
         email = email.strip().lower()
         code = str(code).strip()
         if not email or not code:
@@ -857,8 +888,7 @@ class AuthManager:
         if not user_id:
             return {"success": False, "error": "Authentication required."}
 
-        invites_enabled = self.get_system_setting("invites_enabled", "true")
-        if invites_enabled == "false":
+        if not self.are_registrations_open():
             return {"success": False, "error": "Account registration is currently suspended by the administrator."}
 
         from psycopg2 import extras
@@ -1065,7 +1095,8 @@ class AuthManager:
                     cur.execute("SELECT value FROM system_settings WHERE key = 'invites_enabled';")
                     s_row = cur.fetchone()
                     if s_row and s_row.get("value") is not None:
-                        invites_enabled = str(s_row["value"]).lower() == "true"
+                        val_str = str(s_row["value"]).strip().lower()
+                        invites_enabled = val_str not in ("false", "0", "no", "off", "disabled")
                 except Exception:
                     conn.rollback()
 
