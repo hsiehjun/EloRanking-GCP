@@ -830,7 +830,7 @@ if FASTAPI_AVAILABLE:
                 import urllib.request, json
                 url = f"https://photon.komoot.io/api/?q={urllib.parse.quote(q)}&limit=6&osm_tag=place:city&osm_tag=place:town"
                 req = urllib.request.Request(url, headers={"User-Agent": "OmniTactica/1.0"})
-                with urllib.request.urlopen(req, timeout=3) as resp:
+                with urllib.request.urlopen(req, timeout=2) as resp:
                     data = json.loads(resp.read().decode())
                     for f in data.get("features", []):
                         p = f.get("properties", {})
@@ -852,7 +852,38 @@ if FASTAPI_AVAILABLE:
                                 "lng": coords[0],
                                 "label": label
                             })
-            except Exception as e:
+            except Exception:
+                pass
+
+        if len(matches) < 3:
+            try:
+                import urllib.request, json
+                nom_url = f"https://nominatim.openstreetmap.org/search?q={urllib.parse.quote(q)}&format=json&addressdetails=1&limit=6"
+                req = urllib.request.Request(nom_url, headers={"User-Agent": "OmniTactica-Tournament-App/1.0"})
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    items = json.loads(resp.read().decode())
+                    for item in items:
+                        addr = item.get("address", {})
+                        city = addr.get("city") or addr.get("town") or addr.get("village") or addr.get("municipality") or item.get("name")
+                        if not city:
+                            continue
+                        state = addr.get("state") or addr.get("county") or ""
+                        country = addr.get("country") or ""
+                        lat = float(item.get("lat", 0))
+                        lng = float(item.get("lon", 0))
+                        parts = [city, state, country] if state else [city, country]
+                        label = ", ".join([x for x in parts if x])
+                        key = f"{city.lower()}_{state.lower()}_{country.lower()}"
+                        if not any(f"{m['city'].lower()}_{m['state'].lower()}_{m['country'].lower()}" == key for m in matches):
+                            matches.append({
+                                "city": city,
+                                "state": state,
+                                "country": country or "United States",
+                                "lat": lat,
+                                "lng": lng,
+                                "label": label
+                            })
+            except Exception:
                 pass
 
         return {"results": matches[:10]}

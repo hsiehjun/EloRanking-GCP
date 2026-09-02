@@ -158,101 +158,13 @@
               <span id="create-event-loc-badge" style="font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">✓ Verified Location</span>
             </label>
 
-            <!-- 1. Verified City Dropdown Selector -->
-            <select id="create-event-city-select" class="form-input" style="width: 100%; box-sizing: border-box; cursor: pointer;" onchange="handleStudioCitySelectChange(this.value)">
-              <optgroup label="California & West Coast Hubs">
-                <option value="San Diego, CA, United States" selected>📍 San Diego, CA, United States</option>
-                <option value="Los Angeles, CA, United States">📍 Los Angeles, CA, United States</option>
-                <option value="San Francisco, CA, United States">📍 San Francisco, CA, United States</option>
-                <option value="San Jose, CA, United States">📍 San Jose, CA, United States</option>
-                <option value="Sacramento, CA, United States">📍 Sacramento, CA, United States</option>
-                <option value="Las Vegas, NV, United States">📍 Las Vegas, NV, United States</option>
-                <option value="Reno, NV, United States">📍 Reno, NV, United States</option>
-                <option value="Phoenix, AZ, United States">📍 Phoenix, AZ, United States</option>
-                <option value="Tucson, AZ, United States">📍 Tucson, AZ, United States</option>
-                <option value="Seattle, WA, United States">📍 Seattle, WA, United States</option>
-                <option value="Tacoma, WA, United States">📍 Tacoma, WA, United States</option>
-                <option value="Portland, OR, United States">📍 Portland, OR, United States</option>
-                <option value="Denver, CO, United States">📍 Denver, CO, United States</option>
-                <option value="Colorado Springs, CO, United States">📍 Colorado Springs, CO, United States</option>
-                <option value="Salt Lake City, UT, United States">📍 Salt Lake City, UT, United States</option>
-              </optgroup>
-              <optgroup label="Texas & Southern Hubs">
-                <option value="Austin, TX, United States">📍 Austin, TX, United States</option>
-                <option value="Dallas, TX, United States">📍 Dallas, TX, United States</option>
-                <option value="Fort Worth, TX, United States">📍 Fort Worth, TX, United States</option>
-                <option value="Houston, TX, United States">📍 Houston, TX, United States</option>
-                <option value="San Antonio, TX, United States">📍 San Antonio, TX, United States</option>
-                <option value="Orlando, FL, United States">📍 Orlando, FL, United States</option>
-                <option value="Tampa, FL, United States">📍 Tampa, FL, United States</option>
-                <option value="Miami, FL, United States">📍 Miami, FL, United States</option>
-                <option value="Jacksonville, FL, United States">📍 Jacksonville, FL, United States</option>
-                <option value="Atlanta, GA, United States">📍 Atlanta, GA, United States</option>
-                <option value="Nashville, TN, United States">📍 Nashville, TN, United States</option>
-                <option value="Memphis, TN, United States">📍 Memphis, TN, United States</option>
-                <option value="New Orleans, LA, United States">📍 New Orleans, LA, United States</option>
-                <option value="Charlotte, NC, United States">📍 Charlotte, NC, United States</option>
-                <option value="Raleigh, NC, United States">📍 Raleigh, NC, United States</option>
-              </optgroup>
-              <optgroup label="Midwest & Great Lakes Hubs">
-                <option value="Chicago, IL, United States">📍 Chicago, IL, United States</option>
-                <option value="Minneapolis, MN, United States">📍 Minneapolis, MN, United States</option>
-                <option value="Indianapolis, IN, United States">📍 Indianapolis, IN, United States</option>
-                <option value="Detroit, MI, United States">📍 Detroit, MI, United States</option>
-                <option value="Columbus, OH, United States">📍 Columbus, OH, United States</option>
-                <option value="Cleveland, OH, United States">📍 Cleveland, OH, United States</option>
-                <option value="Cincinnati, OH, United States">📍 Cincinnati, OH, United States</option>
-                <option value="Kansas City, MO, United States">📍 Kansas City, MO, United States</option>
-                <option value="St. Louis, MO, United States">📍 St. Louis, MO, United States</option>
-                <option value="Milwaukee, WI, United States">📍 Milwaukee, WI, United States</option>
-              </optgroup>
-              <optgroup label="East Coast & Mid-Atlantic Hubs">
-                <option value="New York, NY, United States">📍 New York, NY, United States</option>
-                <option value="Brooklyn, NY, United States">📍 Brooklyn, NY, United States</option>
-                <option value="Buffalo, NY, United States">📍 Buffalo, NY, United States</option>
-                <option value="Boston, MA, United States">📍 Boston, MA, United States</option>
-                <option value="Philadelphia, PA, United States">📍 Philadelphia, PA, United States</option>
-                <option value="Pittsburgh, PA, United States">📍 Pittsburgh, PA, United States</option>
-                <option value="Baltimore, MD, United States">📍 Baltimore, MD, United States</option>
-                <option value="Washington, DC, United States">📍 Washington, DC, United States</option>
-              </optgroup>
-              <optgroup label="International Tournament Hubs">
-                <option value="London, United Kingdom">📍 London, United Kingdom</option>
-                <option value="Nottingham, United Kingdom">📍 Nottingham, United Kingdom</option>
-                <option value="Manchester, United Kingdom">📍 Manchester, United Kingdom</option>
-                <option value="Birmingham, United Kingdom">📍 Birmingham, United Kingdom</option>
-                <option value="Toronto, ON, Canada">📍 Toronto, ON, Canada</option>
-                <option value="Vancouver, BC, Canada">📍 Vancouver, BC, Canada</option>
-                <option value="Montreal, QC, Canada">📍 Montreal, QC, Canada</option>
-                <option value="Calgary, AB, Canada">📍 Calgary, AB, Canada</option>
-                <option value="Sydney, NSW, Australia">📍 Sydney, NSW, Australia</option>
-                <option value="Melbourne, VIC, Australia">📍 Melbourne, VIC, Australia</option>
-                <option value="Paris, France">📍 Paris, France</option>
-                <option value="Berlin, Germany">📍 Berlin, Germany</option>
-                <option value="Madrid, Spain">📍 Madrid, Spain</option>
-                <option value="Rome, Italy">📍 Rome, Italy</option>
-              </optgroup>
-              <option value="__custom__">🔍 Type Custom City / Unlisted Region...</option>
-            </select>
+            <!-- Clean Autocomplete Input with Live Location Dropdown -->
+            <div style="position: relative;">
+              <input type="text" id="create-event-city-state" class="form-input" style="width: 100%; box-sizing: border-box; padding-right: 32px;" placeholder="Start typing city or region (e.g. San Diego, Austin, London)..." value="San Diego, CA, United States" autocomplete="off" oninput="handleStudioLocationInput(this.value)" onfocus="handleStudioLocationFocus()" onkeydown="handleStudioLocationKeydown(event)">
+              <div id="create-event-loc-spinner" style="display:none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border: 2px solid #38bdf8; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
 
-            <!-- 2. Custom Type Search Wrapper (Revealed if user chooses Custom) -->
-            <div id="create-event-custom-loc-wrap" style="display: none; margin-top: 8px;">
-              <div style="position: relative;">
-                <input type="text" id="create-event-city-state" class="form-input" placeholder="Type city or state (e.g. San Diego, Austin, London)..." autocomplete="off" oninput="handleStudioLocationInput(this.value)" onfocus="handleStudioLocationFocus()" onblur="handleStudioLocationBlur()">
-                <div id="create-event-loc-spinner" style="display:none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border: 2px solid #38bdf8; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-                <div id="create-event-loc-dropdown" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 9999; background: #0b111e; border: 1.5px solid #38bdf8; border-radius: 10px; max-height: 250px; overflow-y: auto; box-shadow: 0 15px 40px rgba(0,0,0,0.85), 0 0 20px rgba(56,189,248,0.25); padding: 6px;"></div>
-              </div>
-
-              <!-- 1-Click Quick Match Suggestion Pill -->
-              <div id="create-event-loc-suggestion-bar" style="display: none; margin-top: 6px; font-size: 0.76rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 6px 10px; color: #cbd5e1; align-items: center; justify-content: space-between;">
-                <span>🎯 Matching verified city: <strong id="create-event-loc-best-match" style="color: #38bdf8;">San Diego, CA, United States</strong></span>
-                <button type="button" onclick="selectBestMatchLocation()" style="background: #38bdf8; color: #020617; font-weight: 800; font-size: 0.72rem; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer;">
-                  ✓ Use This City
-                </button>
-              </div>
-              <div style="margin-top: 4px; text-align: right;">
-                <a href="javascript:void(0)" onclick="revertToCitySelect()" style="font-size: 0.72rem; color: #38bdf8; text-decoration: underline;">&larr; Back to Popular Hubs Dropdown</a>
-              </div>
+              <!-- Live Places Dropdown -->
+              <div id="create-event-loc-dropdown" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 99999; background: #0b111e; border: 1.5px solid #38bdf8; border-radius: 10px; max-height: 280px; overflow-y: auto; box-shadow: 0 15px 40px rgba(0,0,0,0.9), 0 0 20px rgba(56,189,248,0.25); padding: 6px;"></div>
             </div>
 
             <input type="hidden" id="create-event-loc-city" value="San Diego">
@@ -453,7 +365,7 @@
 
   </div>
 
-  <script src="/js/api.js?v=65.0"></script>
-  <script src="/js/eventstudio.js?v=66.0"></script>
+  <script src="/js/api.js?v=68.0"></script>
+  <script src="/js/eventstudio.js?v=68.0"></script>
 </body>
 </html>

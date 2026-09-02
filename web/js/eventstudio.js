@@ -335,12 +335,18 @@ async function submitCreateTournament() {
 
   const verifiedEl = document.getElementById("create-event-loc-verified");
   if (!verifiedEl || verifiedEl.value !== "true") {
-    alert("⚠️ Please select a verified city from the location search dropdown to ensure your event appears accurately on Best Coast Pairings and nearby tournament discovery.");
-    if (cityStateInput) {
-      cityStateInput.focus();
-      handleStudioLocationInput(cityStateInput.value);
+    const val = cityStateInput ? cityStateInput.value.trim() : "";
+    const match = findLocalHubMatch(val) || (studioLocCurrentMatches && studioLocCurrentMatches[0]);
+    if (match && val) {
+      selectStudioVerifiedLocation(match);
+    } else {
+      alert("⚠️ Please select a verified city from the location search dropdown to ensure your event appears accurately on Best Coast Pairings and nearby tournament discovery.");
+      if (cityStateInput) {
+        cityStateInput.focus();
+        handleStudioLocationInput(cityStateInput.value);
+      }
+      return;
     }
-    return;
   }
 
   const elCity = document.getElementById("create-event-loc-city");
@@ -1642,15 +1648,60 @@ function findLocalHubMatch(text) {
   return null;
 }
 
+let studioLocCurrentMatches = [];
+let studioLocHighlightedIdx = -1;
+
 function handleStudioLocationFocus() {
   const input = document.getElementById("create-event-city-state");
   if (!input) return;
   const query = (input.value || "").trim();
+  studioLocHighlightedIdx = -1;
   if (!query || query === "San Diego, CA, United States") {
-    renderStudioLocationDropdown(POPULAR_STUDIO_HUBS.slice(0, 8));
+    renderStudioLocationDropdown(POPULAR_STUDIO_HUBS.slice(0, 10));
   } else {
     handleStudioLocationInput(query);
   }
+}
+
+function handleStudioLocationKeydown(e) {
+  const dropdown = document.getElementById("create-event-loc-dropdown");
+  if (!dropdown || dropdown.style.display === "none") return;
+
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    if (studioLocCurrentMatches.length === 0) return;
+    studioLocHighlightedIdx = (studioLocHighlightedIdx + 1) % studioLocCurrentMatches.length;
+    updateStudioDropdownHighlight();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (studioLocCurrentMatches.length === 0) return;
+    studioLocHighlightedIdx = (studioLocHighlightedIdx - 1 + studioLocCurrentMatches.length) % studioLocCurrentMatches.length;
+    updateStudioDropdownHighlight();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (studioLocCurrentMatches.length > 0) {
+      const idx = studioLocHighlightedIdx >= 0 ? studioLocHighlightedIdx : 0;
+      selectStudioLocationByIndex(idx);
+    }
+  } else if (e.key === "Escape") {
+    dropdown.style.display = "none";
+  }
+}
+
+function updateStudioDropdownHighlight() {
+  const dropdown = document.getElementById("create-event-loc-dropdown");
+  if (!dropdown) return;
+  const items = dropdown.querySelectorAll(".es-loc-item");
+  items.forEach((el, i) => {
+    if (i === studioLocHighlightedIdx) {
+      el.style.background = "rgba(56,189,248,0.2)";
+      el.style.borderColor = "rgba(56,189,248,0.5)";
+      el.scrollIntoView({ block: "nearest" });
+    } else {
+      el.style.background = "rgba(255,255,255,0.02)";
+      el.style.borderColor = "rgba(255,255,255,0.06)";
+    }
+  });
 }
 
 function handleStudioLocationInput(val) {
@@ -1658,29 +1709,18 @@ function handleStudioLocationInput(val) {
   const verifiedFlag = document.getElementById("create-event-loc-verified");
   const spinner = document.getElementById("create-event-loc-spinner");
   const dropdown = document.getElementById("create-event-loc-dropdown");
-  const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
-  const bestMatchLabel = document.getElementById("create-event-loc-best-match");
 
   const query = (val || "").trim();
   const qLower = query.toLowerCase();
 
-  // Instant local lookup
+  // Instant local lookup from 60+ verified tournament hubs
   const localMatches = POPULAR_STUDIO_HUBS.filter(h => 
     h.city.toLowerCase().includes(qLower) || 
     h.label.toLowerCase().includes(qLower)
   );
-  studioLocCurrentMatches = localMatches;
 
-  // Check if there is an exact or very close match
+  // Check direct exact match
   const directMatch = findLocalHubMatch(query);
-  if (directMatch) {
-    if (bestMatchLabel) bestMatchLabel.textContent = directMatch.label;
-    if (suggestionBar) suggestionBar.style.display = "flex";
-  } else {
-    if (suggestionBar) suggestionBar.style.display = "none";
-  }
-
-  // If query is an exact match for a known city (e.g. user typed "San DIego" or "san diego"):
   if (directMatch && (directMatch.city.toLowerCase() === qLower || directMatch.label.toLowerCase() === qLower)) {
     if (verifiedFlag) verifiedFlag.value = "true";
     const elCity = document.getElementById("create-event-loc-city");
@@ -1702,20 +1742,19 @@ function handleStudioLocationInput(val) {
   } else {
     if (verifiedFlag) verifiedFlag.value = "false";
     if (badge) {
-      badge.style.background = "rgba(239, 68, 68, 0.15)";
-      badge.style.color = "#ef4444";
-      badge.style.borderColor = "rgba(239, 68, 68, 0.3)";
-      badge.textContent = "⚠️ Select from Dropdown";
+      badge.style.background = "rgba(245,158,11,0.15)";
+      badge.style.color = "#f59e0b";
+      badge.style.borderColor = "rgba(245,158,11,0.3)";
+      badge.textContent = "📍 Select from Suggestions";
     }
   }
 
-  if (!query || query.length < 2) {
-    if (dropdown) dropdown.style.display = "none";
-    if (spinner) spinner.style.display = "none";
+  if (!query) {
+    renderStudioLocationDropdown(POPULAR_STUDIO_HUBS.slice(0, 10));
     return;
   }
 
-  // Render local matches right away with zero network latency
+  // Render local matches instantly without waiting for network
   if (localMatches.length > 0) {
     renderStudioLocationDropdown(localMatches);
   }
@@ -1726,7 +1765,6 @@ function handleStudioLocationInput(val) {
 
     let remoteMatches = [];
     try {
-      // 1. Try our internal server endpoint first
       const serverResp = await fetch(`/api/eventstudio/locations/search?q=${encodeURIComponent(query)}`);
       if (serverResp.ok) {
         const data = await serverResp.json();
@@ -1735,7 +1773,6 @@ function handleStudioLocationInput(val) {
         }
       }
     } catch (e) {
-      // 2. Fallback to client-side photon if server route is unreachable
       try {
         const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6&osm_tag=place:city&osm_tag=place:town`;
         const resp = await fetch(photonUrl, { headers: { "Accept": "application/json" } });
@@ -1760,10 +1797,10 @@ function handleStudioLocationInput(val) {
             }).filter(m => m.city);
           }
         }
-      } catch (e2) {}
+      } catch (err) {}
     }
 
-    // Combine and deduplicate
+    // Merge and deduplicate
     const seen = new Set();
     const combined = [];
     for (const m of [...localMatches, ...remoteMatches]) {
@@ -1772,55 +1809,75 @@ function handleStudioLocationInput(val) {
         seen.add(key);
         combined.push(m);
       }
-      if (combined.length >= 8) break;
+      if (combined.length >= 10) break;
     }
 
-    studioLocCurrentMatches = combined;
     if (spinner) spinner.style.display = "none";
     renderStudioLocationDropdown(combined);
-  }, 200);
+  }, 150);
 }
 
 function renderStudioLocationDropdown(items) {
   const dropdown = document.getElementById("create-event-loc-dropdown");
   if (!dropdown) return;
 
+  studioLocCurrentMatches = items || [];
+  studioLocHighlightedIdx = -1;
+
   if (!items || items.length === 0) {
-    dropdown.innerHTML = `<div style="padding: 12px; font-size: 0.82rem; color: #94a3b8; text-align: center;">No matching cities found. Try typing another city or state name.</div>`;
+    dropdown.innerHTML = `<div style="padding: 12px; font-size: 0.82rem; color: #94a3b8; text-align: center;">No matching locations found. Try typing another city or state name.</div>`;
     dropdown.style.display = "block";
     return;
   }
 
-  let html = `<div style="padding: 6px 10px 6px; font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
-    <span>Verified Tournament Hubs</span>
-    <span style="color:#38bdf8; font-size:0.7rem;">Click to select</span>
+  let html = `<div style="padding: 6px 10px 6px; font-size: 0.7rem; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid rgba(255,255,255,0.06); display:flex; justify-content:space-between; align-items:center;">
+    <span>Matching Locations</span>
+    <span style="color:#38bdf8; font-size:0.68rem;">Click or press Enter</span>
   </div>`;
-  items.forEach(item => {
-    const itemJson = JSON.stringify(item).replace(/"/g, '&quot;');
+
+  items.forEach((item, idx) => {
     const subText = [item.state, item.country].filter(Boolean).join(", ");
     html += `
-      <div class="es-loc-item" onclick="selectStudioVerifiedLocation(${itemJson})" style="padding: 9px 12px; cursor: pointer; border-radius: 6px; margin-top: 2px; transition: background 0.15s; display: flex; align-items: center; justify-content: space-between; gap: 10px;" onmouseover="this.style.background='rgba(56,189,248,0.15)'" onmouseout="this.style.background='transparent'">
-        <div style="flex: 1; min-width: 0;">
-          <div style="font-size: 0.88rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">📍 ${escapeHtml(item.city)}</div>
-          <div style="font-size: 0.74rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(subText)}</div>
+      <div class="es-loc-item" data-idx="${idx}"
+           onmousedown="event.preventDefault(); window.selectStudioLocationByIndex(${idx})"
+           ontouchstart="event.preventDefault(); window.selectStudioLocationByIndex(${idx})"
+           onmouseover="studioLocHighlightedIdx = ${idx}; updateStudioDropdownHighlight();"
+           style="padding: 8px 12px; cursor: pointer; border-radius: 7px; margin-top: 3px; transition: all 0.15s; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);">
+        <div style="flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1rem; color: #38bdf8;">📍</span>
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-size: 0.86rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(item.city)}
+            </div>
+            <div style="font-size: 0.72rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(subText)}
+            </div>
+          </div>
         </div>
-        <button type="button" style="background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 6px; pointer-events: none; white-space: nowrap;">
+        <span style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-size: 0.7rem; font-weight: 700; padding: 3px 8px; border-radius: 5px; white-space: nowrap;">
           Select
-        </button>
+        </span>
       </div>
     `;
   });
+
+  html += `<div style="padding: 6px 10px 2px; font-size: 0.66rem; color: #475569; text-align: right;">Global Places & Tournament Hubs</div>`;
 
   dropdown.innerHTML = html;
   dropdown.style.display = "block";
 }
 
+function selectStudioLocationByIndex(idx) {
+  if (idx < 0 || idx >= studioLocCurrentMatches.length) return;
+  const item = studioLocCurrentMatches[idx];
+  selectStudioVerifiedLocation(item);
+}
+
 function selectStudioVerifiedLocation(item) {
+  if (!item) return;
   const input = document.getElementById("create-event-city-state");
   const badge = document.getElementById("create-event-loc-badge");
   const dropdown = document.getElementById("create-event-loc-dropdown");
-  const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
-  const select = document.getElementById("create-event-city-select");
 
   const elCity = document.getElementById("create-event-loc-city");
   const elState = document.getElementById("create-event-loc-state");
@@ -1829,27 +1886,15 @@ function selectStudioVerifiedLocation(item) {
   const elLng = document.getElementById("create-event-loc-lng");
   const elVerified = document.getElementById("create-event-loc-verified");
 
-  if (input) input.value = item.label;
-  if (elCity) elCity.value = item.city;
+  const label = item.label || `${item.city}, ${item.state ? item.state + ', ' : ''}${item.country || 'United States'}`;
+
+  if (input) input.value = label;
+  if (elCity) elCity.value = item.city || "";
   if (elState) elState.value = item.state || "";
   if (elCountry) elCountry.value = item.country || "United States";
   if (elLat) elLat.value = item.lat;
   if (elLng) elLng.value = item.lng;
   if (elVerified) elVerified.value = "true";
-
-  if (select) {
-    let found = false;
-    for (let i = 0; i < select.options.length; i++) {
-      if (select.options[i].value === item.label || (item.city && select.options[i].text.includes(item.city))) {
-        select.selectedIndex = i;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      select.value = "__custom__";
-    }
-  }
 
   if (badge) {
     badge.style.background = "rgba(16,185,129,0.15)";
@@ -1859,101 +1904,19 @@ function selectStudioVerifiedLocation(item) {
   }
 
   if (dropdown) dropdown.style.display = "none";
-  if (suggestionBar) suggestionBar.style.display = "none";
 }
 
-function handleStudioCitySelectChange(val) {
-  const customWrap = document.getElementById("create-event-custom-loc-wrap");
-  const customInput = document.getElementById("create-event-city-state");
-  const badge = document.getElementById("create-event-loc-badge");
-  const verifiedEl = document.getElementById("create-event-loc-verified");
-
-  if (val === "__custom__") {
-    if (customWrap) customWrap.style.display = "block";
-    if (customInput) {
-      customInput.value = "";
-      customInput.focus();
-    }
-    if (badge) {
-      badge.style.background = "rgba(245,158,11,0.15)";
-      badge.style.color = "#f59e0b";
-      badge.style.borderColor = "rgba(245,158,11,0.3)";
-      badge.textContent = "Type City Name";
-    }
-    if (verifiedEl) verifiedEl.value = "false";
-    return;
-  }
-
-  if (customWrap) customWrap.style.display = "none";
-  
-  const match = POPULAR_STUDIO_HUBS.find(h => h.label === val || h.city === val) || findLocalHubMatch(val);
-  if (match) {
-    selectStudioVerifiedLocation(match);
-  } else {
-    const parts = val.split(",").map(s => s.trim());
-    selectStudioVerifiedLocation({
-      city: parts[0] || "",
-      state: parts[1] || "",
-      country: parts[2] || "United States",
-      lat: 32.7157,
-      lng: -117.1611,
-      label: val
-    });
-  }
-}
-
-function revertToCitySelect() {
-  const select = document.getElementById("create-event-city-select");
-  const customWrap = document.getElementById("create-event-custom-loc-wrap");
-  if (select) {
-    select.value = "San Diego, CA, United States";
-    handleStudioCitySelectChange(select.value);
-  }
-  if (customWrap) customWrap.style.display = "none";
-}
-
-function selectBestMatchLocation() {
-  const input = document.getElementById("create-event-city-state");
-  const query = input ? input.value : "";
-  const match = findLocalHubMatch(query) || (studioLocCurrentMatches && studioLocCurrentMatches[0]);
-  if (match) {
-    selectStudioVerifiedLocation(match);
-  }
-}
-
-function handleStudioLocationBlur() {
-  // Give click events on dropdown 250ms to fire first
-  setTimeout(() => {
-    const verifiedFlag = document.getElementById("create-event-loc-verified");
-    if (!verifiedFlag || verifiedFlag.value !== "true") {
-      const input = document.getElementById("create-event-city-state");
-      if (input && input.value.trim()) {
-        const match = findLocalHubMatch(input.value.trim());
-        if (match) {
-          selectStudioVerifiedLocation(match);
-        }
-      }
-    }
-  }, 250);
-}
-
-window.handleStudioCitySelectChange = handleStudioCitySelectChange;
-window.revertToCitySelect = revertToCitySelect;
 window.handleStudioLocationInput = handleStudioLocationInput;
 window.handleStudioLocationFocus = handleStudioLocationFocus;
-window.handleStudioLocationBlur = handleStudioLocationBlur;
+window.handleStudioLocationKeydown = handleStudioLocationKeydown;
+window.selectStudioLocationByIndex = selectStudioLocationByIndex;
 window.selectStudioVerifiedLocation = selectStudioVerifiedLocation;
-window.selectBestMatchLocation = selectBestMatchLocation;
 
 // Close dropdown on click outside
 document.addEventListener("click", (e) => {
   const dropdown = document.getElementById("create-event-loc-dropdown");
   const input = document.getElementById("create-event-city-state");
-  const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
   if (dropdown && input && !dropdown.contains(e.target) && e.target !== input) {
     dropdown.style.display = "none";
-  }
-  if (suggestionBar && !suggestionBar.contains(e.target) && e.target !== input) {
-    // Keep suggestion bar visible if still unverified
   }
 });
