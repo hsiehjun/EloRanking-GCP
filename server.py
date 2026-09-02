@@ -3667,7 +3667,11 @@ if FASTAPI_AVAILABLE:
     async def serve_login(redirect: Optional[str] = Query(None)):
         login_file = web_dir / "tracker" / "login.html"
         if login_file.exists():
-            return FileResponse(str(login_file), media_type="text/html")
+            return FileResponse(
+                str(login_file),
+                media_type="text/html",
+                headers={"Cache-Control": "no-cache, must-revalidate"}
+            )
         raise HTTPException(status_code=404, detail="login.html not found")
 
     @app.get("/my-hub", include_in_schema=False)

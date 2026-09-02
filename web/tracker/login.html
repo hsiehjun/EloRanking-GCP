@@ -463,7 +463,7 @@
             if (data.registration_locked) {
               isRegistrationLocked = true;
               const banner = document.getElementById('reg-locked-banner');
-              if (banner) banner.style.display = 'block';
+              if (banner && activeTab === 'register') banner.style.display = 'block';
               const btn = document.getElementById('btn-submit');
               if (btn && activeTab === 'register') {
                 btn.disabled = true;
@@ -515,6 +515,19 @@
         nameGroup.style.display = 'none';
         if (inviteGroup) inviteGroup.style.display = 'none';
         if (forgotRow) forgotRow.style.display = 'flex';
+
+        // Strictly hide registration lock banner on login tab
+        const banner = document.getElementById('reg-locked-banner');
+        if (banner) banner.style.display = 'none';
+
+        // Clear any residual registration errors
+        if (err && err.textContent && err.textContent.toLowerCase().includes('registration')) {
+          err.style.display = 'none';
+          err.textContent = '';
+        }
+
+        // Always ensure login button is enabled and properly labeled
+        btn.disabled = false;
         btn.textContent = 'LOGIN';
       } else if (tab === 'register') {
         tabReg.className = 'tab-btn active';
@@ -544,6 +557,10 @@
         tabReg.className = 'tab-btn';
         if (mainForm) mainForm.style.display = 'none';
         if (forgotForm) forgotForm.style.display = 'block';
+
+        const banner = document.getElementById('reg-locked-banner');
+        if (banner) banner.style.display = 'none';
+        if (btn) btn.disabled = false;
 
         // Prefill email if entered on login form
         const loginEmail = document.getElementById('auth-email').value.trim();
