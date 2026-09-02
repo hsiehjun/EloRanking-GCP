@@ -1180,8 +1180,20 @@ class AuthManager:
 
     def get_admin_users(self) -> List[Dict[str, Any]]:
         from psycopg2 import extras
+        admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                try:
+                    cur.execute("""
+                    UPDATE users 
+                    SET role = 'player' 
+                    WHERE role != 'player' 
+                      AND LOWER(email) NOT IN ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com');
+                    """)
+                    conn.commit()
+                except Exception:
+                    pass
+
                 cur.execute("""
                 SELECT 
                     u.id,
@@ -1203,6 +1215,9 @@ class AuthManager:
                 rows = cur.fetchall()
                 for r in rows:
                     if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
+                    user_email = (r.get("email") or "").strip().lower()
+                    if user_email not in admin_emails:
+                        r["role"] = "player"
                 return rows
 
     # =========================================================================
