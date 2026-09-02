@@ -623,6 +623,7 @@ if FASTAPI_AVAILABLE:
 
         is_doubles_local = payload.event_type == "Doubles Event"
         is_teams_local = payload.event_type == "Teams Event" or is_doubles_local
+        team_sz_local = int(payload.team_size or (2 if is_doubles_local else (5 if is_teams_local else 1)))
         now_date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         start_date_str = str(payload.start_date or now_date_str)
         end_date_str = str(payload.end_date or start_date_str)
