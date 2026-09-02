@@ -10,27 +10,6 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
-  <style id="admin-auth-guard-style">
-    body { display: none !important; }
-  </style>
-  <script>
-    (function() {
-      const match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
-      const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || (match ? match[2] : '');
-      const profileStr = localStorage.getItem('native_user_profile');
-      let profile = null;
-      try { profile = profileStr ? JSON.parse(profileStr) : null; } catch(e) {}
-
-      if (!token) {
-        window.location.replace('/login?redirect=/admin');
-        return;
-      }
-      if (profile && (profile.email || '').trim().toLowerCase() !== 'swimgeek751@gmail.com') {
-        window.location.replace('/');
-        return;
-      }
-    })();
-  </script>
   <style>
     :root {
       --bg: #070b14;
@@ -528,13 +507,8 @@
         return;
       }
 
-      const ok = await refreshMetrics();
-      if (!ok) return;
+      await refreshMetrics();
       await loadCodesList();
-
-      // Verified admin: reveal UI smoothly with zero flash
-      const guard = document.getElementById('admin-auth-guard-style');
-      if (guard) guard.remove();
     })();
 
     async function refreshMetrics() {
@@ -542,12 +516,11 @@
         const metrics = await API.getAdminMetrics();
         if (metrics.status === 401 || metrics.status === 403 || (typeof metrics.detail === 'string' && metrics.detail.toLowerCase().includes('privileges'))) {
           window.location.replace('/');
-          return false;
+          return;
         }
         if (metrics.error || metrics.detail) {
           console.error("Error loading metrics:", metrics.error || metrics.detail);
-          window.location.replace('/');
-          return false;
+          return;
         }
 
         document.getElementById('kpi-users').textContent = metrics.total_users || 0;

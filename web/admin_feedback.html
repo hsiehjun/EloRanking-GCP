@@ -11,27 +11,6 @@
   <meta name="theme-color" content="#070b14">
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
-  <style id="admin-feedback-guard-style">
-    body { display: none !important; }
-  </style>
-  <script>
-    (function() {
-      const match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
-      const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || (match ? match[2] : '');
-      const profileStr = localStorage.getItem('native_user_profile');
-      let profile = null;
-      try { profile = profileStr ? JSON.parse(profileStr) : null; } catch(e) {}
-
-      if (!token) {
-        window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname));
-        return;
-      }
-      if (profile && (profile.email || '').trim().toLowerCase() !== 'swimgeek751@gmail.com') {
-        window.location.replace('/');
-        return;
-      }
-    })();
-  </script>
   <style>
     :root {
       --bg: #070b14;
@@ -563,10 +542,6 @@
         window.location.replace('/');
         return;
       }
-
-      // User is authorized admin: reveal UI
-      const guard = document.getElementById('admin-feedback-guard-style');
-      if (guard) guard.remove();
 
       if (authGate) authGate.style.display = 'none';
       if (mainContent) mainContent.style.display = 'block';

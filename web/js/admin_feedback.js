@@ -109,10 +109,6 @@ async function fetchFeedbacks() {
     return;
   }
 
-  // User is authorized admin: reveal UI
-  const guard = document.getElementById('admin-feedback-guard-style');
-  if (guard) guard.remove();
-
   if (authGate) authGate.style.display = 'none';
   if (mainContent) mainContent.style.display = 'block';
   if (userBadge) {
