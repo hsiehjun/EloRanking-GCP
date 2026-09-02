@@ -649,26 +649,42 @@ const GLOBAL_CITY_COORDS = {
 };
 
 function openLocationPickerModal() {
-  const modal = document.getElementById('hub-location-picker-modal');
-  if (modal) modal.classList.add('active');
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront('hub-location-picker-modal');
+  } else {
+    const modal = document.getElementById('hub-location-picker-modal');
+    if (modal) {
+      modal.style.zIndex = '1300';
+      modal.classList.add('active');
+    }
+  }
 }
 
 function closeLocationPickerModal() {
-  const modal = document.getElementById('hub-location-picker-modal');
-  if (modal) modal.classList.remove('active');
+  if (typeof closeModal === 'function') {
+    closeModal('hub-location-picker-modal');
+  } else {
+    const modal = document.getElementById('hub-location-picker-modal');
+    if (modal) modal.classList.remove('active');
+  }
 }
 
 function setPresetLocation(cityKey) {
   if (cityKey === 'gps') {
     customUserLocation = null;
     userDeviceGeo = null;
+    try {
+      sessionStorage.removeItem('omni_user_custom_loc');
+      sessionStorage.removeItem('omni_user_geo');
+    } catch (e) {}
     closeLocationPickerModal();
-    loadHubRecommendedEvents();
+    requestUserDeviceLocationPrompt();
     return;
   }
   const loc = GLOBAL_CITY_COORDS[cityKey.toLowerCase()];
   if (loc) {
     customUserLocation = { name: loc.name, lat: loc.lat, lng: loc.lng };
+    try { sessionStorage.setItem('omni_user_custom_loc', JSON.stringify(customUserLocation)); } catch (e) {}
     closeLocationPickerModal();
     loadHubRecommendedEvents();
   }
@@ -684,6 +700,7 @@ async function searchCustomLocationInput() {
   for (const [key, val] of Object.entries(GLOBAL_CITY_COORDS)) {
     if (key.includes(qLower) || val.name.toLowerCase().includes(qLower)) {
       customUserLocation = { name: val.name, lat: val.lat, lng: val.lng };
+      try { sessionStorage.setItem('omni_user_custom_loc', JSON.stringify(customUserLocation)); } catch (e) {}
       closeLocationPickerModal();
       loadHubRecommendedEvents();
       return;
@@ -702,6 +719,7 @@ async function searchCustomLocationInput() {
         lat: parseFloat(item.lat),
         lng: parseFloat(item.lon)
       };
+      try { sessionStorage.setItem('omni_user_custom_loc', JSON.stringify(customUserLocation)); } catch (e) {}
       closeLocationPickerModal();
       loadHubRecommendedEvents();
       return;
@@ -734,8 +752,19 @@ function getDeviceCoordinates() {
     } catch (e) {}
 
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
+      let resolved = false;
+      const safety = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve(null);
+        }
+      }, 3000);
+
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(safety);
           userDeviceGeo = {
             lat: Number(pos.coords.latitude.toFixed(4)),
             lng: Number(pos.coords.longitude.toFixed(4))
@@ -744,9 +773,12 @@ function getDeviceCoordinates() {
           resolve(userDeviceGeo);
         },
         () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(safety);
           resolve(null);
         },
-        { enableHighAccuracy: false, timeout: 5000, maximumAge: 300000 }
+        { enableHighAccuracy: false, timeout: 2500, maximumAge: 300000 }
       );
     } else {
       resolve(null);
@@ -755,73 +787,100 @@ function getDeviceCoordinates() {
 }
 
 function requestUserDeviceLocationPrompt() {
+  const errBox = document.getElementById('hub-loc-error-msg');
+  const btn = document.getElementById('hub-enable-loc-btn');
+  if (errBox) errBox.style.display = 'none';
+
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
-    alert('Geolocation is not supported by your browser. Please choose your city manually.');
+    if (errBox) {
+      errBox.innerHTML = '⚠️ Geolocation is not supported by your browser. Please select your city below.';
+      errBox.style.display = 'block';
+    }
     openLocationPickerModal();
     return;
   }
 
-  const btn = document.getElementById('hub-enable-loc-btn') || (typeof event !== 'undefined' && event && event.target ? event.target : null);
-  const origHtml = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; margin-right:6px; vertical-align:middle;"></span> Finding Location...';
+    btn.innerHTML = '<span class="spinner" style="display:inline-block; width:12px; height:12px; border:2px solid #fff; border-top-color:transparent; border-radius:50%; margin-right:6px; vertical-align:middle;"></span> Requesting Location...';
   }
 
-  const handleSuccess = (pos) => {
+  let hasFinished = false;
+
+  // Strict 4.5s race timeout: In iOS PWA standalone mode, WebKit often silently hangs
+  // without invoking either success or error callbacks.
+  const safetyTimeout = setTimeout(() => {
+    if (hasFinished) return;
+    hasFinished = true;
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '📍 Enable Location Sharing';
+    }
+    showHelpfulError(
+      '📍 Location request timed out. On iPhone/iPad, check <b>Settings &gt; Privacy &gt; Location Services &gt; Safari</b>, or tap your city below!'
+    );
+  }, 4500);
+
+  function handleSuccess(pos) {
+    if (hasFinished) return;
+    hasFinished = true;
+    clearTimeout(safetyTimeout);
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '📍 Enable Location Sharing';
+    }
     userDeviceGeo = {
       lat: Number(pos.coords.latitude.toFixed(4)),
       lng: Number(pos.coords.longitude.toFixed(4))
     };
     try { sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo)); } catch (e) {}
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = origHtml;
-    }
     loadHubRecommendedEvents();
-  };
+  }
 
-  const handleError = (err) => {
-    // If high accuracy timed out on mobile, try fast low accuracy (cell/Wi-Fi)
-    if (err && err.code === 3) {
-      navigator.geolocation.getCurrentPosition(
-        handleSuccess,
-        (fallbackErr) => {
-          if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = origHtml;
-          }
-          handleFinalFailure(fallbackErr);
-        },
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
-      );
-      return;
-    }
-
+  function handleError(err) {
+    if (hasFinished) return;
+    hasFinished = true;
+    clearTimeout(safetyTimeout);
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = origHtml;
+      btn.innerHTML = '📍 Enable Location Sharing';
     }
-    handleFinalFailure(err);
-  };
-
-  function handleFinalFailure(err) {
+    let msg = 'Could not acquire GPS coordinates. Please select your city below.';
     if (err && err.code === 1) {
-      alert('Location access was denied in browser settings. Please enable location permissions for this site, or select your city from the list.');
+      msg = '📍 Location access was denied in browser settings. To enable GPS, go to <b>Settings &gt; Privacy &gt; Location Services &gt; Safari</b> and set to <i>"While Using"</i>, or select your city below.';
+    } else if (err && err.code === 2) {
+      msg = '📍 GPS signal unavailable. Please select your city below.';
     } else if (err && err.code === 3) {
-      alert('GPS location request timed out. Please choose your city from the list.');
-    } else {
-      alert('Could not acquire your device location. Please choose your city from the list.');
+      msg = '📍 GPS request timed out. Please select your city below.';
+    }
+    showHelpfulError(msg);
+  }
+
+  function showHelpfulError(msg) {
+    if (errBox) {
+      errBox.innerHTML = msg;
+      errBox.style.display = 'block';
     }
     openLocationPickerModal();
   }
 
-  // Fast low-accuracy first (instant resolution on mobile networks / Wi-Fi)
-  navigator.geolocation.getCurrentPosition(
-    handleSuccess,
-    handleError,
-    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
-  );
+  try {
+    navigator.geolocation.getCurrentPosition(
+      handleSuccess,
+      handleError,
+      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
+    );
+  } catch (e) {
+    if (!hasFinished) {
+      hasFinished = true;
+      clearTimeout(safetyTimeout);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '📍 Enable Location Sharing';
+      }
+      showHelpfulError('📍 Location access error. Please select your city below.');
+    }
+  }
 }
 window.requestUserDeviceLocationPrompt = requestUserDeviceLocationPrompt;
 
@@ -848,6 +907,13 @@ async function loadHubRecommendedEvents() {
   let locName = null;
   let geo = null;
 
+  try {
+    const savedLoc = sessionStorage.getItem('omni_user_custom_loc');
+    if (savedLoc && !customUserLocation) {
+      customUserLocation = JSON.parse(savedLoc);
+    }
+  } catch (e) {}
+
   if (customUserLocation) {
     userLat = customUserLocation.lat;
     userLng = customUserLocation.lng;
@@ -870,22 +936,40 @@ async function loadHubRecommendedEvents() {
       label.innerHTML = `📍 <b>${escapeHtml(activeName)}</b> <button class="hub-location-btn" onclick="openLocationPickerModal()">✏️ Change Location</button>`;
     }
 
-    // If no GPS, no detected history, show prompt to enable location sharing
-    if (!geo && !data.detected_state && !data.detected_city && !query) {
+    // If no GPS, no custom location, and no detected history, show prompt to enable location sharing
+    if (!geo && !customUserLocation && !data.detected_state && !data.detected_city && !query) {
       container.innerHTML = `
-        <div style="padding: 2.5rem 1.5rem; text-align: center; color: var(--text-secondary); max-width: 480px; margin: 0 auto; grid-column: 1 / -1;">
+        <div style="padding: 2.5rem 1.5rem; text-align: center; color: var(--text-secondary); max-width: 520px; margin: 0 auto; grid-column: 1 / -1;">
           <div style="font-size: 2.2rem; margin-bottom: 0.6rem;">📍</div>
           <h4 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem;">Enable Location Sharing to Discover Tournaments</h4>
           <p style="font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 1.15rem;">
-            Allow device location access to automatically find tournaments within 50 miles of your current location.
+            Allow device location access to automatically find tournaments within 100 miles of your current location.
           </p>
-          <div style="display:flex; justify-content:center; gap:0.6rem; flex-wrap:wrap;">
-            <button id="hub-enable-loc-btn" class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="requestUserDeviceLocationPrompt()">
+
+          <div id="hub-loc-error-msg" style="display:none; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.35); border-radius:8px; padding:0.75rem 1rem; margin-bottom:1.15rem; font-size:0.82rem; color:#f59e0b; text-align:left; line-height:1.45;"></div>
+
+          <div style="display:flex; justify-content:center; gap:0.6rem; flex-wrap:wrap; margin-bottom:1.5rem;">
+            <button id="hub-enable-loc-btn" class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.55rem 1.35rem; font-weight: 700;" onclick="requestUserDeviceLocationPrompt()">
               📍 Enable Location Sharing
             </button>
-            <button class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.5rem 1.25rem; font-weight: 700; background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" onclick="openLocationPickerModal()">
-              ✏️ Choose City Manually
+            <button class="bcp-login-btn" style="font-size: 0.85rem; padding: 0.55rem 1.35rem; font-weight: 700; background:#1e293b; color:#38bdf8; border:1px solid rgba(56,189,248,0.3);" onclick="openLocationPickerModal()">
+              ✏️ Search Any City
             </button>
+          </div>
+
+          <div style="padding-top: 1.15rem; border-top: 1px solid var(--border);">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;">Or Quick Select Popular Hubs:</div>
+            <div style="display:flex; justify-content:center; gap:0.4rem; flex-wrap:wrap;">
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('san diego')">🌴 San Diego</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('los angeles')">🎬 Los Angeles</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('austin')">🤠 Austin</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('dallas')">⭐ Dallas</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('chicago')">🏙️ Chicago</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('new york')">🗽 New York</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('seattle')">🌲 Seattle</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem;" onclick="setPresetLocation('london')">☕ London</button>
+              <button class="hub-loc-chip" style="font-size:0.78rem; padding:0.35rem 0.75rem; background:rgba(56,189,248,0.1); color:#38bdf8; border-color:rgba(56,189,248,0.3);" onclick="openLocationPickerModal()">🔍 More Cities...</button>
+            </div>
           </div>
         </div>
       `;
