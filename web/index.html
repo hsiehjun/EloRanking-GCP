@@ -19,12 +19,263 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=16.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=13.0">
+  <link rel="stylesheet" href="/css/styles.css?v=60.0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=14.0">
 </head>
 <body>
+
+  <!-- ========================================================================
+       LANDING PAGE (SHOWN TO UN-LOGGED IN GUESTS)
+       ======================================================================== -->
+  <div id="landing-page-view">
+    <!-- Top Sticky Bar -->
+    <header class="landing-nav">
+      <div class="landing-nav-inner">
+        <a href="#" class="logo-group">
+          <img src="/assets/logo.svg" alt="OmniTactica" style="width:38px; height:38px; border-radius:8px; border:1px solid rgba(56,189,248,0.3);" onerror="this.onerror=null; this.src='/logo-mark.svg';">
+          <div>
+            <div class="logo-title" style="display:flex; align-items:center; gap:6px;">
+              <span style="font-weight:900; letter-spacing:0.04em; background: linear-gradient(135deg, #ffffff 0%, #38bdf8 60%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">OmniTactica</span>
+            </div>
+            <div class="logo-subtitle">40K Competitive Intelligence</div>
+          </div>
+        </a>
+
+        <div class="landing-nav-links">
+          <a href="#features" class="landing-nav-link">Intelligence Features</a>
+          <a href="#tournaments" class="landing-nav-link">Tournament Radar</a>
+          <a href="#eventstudio" class="landing-nav-link">Event Studio & BCP</a>
+          <a href="#predictor" class="landing-nav-link">Match Predictor</a>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:0.65rem;">
+          <button onclick="setAuthCardTab('login'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="nav-btn" style="padding: 6px 14px; font-size: 0.82rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(15,23,42,0.6); cursor: pointer;">
+            Sign In
+          </button>
+          <button onclick="setAuthCardTab('register'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="bcp-login-btn" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800;">
+            ⚡ Create Account
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="landing-hero" id="landing-auth-card-anchor">
+      <div class="landing-hero-left">
+        <div class="landing-badge">
+          <span>⚔️</span>
+          <span>Imperial Cogitator // Warhammer 40,000 Elo Network</span>
+        </div>
+        <h1 class="landing-title">
+          Quantify The Meta.<br>
+          <span style="background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Dominate Every Matchup.</span>
+        </h1>
+        <p class="landing-subtitle">
+          The unified intelligence platform for Warhammer 40k tournament competitors and organizers. Real-time Elo tracking across <strong>92,100+</strong> rated players, 50-mile GPS tournament discovery, algorithmic win prediction, and dual-sync Event Studio with Best Coast Pairings.
+        </p>
+
+        <!-- Stats Bar -->
+        <div class="landing-stats-bar">
+          <div>
+            <div class="landing-stat-val">92,100+</div>
+            <div class="landing-stat-lbl">Rated Competitors</div>
+          </div>
+          <div>
+            <div class="landing-stat-val">150,000+</div>
+            <div class="landing-stat-lbl">40k Matches Analyzed</div>
+          </div>
+          <div>
+            <div class="landing-stat-val">50 mi</div>
+            <div class="landing-stat-lbl">GPS Tournament Radar</div>
+          </div>
+          <div>
+            <div class="landing-stat-val">1-Click</div>
+            <div class="landing-stat-lbl">BCP Live Sync</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero Right: Unified Auth Card (Login / Register / 2FA Verify / Forgot Password) -->
+      <div class="landing-hero-right">
+        <div class="landing-auth-card">
+          <!-- Auth Tab Switcher -->
+          <div class="landing-auth-tabs">
+            <button id="auth-tab-btn-login" class="landing-auth-tab active" onclick="setAuthCardTab('login')">
+              🔑 Sign In
+            </button>
+            <button id="auth-tab-btn-register" class="landing-auth-tab" onclick="setAuthCardTab('register')">
+              ⚡ Create Account
+            </button>
+          </div>
+
+          <div class="landing-auth-body">
+            <!-- VIEW 1: SIGN IN -->
+            <form id="auth-form-login" onsubmit="handleNativeLogin(event)">
+              <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
+                <input type="email" id="login-email" class="form-input" placeholder="commander@example.com" required autocomplete="username" style="width: 100%;">
+              </div>
+              <div style="margin-bottom: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                  <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Password</label>
+                  <a href="#" onclick="setAuthCardTab('forgot'); return false;" style="font-size: 0.74rem; color: #38bdf8; text-decoration: none;">Forgot?</a>
+                </div>
+                <input type="password" id="login-password" class="form-input" placeholder="••••••••••••" required autocomplete="current-password" style="width: 100%;">
+              </div>
+
+              <div id="login-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
+
+              <button type="submit" id="login-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
+                Sign In to OmniTactica
+              </button>
+              
+              <div style="font-size: 0.75rem; color: #64748b; text-align: center; margin-top: 1rem;">
+                Don't have an account? <a href="#" onclick="setAuthCardTab('register'); return false;" style="color: #38bdf8; font-weight: 700; text-decoration: none;">Create free account</a>
+              </div>
+            </form>
+
+            <!-- VIEW 2: CREATE ACCOUNT (Initiates 2FA) -->
+            <form id="auth-form-register" onsubmit="handleNativeRegister(event)" style="display: none;">
+              <div style="margin-bottom: 0.85rem;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Competitor / Display Name</label>
+                <input type="text" id="reg-name" class="form-input" placeholder="e.g. Captain Titus" required style="width: 100%;">
+                <span style="font-size: 0.7rem; color: #64748b; margin-top: 2px; display: block;">Automatically matches your historical tournament ratings</span>
+              </div>
+              <div style="margin-bottom: 0.85rem;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
+                <input type="email" id="reg-email" class="form-input" placeholder="commander@example.com" required style="width: 100%;">
+              </div>
+              <div style="margin-bottom: 0.5rem;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Password (Min 6 chars)</label>
+                <input type="password" id="reg-password" class="form-input" placeholder="••••••••••••" minlength="6" required style="width: 100%;">
+              </div>
+
+              <div id="reg-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
+
+              <button type="submit" id="reg-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
+                ⚡ Create Account (Send 2FA Code)
+              </button>
+
+              <div style="font-size: 0.72rem; color: #64748b; text-align: center; margin-top: 0.85rem; line-height: 1.4;">
+                🛡️ A 6-digit email verification code will be sent to activate your account.
+              </div>
+            </form>
+
+            <!-- VIEW 3: 2FA CODE VERIFICATION -->
+            <div id="auth-form-verify" style="display: none; text-align: center;">
+              <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">📬</div>
+              <h4 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">Verify Your Email</h4>
+              <p style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 1.25rem; line-height: 1.45;">
+                We sent a 6-digit activation code to<br><strong id="verify-email-target" style="color: #38bdf8;">your email</strong>
+              </p>
+
+              <div style="margin-bottom: 1rem; text-align: left;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.4rem; text-align: center;">
+                  Enter 6-Digit Code
+                </label>
+                <input type="text" id="verify-code-input" maxlength="6" class="form-input" placeholder="123456" autocomplete="one-time-code" style="font-size: 1.7rem; font-family: 'JetBrains Mono', monospace; font-weight: 800; letter-spacing: 8px; text-align: center; color: #38bdf8; width: 100%;">
+              </div>
+
+              <div id="verify-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
+
+              <button type="button" id="btn-submit-verify" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleVerifyRegistrationCode()">
+                ✓ Activate Account & Enter
+              </button>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.15rem; font-size: 0.78rem;">
+                <button type="button" id="btn-resend-code" onclick="handleResendVerificationCode()" style="background: none; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; padding: 0;">Resend Code</button>
+                <button type="button" onclick="setAuthCardTab('register')" style="background: none; border: none; color: #64748b; cursor: pointer; padding: 0;">Change Email</button>
+              </div>
+            </div>
+
+            <!-- VIEW 4: FORGOT PASSWORD -->
+            <div id="auth-form-forgot" style="display: none;">
+              <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">Reset Account Password</h4>
+              <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem; line-height: 1.45;">Enter your registered email address. We will dispatch a 6-digit reset code.</p>
+
+              <div style="margin-bottom: 1rem;">
+                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
+                <input type="email" id="forgot-email" class="form-input" placeholder="commander@example.com" style="width: 100%;">
+              </div>
+
+              <div id="forgot-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
+              <div id="forgot-success" style="display: none; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
+
+              <button type="button" id="btn-submit-forgot" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleForgotPasswordSubmit()">
+                Send Password Reset Code
+              </button>
+
+              <div style="text-align: center; margin-top: 1rem;">
+                <a href="#" onclick="setAuthCardTab('login'); return false;" style="font-size: 0.75rem; color: #64748b; text-decoration: none;">← Back to Sign In</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tactical Pillars Feature Section -->
+    <section class="landing-features-sec" id="features">
+      <div class="landing-sec-head">
+        <div class="landing-badge" style="margin-bottom: 0.75rem;">Tactical Capabilities</div>
+        <h2 class="landing-sec-title">Built for Serious 40k Competitors</h2>
+        <p class="landing-sec-sub">Designed from the ground up to give players and tournament organizers complete statistical clarity over the game.</p>
+      </div>
+
+      <div class="landing-grid-4">
+        <!-- Feature 1 -->
+        <div class="landing-feat-card" id="tournaments">
+          <div class="landing-feat-icon">🎯</div>
+          <h3 class="landing-feat-title">50-Mile Tournament Radar</h3>
+          <p class="landing-feat-desc">
+            Discover upcoming Grand Tournaments, Major GTs, and RTTs within 50 miles of your live GPS or chosen city. Analyze real-time registered rosters, calculate field difficulty ratings, and preview matchup spreads before you register.
+          </p>
+        </div>
+
+        <!-- Feature 2 -->
+        <div class="landing-feat-card" id="eventstudio">
+          <div class="landing-feat-icon">🛠️</div>
+          <h3 class="landing-feat-title">Event Studio & BCP Dual Publishing</h3>
+          <p class="landing-feat-desc">
+            The modern Tournament Organizer suite. Create and manage tournaments with verified city/state geocoding, publish directly to Best Coast Pairings with 1 click, automate Swiss round pairings, and track live table scores.
+          </p>
+        </div>
+
+        <!-- Feature 3 -->
+        <div class="landing-feat-card">
+          <div class="landing-feat-icon">👑</div>
+          <h3 class="landing-feat-title">92,100+ Player Global Elo Leaderboard</h3>
+          <p class="landing-feat-desc">
+            Dynamic Elo/Glicko skill trajectories calculated across more than 150,000 sanctioned tournament matches. Track peak ratings, career win percentages, and faction performance histories across official circuits.
+          </p>
+        </div>
+
+        <!-- Feature 4 -->
+        <div class="landing-feat-card" id="predictor">
+          <div class="landing-feat-icon">🔮</div>
+          <h3 class="landing-feat-title">Algorithmic Matchup Predictor</h3>
+          <p class="landing-feat-desc">
+            Simulate head-to-head clashes between any two rated competitors and factions. Our predictive model synthesizes player rating differentials, meta win rates, and historical encounter data into precise win-loss probabilities.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="landing-footer">
+      <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem;">OMNITACTICA &bull; Warhammer 40k Competitor Network</div>
+      <div style="color: #64748b; font-size: 0.75rem;">
+        An independent competitive platform not affiliated with Games Workshop or Best Coast Pairings.
+      </div>
+    </footer>
+  </div>
+
+  <!-- ========================================================================
+       APPLICATION SHELL (REVEALED ONLY TO AUTHENTICATED USERS)
+       ======================================================================== -->
+  <div id="app-shell" style="display: none;">
 
   <!-- Top Navigation Header -->
   <header>
@@ -660,9 +911,22 @@
                 <input type="text" id="create-event-venue" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Mox Boarding House">
               </div>
 
-              <div class="form-group">
-                <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">City & State / Region</label>
-                <input type="text" id="create-event-city-state" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Seattle, WA">
+              <div class="form-group" style="position: relative;">
+                <label class="form-label" style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">
+                  <span>City & State / Region *</span>
+                  <span id="create-event-loc-badge" style="font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">✓ Verified Location</span>
+                </label>
+                <div style="position: relative;">
+                  <input type="text" id="create-event-city-state" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="Type to search verified city (e.g. San Diego, Austin, London)..." value="San Diego, CA, United States" autocomplete="off" oninput="handleStudioLocationInput(this.value)" onfocus="handleStudioLocationFocus()">
+                  <div id="create-event-loc-spinner" style="display:none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border: 2px solid #38bdf8; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+                </div>
+                <div id="create-event-loc-dropdown" style="display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1050; background: #0f172a; border: 1px solid #334155; border-radius: 8px; max-height: 220px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.6); padding: 4px;"></div>
+                <input type="hidden" id="create-event-loc-city" value="San Diego">
+                <input type="hidden" id="create-event-loc-state" value="CA">
+                <input type="hidden" id="create-event-loc-country" value="United States">
+                <input type="hidden" id="create-event-loc-lat" value="32.7157">
+                <input type="hidden" id="create-event-loc-lng" value="-117.1611">
+                <input type="hidden" id="create-event-loc-verified" value="true">
               </div>
 
               <!-- Circuit Choosing -->
@@ -1440,22 +1704,23 @@
         </div>
       </div>
     </div>
-  </div>
+  </main>
+  </div> <!-- #app-shell -->
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=59.0"></script>
-  <script src="/js/api.js?v=59.1"></script>
-  <script src="/js/leaderboard.js?v=59.0"></script>
-  <script src="/js/teams.js?v=59.0"></script>
-  <script src="/js/players.js?v=59.0"></script>
-  <script src="/js/tournaments.js?v=59.0"></script>
-  <script src="/js/factions.js?v=59.0"></script>
-  <script src="/js/predictor.js?v=59.0"></script>
-  <script src="/js/modals.js?v=59.0"></script>
-  <script src="/js/auth.js?v=59.0"></script>
-  <script src="/js/my_hub.js?v=59.1"></script>
-  <script src="/js/eventstudio.js?v=59.1"></script>
-  <script src="/js/app.js?v=59.0"></script>
+  <script src="/js/utils.js?v=60.0"></script>
+  <script src="/js/api.js?v=60.0"></script>
+  <script src="/js/leaderboard.js?v=60.0"></script>
+  <script src="/js/teams.js?v=60.0"></script>
+  <script src="/js/players.js?v=60.0"></script>
+  <script src="/js/tournaments.js?v=60.0"></script>
+  <script src="/js/factions.js?v=60.0"></script>
+  <script src="/js/predictor.js?v=60.0"></script>
+  <script src="/js/modals.js?v=60.0"></script>
+  <script src="/js/auth.js?v=60.0"></script>
+  <script src="/js/my_hub.js?v=60.0"></script>
+  <script src="/js/eventstudio.js?v=60.0"></script>
+  <script src="/js/app.js?v=60.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

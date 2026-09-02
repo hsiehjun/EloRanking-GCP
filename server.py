@@ -182,6 +182,9 @@ if FASTAPI_AVAILABLE:
         city: Optional[str] = ""
         state: Optional[str] = ""
         country: Optional[str] = "United States"
+        lat: Optional[float] = None
+        lng: Optional[float] = None
+        location_verified: Optional[bool] = False
         venue: Optional[str] = ""
         points: Optional[int] = 2000
         capacity: Optional[int] = 32
@@ -556,7 +559,8 @@ if FASTAPI_AVAILABLE:
                         "city": city_str,
                         "state": state_str,
                         "country": country_str,
-                        "timeZone": tz_str
+                        "timeZone": tz_str,
+                        **({"coordinate": [float(payload.lng), float(payload.lat)]} if payload.lat is not None and payload.lng is not None else {})
                     },
                     "ticketPrice": int((payload.ticket_price or 0) * 100) if payload.using_online_reg else 0,
                     "usingOnlineReg": bool(payload.using_online_reg),
@@ -3498,11 +3502,9 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/login", include_in_schema=False)
     @app.get("/tracker/login", include_in_schema=False)
-    async def serve_login():
-        login_file = web_dir / "tracker" / "login.html"
-        if login_file.exists():
-            return FileResponse(str(login_file), media_type="text/html")
-        raise HTTPException(status_code=404, detail="login.html not found")
+    async def serve_login(redirect: Optional[str] = Query(None)):
+        redir_param = f"&redirect={redirect}" if redirect else ""
+        return RedirectResponse(url=f"/?auth=login{redir_param}", status_code=303)
 
     @app.get("/my-hub", include_in_schema=False)
     @app.get("/hub", include_in_schema=False)
@@ -3512,12 +3514,18 @@ if FASTAPI_AVAILABLE:
         session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         if not user:
-            return RedirectResponse(url="/login?redirect=/#my-hub", status_code=303)
+            return RedirectResponse(url="/?auth=login&redirect=/#my-hub", status_code=303)
         return RedirectResponse(url="/#my-hub", status_code=303)
 
     @app.get("/tracker", include_in_schema=False)
     @app.get("/tracker/", include_in_schema=False)
-    async def serve_tracker_alias():
+    async def serve_tracker_alias(request: Request, token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return RedirectResponse(url="/?auth=login&redirect=/11th/tracker", status_code=303)
         return RedirectResponse(url="/11th/tracker", status_code=303)
 
     @app.get("/tracker/play", include_in_schema=False)
@@ -3651,7 +3659,13 @@ if FASTAPI_AVAILABLE:
 
     @app.get("/eventstudio", include_in_schema=False)
     @app.get("/eventstudio.html", include_in_schema=False)
-    async def serve_eventstudio():
+    async def serve_eventstudio(request: Request, token: Optional[str] = Query(None)):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return RedirectResponse(url="/?auth=login&redirect=/#event-studio", status_code=303)
         es_file = web_dir / "eventstudio.html"
         if es_file.exists():
             return FileResponse(str(es_file), media_type="text/html")
@@ -4413,15 +4427,38 @@ if FASTAPI_AVAILABLE:
         old_password: Optional[str] = None
         new_password: Optional[str] = None
 
-    @app.post("/api/auth/register", summary="Register a new native user account")
+    class VerifyRegistrationPayload(BaseModel):
+        email: str
+        code: str
+
+    class ResendVerificationPayload(BaseModel):
+        email: str
+
+    @app.post("/api/auth/register", summary="Register a new native user account with 2FA email verification")
     async def api_auth_register(payload: RegisterPayload, response: Response):
         auth_mgr = get_auth_manager()
-        res = auth_mgr.register(payload.email, payload.password, payload.display_name or "")
+        res = auth_mgr.initiate_registration(payload.email, payload.password, payload.display_name or "")
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Registration failed"))
+        return res
+
+    @app.post("/api/auth/verify-registration", summary="Verify 6-digit email code to activate account")
+    async def api_auth_verify_registration(payload: VerifyRegistrationPayload, response: Response):
+        auth_mgr = get_auth_manager()
+        res = auth_mgr.verify_registration_code(payload.email, payload.code)
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Verification failed"))
         token = res.get("session_token")
         if token:
             response.set_cookie(key="session_token", value=token, max_age=2592000, path="/", httponly=False, samesite="lax")
+        return res
+
+    @app.post("/api/auth/resend-verification", summary="Resend 6-digit email verification code")
+    async def api_auth_resend_verification(payload: ResendVerificationPayload):
+        auth_mgr = get_auth_manager()
+        res = auth_mgr.resend_registration_code(payload.email)
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to resend code"))
         return res
 
     @app.post("/api/auth/login", summary="Login to native user account")

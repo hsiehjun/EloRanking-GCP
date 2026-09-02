@@ -2,9 +2,14 @@
    APP.JS - Main App Router, Navigation & Initialization (v6.0)
    ========================================================================== */
 
-let activeTab = 'leaderboard';
+let activeTab = 'my-hub';
 
 function switchTab(tabName) {
+  if (!currentUser) {
+    if (typeof syncAppAuthView === 'function') syncAppAuthView();
+    return;
+  }
+
   // Normalize alias names
   if (tabName === 'tournaments') tabName = 'events';
   if (tabName === 'eventstudio') tabName = 'event-studio';
@@ -290,6 +295,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (typeof initAuth === 'function') {
     await initAuth();
   }
+  if (typeof syncAppAuthView === 'function') {
+    syncAppAuthView();
+  }
+
+  // Gate all features behind login
+  if (!currentUser) {
+    const params = new URLSearchParams(window.location.search);
+    const authAction = params.get('auth');
+    if (authAction === 'register' && typeof setAuthCardTab === 'function') {
+      setAuthCardTab('register');
+    } else if (authAction === 'login' && typeof setAuthCardTab === 'function') {
+      setAuthCardTab('login');
+    }
+    return;
+  }
+
   if (typeof renderHeaderAuth === 'function') {
     renderHeaderAuth();
   }
@@ -305,6 +326,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (targetTab) {
     switchTab(targetTab);
   } else {
-    switchTab('leaderboard');
+    switchTab('my-hub');
   }
 });

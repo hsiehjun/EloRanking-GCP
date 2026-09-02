@@ -152,9 +152,22 @@
             <input type="text" id="create-event-venue" class="form-input" placeholder="e.g. Game Empire San Diego">
           </div>
 
-          <div class="form-group">
-            <label class="form-label">City & State / Country</label>
-            <input type="text" id="create-event-city-state" class="form-input" placeholder="e.g. San Diego, CA">
+          <div class="form-group" style="position: relative;">
+            <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+              <span>City & State / Region *</span>
+              <span id="create-event-loc-badge" style="font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">✓ Verified Location</span>
+            </label>
+            <div style="position: relative;">
+              <input type="text" id="create-event-city-state" class="form-input" placeholder="Type to search verified city (e.g. San Diego, Austin, London)..." value="San Diego, CA, United States" autocomplete="off" oninput="handleStudioLocationInput(this.value)" onfocus="handleStudioLocationFocus()">
+              <div id="create-event-loc-spinner" style="display:none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border: 2px solid #38bdf8; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+            </div>
+            <div id="create-event-loc-dropdown" style="display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1050; background: #0f172a; border: 1px solid #334155; border-radius: 8px; max-height: 220px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.6); padding: 4px;"></div>
+            <input type="hidden" id="create-event-loc-city" value="San Diego">
+            <input type="hidden" id="create-event-loc-state" value="CA">
+            <input type="hidden" id="create-event-loc-country" value="United States">
+            <input type="hidden" id="create-event-loc-lat" value="32.7157">
+            <input type="hidden" id="create-event-loc-lng" value="-117.1611">
+            <input type="hidden" id="create-event-loc-verified" value="true">
           </div>
 
           <!-- Advanced BCP Rules & Privacy Options -->
@@ -347,7 +360,7 @@
 
   </div>
 
-  <script src="/js/api.js?v=59.1"></script>
-  <script src="/js/eventstudio.js?v=59.1"></script>
+  <script src="/js/api.js?v=60.0"></script>
+  <script src="/js/eventstudio.js?v=60.0"></script>
 </body>
 </html>

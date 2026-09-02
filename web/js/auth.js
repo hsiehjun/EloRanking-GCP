@@ -20,10 +20,28 @@ try {
   currentUser = null;
 }
 
+function syncAppAuthView() {
+  const landingView = document.getElementById('landing-page-view');
+  const appShell = document.getElementById('app-shell');
+  const appHeader = document.querySelector('header');
+
+  if (currentUser) {
+    if (landingView) landingView.style.display = 'none';
+    if (appShell) appShell.style.display = 'block';
+    if (appHeader) appHeader.style.display = 'block';
+    if (typeof renderHeaderAuth === 'function') renderHeaderAuth();
+  } else {
+    if (landingView) landingView.style.display = 'block';
+    if (appShell) appShell.style.display = 'none';
+    if (appHeader) appHeader.style.display = 'none';
+  }
+}
+
 async function initAuth() {
   const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
   if (!token) {
     currentUser = null;
+    syncAppAuthView();
     return;
   }
 
@@ -45,18 +63,34 @@ async function initAuth() {
   } catch (e) {
     console.warn('Session verification error:', e);
   }
+  syncAppAuthView();
 }
+
+let pendingVerifyEmail = "";
 
 function setAuthCardTab(tab) {
   const btnLogin = document.getElementById('auth-tab-btn-login');
   const btnReg = document.getElementById('auth-tab-btn-register');
   const formLogin = document.getElementById('auth-form-login');
   const formReg = document.getElementById('auth-form-register');
+  const formVerify = document.getElementById('auth-form-verify');
+  const formForgot = document.getElementById('auth-form-forgot');
 
   if (btnLogin) btnLogin.classList.toggle('active', tab === 'login');
   if (btnReg) btnReg.classList.toggle('active', tab === 'register');
+
   if (formLogin) formLogin.style.display = (tab === 'login') ? 'block' : 'none';
   if (formReg) formReg.style.display = (tab === 'register') ? 'block' : 'none';
+  if (formVerify) formVerify.style.display = (tab === 'verify') ? 'block' : 'none';
+  if (formForgot) formForgot.style.display = (tab === 'forgot') ? 'block' : 'none';
+
+  if (tab === 'verify') {
+    const codeInput = document.getElementById('verify-code-input');
+    if (codeInput) {
+      codeInput.value = '';
+      setTimeout(() => codeInput.focus(), 50);
+    }
+  }
 }
 
 async function handleNativeLogin(e) {
@@ -89,6 +123,7 @@ async function handleNativeLogin(e) {
       localStorage.setItem('native_session_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
+      syncAppAuthView();
       switchTab('my-hub');
     } else {
       if (errorDiv) {
@@ -104,7 +139,7 @@ async function handleNativeLogin(e) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.innerText = 'Sign In to My Hub';
+      submitBtn.innerText = 'Sign In to OmniTactica';
     }
   }
 }
@@ -128,19 +163,32 @@ async function handleNativeRegister(e) {
     }
     return;
   }
+  if (password.length < 6) {
+    if (errorDiv) {
+      errorDiv.innerText = 'Password must be at least 6 characters.';
+      errorDiv.style.display = 'block';
+    }
+    return;
+  }
 
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.innerText = 'Creating Account...';
+    submitBtn.innerText = 'Sending 2FA Code...';
   }
   if (errorDiv) errorDiv.style.display = 'none';
 
   try {
     const res = await window.api.register(email, password, displayName);
-    if (res && res.success) {
+    if (res && res.requires_verification) {
+      pendingVerifyEmail = email;
+      const targetSpan = document.getElementById('verify-email-target');
+      if (targetSpan) targetSpan.textContent = email;
+      setAuthCardTab('verify');
+    } else if (res && res.success && res.session_token) {
       localStorage.setItem('native_session_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
+      syncAppAuthView();
       switchTab('my-hub');
     } else {
       if (errorDiv) {
@@ -156,7 +204,98 @@ async function handleNativeRegister(e) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.innerText = 'Create Free Account';
+      submitBtn.innerText = 'Create Account (Send 2FA Code)';
+    }
+  }
+}
+
+async function handleVerifyRegistrationCode(e) {
+  if (e) e.preventDefault();
+  const codeInput = document.getElementById('verify-code-input');
+  const errorDiv = document.getElementById('verify-error');
+  const submitBtn = document.getElementById('btn-submit-verify');
+
+  const code = codeInput ? codeInput.value.trim() : '';
+  const email = pendingVerifyEmail || (document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '');
+
+  if (!code || code.length < 6) {
+    if (errorDiv) {
+      errorDiv.innerText = 'Please enter the full 6-digit verification code.';
+      errorDiv.style.display = 'block';
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Activating Account...';
+  }
+  if (errorDiv) errorDiv.style.display = 'none';
+
+  try {
+    const res = await window.api.verifyRegistrationCode(email, code);
+    if (res && res.success) {
+      localStorage.setItem('native_session_token', res.session_token);
+      localStorage.setItem('native_user_profile', JSON.stringify(res.user));
+      currentUser = res.user;
+      syncAppAuthView();
+      alert('🎉 Welcome to OmniTactica! Your account has been verified successfully.');
+      switchTab('my-hub');
+    } else {
+      if (errorDiv) {
+        errorDiv.innerText = res.error || 'Invalid or expired verification code.';
+        errorDiv.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errorDiv) {
+      errorDiv.innerText = 'Verification error: ' + err.message;
+      errorDiv.style.display = 'block';
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerText = '✓ Activate Account & Enter';
+    }
+  }
+}
+
+async function handleResendVerificationCode() {
+  const email = pendingVerifyEmail || (document.getElementById('reg-email') ? document.getElementById('reg-email').value.trim() : '');
+  const btn = document.getElementById('btn-resend-code');
+  const errorDiv = document.getElementById('verify-error');
+  if (!email) return;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Resending...';
+  }
+
+  try {
+    const res = await window.api.resendRegistrationCode(email);
+    if (res && res.success) {
+      if (errorDiv) {
+        errorDiv.style.display = 'block';
+        errorDiv.style.color = '#10b981';
+        errorDiv.style.background = 'rgba(16,185,129,0.1)';
+        errorDiv.style.borderColor = 'rgba(16,185,129,0.25)';
+        errorDiv.innerText = '✅ New 6-digit code sent! Please check your email inbox (and spam).';
+      }
+    } else {
+      if (errorDiv) {
+        errorDiv.style.display = 'block';
+        errorDiv.innerText = res.error || 'Failed to resend code.';
+      }
+    }
+  } catch (e) {
+    if (errorDiv) {
+      errorDiv.style.display = 'block';
+      errorDiv.innerText = e.message || 'Error resending code.';
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = 'Resend Code';
     }
   }
 }
@@ -247,18 +386,15 @@ async function handleLogout() {
   localStorage.removeItem('bcp_session_token');
   document.cookie = 'session_token=; path=/; max-age=0';
   
-  // Clear ?tab=my-hub if present in URL
   try {
     const url = new URL(window.location.href);
-    if (url.searchParams.get('tab') === 'my-hub') {
-      url.searchParams.delete('tab');
-      window.history.replaceState({}, '', url.pathname + (url.search ? url.search : ''));
-    }
+    url.search = '';
+    url.hash = '';
+    window.history.replaceState({}, '', url.pathname);
   } catch (e) {}
 
   renderHeaderAuth();
-  switchTab('leaderboard');
-  if (typeof loadLeaderboard === 'function') loadLeaderboard();
+  syncAppAuthView();
 }
 
 function renderHeaderAuth() {
@@ -420,3 +556,54 @@ async function handleSavePassword(e) {
     if (btn) { btn.disabled = false; btn.innerText = 'Update Password'; }
   }
 }
+
+async function handleForgotPasswordSubmit() {
+  const emailInput = document.getElementById('forgot-email');
+  const errDiv = document.getElementById('forgot-error');
+  const successDiv = document.getElementById('forgot-success');
+  const btn = document.getElementById('btn-submit-forgot');
+
+  const email = emailInput ? emailInput.value.trim() : '';
+  if (!email) {
+    if (errDiv) {
+      errDiv.innerText = 'Please enter your account email.';
+      errDiv.style.display = 'block';
+    }
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.innerText = 'Sending Reset Link...'; }
+  if (errDiv) errDiv.style.display = 'none';
+  if (successDiv) successDiv.style.display = 'none';
+
+  try {
+    const res = await window.api.forgotPassword(email);
+    if (res && res.success) {
+      if (successDiv) {
+        successDiv.innerText = res.message || 'Password reset instructions sent to your email!';
+        successDiv.style.display = 'block';
+      }
+    } else {
+      if (errDiv) {
+        errDiv.innerText = res?.error || 'Failed to dispatch password reset.';
+        errDiv.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errDiv) {
+      errDiv.innerText = 'Error: ' + err.message;
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = 'Send Password Reset Code'; }
+  }
+}
+
+window.syncAppAuthView = syncAppAuthView;
+window.setAuthCardTab = setAuthCardTab;
+window.handleNativeLogin = handleNativeLogin;
+window.handleNativeRegister = handleNativeRegister;
+window.handleVerifyRegistrationCode = handleVerifyRegistrationCode;
+window.handleResendVerificationCode = handleResendVerificationCode;
+window.handleForgotPasswordSubmit = handleForgotPasswordSubmit;
+window.handleLogout = handleLogout;

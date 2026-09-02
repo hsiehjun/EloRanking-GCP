@@ -26,12 +26,14 @@ except ImportError:
         from database import Database, get_db
 
 try:
-    from email_service import send_password_reset_email
+    from email_service import send_password_reset_email, send_registration_verification_email
 except ImportError:
     try:
-        from google3.experimental.users.hsiehjun.EloRanking.email_service import send_password_reset_email
+        from google3.experimental.users.hsiehjun.EloRanking.email_service import send_password_reset_email, send_registration_verification_email
     except ImportError:
         def send_password_reset_email(*args, **kwargs):
+            return {"success": True, "simulated": True}
+        def send_registration_verification_email(*args, **kwargs):
             return {"success": True, "simulated": True}
 
 logger = logging.getLogger("NativeAuth")
@@ -169,13 +171,29 @@ class AuthManager:
                     CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
                     CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
                     CREATE INDEX IF NOT EXISTS idx_password_resets_code ON password_resets(code);
+
+                    CREATE TABLE IF NOT EXISTS pending_registrations (
+                        email TEXT PRIMARY KEY,
+                        password_hash TEXT NOT NULL,
+                        display_name TEXT NOT NULL,
+                        verify_code VARCHAR(16) NOT NULL,
+                        registration_token VARCHAR(128) NOT NULL,
+                        expires_at TIMESTAMPTZ NOT NULL,
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_pending_reg_email ON pending_registrations(email);
+                    CREATE INDEX IF NOT EXISTS idx_pending_reg_code ON pending_registrations(verify_code);
                     """)
                 conn.commit()
         except Exception as e:
             logger.debug(f"Ensure tables notice: {e}")
 
     def register(self, email: str, password: str, display_name: str) -> Dict[str, Any]:
-        """Registers a new native user account."""
+        """Registers a new native user account with 2FA email verification."""
+        return self.initiate_registration(email, password, display_name)
+
+    def initiate_registration(self, email: str, password: str, display_name: str) -> Dict[str, Any]:
+        """Initiates account registration and sends a 6-digit email verification code."""
         email = email.strip().lower()
         display_name = display_name.strip()
         if not email or "@" not in email:
@@ -192,8 +210,69 @@ class AuthManager:
                 if cur.fetchone():
                     return {"success": False, "error": "An account with this email already exists."}
 
-                user_id = str(uuid.uuid4())
+                verify_code = f"{secrets.randbelow(900000) + 100000}"
+                reg_token = str(uuid.uuid4())
                 pw_hash = _hash_password(password)
+
+                cur.execute("""
+                INSERT INTO pending_registrations (email, password_hash, display_name, verify_code, registration_token, expires_at, created_at)
+                VALUES (%s, %s, %s, %s, %s, NOW() + INTERVAL '15 minutes', NOW())
+                ON CONFLICT (email) DO UPDATE SET
+                    password_hash = EXCLUDED.password_hash,
+                    display_name = EXCLUDED.display_name,
+                    verify_code = EXCLUDED.verify_code,
+                    registration_token = EXCLUDED.registration_token,
+                    expires_at = NOW() + INTERVAL '15 minutes',
+                    created_at = NOW();
+                """, (email, pw_hash, display_name, verify_code, reg_token))
+            conn.commit()
+
+        # Dispatch email
+        send_res = send_registration_verification_email(email, verify_code, display_name)
+        logger.info(f"📧 Registration verification code generated for {email}: {verify_code}")
+
+        return {
+            "success": True,
+            "requires_verification": True,
+            "email": email,
+            "registration_token": reg_token,
+            "message": f"Verification code sent to {email}. Please enter the 6-digit code to activate your account."
+        }
+
+    def verify_registration_code(self, email: str, code: str) -> Dict[str, Any]:
+        """Verifies the 6-digit code and creates the active user account."""
+        email = email.strip().lower()
+        code = str(code).strip()
+        if not email or not code:
+            return {"success": False, "error": "Email and 6-digit verification code are required."}
+
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT email, password_hash, display_name, verify_code, expires_at
+                FROM pending_registrations
+                WHERE email = %s;
+                """, (email,))
+                row = cur.fetchone()
+
+                if not row:
+                    return {"success": False, "error": "No pending registration found for this email. Please register again."}
+
+                if row["verify_code"] != code:
+                    return {"success": False, "error": "Incorrect verification code. Please check your email and try again."}
+
+                if row["expires_at"] < datetime.now(timezone.utc):
+                    return {"success": False, "error": "Verification code has expired. Please request a new code."}
+
+                # Check again if user was created in the meantime
+                cur.execute("SELECT id FROM users WHERE email = %s;", (email,))
+                if cur.fetchone():
+                    return {"success": False, "error": "An account with this email already exists."}
+
+                user_id = str(uuid.uuid4())
+                display_name = row["display_name"]
+                pw_hash = row["password_hash"]
 
                 # Match with local player database by display name
                 cur.execute("SELECT player_id FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;", (display_name, f"%{display_name}%"))
@@ -210,14 +289,43 @@ class AuthManager:
                 INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
                 VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
                 """, (session_token, user_id))
+
+                # Clean up pending registration
+                cur.execute("DELETE FROM pending_registrations WHERE email = %s;", (email,))
             conn.commit()
 
         user_info = self.get_user_by_id(user_id)
+        logger.info(f"🎉 User {email} successfully registered and verified (ID: {user_id})")
         return {
             "success": True,
             "session_token": session_token,
             "user": user_info
         }
+
+    def resend_registration_code(self, email: str) -> Dict[str, Any]:
+        """Generates and dispatches a fresh 6-digit code for a pending registration."""
+        email = email.strip().lower()
+        from psycopg2 import extras
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("SELECT display_name FROM pending_registrations WHERE email = %s;", (email,))
+                row = cur.fetchone()
+                if not row:
+                    return {"success": False, "error": "No pending registration found for this email."}
+
+                display_name = row["display_name"]
+                new_code = f"{secrets.randbelow(900000) + 100000}"
+                cur.execute("""
+                UPDATE pending_registrations SET
+                    verify_code = %s,
+                    expires_at = NOW() + INTERVAL '15 minutes',
+                    created_at = NOW()
+                WHERE email = %s;
+                """, (new_code, email))
+            conn.commit()
+
+        send_registration_verification_email(email, new_code, display_name)
+        return {"success": True, "message": f"A new verification code has been sent to {email}."}
 
     def login(self, email: str, password: str) -> Dict[str, Any]:
         """Authenticates native user with email and password."""

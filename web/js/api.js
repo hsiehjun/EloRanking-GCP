@@ -58,6 +58,42 @@ window.api = {
     }
   },
 
+  // Native Auth: Verify Registration 2FA Code
+  async verifyRegistrationCode(email, code) {
+    try {
+      const res = await fetch('/api/auth/verify-registration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.detail || data.error || 'Verification failed' };
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
+  // Native Auth: Resend Registration Code
+  async resendRegistrationCode(email) {
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: data.detail || data.error || 'Failed to resend verification code' };
+      }
+      return data;
+    } catch (e) {
+      return { success: false, error: e.message };
+    }
+  },
+
   // Native Auth: Login
   async login(email, password) {
     try {
