@@ -1,18 +1,19 @@
 """Native user accounts, authentication, and Best Coast Pairings account linking module."""
+from __future__ import annotations
 
 import base64
+from datetime import datetime, timezone
 import hashlib
 import json
 import logging
 import os
 import secrets
 import time
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS
