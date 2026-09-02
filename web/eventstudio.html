@@ -158,10 +158,19 @@
               <span id="create-event-loc-badge" style="font-size: 0.72rem; font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);">✓ Verified Location</span>
             </label>
             <div style="position: relative;">
-              <input type="text" id="create-event-city-state" class="form-input" placeholder="Type to search verified city (e.g. San Diego, Austin, London)..." value="San Diego, CA, United States" autocomplete="off" oninput="handleStudioLocationInput(this.value)" onfocus="handleStudioLocationFocus()">
+              <input type="text" id="create-event-city-state" class="form-input" placeholder="Type to search verified city (e.g. San Diego, Austin, London)..." value="San Diego, CA, United States" autocomplete="off" oninput="handleStudioLocationInput(this.value)" onfocus="handleStudioLocationFocus()" onblur="handleStudioLocationBlur()">
               <div id="create-event-loc-spinner" style="display:none; position: absolute; right: 12px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; border: 2px solid #38bdf8; border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+              <div id="create-event-loc-dropdown" style="display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 9999; background: #0b111e; border: 1.5px solid #38bdf8; border-radius: 10px; max-height: 250px; overflow-y: auto; box-shadow: 0 15px 40px rgba(0,0,0,0.85), 0 0 20px rgba(56,189,248,0.25); padding: 6px;"></div>
             </div>
-            <div id="create-event-loc-dropdown" style="display: none; position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1050; background: #0f172a; border: 1px solid #334155; border-radius: 8px; max-height: 220px; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.6); padding: 4px;"></div>
+
+            <!-- 1-Click Quick Match Suggestion Pill -->
+            <div id="create-event-loc-suggestion-bar" style="display: none; margin-top: 6px; font-size: 0.76rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 6px; padding: 6px 10px; color: #cbd5e1; align-items: center; justify-content: space-between;">
+              <span>🎯 Matching verified city: <strong id="create-event-loc-best-match" style="color: #38bdf8;">San Diego, CA, United States</strong></span>
+              <button type="button" onclick="selectBestMatchLocation()" style="background: #38bdf8; color: #020617; font-weight: 800; font-size: 0.72rem; border: none; padding: 3px 8px; border-radius: 4px; cursor: pointer;">
+                ✓ Use This City
+              </button>
+            </div>
+
             <input type="hidden" id="create-event-loc-city" value="San Diego">
             <input type="hidden" id="create-event-loc-state" value="CA">
             <input type="hidden" id="create-event-loc-country" value="United States">
@@ -360,7 +369,7 @@
 
   </div>
 
-  <script src="/js/api.js?v=60.0"></script>
-  <script src="/js/eventstudio.js?v=60.0"></script>
+  <script src="/js/api.js?v=65.0"></script>
+  <script src="/js/eventstudio.js?v=65.0"></script>
 </body>
 </html>

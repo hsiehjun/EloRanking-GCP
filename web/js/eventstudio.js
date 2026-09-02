@@ -1571,34 +1571,85 @@ async function submitLinkCircuitFromModal() {
    ========================================================================== */
 
 let studioLocDebounceTimer = null;
+let studioLocCurrentMatches = [];
 
 const POPULAR_STUDIO_HUBS = [
   { city: "San Diego", state: "CA", country: "United States", lat: 32.7157, lng: -117.1611, label: "San Diego, CA, United States" },
   { city: "Los Angeles", state: "CA", country: "United States", lat: 34.0522, lng: -118.2437, label: "Los Angeles, CA, United States" },
+  { city: "San Francisco", state: "CA", country: "United States", lat: 37.7749, lng: -122.4194, label: "San Francisco, CA, United States" },
+  { city: "San Jose", state: "CA", country: "United States", lat: 37.3382, lng: -121.8863, label: "San Jose, CA, United States" },
+  { city: "Sacramento", state: "CA", country: "United States", lat: 38.5816, lng: -121.4944, label: "Sacramento, CA, United States" },
   { city: "Austin", state: "TX", country: "United States", lat: 30.2672, lng: -97.7431, label: "Austin, TX, United States" },
   { city: "Dallas", state: "TX", country: "United States", lat: 32.7767, lng: -96.7970, label: "Dallas, TX, United States" },
   { city: "Houston", state: "TX", country: "United States", lat: 29.7604, lng: -95.3698, label: "Houston, TX, United States" },
+  { city: "San Antonio", state: "TX", country: "United States", lat: 29.4241, lng: -98.4936, label: "San Antonio, TX, United States" },
+  { city: "Fort Worth", state: "TX", country: "United States", lat: 32.7555, lng: -97.3308, label: "Fort Worth, TX, United States" },
   { city: "Seattle", state: "WA", country: "United States", lat: 47.6062, lng: -122.3321, label: "Seattle, WA, United States" },
+  { city: "Tacoma", state: "WA", country: "United States", lat: 47.2529, lng: -122.4443, label: "Tacoma, WA, United States" },
+  { city: "Portland", state: "OR", country: "United States", lat: 45.5152, lng: -122.6784, label: "Portland, OR, United States" },
   { city: "Chicago", state: "IL", country: "United States", lat: 41.8781, lng: -87.6298, label: "Chicago, IL, United States" },
   { city: "New York", state: "NY", country: "United States", lat: 40.7128, lng: -74.0060, label: "New York, NY, United States" },
+  { city: "Brooklyn", state: "NY", country: "United States", lat: 40.6782, lng: -73.9442, label: "Brooklyn, NY, United States" },
   { city: "Atlanta", state: "GA", country: "United States", lat: 33.7490, lng: -84.3880, label: "Atlanta, GA, United States" },
   { city: "Denver", state: "CO", country: "United States", lat: 39.7392, lng: -104.9903, label: "Denver, CO, United States" },
   { city: "Phoenix", state: "AZ", country: "United States", lat: 33.4484, lng: -112.0740, label: "Phoenix, AZ, United States" },
   { city: "Las Vegas", state: "NV", country: "United States", lat: 36.1699, lng: -115.1398, label: "Las Vegas, NV, United States" },
+  { city: "Salt Lake City", state: "UT", country: "United States", lat: 40.7608, lng: -111.8910, label: "Salt Lake City, UT, United States" },
+  { city: "Orlando", state: "FL", country: "United States", lat: 28.5383, lng: -81.3792, label: "Orlando, FL, United States" },
+  { city: "Tampa", state: "FL", country: "United States", lat: 27.9506, lng: -82.4572, label: "Tampa, FL, United States" },
+  { city: "Miami", state: "FL", country: "United States", lat: 25.7617, lng: -80.1918, label: "Miami, FL, United States" },
+  { city: "Minneapolis", state: "MN", country: "United States", lat: 44.9778, lng: -93.2650, label: "Minneapolis, MN, United States" },
+  { city: "Philadelphia", state: "PA", country: "United States", lat: 39.9526, lng: -75.1652, label: "Philadelphia, PA, United States" },
+  { city: "Boston", state: "MA", country: "United States", lat: 42.3601, lng: -71.0589, label: "Boston, MA, United States" },
+  { city: "Washington", state: "DC", country: "United States", lat: 38.9072, lng: -77.0369, label: "Washington, DC, United States" },
+  { city: "Detroit", state: "MI", country: "United States", lat: 42.3314, lng: -83.0458, label: "Detroit, MI, United States" },
+  { city: "Columbus", state: "OH", country: "United States", lat: 39.9612, lng: -82.9988, label: "Columbus, OH, United States" },
+  { city: "Indianapolis", state: "IN", country: "United States", lat: 39.7684, lng: -86.1581, label: "Indianapolis, IN, United States" },
+  { city: "Nashville", state: "TN", country: "United States", lat: 36.1627, lng: -86.7816, label: "Nashville, TN, United States" },
+  { city: "Charlotte", state: "NC", country: "United States", lat: 35.2271, lng: -80.8431, label: "Charlotte, NC, United States" },
   { city: "London", state: "Greater London", country: "United Kingdom", lat: 51.5074, lng: -0.1278, label: "London, United Kingdom" },
   { city: "Nottingham", state: "Nottinghamshire", country: "United Kingdom", lat: 52.9548, lng: -1.1581, label: "Nottingham, United Kingdom" },
+  { city: "Manchester", state: "Greater Manchester", country: "United Kingdom", lat: 53.4808, lng: -2.2426, label: "Manchester, United Kingdom" },
   { city: "Toronto", state: "ON", country: "Canada", lat: 43.6532, lng: -79.3832, label: "Toronto, ON, Canada" },
   { city: "Vancouver", state: "BC", country: "Canada", lat: 49.2827, lng: -123.1207, label: "Vancouver, BC, Canada" },
+  { city: "Montreal", state: "QC", country: "Canada", lat: 45.5017, lng: -73.5673, label: "Montreal, QC, Canada" },
   { city: "Sydney", state: "NSW", country: "Australia", lat: -33.8688, lng: 151.2093, label: "Sydney, NSW, Australia" },
-  { city: "Melbourne", state: "VIC", country: "Australia", lat: -37.8136, lng: 144.9631, label: "Melbourne, VIC, Australia" }
+  { city: "Melbourne", state: "VIC", country: "Australia", lat: -37.8136, lng: 144.9631, label: "Melbourne, VIC, Australia" },
+  { city: "Paris", state: "Île-de-France", country: "France", lat: 48.8566, lng: 2.3522, label: "Paris, France" },
+  { city: "Berlin", state: "Berlin", country: "Germany", lat: 52.5200, lng: 13.4050, label: "Berlin, Germany" }
 ];
 
+function findLocalHubMatch(text) {
+  if (!text) return null;
+  const clean = text.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!clean) return null;
+  
+  // Exact city match
+  for (const hub of POPULAR_STUDIO_HUBS) {
+    const hubClean = hub.city.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (clean === hubClean) return hub;
+  }
+  // Check if query starts with city or city starts with query
+  for (const hub of POPULAR_STUDIO_HUBS) {
+    const hubClean = hub.city.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (clean.startsWith(hubClean) || hubClean.startsWith(clean)) return hub;
+  }
+  // Check includes
+  for (const hub of POPULAR_STUDIO_HUBS) {
+    const hubLabelClean = hub.label.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (hubLabelClean.includes(clean)) return hub;
+  }
+  return null;
+}
+
 function handleStudioLocationFocus() {
-  const dropdown = document.getElementById("create-event-loc-dropdown");
   const input = document.getElementById("create-event-city-state");
-  if (!dropdown || !input) return;
-  if (!input.value.trim() || input.value.trim() === "San Diego, CA, United States") {
-    renderStudioLocationDropdown(POPULAR_STUDIO_HUBS.slice(0, 6));
+  if (!input) return;
+  const query = (input.value || "").trim();
+  if (!query || query === "San Diego, CA, United States") {
+    renderStudioLocationDropdown(POPULAR_STUDIO_HUBS.slice(0, 8));
+  } else {
+    handleStudioLocationInput(query);
   }
 }
 
@@ -1607,74 +1658,124 @@ function handleStudioLocationInput(val) {
   const verifiedFlag = document.getElementById("create-event-loc-verified");
   const spinner = document.getElementById("create-event-loc-spinner");
   const dropdown = document.getElementById("create-event-loc-dropdown");
-
-  if (verifiedFlag) verifiedFlag.value = "false";
-  if (badge) {
-    badge.style.background = "rgba(239, 68, 68, 0.15)";
-    badge.style.color = "#ef4444";
-    badge.style.borderColor = "rgba(239, 68, 68, 0.3)";
-    badge.textContent = "⚠️ Unverified City";
-  }
+  const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
+  const bestMatchLabel = document.getElementById("create-event-loc-best-match");
 
   const query = (val || "").trim();
+  const qLower = query.toLowerCase();
+
+  // Instant local lookup
+  const localMatches = POPULAR_STUDIO_HUBS.filter(h => 
+    h.city.toLowerCase().includes(qLower) || 
+    h.label.toLowerCase().includes(qLower)
+  );
+  studioLocCurrentMatches = localMatches;
+
+  // Check if there is an exact or very close match
+  const directMatch = findLocalHubMatch(query);
+  if (directMatch) {
+    if (bestMatchLabel) bestMatchLabel.textContent = directMatch.label;
+    if (suggestionBar) suggestionBar.style.display = "flex";
+  } else {
+    if (suggestionBar) suggestionBar.style.display = "none";
+  }
+
+  // If query is an exact match for a known city (e.g. user typed "San DIego" or "san diego"):
+  if (directMatch && (directMatch.city.toLowerCase() === qLower || directMatch.label.toLowerCase() === qLower)) {
+    if (verifiedFlag) verifiedFlag.value = "true";
+    const elCity = document.getElementById("create-event-loc-city");
+    const elState = document.getElementById("create-event-loc-state");
+    const elCountry = document.getElementById("create-event-loc-country");
+    const elLat = document.getElementById("create-event-loc-lat");
+    const elLng = document.getElementById("create-event-loc-lng");
+    if (elCity) elCity.value = directMatch.city;
+    if (elState) elState.value = directMatch.state || "";
+    if (elCountry) elCountry.value = directMatch.country || "United States";
+    if (elLat) elLat.value = directMatch.lat;
+    if (elLng) elLng.value = directMatch.lng;
+    if (badge) {
+      badge.style.background = "rgba(16,185,129,0.15)";
+      badge.style.color = "#10b981";
+      badge.style.borderColor = "rgba(16,185,129,0.3)";
+      badge.textContent = "✓ Verified Location";
+    }
+  } else {
+    if (verifiedFlag) verifiedFlag.value = "false";
+    if (badge) {
+      badge.style.background = "rgba(239, 68, 68, 0.15)";
+      badge.style.color = "#ef4444";
+      badge.style.borderColor = "rgba(239, 68, 68, 0.3)";
+      badge.textContent = "⚠️ Select from Dropdown";
+    }
+  }
+
   if (!query || query.length < 2) {
     if (dropdown) dropdown.style.display = "none";
     if (spinner) spinner.style.display = "none";
     return;
   }
 
+  // Render local matches right away with zero network latency
+  if (localMatches.length > 0) {
+    renderStudioLocationDropdown(localMatches);
+  }
+
   clearTimeout(studioLocDebounceTimer);
   studioLocDebounceTimer = setTimeout(async () => {
     if (spinner) spinner.style.display = "block";
 
-    // Check local popular hubs first
-    const qLower = query.toLowerCase();
-    const localMatches = POPULAR_STUDIO_HUBS.filter(h => 
-      h.city.toLowerCase().includes(qLower) || 
-      h.label.toLowerCase().includes(qLower)
-    );
-
     let remoteMatches = [];
     try {
-      const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6&osm_tag=place:city&osm_tag=place:town`;
-      const resp = await fetch(photonUrl, { headers: { "Accept": "application/json" } });
-      if (resp.ok) {
-        const data = await resp.json();
-        if (data && data.features) {
-          remoteMatches = data.features.map(f => {
-            const p = f.properties || {};
-            const city = p.name || p.city || p.town || "";
-            const state = p.state || p.county || "";
-            const country = p.country || "";
-            const coords = (f.geometry && f.geometry.coordinates) || [0, 0];
-            const parts = [city, state, country].filter(Boolean);
-            return {
-              city: city,
-              state: state,
-              country: country,
-              lat: coords[1],
-              lng: coords[0],
-              label: parts.join(", ")
-            };
-          }).filter(m => m.city);
+      // 1. Try our internal server endpoint first
+      const serverResp = await fetch(`/api/eventstudio/locations/search?q=${encodeURIComponent(query)}`);
+      if (serverResp.ok) {
+        const data = await serverResp.json();
+        if (data && data.results && data.results.length > 0) {
+          remoteMatches = data.results;
         }
       }
     } catch (e) {
-      console.debug("Photon geocode fallback:", e);
+      // 2. Fallback to client-side photon if server route is unreachable
+      try {
+        const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=6&osm_tag=place:city&osm_tag=place:town`;
+        const resp = await fetch(photonUrl, { headers: { "Accept": "application/json" } });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data && data.features) {
+            remoteMatches = data.features.map(f => {
+              const p = f.properties || {};
+              const city = p.name || p.city || p.town || "";
+              const state = p.state || p.county || "";
+              const country = p.country || "";
+              const coords = (f.geometry && f.geometry.coordinates) || [0, 0];
+              const parts = [city, state, country].filter(Boolean);
+              return {
+                city: city,
+                state: state,
+                country: country || "United States",
+                lat: coords[1],
+                lng: coords[0],
+                label: parts.join(", ")
+              };
+            }).filter(m => m.city);
+          }
+        }
+      } catch (e2) {}
     }
 
     // Combine and deduplicate
     const seen = new Set();
     const combined = [];
     for (const m of [...localMatches, ...remoteMatches]) {
-      const key = `${m.city.toLowerCase()}_${m.state.toLowerCase()}_${m.country.toLowerCase()}`;
+      const key = `${m.city.toLowerCase()}_${(m.state || "").toLowerCase()}_${(m.country || "").toLowerCase()}`;
       if (!seen.has(key)) {
         seen.add(key);
         combined.push(m);
       }
-      if (combined.length >= 6) break;
+      if (combined.length >= 8) break;
     }
 
+    studioLocCurrentMatches = combined;
     if (spinner) spinner.style.display = "none";
     renderStudioLocationDropdown(combined);
   }, 200);
@@ -1685,21 +1786,27 @@ function renderStudioLocationDropdown(items) {
   if (!dropdown) return;
 
   if (!items || items.length === 0) {
-    dropdown.innerHTML = `<div style="padding: 10px 12px; font-size: 0.78rem; color: #94a3b8; text-align: center;">No matching cities found. Try typing another city name.</div>`;
+    dropdown.innerHTML = `<div style="padding: 12px; font-size: 0.82rem; color: #94a3b8; text-align: center;">No matching cities found. Try typing another city or state name.</div>`;
     dropdown.style.display = "block";
     return;
   }
 
-  let html = `<div style="padding: 4px 8px 6px; font-size: 0.7rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.06);">Select Verified City:</div>`;
+  let html = `<div style="padding: 6px 10px 6px; font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid rgba(255,255,255,0.08); display:flex; justify-content:space-between; align-items:center;">
+    <span>Verified Tournament Hubs</span>
+    <span style="color:#38bdf8; font-size:0.7rem;">Click to select</span>
+  </div>`;
   items.forEach(item => {
     const itemJson = JSON.stringify(item).replace(/"/g, '&quot;');
+    const subText = [item.state, item.country].filter(Boolean).join(", ");
     html += `
-      <div class="es-loc-item" onclick="selectStudioVerifiedLocation(${itemJson})" style="padding: 8px 10px; cursor: pointer; border-radius: 6px; transition: background 0.15s; display: flex; align-items: center; justify-content: space-between;" onmouseover="this.style.background='rgba(56,189,248,0.1)'" onmouseout="this.style.background='transparent'">
-        <div>
-          <div style="font-size: 0.85rem; font-weight: 600; color: #f8fafc;">📍 ${escapeHtml(item.city)}</div>
-          <div style="font-size: 0.73rem; color: #94a3b8;">${escapeHtml([item.state, item.country].filter(Boolean).join(", "))}</div>
+      <div class="es-loc-item" onclick="selectStudioVerifiedLocation(${itemJson})" style="padding: 9px 12px; cursor: pointer; border-radius: 6px; margin-top: 2px; transition: background 0.15s; display: flex; align-items: center; justify-content: space-between; gap: 10px;" onmouseover="this.style.background='rgba(56,189,248,0.15)'" onmouseout="this.style.background='transparent'">
+        <div style="flex: 1; min-width: 0;">
+          <div style="font-size: 0.88rem; font-weight: 700; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">📍 ${escapeHtml(item.city)}</div>
+          <div style="font-size: 0.74rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(subText)}</div>
         </div>
-        <span style="font-size: 0.7rem; color: #38bdf8; font-family: monospace;">[${Number(item.lat).toFixed(2)}, ${Number(item.lng).toFixed(2)}]</span>
+        <button type="button" style="background: rgba(56,189,248,0.2); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-size: 0.72rem; font-weight: 700; padding: 4px 10px; border-radius: 6px; pointer-events: none; white-space: nowrap;">
+          Select
+        </button>
       </div>
     `;
   });
@@ -1712,6 +1819,7 @@ function selectStudioVerifiedLocation(item) {
   const input = document.getElementById("create-event-city-state");
   const badge = document.getElementById("create-event-loc-badge");
   const dropdown = document.getElementById("create-event-loc-dropdown");
+  const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
 
   const elCity = document.getElementById("create-event-loc-city");
   const elState = document.getElementById("create-event-loc-state");
@@ -1722,7 +1830,7 @@ function selectStudioVerifiedLocation(item) {
 
   if (input) input.value = item.label;
   if (elCity) elCity.value = item.city;
-  if (elState) elState.value = item.state;
+  if (elState) elState.value = item.state || "";
   if (elCountry) elCountry.value = item.country || "United States";
   if (elLat) elLat.value = item.lat;
   if (elLng) elLng.value = item.lng;
@@ -1736,17 +1844,49 @@ function selectStudioVerifiedLocation(item) {
   }
 
   if (dropdown) dropdown.style.display = "none";
+  if (suggestionBar) suggestionBar.style.display = "none";
+}
+
+function selectBestMatchLocation() {
+  const input = document.getElementById("create-event-city-state");
+  const query = input ? input.value : "";
+  const match = findLocalHubMatch(query) || (studioLocCurrentMatches && studioLocCurrentMatches[0]);
+  if (match) {
+    selectStudioVerifiedLocation(match);
+  }
+}
+
+function handleStudioLocationBlur() {
+  // Give click events on dropdown 250ms to fire first
+  setTimeout(() => {
+    const verifiedFlag = document.getElementById("create-event-loc-verified");
+    if (!verifiedFlag || verifiedFlag.value !== "true") {
+      const input = document.getElementById("create-event-city-state");
+      if (input && input.value.trim()) {
+        const match = findLocalHubMatch(input.value.trim());
+        if (match) {
+          selectStudioVerifiedLocation(match);
+        }
+      }
+    }
+  }, 250);
 }
 
 window.handleStudioLocationInput = handleStudioLocationInput;
 window.handleStudioLocationFocus = handleStudioLocationFocus;
+window.handleStudioLocationBlur = handleStudioLocationBlur;
 window.selectStudioVerifiedLocation = selectStudioVerifiedLocation;
+window.selectBestMatchLocation = selectBestMatchLocation;
 
 // Close dropdown on click outside
 document.addEventListener("click", (e) => {
   const dropdown = document.getElementById("create-event-loc-dropdown");
   const input = document.getElementById("create-event-city-state");
+  const suggestionBar = document.getElementById("create-event-loc-suggestion-bar");
   if (dropdown && input && !dropdown.contains(e.target) && e.target !== input) {
     dropdown.style.display = "none";
+  }
+  if (suggestionBar && !suggestionBar.contains(e.target) && e.target !== input) {
+    // Keep suggestion bar visible if still unverified
   }
 });

@@ -748,6 +748,115 @@ if FASTAPI_AVAILABLE:
             "bcp_updated": bcp_updated
         }
 
+    VERIFIED_TOURNAMENT_CITIES = [
+        {"city": "San Diego", "state": "CA", "country": "United States", "lat": 32.7157, "lng": -117.1611, "label": "San Diego, CA, United States"},
+        {"city": "Los Angeles", "state": "CA", "country": "United States", "lat": 34.0522, "lng": -118.2437, "label": "Los Angeles, CA, United States"},
+        {"city": "San Francisco", "state": "CA", "country": "United States", "lat": 37.7749, "lng": -122.4194, "label": "San Francisco, CA, United States"},
+        {"city": "San Jose", "state": "CA", "country": "United States", "lat": 37.3382, "lng": -121.8863, "label": "San Jose, CA, United States"},
+        {"city": "Sacramento", "state": "CA", "country": "United States", "lat": 38.5816, "lng": -121.4944, "label": "Sacramento, CA, United States"},
+        {"city": "Austin", "state": "TX", "country": "United States", "lat": 30.2672, "lng": -97.7431, "label": "Austin, TX, United States"},
+        {"city": "Dallas", "state": "TX", "country": "United States", "lat": 32.7767, "lng": -96.7970, "label": "Dallas, TX, United States"},
+        {"city": "Houston", "state": "TX", "country": "United States", "lat": 29.7604, "lng": -95.3698, "label": "Houston, TX, United States"},
+        {"city": "San Antonio", "state": "TX", "country": "United States", "lat": 29.4241, "lng": -98.4936, "label": "San Antonio, TX, United States"},
+        {"city": "Fort Worth", "state": "TX", "country": "United States", "lat": 32.7555, "lng": -97.3308, "label": "Fort Worth, TX, United States"},
+        {"city": "Seattle", "state": "WA", "country": "United States", "lat": 47.6062, "lng": -122.3321, "label": "Seattle, WA, United States"},
+        {"city": "Tacoma", "state": "WA", "country": "United States", "lat": 47.2529, "lng": -122.4443, "label": "Tacoma, WA, United States"},
+        {"city": "Portland", "state": "OR", "country": "United States", "lat": 45.5152, "lng": -122.6784, "label": "Portland, OR, United States"},
+        {"city": "Chicago", "state": "IL", "country": "United States", "lat": 41.8781, "lng": -87.6298, "label": "Chicago, IL, United States"},
+        {"city": "New York", "state": "NY", "country": "United States", "lat": 40.7128, "lng": -74.0060, "label": "New York, NY, United States"},
+        {"city": "Brooklyn", "state": "NY", "country": "United States", "lat": 40.6782, "lng": -73.9442, "label": "Brooklyn, NY, United States"},
+        {"city": "Buffalo", "state": "NY", "country": "United States", "lat": 42.8864, "lng": -78.8784, "label": "Buffalo, NY, United States"},
+        {"city": "Atlanta", "state": "GA", "country": "United States", "lat": 33.7490, "lng": -84.3880, "label": "Atlanta, GA, United States"},
+        {"city": "Denver", "state": "CO", "country": "United States", "lat": 39.7392, "lng": -104.9903, "label": "Denver, CO, United States"},
+        {"city": "Colorado Springs", "state": "CO", "country": "United States", "lat": 38.8339, "lng": -104.8214, "label": "Colorado Springs, CO, United States"},
+        {"city": "Phoenix", "state": "AZ", "country": "United States", "lat": 33.4484, "lng": -112.0740, "label": "Phoenix, AZ, United States"},
+        {"city": "Tucson", "state": "AZ", "country": "United States", "lat": 32.2226, "lng": -110.9747, "label": "Tucson, AZ, United States"},
+        {"city": "Las Vegas", "state": "NV", "country": "United States", "lat": 36.1699, "lng": -115.1398, "label": "Las Vegas, NV, United States"},
+        {"city": "Reno", "state": "NV", "country": "United States", "lat": 39.5296, "lng": -119.8138, "label": "Reno, NV, United States"},
+        {"city": "Salt Lake City", "state": "UT", "country": "United States", "lat": 40.7608, "lng": -111.8910, "label": "Salt Lake City, UT, United States"},
+        {"city": "Orlando", "state": "FL", "country": "United States", "lat": 28.5383, "lng": -81.3792, "label": "Orlando, FL, United States"},
+        {"city": "Tampa", "state": "FL", "country": "United States", "lat": 27.9506, "lng": -82.4572, "label": "Tampa, FL, United States"},
+        {"city": "Miami", "state": "FL", "country": "United States", "lat": 25.7617, "lng": -80.1918, "label": "Miami, FL, United States"},
+        {"city": "Jacksonville", "state": "FL", "country": "United States", "lat": 30.3322, "lng": -81.6557, "label": "Jacksonville, FL, United States"},
+        {"city": "Minneapolis", "state": "MN", "country": "United States", "lat": 44.9778, "lng": -93.2650, "label": "Minneapolis, MN, United States"},
+        {"city": "Philadelphia", "state": "PA", "country": "United States", "lat": 39.9526, "lng": -75.1652, "label": "Philadelphia, PA, United States"},
+        {"city": "Pittsburgh", "state": "PA", "country": "United States", "lat": 40.4406, "lng": -79.9959, "label": "Pittsburgh, PA, United States"},
+        {"city": "Boston", "state": "MA", "country": "United States", "lat": 42.3601, "lng": -71.0589, "label": "Boston, MA, United States"},
+        {"city": "Baltimore", "state": "MD", "country": "United States", "lat": 39.2904, "lng": -76.6122, "label": "Baltimore, MD, United States"},
+        {"city": "Washington", "state": "DC", "country": "United States", "lat": 38.9072, "lng": -77.0369, "label": "Washington, DC, United States"},
+        {"city": "Detroit", "state": "MI", "country": "United States", "lat": 42.3314, "lng": -83.0458, "label": "Detroit, MI, United States"},
+        {"city": "Columbus", "state": "OH", "country": "United States", "lat": 39.9612, "lng": -82.9988, "label": "Columbus, OH, United States"},
+        {"city": "Cleveland", "state": "OH", "country": "United States", "lat": 41.4993, "lng": -81.6944, "label": "Cleveland, OH, United States"},
+        {"city": "Cincinnati", "state": "OH", "country": "United States", "lat": 39.1031, "lng": -84.5120, "label": "Cincinnati, OH, United States"},
+        {"city": "Indianapolis", "state": "IN", "country": "United States", "lat": 39.7684, "lng": -86.1581, "label": "Indianapolis, IN, United States"},
+        {"city": "Kansas City", "state": "MO", "country": "United States", "lat": 39.0997, "lng": -94.5786, "label": "Kansas City, MO, United States"},
+        {"city": "St. Louis", "state": "MO", "country": "United States", "lat": 38.6270, "lng": -90.1994, "label": "St. Louis, MO, United States"},
+        {"city": "Nashville", "state": "TN", "country": "United States", "lat": 36.1627, "lng": -86.7816, "label": "Nashville, TN, United States"},
+        {"city": "Memphis", "state": "TN", "country": "United States", "lat": 35.1495, "lng": -90.0490, "label": "Memphis, TN, United States"},
+        {"city": "Charlotte", "state": "NC", "country": "United States", "lat": 35.2271, "lng": -80.8431, "label": "Charlotte, NC, United States"},
+        {"city": "Raleigh", "state": "NC", "country": "United States", "lat": 35.7796, "lng": -78.6382, "label": "Raleigh, NC, United States"},
+        {"city": "New Orleans", "state": "LA", "country": "United States", "lat": 29.9511, "lng": -90.0715, "label": "New Orleans, LA, United States"},
+        {"city": "Milwaukee", "state": "WI", "country": "United States", "lat": 43.0389, "lng": -87.9065, "label": "Milwaukee, WI, United States"},
+        {"city": "London", "state": "Greater London", "country": "United Kingdom", "lat": 51.5074, "lng": -0.1278, "label": "London, United Kingdom"},
+        {"city": "Nottingham", "state": "Nottinghamshire", "country": "United Kingdom", "lat": 52.9548, "lng": -1.1581, "label": "Nottingham, United Kingdom"},
+        {"city": "Manchester", "state": "Greater Manchester", "country": "United Kingdom", "lat": 53.4808, "lng": -2.2426, "label": "Manchester, United Kingdom"},
+        {"city": "Birmingham", "state": "West Midlands", "country": "United Kingdom", "lat": 52.4862, "lng": -1.8904, "label": "Birmingham, United Kingdom"},
+        {"city": "Toronto", "state": "ON", "country": "Canada", "lat": 43.6532, "lng": -79.3832, "label": "Toronto, ON, Canada"},
+        {"city": "Vancouver", "state": "BC", "country": "Canada", "lat": 49.2827, "lng": -123.1207, "label": "Vancouver, BC, Canada"},
+        {"city": "Montreal", "state": "QC", "country": "Canada", "lat": 45.5017, "lng": -73.5673, "label": "Montreal, QC, Canada"},
+        {"city": "Calgary", "state": "AB", "country": "Canada", "lat": 51.0447, "lng": -114.0719, "label": "Calgary, AB, Canada"},
+        {"city": "Sydney", "state": "NSW", "country": "Australia", "lat": -33.8688, "lng": 151.2093, "label": "Sydney, NSW, Australia"},
+        {"city": "Melbourne", "state": "VIC", "country": "Australia", "lat": -37.8136, "lng": 144.9631, "label": "Melbourne, VIC, Australia"},
+        {"city": "Paris", "state": "Île-de-France", "country": "France", "lat": 48.8566, "lng": 2.3522, "label": "Paris, France"},
+        {"city": "Berlin", "state": "Berlin", "country": "Germany", "lat": 52.5200, "lng": 13.4050, "label": "Berlin, Germany"},
+        {"city": "Madrid", "state": "Community of Madrid", "country": "Spain", "lat": 40.4168, "lng": -3.7038, "label": "Madrid, Spain"},
+        {"city": "Rome", "state": "Lazio", "country": "Italy", "lat": 41.9028, "lng": 12.4964, "label": "Rome, Italy"}
+    ]
+
+    @app.get("/api/eventstudio/locations/search", summary="Search verified cities for event creation")
+    async def api_eventstudio_search_locations(q: str = Query("")):
+        query = q.strip().lower()
+        if not query or len(query) < 2:
+            return {"results": VERIFIED_TOURNAMENT_CITIES[:8]}
+        
+        matches = [
+            c for c in VERIFIED_TOURNAMENT_CITIES
+            if query in c["city"].lower() or query in c["label"].lower()
+        ]
+        
+        # If fewer than 5 local matches, try geocoding API fallback
+        if len(matches) < 5:
+            try:
+                import urllib.request, json
+                url = f"https://photon.komoot.io/api/?q={urllib.parse.quote(q)}&limit=6&osm_tag=place:city&osm_tag=place:town"
+                req = urllib.request.Request(url, headers={"User-Agent": "OmniTactica/1.0"})
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    data = json.loads(resp.read().decode())
+                    for f in data.get("features", []):
+                        p = f.get("properties", {})
+                        city = p.get("name") or p.get("city") or p.get("town")
+                        if not city:
+                            continue
+                        state = p.get("state") or p.get("county") or ""
+                        country = p.get("country") or ""
+                        coords = f.get("geometry", {}).get("coordinates", [0, 0])
+                        parts = [city, state, country] if state else [city, country]
+                        label = ", ".join([x for x in parts if x])
+                        key = f"{city.lower()}_{state.lower()}_{country.lower()}"
+                        if not any(f"{m['city'].lower()}_{m['state'].lower()}_{m['country'].lower()}" == key for m in matches):
+                            matches.append({
+                                "city": city,
+                                "state": state,
+                                "country": country or "United States",
+                                "lat": coords[1],
+                                "lng": coords[0],
+                                "label": label
+                            })
+            except Exception as e:
+                pass
+
+        return {"results": matches[:10]}
+
     @app.get("/api/eventstudio/circuits", summary="Get available Warhammer 40k circuits from BCP")
     async def api_eventstudio_get_circuits(request: Request):
         try:
