@@ -748,6 +748,61 @@ window.handleSignOutAllDevices = handleSignOutAllDevices;
 // 24-HOUR PLAYER INVITATION PASS
 // =========================================================================
 
+let inviteCountdownTimer = null;
+
+function startInviteCountdown(expiresAtIso, fallbackSecs = 86400) {
+  if (inviteCountdownTimer) {
+    clearInterval(inviteCountdownTimer);
+    inviteCountdownTimer = null;
+  }
+
+  let targetMs = 0;
+  if (expiresAtIso) {
+    targetMs = new Date(expiresAtIso).getTime();
+  }
+  if (!targetMs || isNaN(targetMs)) {
+    targetMs = Date.now() + (fallbackSecs * 1000);
+  }
+
+  function tick() {
+    const timeEl = document.getElementById('invite-time-remaining');
+    if (!timeEl) return;
+
+    const remainingMs = targetMs - Date.now();
+    const diffSecs = Math.max(0, Math.floor(remainingMs / 1000));
+
+    if (diffSecs <= 0) {
+      timeEl.textContent = '⚠️ Pass Expired — Click "Refresh Code" for a new pass';
+      timeEl.style.color = '#ef4444';
+      if (inviteCountdownTimer) {
+        clearInterval(inviteCountdownTimer);
+        inviteCountdownTimer = null;
+      }
+      return;
+    }
+
+    const hrs = Math.floor(diffSecs / 3600);
+    const mins = Math.floor((diffSecs % 3600) / 60);
+    const secs = diffSecs % 60;
+    const secStr = secs < 10 ? `0${secs}` : `${secs}`;
+
+    if (hrs > 0) {
+      timeEl.textContent = `⏳ Expires in ${hrs}h ${mins}m ${secStr}s`;
+    } else {
+      timeEl.textContent = `⏳ Expires in ${mins}m ${secStr}s`;
+    }
+
+    if (hrs < 1) {
+      timeEl.style.color = '#f59e0b';
+    } else {
+      timeEl.style.color = '#38bdf8';
+    }
+  }
+
+  tick();
+  inviteCountdownTimer = setInterval(tick, 1000);
+}
+
 async function openInviteModal() {
   const modal = document.getElementById('invite-players-modal');
   if (!modal) return;
@@ -756,6 +811,10 @@ async function openInviteModal() {
 }
 
 function closeInviteModal() {
+  if (inviteCountdownTimer) {
+    clearInterval(inviteCountdownTimer);
+    inviteCountdownTimer = null;
+  }
   const modal = document.getElementById('invite-players-modal');
   if (modal) modal.style.display = 'none';
 }
@@ -767,6 +826,11 @@ async function refreshUserInviteCode(forceNew = false) {
   const timeEl = document.getElementById('invite-time-remaining');
   const countEl = document.getElementById('invite-usage-count');
   const linkEl = document.getElementById('invite-direct-link');
+
+  if (inviteCountdownTimer) {
+    clearInterval(inviteCountdownTimer);
+    inviteCountdownTimer = null;
+  }
 
   if (loading) {
     loading.textContent = forceNew ? 'Generating fresh 24-hour pass...' : 'Retrieving your 24-hour invite pass...';
@@ -780,12 +844,8 @@ async function refreshUserInviteCode(forceNew = false) {
     if (res && res.success) {
       if (codeEl) codeEl.textContent = res.code;
       
-      const secs = res.remaining_seconds || 86400;
-      const hrs = Math.floor(secs / 3600);
-      const mins = Math.floor((secs % 3600) / 60);
-      if (timeEl) {
-        timeEl.textContent = `⏳ Expires in ${hrs}h ${mins}m`;
-      }
+      startInviteCountdown(res.expires_at, res.remaining_seconds);
+
       if (countEl) {
         countEl.textContent = `${res.use_count || 0} players`;
       }
