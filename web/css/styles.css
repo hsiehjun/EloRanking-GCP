@@ -2513,3 +2513,129 @@ input, select, textarea {
   color: #64748b;
   background: #06080e;
 }
+
+/* ==========================================================================
+   MOBILE-FRIENDLY RESPONSIVENESS: LANDING PAGE
+   ========================================================================== */
+#landing-page-view {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+.btn-text-short {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .landing-nav-inner {
+    padding: 0.75rem 1rem;
+    gap: 0.5rem;
+  }
+  .landing-nav-inner .logo-subtitle {
+    display: none;
+  }
+  .landing-hero {
+    padding: 2.25rem 1rem 1.75rem;
+    gap: 2rem;
+  }
+  .landing-title {
+    font-size: clamp(1.85rem, 6.5vw, 2.4rem);
+    line-height: 1.2;
+    margin-bottom: 0.85rem;
+  }
+  .landing-subtitle {
+    font-size: 0.95rem;
+    line-height: 1.55;
+    margin-bottom: 1.5rem;
+  }
+  .landing-stats-bar {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+  }
+  .landing-stat-val {
+    font-size: 1.35rem;
+  }
+  .landing-stat-lbl {
+    font-size: 0.7rem;
+  }
+  .landing-hero-right {
+    width: 100%;
+  }
+  .landing-features-sec {
+    margin: 2.5rem auto;
+    padding: 0 1rem;
+  }
+  .landing-sec-title {
+    font-size: 1.65rem;
+  }
+  .landing-sec-sub {
+    font-size: 0.88rem;
+  }
+  .landing-grid-4 {
+    grid-template-columns: 1fr;
+    gap: 1.2rem;
+  }
+  .landing-feat-card {
+    padding: 1.25rem;
+  }
+  .landing-feat-title {
+    font-size: 1.1rem;
+  }
+  .landing-footer {
+    padding: 2rem 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .landing-nav-inner {
+    padding: 0.55rem 0.75rem;
+  }
+  .landing-nav-inner .logo-group img {
+    width: 32px !important;
+    height: 32px !important;
+  }
+  .landing-nav-inner .logo-title {
+    font-size: 1.05rem;
+  }
+  .landing-btn-signin {
+    padding: 5px 9px !important;
+    font-size: 0.76rem !important;
+  }
+  .landing-btn-register {
+    padding: 5px 10px !important;
+    font-size: 0.76rem !important;
+  }
+  .btn-text-full {
+    display: none;
+  }
+  .btn-text-short {
+    display: inline;
+  }
+  .landing-hero {
+    padding: 1.5rem 0.85rem 1.25rem;
+    gap: 1.5rem;
+  }
+  .landing-title {
+    font-size: 1.65rem;
+    line-height: 1.2;
+  }
+  .landing-subtitle {
+    font-size: 0.88rem;
+  }
+  .landing-hero-right > div {
+    padding: 0.85rem !important;
+    border-radius: 14px !important;
+  }
+  .landing-stats-bar {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+  .landing-stat-val {
+    font-size: 1.25rem;
+  }
+  .landing-stat-lbl {
+    font-size: 0.68rem;
+  }
+}

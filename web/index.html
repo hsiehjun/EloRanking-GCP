@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=65.0">
+  <link rel="stylesheet" href="/css/styles.css?v=66.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
 
   <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
@@ -74,12 +74,13 @@
           <a href="#predictor" class="landing-nav-link">Match Predictor</a>
         </div>
 
-        <div style="display:flex; align-items:center; gap:0.65rem;">
-          <a href="/login?redirect=/" class="nav-btn" style="padding: 6px 14px; font-size: 0.82rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(15,23,42,0.6); cursor: pointer; text-decoration: none;">
+        <div class="landing-nav-actions" style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+          <a href="/login?redirect=/" class="nav-btn landing-btn-signin" style="padding: 6px 14px; font-size: 0.82rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(15,23,42,0.6); cursor: pointer; text-decoration: none; white-space: nowrap;">
             Sign In
           </a>
-          <a href="/login?mode=register&redirect=/" class="auth-submit-btn" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800; text-decoration: none;">
-            ⚡ Create Account
+          <a href="/login?mode=register&redirect=/" class="auth-submit-btn landing-btn-register" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800; text-decoration: none; white-space: nowrap;">
+            <span class="btn-text-full">⚡ Create Account</span>
+            <span class="btn-text-short">⚡ Join</span>
           </a>
         </div>
       </div>
