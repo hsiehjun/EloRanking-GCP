@@ -182,6 +182,42 @@ window.api = {
     return { success: true };
   },
 
+  // Sign out of all devices (or all other devices)
+  async logoutAll(keepCurrent = false) {
+    const token = this.getAuthToken();
+    if (!token) return { success: false, error: 'Authentication required' };
+    const res = await this._fetchJson(`/api/auth/logout-all?keep_current=${keepCurrent}&token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!keepCurrent) {
+      localStorage.removeItem('native_session_token');
+      localStorage.removeItem('native_user_profile');
+      localStorage.removeItem('bcp_session_token');
+      localStorage.removeItem('bcp_user_profile');
+    }
+    return res;
+  },
+
+  // Get active sessions
+  async getActiveSessions() {
+    const token = this.getAuthToken();
+    if (!token) return { success: false, sessions: [] };
+    return this._fetchJson(`/api/auth/sessions?token=${encodeURIComponent(token)}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
+  // Revoke specific session
+  async revokeSession(targetToken) {
+    const token = this.getAuthToken();
+    if (!token) return { success: false, error: 'Authentication required' };
+    return this._fetchJson(`/api/auth/sessions/${encodeURIComponent(targetToken)}?token=${encodeURIComponent(token)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+  },
+
   // Update User Settings
   async updateUserSettings(displayName = null, oldPassword = null, newPassword = null) {
     const token = this.getAuthToken();

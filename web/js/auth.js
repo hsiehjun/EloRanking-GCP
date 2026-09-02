@@ -480,6 +480,7 @@ function openUserSettingsModal() {
     }
   }
 
+  loadActiveSessionsList();
   modal.classList.add('active');
 }
 
@@ -625,6 +626,105 @@ async function handleForgotPasswordSubmit() {
   }
 }
 
+function formatSessionTime(isoStr) {
+  if (!isoStr) return 'Recently';
+  try {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffSec = Math.floor((now - d) / 1000);
+    if (diffSec < 60) return 'Just now';
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+    return `${Math.floor(diffSec / 86400)}d ago`;
+  } catch(e) {
+    return 'Recently';
+  }
+}
+
+async function loadActiveSessionsList() {
+  const container = document.getElementById('settings-sessions-list');
+  if (!container) return;
+  container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); padding:4px;">Loading active sessions...</div>';
+
+  try {
+    const res = await window.api.getActiveSessions();
+    if (!res || !res.sessions || res.sessions.length === 0) {
+      container.innerHTML = '<div style="font-size:0.75rem; color:var(--text-muted); padding:4px;">No other active sessions.</div>';
+      return;
+    }
+
+    let html = '';
+    res.sessions.forEach(s => {
+      const isCurrent = s.is_current;
+      const devName = s.device_name || 'Unknown Device';
+      const lastActive = formatSessionTime(s.last_active_at);
+      const ip = s.ip_address || 'Unknown IP';
+
+      html += `
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:7px 10px; background:rgba(255,255,255,0.03); border:1px solid ${isCurrent ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.08)'}; border-radius:6px;">
+          <div>
+            <div style="font-size:0.8rem; font-weight:700; color:#fff; display:flex; align-items:center; gap:6px;">
+              <span>${escapeHtml(devName)}</span>
+              ${isCurrent ? '<span style="font-size:0.68rem; color:#10b981; background:rgba(16,185,129,0.15); border:1px solid rgba(16,185,129,0.3); padding:1px 5px; border-radius:4px;">🟢 This Device</span>' : ''}
+            </div>
+            <div style="font-size:0.7rem; color:var(--text-muted); margin-top:2px;">
+              IP: ${escapeHtml(ip)} • Active ${lastActive}
+            </div>
+          </div>
+          ${!isCurrent ? `
+            <button type="button" onclick="handleRevokeSession('${escapeHtml(s.session_token)}', '${escapeHtml(devName)}')" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:4px; cursor:pointer;">
+              Revoke
+            </button>
+          ` : ''}
+        </div>
+      `;
+    });
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div style="font-size:0.75rem; color:var(--loss); padding:4px;">Error loading sessions: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function handleRevokeSession(targetToken, deviceName) {
+  if (!confirm(`Revoke session for ${deviceName || 'this device'}? It will be immediately signed out.`)) return;
+  try {
+    const res = await window.api.revokeSession(targetToken);
+    if (res && res.success) {
+      await loadActiveSessionsList();
+    } else {
+      alert(res?.error || 'Failed to revoke session.');
+    }
+  } catch (err) {
+    alert('Error revoking session: ' + err.message);
+  }
+}
+
+async function handleSignOutAllDevices(keepCurrent = false) {
+  const msg = keepCurrent
+    ? "Sign out of all other devices? You will remain logged into this device."
+    : "Sign out of ALL devices including this one? You will be logged out immediately.";
+
+  if (!confirm(msg)) return;
+
+  try {
+    const res = await window.api.logoutAll(keepCurrent);
+    if (res && res.success) {
+      if (!keepCurrent) {
+        alert(res.message || 'Successfully signed out of all devices.');
+        closeUserSettingsModal();
+        await handleLogout();
+      } else {
+        alert(res.message || 'Successfully signed out of all other devices.');
+        await loadActiveSessionsList();
+      }
+    } else {
+      alert(res?.error || 'Failed to sign out of all devices.');
+    }
+  } catch (err) {
+    alert('Error signing out of all devices: ' + err.message);
+  }
+}
+
 window.syncAppAuthView = syncAppAuthView;
 window.setAuthCardTab = setAuthCardTab;
 window.handleNativeLogin = handleNativeLogin;
@@ -633,3 +733,7 @@ window.handleVerifyRegistrationCode = handleVerifyRegistrationCode;
 window.handleResendVerificationCode = handleResendVerificationCode;
 window.handleForgotPasswordSubmit = handleForgotPasswordSubmit;
 window.handleLogout = handleLogout;
+window.loadActiveSessionsList = loadActiveSessionsList;
+window.handleRevokeSession = handleRevokeSession;
+window.handleSignOutAllDevices = handleSignOutAllDevices;
+

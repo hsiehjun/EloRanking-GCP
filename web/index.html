@@ -1299,6 +1299,37 @@
           Update Password
         </button>
       </form>
+
+      <!-- Section 3: Device Security & Active Sessions -->
+      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+            🛡️ Device Security & Active Sessions
+          </label>
+          <button type="button" onclick="loadActiveSessionsList()" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+            🔄 Refresh
+          </button>
+        </div>
+
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
+          Devices currently logged into your OmniTactica account. You can revoke individual devices or sign out everywhere.
+        </p>
+
+        <!-- Active Sessions Container -->
+        <div id="settings-sessions-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; max-height: 180px; overflow-y: auto;">
+          <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Loading active sessions...</div>
+        </div>
+
+        <!-- Multi-Device Action Buttons -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <button type="button" onclick="handleSignOutAllDevices(true)" class="btn" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
+            🛡️ Sign Out Other Devices
+          </button>
+          <button type="button" onclick="handleSignOutAllDevices(false)" class="btn" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
+            🛑 Sign Out Everywhere
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1754,7 +1785,7 @@
 
   <!-- Modular Scripts -->
   <script src="/js/utils.js?v=64.0"></script>
-  <script src="/js/api.js?v=64.0"></script>
+  <script src="/js/api.js?v=66.0"></script>
   <script src="/js/leaderboard.js?v=64.0"></script>
   <script src="/js/teams.js?v=64.0"></script>
   <script src="/js/players.js?v=64.0"></script>
@@ -1762,10 +1793,10 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=64.0"></script>
-  <script src="/js/auth.js?v=64.0"></script>
-  <script src="/js/my_hub.js?v=64.0"></script>
+  <script src="/js/auth.js?v=66.0"></script>
+  <script src="/js/my_hub.js?v=66.0"></script>
   <script src="/js/eventstudio.js?v=66.0"></script>
-  <script src="/js/app.js?v=64.0"></script>
+  <script src="/js/app.js?v=66.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

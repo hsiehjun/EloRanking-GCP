@@ -73,6 +73,38 @@ def _decode_jwt_payload(token: str) -> Dict[str, Any]:
     return {}
 
 
+def parse_device_info(ua_string: Optional[str]) -> str:
+    """Parses a User-Agent string into a clean, human-readable device label."""
+    if not ua_string:
+        return "Unknown Device"
+    ua = ua_string.lower()
+    os_name = "Desktop"
+    if "iphone" in ua:
+        os_name = "iPhone"
+    elif "ipad" in ua:
+        os_name = "iPad"
+    elif "android" in ua:
+        os_name = "Android"
+    elif "mac os" in ua or "macintosh" in ua:
+        os_name = "Mac"
+    elif "windows" in ua:
+        os_name = "Windows"
+    elif "linux" in ua:
+        os_name = "Linux"
+
+    browser = "Browser"
+    if "edg/" in ua:
+        browser = "Edge"
+    elif "chrome/" in ua:
+        browser = "Chrome"
+    elif "safari/" in ua and "chrome/" not in ua:
+        browser = "Safari"
+    elif "firefox/" in ua:
+        browser = "Firefox"
+
+    return f"{os_name} • {browser}"
+
+
 class AuthManager:
     _tables_initialized = False
     """Manages native user accounts, sessions, and BCP linked credentials."""
@@ -156,7 +188,11 @@ class AuthManager:
                         expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '60 days')
                     );
                     ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);
+                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT;
+                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS ip_address TEXT;
+                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ DEFAULT NOW();
                     CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+                    CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
 
                     CREATE TABLE IF NOT EXISTS password_resets (
                         id VARCHAR(64) PRIMARY KEY,
@@ -239,7 +275,7 @@ class AuthManager:
             "message": f"Verification code sent to {email}. Please enter the 6-digit code to activate your account."
         }
 
-    def verify_registration_code(self, email: str, code: str) -> Dict[str, Any]:
+    def verify_registration_code(self, email: str, code: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
         """Verifies the 6-digit code and creates the active user account."""
         email = email.strip().lower()
         code = str(code).strip()
@@ -286,9 +322,9 @@ class AuthManager:
 
                 session_token = str(uuid.uuid4())
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
-                VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id))
+                INSERT INTO user_sessions (session_token, user_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, user_agent, ip_address))
 
                 # Clean up pending registration
                 cur.execute("DELETE FROM pending_registrations WHERE email = %s;", (email,))
@@ -327,7 +363,7 @@ class AuthManager:
         send_registration_verification_email(email, new_code, display_name)
         return {"success": True, "message": f"A new verification code has been sent to {email}."}
 
-    def login(self, email: str, password: str) -> Dict[str, Any]:
+    def login(self, email: str, password: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> Dict[str, Any]:
         """Authenticates native user with email and password."""
         email = email.strip().lower()
         from psycopg2 import extras
@@ -341,9 +377,9 @@ class AuthManager:
                 user_id = row["id"]
                 session_token = str(uuid.uuid4())
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
-                VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id))
+                INSERT INTO user_sessions (session_token, user_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, user_agent, ip_address))
             conn.commit()
 
         user_info = self.get_user_by_id(user_id)
@@ -504,15 +540,15 @@ class AuthManager:
             "user": updated_user
         }
 
-    def create_session(self, user_id: str) -> str:
-        """Creates and stores a fresh session token for user."""
+    def create_session(self, user_id: str, user_agent: Optional[str] = None, ip_address: Optional[str] = None) -> str:
+        """Creates and stores a fresh session token for user with device tracking."""
         session_token = str(uuid.uuid4())
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                INSERT INTO user_sessions (session_token, user_id, created_at, expires_at)
-                VALUES (%s, %s, NOW(), NOW() + INTERVAL '60 days');
-                """, (session_token, user_id))
+                INSERT INTO user_sessions (session_token, user_id, user_agent, ip_address, created_at, last_active_at, expires_at)
+                VALUES (%s, %s, %s, %s, NOW(), NOW(), NOW() + INTERVAL '60 days');
+                """, (session_token, user_id, user_agent, ip_address))
             conn.commit()
         return session_token
 
@@ -548,6 +584,18 @@ class AuthManager:
                             except Exception:
                                 pass
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
+
+                    # Touch last_active_at periodically (at most once every 5 minutes)
+                    try:
+                        cur.execute("""
+                        UPDATE user_sessions 
+                        SET last_active_at = NOW() 
+                        WHERE session_token = %s AND (last_active_at IS NULL OR last_active_at < NOW() - INTERVAL '5 minutes');
+                        """, (session_token,))
+                        conn.commit()
+                    except Exception:
+                        pass
+
                     return data
         return None
 
@@ -645,6 +693,68 @@ class AuthManager:
                 cur.execute("DELETE FROM user_sessions WHERE session_token = %s;", (session_token,))
             conn.commit()
         return True
+
+    def logout_all_sessions(self, user_id: str, keep_current_token: Optional[str] = None) -> int:
+        """Invalidates active sessions across all devices for a user.
+        If keep_current_token is provided, only other device sessions are revoked."""
+        if not user_id:
+            return 0
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                if keep_current_token:
+                    cur.execute("""
+                    DELETE FROM user_sessions 
+                    WHERE user_id = %s AND session_token != %s;
+                    """, (user_id, keep_current_token))
+                else:
+                    cur.execute("DELETE FROM user_sessions WHERE user_id = %s;", (user_id,))
+                deleted_count = cur.rowcount
+            conn.commit()
+        logger.info(f"🔒 Revoked {deleted_count} session(s) for user {user_id} (keep_current={bool(keep_current_token)})")
+        return deleted_count
+
+    def revoke_session(self, user_id: str, target_token: str) -> bool:
+        """Revokes a specific session for a user."""
+        if not user_id or not target_token:
+            return False
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                DELETE FROM user_sessions 
+                WHERE user_id = %s AND session_token = %s;
+                """, (user_id, target_token))
+                deleted = cur.rowcount > 0
+            conn.commit()
+        return deleted
+
+    def get_active_sessions(self, user_id: str, current_token: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Returns list of active device sessions for user."""
+        if not user_id:
+            return []
+        from psycopg2 import extras
+        sessions = []
+        with self.db.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                cur.execute("""
+                SELECT session_token, user_agent, ip_address, created_at, last_active_at, expires_at
+                FROM user_sessions
+                WHERE user_id = %s AND expires_at > NOW()
+                ORDER BY last_active_at DESC NULLS LAST, created_at DESC;
+                """, (user_id,))
+                for row in cur.fetchall():
+                    tok = row["session_token"]
+                    ua = row.get("user_agent")
+                    sessions.append({
+                        "session_token": tok,
+                        "masked_token": tok[:8] + "..." if tok else "",
+                        "is_current": (tok == current_token) if current_token else False,
+                        "device_name": parse_device_info(ua),
+                        "user_agent": ua or "Unknown",
+                        "ip_address": row.get("ip_address") or "Unknown",
+                        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                        "last_active_at": (row.get("last_active_at") or row["created_at"]).isoformat() if (row.get("last_active_at") or row.get("created_at")) else None,
+                    })
+        return sessions
 
     # =========================================================================
     # BEST COAST PAIRINGS ACCOUNT LINKING & SILENT REFRESH

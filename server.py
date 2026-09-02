@@ -4554,9 +4554,13 @@ if FASTAPI_AVAILABLE:
         return res
 
     @app.post("/api/auth/verify-registration", summary="Verify 6-digit email code to activate account")
-    async def api_auth_verify_registration(payload: VerifyRegistrationPayload, response: Response):
+    async def api_auth_verify_registration(request: Request, payload: VerifyRegistrationPayload, response: Response):
         auth_mgr = get_auth_manager()
-        res = auth_mgr.verify_registration_code(payload.email, payload.code)
+        ua = request.headers.get("User-Agent")
+        ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+        if ip and "," in ip:
+            ip = ip.split(",")[0].strip()
+        res = auth_mgr.verify_registration_code(payload.email, payload.code, user_agent=ua, ip_address=ip)
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Verification failed"))
         token = res.get("session_token")
@@ -4573,9 +4577,13 @@ if FASTAPI_AVAILABLE:
         return res
 
     @app.post("/api/auth/login", summary="Login to native user account")
-    async def api_auth_login(payload: LoginPayload, response: Response):
+    async def api_auth_login(request: Request, payload: LoginPayload, response: Response):
         auth_mgr = get_auth_manager()
-        res = auth_mgr.login(payload.email, payload.password)
+        ua = request.headers.get("User-Agent")
+        ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else None)
+        if ip and "," in ip:
+            ip = ip.split(",")[0].strip()
+        res = auth_mgr.login(payload.email, payload.password, user_agent=ua, ip_address=ip)
         if not res.get("success"):
             raise HTTPException(status_code=401, detail=res.get("error", "Invalid credentials"))
         token = res.get("session_token")
@@ -4630,6 +4638,63 @@ if FASTAPI_AVAILABLE:
             get_auth_manager().logout(session_token)
         response.delete_cookie(key="session_token", path="/")
         return {"success": True}
+
+    @app.post("/api/auth/logout-all", summary="Sign out user from all active devices")
+    async def api_auth_logout_all(request: Request, response: Response, keep_current: bool = Query(False), token: Optional[str] = Query(None)):
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        auth_mgr = get_auth_manager()
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid session")
+
+        user_id = session["id"]
+        token_to_keep = session_token if keep_current else None
+        count = auth_mgr.logout_all_sessions(user_id, keep_current_token=token_to_keep)
+
+        if not keep_current:
+            response.delete_cookie(key="session_token", path="/")
+
+        return {
+            "success": True,
+            "revoked_count": count,
+            "signed_out_current": not keep_current,
+            "message": f"Successfully signed out of {count} active device session(s)."
+        }
+
+    @app.get("/api/auth/sessions", summary="Get all active device sessions for current user")
+    async def api_auth_get_sessions(request: Request, token: Optional[str] = Query(None)):
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        auth_mgr = get_auth_manager()
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid session")
+
+        sessions = auth_mgr.get_active_sessions(session["id"], current_token=session_token)
+        return {
+            "success": True,
+            "sessions": sessions,
+            "total_active": len(sessions)
+        }
+
+    @app.delete("/api/auth/sessions/{target_token}", summary="Revoke specific device session")
+    async def api_auth_revoke_session(target_token: str, request: Request, token: Optional[str] = Query(None)):
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        auth_mgr = get_auth_manager()
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid session")
+
+        revoked = auth_mgr.revoke_session(session["id"], target_token)
+        return {"success": revoked, "message": "Session revoked." if revoked else "Session not found."}
 
     @app.post("/api/user/settings", summary="Update user profile settings or change password")
     async def api_user_settings(request: Request, payload: UserSettingsPayload, token: Optional[str] = Query(None)):
