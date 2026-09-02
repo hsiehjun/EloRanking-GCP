@@ -23,14 +23,17 @@ try {
 function syncAppAuthView() {
   const landingView = document.getElementById('landing-page-view');
   const appShell = document.getElementById('app-shell');
-  const appHeader = document.querySelector('header');
+  const appHeader = document.getElementById('app-header');
+  const foucGuard = document.getElementById('auth-fouc-guard');
 
   if (currentUser) {
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: block !important; } #app-header { display: block !important; }';
     if (landingView) landingView.style.display = 'none';
     if (appShell) appShell.style.display = 'block';
     if (appHeader) appHeader.style.display = 'block';
     if (typeof renderHeaderAuth === 'function') renderHeaderAuth();
   } else {
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';
     if (landingView) landingView.style.display = 'block';
     if (appShell) appShell.style.display = 'none';
     if (appHeader) appHeader.style.display = 'none';

@@ -21,8 +21,31 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=61.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=15.0">
+  <link rel="stylesheet" href="/css/styles.css?v=62.0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=16.0">
+
+  <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
+  <script>
+    (function() {
+      try {
+        var token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token');
+        if (!token) {
+          var match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
+          if (match) token = match[2];
+        }
+        var cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
+        var isAuthenticated = !!(token && cached);
+        var style = document.createElement('style');
+        style.id = 'auth-fouc-guard';
+        if (isAuthenticated) {
+          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: block !important; } #app-header { display: block !important; }';
+        } else {
+          style.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';
+        }
+        document.head.appendChild(style);
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
 
@@ -309,7 +332,7 @@
   <div id="app-shell" style="display: none;">
 
   <!-- Top Navigation Header -->
-  <header>
+  <header id="app-header">
     <div class="header-inner">
       <a href="#" class="logo-group" onclick="switchTab('leaderboard'); return false;">
         <img src="/assets/logo.svg" alt="OmniTactica" style="width:36px; height:36px; border-radius:8px; border:1px solid rgba(56,189,248,0.3); flex-shrink:0;" onerror="this.onerror=null; this.src='/logo-mark.svg';">
@@ -1739,19 +1762,19 @@
   </div> <!-- #app-shell -->
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=61.0"></script>
-  <script src="/js/api.js?v=61.0"></script>
-  <script src="/js/leaderboard.js?v=61.0"></script>
-  <script src="/js/teams.js?v=61.0"></script>
-  <script src="/js/players.js?v=61.0"></script>
-  <script src="/js/tournaments.js?v=61.0"></script>
-  <script src="/js/factions.js?v=61.0"></script>
-  <script src="/js/predictor.js?v=61.0"></script>
-  <script src="/js/modals.js?v=61.0"></script>
-  <script src="/js/auth.js?v=61.0"></script>
-  <script src="/js/my_hub.js?v=61.0"></script>
-  <script src="/js/eventstudio.js?v=61.0"></script>
-  <script src="/js/app.js?v=61.0"></script>
+  <script src="/js/utils.js?v=62.0"></script>
+  <script src="/js/api.js?v=62.0"></script>
+  <script src="/js/leaderboard.js?v=62.0"></script>
+  <script src="/js/teams.js?v=62.0"></script>
+  <script src="/js/players.js?v=62.0"></script>
+  <script src="/js/tournaments.js?v=62.0"></script>
+  <script src="/js/factions.js?v=62.0"></script>
+  <script src="/js/predictor.js?v=62.0"></script>
+  <script src="/js/modals.js?v=62.0"></script>
+  <script src="/js/auth.js?v=62.0"></script>
+  <script src="/js/my_hub.js?v=62.0"></script>
+  <script src="/js/eventstudio.js?v=62.0"></script>
+  <script src="/js/app.js?v=62.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
