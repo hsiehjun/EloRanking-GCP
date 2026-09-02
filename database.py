@@ -406,6 +406,76 @@ class PostgresDatabase:
             "ALTER TABLE user_feedbacks ADD COLUMN IF NOT EXISTS admin_notes TEXT;",
             "ALTER TABLE user_feedbacks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();",
             "CREATE INDEX IF NOT EXISTS idx_feedbacks_created ON user_feedbacks(created_at DESC);",
+
+            """CREATE TABLE IF NOT EXISTS player_lfg_profiles (
+                player_id VARCHAR(64) PRIMARY KEY,
+                is_active BOOLEAN DEFAULT FALSE,
+                home_venue_name TEXT,
+                address TEXT,
+                city VARCHAR(128),
+                state VARCHAR(64),
+                country VARCHAR(64) DEFAULT 'United States',
+                postal_code VARCHAR(32),
+                latitude DOUBLE PRECISION,
+                longitude DOUBLE PRECISION,
+                radius_miles INT DEFAULT 30,
+                preferred_points INT DEFAULT 2000,
+                play_style VARCHAR(64) DEFAULT 'Competitive',
+                availability_notes TEXT,
+                factions TEXT,
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS home_venue_name TEXT;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS address TEXT;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS city VARCHAR(128);",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS state VARCHAR(64);",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS country VARCHAR(64) DEFAULT 'United States';",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS postal_code VARCHAR(32);",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS radius_miles INT DEFAULT 30;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS preferred_points INT DEFAULT 2000;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS play_style VARCHAR(64) DEFAULT 'Competitive';",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS availability_notes TEXT;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS factions TEXT;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();",
+            "CREATE INDEX IF NOT EXISTS idx_lfg_active_geo ON player_lfg_profiles(is_active, latitude, longitude);",
+
+            """CREATE TABLE IF NOT EXISTS match_requests (
+                id VARCHAR(64) PRIMARY KEY,
+                sender_id VARCHAR(64) NOT NULL,
+                receiver_id VARCHAR(64) NOT NULL,
+                status VARCHAR(32) DEFAULT 'pending',
+                proposed_venue TEXT,
+                proposed_points INT DEFAULT 2000,
+                proposed_date TEXT,
+                note TEXT,
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "ALTER TABLE match_requests ADD COLUMN IF NOT EXISTS status VARCHAR(32) DEFAULT 'pending';",
+            "ALTER TABLE match_requests ADD COLUMN IF NOT EXISTS proposed_venue TEXT;",
+            "ALTER TABLE match_requests ADD COLUMN IF NOT EXISTS proposed_points INT DEFAULT 2000;",
+            "ALTER TABLE match_requests ADD COLUMN IF NOT EXISTS proposed_date TEXT;",
+            "ALTER TABLE match_requests ADD COLUMN IF NOT EXISTS note TEXT;",
+            "ALTER TABLE match_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();",
+            "CREATE INDEX IF NOT EXISTS idx_match_requests_sender ON match_requests(sender_id);",
+            "CREATE INDEX IF NOT EXISTS idx_match_requests_receiver ON match_requests(receiver_id);",
+            "CREATE INDEX IF NOT EXISTS idx_match_requests_status ON match_requests(status);",
+
+            """CREATE TABLE IF NOT EXISTS match_chat_messages (
+                id VARCHAR(64) PRIMARY KEY,
+                request_id VARCHAR(64) NOT NULL REFERENCES match_requests(id) ON DELETE CASCADE,
+                sender_id VARCHAR(64) NOT NULL,
+                message_text TEXT NOT NULL,
+                room_key VARCHAR(64),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                read_at TIMESTAMPTZ
+            );""",
+            "ALTER TABLE match_chat_messages ADD COLUMN IF NOT EXISTS room_key VARCHAR(64);",
+            "ALTER TABLE match_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;",
+            "CREATE INDEX IF NOT EXISTS idx_chat_messages_req ON match_chat_messages(request_id, created_at ASC);",
             """CREATE TABLE IF NOT EXISTS waha_factions (
                 id TEXT,
                 name TEXT,
@@ -3921,6 +3991,415 @@ class PostgresDatabase:
                 conn.commit()
                 return cursor.rowcount > 0
 
+    # ---------------------------------------------------------
+    # OMNICONNECT & LOCAL SPARRING RADAR
+    # ---------------------------------------------------------
+
+    def get_lfg_profile(self, user_id: str) -> Dict[str, Any]:
+        """Gets or builds default LFG profile for a user."""
+        if not user_id:
+            return {}
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT * FROM player_lfg_profiles WHERE player_id = %s;
+                """, (user_id,))
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+                
+                # Check user details & default city from match history
+                cursor.execute("SELECT id, display_name, email, player_id FROM users WHERE id = %s;", (user_id,))
+                u = cursor.fetchone()
+                bcp_pid = (u.get("player_id") or u.get("id")) if u else user_id
+
+                # Try inferring location from most played events
+                cursor.execute("""
+                    SELECT e.city, e.state, e.country, e.latitude, e.longitude, COUNT(*) as cnt
+                    FROM event_participants ep
+                    JOIN events e ON ep.event_id = e.id
+                    WHERE ep.player_id = %s AND e.latitude IS NOT NULL AND e.longitude IS NOT NULL
+                    GROUP BY e.city, e.state, e.country, e.latitude, e.longitude
+                    ORDER BY cnt DESC, MAX(e.event_date) DESC
+                    LIMIT 1;
+                """, (bcp_pid,))
+                loc = cursor.fetchone()
+                return {
+                    "player_id": user_id,
+                    "is_active": False,
+                    "home_venue_name": "",
+                    "address": "",
+                    "city": loc.get("city") if loc else "San Diego",
+                    "state": loc.get("state") if loc else "CA",
+                    "country": loc.get("country") if loc else "United States",
+                    "postal_code": "",
+                    "latitude": float(loc["latitude"]) if loc and loc.get("latitude") is not None else 32.7157,
+                    "longitude": float(loc["longitude"]) if loc and loc.get("longitude") is not None else -117.1611,
+                    "radius_miles": 30,
+                    "preferred_points": 2000,
+                    "play_style": "Competitive",
+                    "availability_notes": "",
+                    "factions": ""
+                }
+
+    def save_lfg_profile(self, user_id: str, data: Dict[str, Any]) -> bool:
+        """Upserts user's LFG matchmaking profile."""
+        if not user_id:
+            return False
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    INSERT INTO player_lfg_profiles (
+                        player_id, is_active, home_venue_name, address, city, state, country,
+                        postal_code, latitude, longitude, radius_miles, preferred_points,
+                        play_style, availability_notes, factions, updated_at
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s, NOW()
+                    )
+                    ON CONFLICT (player_id) DO UPDATE SET
+                        is_active = EXCLUDED.is_active,
+                        home_venue_name = EXCLUDED.home_venue_name,
+                        address = EXCLUDED.address,
+                        city = EXCLUDED.city,
+                        state = EXCLUDED.state,
+                        country = EXCLUDED.country,
+                        postal_code = EXCLUDED.postal_code,
+                        latitude = EXCLUDED.latitude,
+                        longitude = EXCLUDED.longitude,
+                        radius_miles = EXCLUDED.radius_miles,
+                        preferred_points = EXCLUDED.preferred_points,
+                        play_style = EXCLUDED.play_style,
+                        availability_notes = EXCLUDED.availability_notes,
+                        factions = EXCLUDED.factions,
+                        updated_at = NOW();
+                """, (
+                    user_id,
+                    bool(data.get("is_active", False)),
+                    data.get("home_venue_name") or "",
+                    data.get("address") or "",
+                    data.get("city") or "",
+                    data.get("state") or "",
+                    data.get("country") or "United States",
+                    data.get("postal_code") or "",
+                    float(data["latitude"]) if data.get("latitude") is not None else None,
+                    float(data["longitude"]) if data.get("longitude") is not None else None,
+                    int(data.get("radius_miles") or 30),
+                    int(data.get("preferred_points") or 2000),
+                    data.get("play_style") or "Competitive",
+                    data.get("availability_notes") or "",
+                    data.get("factions") or ""
+                ))
+                conn.commit()
+                return True
+
+    def search_nearby_lfg_players(
+        self,
+        current_user_id: str,
+        lat: float,
+        lng: float,
+        radius_miles: float = 50.0,
+        elo_bracket: Optional[str] = None,
+        play_style: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Finds nearby opt-in players looking for games, ranked by distance & Elo."""
+        if lat is None or lng is None:
+            return []
+        
+        # Haversine distance in SQL
+        distance_sql = """
+            (3959 * acos(
+                LEAST(1.0, GREATEST(-1.0, 
+                    cos(radians(%s)) * cos(radians(p.latitude)) * cos(radians(p.longitude) - radians(%s)) +
+                    sin(radians(%s)) * sin(radians(p.latitude))
+                ))
+            ))
+        """
+        query = f"""
+            SELECT 
+                p.player_id,
+                u.display_name,
+                u.email,
+                p.is_active,
+                p.home_venue_name,
+                p.address,
+                p.city,
+                p.state,
+                p.latitude,
+                p.longitude,
+                p.radius_miles,
+                p.preferred_points,
+                p.play_style,
+                p.availability_notes,
+                p.factions,
+                p.updated_at,
+                COALESCE(pr.current_elo, 1500.0) as current_elo,
+                pr.peak_elo,
+                pr.matches_played,
+                pr.win_rate,
+                pr.top_faction,
+                ROUND({distance_sql}::numeric, 1) as distance_miles,
+                mr.id as existing_request_id,
+                mr.status as existing_request_status,
+                mr.sender_id as existing_request_sender_id
+            FROM player_lfg_profiles p
+            JOIN users u ON p.player_id = u.id
+            LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id)
+            LEFT JOIN match_requests mr ON (
+                (mr.sender_id = %s AND mr.receiver_id = p.player_id) OR
+                (mr.receiver_id = %s AND mr.sender_id = p.player_id)
+            ) AND mr.status != 'declined'
+            WHERE p.is_active = TRUE
+              AND p.player_id != %s
+              AND p.latitude IS NOT NULL 
+              AND p.longitude IS NOT NULL
+              AND {distance_sql} <= %s
+        """
+        params = [
+            lat, lng, lat,
+            current_user_id, current_user_id, current_user_id,
+            lat, lng, lat, radius_miles
+        ]
+
+        if play_style and play_style.strip() and play_style.lower() != 'all':
+            query += " AND LOWER(p.play_style) = %s"
+            params.append(play_style.strip().lower())
+
+        query += " ORDER BY distance_miles ASC, current_elo DESC LIMIT 50;"
+
+        results = []
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute(query, tuple(params))
+                for row in cursor.fetchall():
+                    r = dict(row)
+                    r["distance_miles"] = float(r["distance_miles"]) if r.get("distance_miles") is not None else 0.0
+                    r["current_elo"] = float(r["current_elo"]) if r.get("current_elo") is not None else 1500.0
+                    results.append(r)
+        return results
+
+    def create_match_request(
+        self,
+        sender_id: str,
+        receiver_id: str,
+        proposed_venue: str = "",
+        proposed_points: int = 2000,
+        proposed_date: str = "",
+        note: str = ""
+    ) -> Dict[str, Any]:
+        """Creates a pending sparring match request between players."""
+        if not sender_id or not receiver_id or sender_id == receiver_id:
+            return {"success": False, "error": "Invalid participants"}
+
+        import uuid
+        req_id = f"mrq_{uuid.uuid4().hex[:16]}"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT id, status FROM match_requests
+                    WHERE ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
+                      AND status IN ('pending', 'accepted');
+                """, (sender_id, receiver_id, receiver_id, sender_id))
+                existing = cursor.fetchone()
+                if existing:
+                    return {
+                        "success": False,
+                        "error": f"A match request already exists with status: {existing['status']}",
+                        "request_id": existing["id"],
+                        "status": existing["status"]
+                    }
+
+                cursor.execute("""
+                    INSERT INTO match_requests (
+                        id, sender_id, receiver_id, status, proposed_venue,
+                        proposed_points, proposed_date, note, created_at, updated_at
+                    ) VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s, NOW(), NOW())
+                    RETURNING id;
+                """, (req_id, sender_id, receiver_id, proposed_venue, proposed_points, proposed_date, note))
+                conn.commit()
+                return {"success": True, "request_id": req_id}
+
+    def respond_match_request(self, request_id: str, user_id: str, action: str) -> Dict[str, Any]:
+        """Accepts, declines, or blocks a match request."""
+        action = action.lower().strip()
+        if action not in ("accept", "decline", "block"):
+            return {"success": False, "error": "Action must be accept, decline, or block"}
+
+        new_status = "accepted" if action == "accept" else ("declined" if action == "decline" else "blocked")
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT * FROM match_requests WHERE id = %s;
+                """, (request_id,))
+                req = cursor.fetchone()
+                if not req:
+                    return {"success": False, "error": "Request not found"}
+
+                # Receiver can accept/decline; either party can block
+                if action in ("accept", "decline") and req["receiver_id"] != user_id:
+                    return {"success": False, "error": "Only the recipient can accept or decline this request"}
+
+                cursor.execute("""
+                    UPDATE match_requests
+                    SET status = %s, updated_at = NOW()
+                    WHERE id = %s;
+                """, (new_status, request_id))
+                conn.commit()
+                return {"success": True, "status": new_status}
+
+    def get_user_match_requests(self, user_id: str) -> List[Dict[str, Any]]:
+        """Retrieves all active, pending, and accepted requests for the user."""
+        if not user_id:
+            return []
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT 
+                        mr.id,
+                        mr.sender_id,
+                        mr.receiver_id,
+                        mr.status,
+                        mr.proposed_venue,
+                        mr.proposed_points,
+                        mr.proposed_date,
+                        mr.note,
+                        mr.created_at,
+                        mr.updated_at,
+                        su.display_name as sender_name,
+                        su.email as sender_email,
+                        ru.display_name as receiver_name,
+                        ru.email as receiver_email,
+                        COALESCE(spr.current_elo, 1500.0) as sender_elo,
+                        spr.top_faction as sender_faction,
+                        COALESCE(rpr.current_elo, 1500.0) as receiver_elo,
+                        rpr.top_faction as receiver_faction,
+                        (SELECT COUNT(*) FROM match_chat_messages mcm 
+                         WHERE mcm.request_id = mr.id AND mcm.sender_id != %s AND mcm.read_at IS NULL) as unread_count,
+                        (SELECT message_text FROM match_chat_messages mcm 
+                         WHERE mcm.request_id = mr.id ORDER BY mcm.created_at DESC LIMIT 1) as last_message,
+                        (SELECT created_at FROM match_chat_messages mcm 
+                         WHERE mcm.request_id = mr.id ORDER BY mcm.created_at DESC LIMIT 1) as last_message_time
+                    FROM match_requests mr
+                    JOIN users su ON mr.sender_id = su.id
+                    JOIN users ru ON mr.receiver_id = ru.id
+                    LEFT JOIN player_ratings spr ON (su.player_id = spr.player_id OR su.id = spr.player_id)
+                    LEFT JOIN player_ratings rpr ON (ru.player_id = rpr.player_id OR ru.id = rpr.player_id)
+                    WHERE (mr.sender_id = %s OR mr.receiver_id = %s)
+                      AND mr.status != 'declined'
+                    ORDER BY mr.updated_at DESC;
+                """, (user_id, user_id, user_id))
+                return [dict(r) for r in cursor.fetchall()]
+
+    def get_chat_messages(self, request_id: str, user_id: str) -> Dict[str, Any]:
+        """Gets chat thread for an accepted match request and marks unread as read."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT mr.*, 
+                           su.display_name as sender_name,
+                           ru.display_name as receiver_name
+                    FROM match_requests mr
+                    JOIN users su ON mr.sender_id = su.id
+                    JOIN users ru ON mr.receiver_id = ru.id
+                    WHERE mr.id = %s;
+                """, (request_id,))
+                req = cursor.fetchone()
+                if not req:
+                    return {"success": False, "error": "Conversation not found"}
+
+                if user_id not in (req["sender_id"], req["receiver_id"]):
+                    return {"success": False, "error": "Unauthorized"}
+
+                if req["status"] != "accepted":
+                    return {"success": False, "error": f"Chat is not active. Status: {req['status']}"}
+
+                # Mark other user's messages as read
+                cursor.execute("""
+                    UPDATE match_chat_messages
+                    SET read_at = NOW()
+                    WHERE request_id = %s AND sender_id != %s AND read_at IS NULL;
+                """, (request_id, user_id))
+                conn.commit()
+
+                # Fetch chronological messages
+                cursor.execute("""
+                    SELECT 
+                        mcm.id,
+                        mcm.request_id,
+                        mcm.sender_id,
+                        u.display_name as sender_name,
+                        mcm.message_text,
+                        mcm.room_key,
+                        mcm.created_at,
+                        mcm.read_at
+                    FROM match_chat_messages mcm
+                    JOIN users u ON mcm.sender_id = u.id
+                    WHERE mcm.request_id = %s
+                    ORDER BY mcm.created_at ASC;
+                """, (request_id,))
+                messages = [dict(m) for m in cursor.fetchall()]
+
+                other_user_id = req["receiver_id"] if user_id == req["sender_id"] else req["sender_id"]
+                other_user_name = req["receiver_name"] if user_id == req["sender_id"] else req["sender_name"]
+
+                return {
+                    "success": True,
+                    "request": dict(req),
+                    "other_user_id": other_user_id,
+                    "other_user_name": other_user_name,
+                    "messages": messages
+                }
+
+    def send_chat_message(self, request_id: str, sender_id: str, message_text: str, room_key: Optional[str] = None) -> Dict[str, Any]:
+        """Appends a new chat message to an accepted match request."""
+        if not message_text and not room_key:
+            return {"success": False, "error": "Message content cannot be empty"}
+
+        import uuid
+        msg_id = f"msg_{uuid.uuid4().hex[:16]}"
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("SELECT sender_id, receiver_id, status FROM match_requests WHERE id = %s;", (request_id,))
+                req = cursor.fetchone()
+                if not req:
+                    return {"success": False, "error": "Request not found"}
+
+                if sender_id not in (req["sender_id"], req["receiver_id"]):
+                    return {"success": False, "error": "Unauthorized"}
+
+                if req["status"] != "accepted":
+                    return {"success": False, "error": "Cannot message on an unaccepted request"}
+
+                cursor.execute("""
+                    INSERT INTO match_chat_messages (
+                        id, request_id, sender_id, message_text, room_key, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, NOW())
+                    RETURNING id, created_at;
+                """, (msg_id, request_id, sender_id, message_text.strip(), room_key.strip() if room_key else None))
+
+                cursor.execute("UPDATE match_requests SET updated_at = NOW() WHERE id = %s;", (request_id,))
+                conn.commit()
+                return {"success": True, "message_id": msg_id}
+
+    def get_connect_unread_count(self, user_id: str) -> int:
+        """Returns total unread match requests and chat messages for user."""
+        if not user_id:
+            return 0
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                    SELECT 
+                        (SELECT COUNT(*) FROM match_requests WHERE receiver_id = %s AND status = 'pending') +
+                        (SELECT COUNT(*) FROM match_chat_messages mcm
+                         JOIN match_requests mr ON mcm.request_id = mr.id
+                         WHERE (mr.sender_id = %s OR mr.receiver_id = %s)
+                           AND mcm.sender_id != %s
+                           AND mcm.read_at IS NULL
+                        ) as total_unread;
+                """, (user_id, user_id, user_id, user_id))
+                row = cursor.fetchone()
+                return int(row[0]) if row and row[0] is not None else 0
 
 
 class PostgresConnectionContext:

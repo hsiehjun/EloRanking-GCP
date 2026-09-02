@@ -789,6 +789,88 @@ window.api = {
       headers: { 'X-Filename': encodeURIComponent(file.name || '') },
       body: formData
     });
+  },
+
+  // OmniConnect: Get Profile
+  async getConnectProfile() {
+    return this._fetchJson('/api/connect/profile', {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // OmniConnect: Save Profile
+  async saveConnectProfile(profileData) {
+    return this._fetchJson('/api/connect/profile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify(profileData)
+    });
+  },
+
+  // OmniConnect: Search Nearby Players
+  async searchConnectPlayers(lat = null, lng = null, radius = 50, playStyle = '') {
+    const params = new URLSearchParams();
+    if (lat !== null && lat !== undefined) params.append('lat', lat);
+    if (lng !== null && lng !== undefined) params.append('lng', lng);
+    if (radius) params.append('radius_miles', radius);
+    if (playStyle && playStyle !== 'all') params.append('play_style', playStyle);
+    return this._fetchJson(`/api/connect/players?${params}`, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // OmniConnect: Get Requests & Chats
+  async getConnectRequests() {
+    return this._fetchJson('/api/connect/requests', {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // OmniConnect: Create Match Request
+  async createConnectRequest(receiverId, venue = '', points = 2000, date = '', note = '') {
+    return this._fetchJson('/api/connect/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify({
+        receiver_id: receiverId,
+        proposed_venue: venue,
+        proposed_points: points,
+        proposed_date: date,
+        note: note
+      })
+    });
+  },
+
+  // OmniConnect: Respond to Request
+  async respondConnectRequest(requestId, action) {
+    return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify({ action: action })
+    });
+  },
+
+  // OmniConnect: Get Thread Messages
+  async getConnectMessages(requestId) {
+    return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/messages`, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // OmniConnect: Send Message
+  async sendConnectMessage(requestId, text, roomKey = null) {
+    return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify({ message: text, room_key: roomKey })
+    });
+  },
+
+  // OmniConnect: Get Unread Count
+  async getConnectUnreadCount() {
+    return this._fetchJson('/api/connect/unread-count', {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
   }
 };
 

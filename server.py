@@ -213,6 +213,36 @@ if FASTAPI_AVAILABLE:
         circuit_token: Optional[str] = None
         circuit_name: Optional[str] = None
 
+    class LfgProfilePayload(BaseModel):
+        is_active: bool = False
+        home_venue_name: Optional[str] = ""
+        address: Optional[str] = ""
+        city: Optional[str] = ""
+        state: Optional[str] = ""
+        country: Optional[str] = "United States"
+        postal_code: Optional[str] = ""
+        latitude: Optional[float] = None
+        longitude: Optional[float] = None
+        radius_miles: Optional[int] = 30
+        preferred_points: Optional[int] = 2000
+        play_style: Optional[str] = "Competitive"
+        availability_notes: Optional[str] = ""
+        factions: Optional[str] = ""
+
+    class MatchRequestPayload(BaseModel):
+        receiver_id: str
+        proposed_venue: Optional[str] = ""
+        proposed_points: Optional[int] = 2000
+        proposed_date: Optional[str] = ""
+        note: Optional[str] = ""
+
+    class MatchRespondPayload(BaseModel):
+        action: str  # "accept", "decline", "block"
+
+    class ChatMessagePayload(BaseModel):
+        message: str
+        room_key: Optional[str] = None
+
     def execute_bcp_api_call(
         url: str,
         method: str = "GET",
@@ -834,6 +864,164 @@ if FASTAPI_AVAILABLE:
     async def api_get_maps_key():
         key = os.environ.get("GOOGLE_MAPS_API_KEY", GOOGLE_MAPS_API_KEY)
         return {"key": key}
+
+    # =========================================================================
+    # OMNICONNECT & LOCAL SPARRING RADAR ENDPOINTS
+    # =========================================================================
+
+    @app.get("/api/connect/profile", summary="Get user LFG profile")
+    async def api_get_connect_profile(request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+        
+        db = get_database()
+        profile = db.get_lfg_profile(user["id"])
+        profile["display_name"] = user.get("display_name") or user.get("email")
+        profile["email"] = user.get("email")
+        return {"success": True, "profile": profile}
+
+    @app.post("/api/connect/profile", summary="Update user LFG profile")
+    async def api_save_connect_profile(request: Request, payload: LfgProfilePayload):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = get_database()
+        ok = db.save_lfg_profile(user["id"], payload.dict())
+        return {"success": ok}
+
+    @app.get("/api/connect/players", summary="Search nearby LFG players")
+    async def api_search_connect_players(
+        request: Request,
+        lat: Optional[float] = Query(None),
+        lng: Optional[float] = Query(None),
+        radius_miles: float = Query(50.0, ge=1.0, le=250.0),
+        play_style: Optional[str] = Query(None)
+    ):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else ""
+
+        db = get_database()
+        if lat is None or lng is None:
+            if user_id:
+                prof = db.get_lfg_profile(user_id)
+                lat = prof.get("latitude") or 32.7157
+                lng = prof.get("longitude") or -117.1611
+            else:
+                lat = 32.7157
+                lng = -117.1611
+
+        players = db.search_nearby_lfg_players(
+            current_user_id=user_id,
+            lat=lat,
+            lng=lng,
+            radius_miles=radius_miles,
+            play_style=play_style
+        )
+        return {"success": True, "players": players}
+
+    @app.get("/api/connect/requests", summary="Get user match requests and chats")
+    async def api_get_connect_requests(request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = get_database()
+        requests = db.get_user_match_requests(user["id"])
+        return {"success": True, "requests": requests, "current_user_id": user["id"]}
+
+    @app.post("/api/connect/request", summary="Create sparring match request")
+    async def api_create_connect_request(request: Request, payload: MatchRequestPayload):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = get_database()
+        res = db.create_match_request(
+            sender_id=user["id"],
+            receiver_id=payload.receiver_id,
+            proposed_venue=payload.proposed_venue or "",
+            proposed_points=payload.proposed_points or 2000,
+            proposed_date=payload.proposed_date or "",
+            note=payload.note or ""
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to create match request"))
+        return res
+
+    @app.post("/api/connect/request/{request_id}/respond", summary="Respond to match request")
+    async def api_respond_connect_request(request_id: str, payload: MatchRespondPayload, request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = get_database()
+        res = db.respond_match_request(request_id, user["id"], payload.action)
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to update match request"))
+        return res
+
+    @app.get("/api/connect/request/{request_id}/messages", summary="Get messages in request thread")
+    async def api_get_connect_messages(request_id: str, request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = get_database()
+        res = db.get_chat_messages(request_id, user["id"])
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to load messages"))
+        return res
+
+    @app.post("/api/connect/request/{request_id}/message", summary="Send message in request thread")
+    async def api_send_connect_message(request_id: str, payload: ChatMessagePayload, request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        db = get_database()
+        res = db.send_chat_message(request_id, user["id"], payload.message, payload.room_key)
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message"))
+        return res
+
+    @app.get("/api/connect/unread-count", summary="Get total unread requests and messages count")
+    async def api_get_connect_unread_count(request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        if not user:
+            return {"unread_count": 0}
+
+        db = get_database()
+        count = db.get_connect_unread_count(user["id"])
+        return {"unread_count": count}
 
     @app.get("/api/eventstudio/locations/search", summary="Search verified cities for event creation")
     async def api_eventstudio_search_locations(q: str = Query("")):
@@ -3673,6 +3861,18 @@ if FASTAPI_AVAILABLE:
                 headers={"Cache-Control": "no-cache, must-revalidate"}
             )
         raise HTTPException(status_code=404, detail="login.html not found")
+
+    @app.get("/connect", include_in_schema=False)
+    @app.get("/sparring", include_in_schema=False)
+    async def serve_connect_page():
+        connect_file = web_dir / "connect.html"
+        if connect_file.exists():
+            return FileResponse(
+                str(connect_file),
+                media_type="text/html",
+                headers={"Cache-Control": "no-cache, must-revalidate"}
+            )
+        raise HTTPException(status_code=404, detail="connect.html not found")
 
     @app.get("/my-hub", include_in_schema=False)
     @app.get("/hub", include_in_schema=False)

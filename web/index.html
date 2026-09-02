@@ -69,6 +69,7 @@
         <div class="landing-nav-links">
           <a href="#features" class="landing-nav-link">Intelligence Features</a>
           <a href="#tracker" class="landing-nav-link">Live Game Tracker</a>
+          <a href="/connect" class="landing-nav-link">⚡ OmniConnect</a>
           <a href="#tournaments" class="landing-nav-link">Tournament Radar</a>
           <a href="#eventstudio" class="landing-nav-link">Event Studio</a>
           <a href="#predictor" class="landing-nav-link">Match Predictor</a>
@@ -248,6 +249,9 @@
         </button>
         <a class="nav-btn" id="nav-btn-tracker" href="/11th/tracker" style="text-decoration: none;">
           🎲 Game Tracker
+        </a>
+        <a class="nav-btn" id="nav-btn-connect" href="/connect" style="text-decoration: none;">
+          ⚡ OmniConnect
         </a>
         <button class="nav-btn active" id="nav-btn-leaderboard" onclick="switchTab('leaderboard')">
           🏆 Leaderboard
@@ -1211,6 +1215,21 @@
           Update Password
         </button>
       </form>
+
+      <!-- Section: Invite Players / Friends -->
+      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+          <label style="font-size: 0.82rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+            🎟️ Invite Players
+          </label>
+        </div>
+        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
+          Invite fellow tabletop players to join OmniTactica with your exclusive invitation pass.
+        </p>
+        <button type="button" onclick="closeUserSettingsModal(); openInviteModal();" class="btn" style="width: 100%; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.82rem; padding: 0.65rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+          <span>🎟️</span> <span>Invite Players (Get Code & Link)</span>
+        </button>
+      </div>
 
       <!-- Section 3: Device Security & Active Sessions -->
       <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border);">
