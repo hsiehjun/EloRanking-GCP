@@ -339,9 +339,13 @@ window.api = {
 
   // EventStudio: Create Tournament
   async createStudioEvent(payload) {
+    const token = this.getAuthToken();
     return this._fetchJson('/api/eventstudio/event/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
       body: JSON.stringify(payload)
     });
   },

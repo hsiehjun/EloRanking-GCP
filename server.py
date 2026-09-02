@@ -452,7 +452,7 @@ if FASTAPI_AVAILABLE:
                 tok_check = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
                 claims = _decode_jwt_payload(tok_check) if tok_check else {}
                 if not bcp_user_id:
-                    bcp_user_id = claims.get("sub") or claims.get("username")
+                    bcp_user_id = claims.get("sub") or claims.get("userId") or claims.get("custom:userId") or claims.get("username")
 
                 # Format ISO timestamps for BCP
                 s_date = payload.start_date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -460,12 +460,14 @@ if FASTAPI_AVAILABLE:
                 event_date_iso = f"{s_date}T09:00:00.000Z" if len(s_date) == 10 else s_date
                 end_date_iso = f"{e_date}T18:00:00.000Z" if len(e_date) == 10 else e_date
                 
-                bcp_owner_id = user.get("player_id") if user else None
-                if not bcp_owner_id or len(bcp_owner_id) > 15:
-                    if (user and user.get("email") or "").lower() == "swimgeek751@gmail.com" or (claims.get("email") or "").lower() == "swimgeek751@gmail.com":
-                        bcp_owner_id = "MEV83VFANA"
-                    else:
-                        bcp_owner_id = claims.get("userId") or claims.get("custom:userId") or "MEV83VFANA"
+                # BCP ownerId MUST be the Cognito user UUID (sub), NEVER a player Elo ID like MEV83VFANA
+                bcp_owner_id = (
+                    bcp_user_id
+                    or claims.get("sub")
+                    or claims.get("userId")
+                    or claims.get("custom:userId")
+                    or (user.get("bcp_user_id") if user else None)
+                )
 
                 city_str = payload.city or "San Diego"
                 state_str = payload.state or "CA"
@@ -485,7 +487,6 @@ if FASTAPI_AVAILABLE:
                     "ownerId": bcp_owner_id,
                     "gameSystemId": game_sys,
                     "gameType": "teams" if is_teams else "singles",
-                    "eventType": payload.event_type or "Singles Event",
                     "doublesEvent": is_doubles,
                     "teamEvent": is_teams,
                     "teamSize": team_sz,
@@ -494,7 +495,7 @@ if FASTAPI_AVAILABLE:
                     "eventDate": event_date_iso,
                     "eventEndDate": end_date_iso,
                     "endDate": end_date_iso,
-                    "pairingStyle": payload.pairing_style or "swiss",
+                    "pairingStyle": payload.pairing_style.lower() if payload.pairing_style else "swiss",
                     "numberOfRounds": payload.rounds or 5,
                     "points": payload.points or 2000,
                     "startingTable": 1,
@@ -514,9 +515,11 @@ if FASTAPI_AVAILABLE:
                         "country": country_str,
                         "timeZone": tz_str
                     },
-                    "ticketPrice": int(payload.ticket_price or 0),
+                    "ticketPrice": int((payload.ticket_price or 0) * 100) if payload.using_online_reg else 0,
                     "usingOnlineReg": bool(payload.using_online_reg),
-                    "description": payload.mission_pack or "Created via OmniTactica Event Studio"
+                    "shippingDetails": {"requested": False},
+                    "eventDescription": payload.mission_pack or "Created via OmniTactica Event Studio",
+                    "eventDescriptionMarkup": payload.mission_pack or "Created via OmniTactica Event Studio"
                 }
 
                 res_data, bcp_err = execute_bcp_api_call(
