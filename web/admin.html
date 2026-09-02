@@ -493,14 +493,15 @@
     </div>
   </main>
 
-  <script src="/js/api.js?v=68.0"></script>
+  <script src="/js/api.js?v=71.0"></script>
   <script>
+    const API = window.api || window.API || {};
     let globalInvitesEnabled = true;
     let allUsersCache = [];
 
     // Check admin authentication on load
     (async function initAdmin() {
-      const token = API.getAuthToken();
+      const token = (API.getAuthToken ? API.getAuthToken() : (window.api ? window.api.getAuthToken() : ''));
       if (!token) {
         window.location.replace('/login?redirect=/admin');
         return;
@@ -789,9 +790,22 @@
       renderUsersTable(filtered);
     }
 
-    function handleAdminLogout() {
-      API.clearAuth();
-      window.location.href = '/login';
+    async function handleAdminLogout() {
+      try {
+        if (window.api && typeof window.api.logout === 'function') {
+          await window.api.logout();
+        }
+      } catch (e) {}
+      if (window.api && typeof window.api.clearAuth === 'function') {
+        window.api.clearAuth();
+      }
+      localStorage.removeItem('native_session_token');
+      localStorage.removeItem('native_user_profile');
+      localStorage.removeItem('elo_auth_token');
+      localStorage.removeItem('bcp_session_token');
+      sessionStorage.removeItem('elo_auth_token');
+      document.cookie = 'session_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      window.location.replace('/login?redirect=/admin');
     }
 
     function escapeHtml(str) {

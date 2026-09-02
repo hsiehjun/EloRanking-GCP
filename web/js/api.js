@@ -40,6 +40,15 @@ window.api = {
     return localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('bcp_session_token') || cookieToken || '';
   },
 
+  clearAuth() {
+    localStorage.removeItem('native_session_token');
+    localStorage.removeItem('native_user_profile');
+    localStorage.removeItem('elo_auth_token');
+    localStorage.removeItem('bcp_session_token');
+    sessionStorage.removeItem('elo_auth_token');
+    document.cookie = 'session_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  },
+
   // Native Auth: Register
   async register(email, password, displayName = '') {
     try {
@@ -782,3 +791,5 @@ window.api = {
     });
   }
 };
+
+window.API = window.api;
