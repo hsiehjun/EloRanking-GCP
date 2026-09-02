@@ -3729,8 +3729,25 @@ if FASTAPI_AVAILABLE:
 """
 
     async def proxy_gdm_asset(rel_path: str, query: str = "") -> Response:
-        """Proxies static chunks, CSS, fonts, and images from upstream GDM with in-memory caching."""
+        """Serves static chunks, CSS, fonts, and images from local disk, falling back to upstream if missing."""
         cache_key = rel_path.lstrip("/")
+
+        # 1. Check local static directory web/tracker/static/
+        local_tracker_file = web_dir / "tracker" / "static" / cache_key
+        if local_tracker_file.is_file():
+            c_type = "application/javascript" if cache_key.endswith(".js") else ("text/css" if cache_key.endswith(".css") else None)
+            hdrs = {
+                "Cache-Control": "public, max-age=31536000, immutable" if "/_next/static/" in cache_key else "public, max-age=3600",
+                "Access-Control-Allow-Origin": "*"
+            }
+            return FileResponse(str(local_tracker_file), media_type=c_type, headers=hdrs)
+
+        # 2. Check general web directory
+        local_web_file = web_dir / cache_key
+        if local_web_file.is_file():
+            return FileResponse(str(local_web_file))
+
+        # 3. Fallback to upstream proxy with in-memory caching
         full_cache_key = f"{cache_key}?{query}" if query else cache_key
         if full_cache_key in GDM_STATIC_CACHE:
             body, c_type, hdrs = GDM_STATIC_CACHE[full_cache_key]
@@ -3755,32 +3772,18 @@ if FASTAPI_AVAILABLE:
 
         try:
             content, c_type = await asyncio.to_thread(_fetch)
-
-            # Patch React context state setter hook dynamically in JS chunk stream
-            if cache_key.endswith(".js") and b"gdm-11e-tracker-state" in content:
-                txt = content.decode("utf-8", errors="ignore")
-                txt = txt.replace(
-                    "P(d()),j(!0)",
-                    "P(d()),j(!0),window.__gdmSetTrackerState=function(e){try{k(M(e))}catch(err){console.error('StateSync err:',err)}},window.addEventListener('gdm-state-sync',function(e){if(e.detail&&window.__gdmSetTrackerState)window.__gdmSetTrackerState(e.detail)})"
-                )
-                txt = re.sub(r"function C\(e\)\{return.*?\}", "function C(e){return!0}", txt)
-                content = txt.encode("utf-8")
-
             hdrs = {
                 "Cache-Control": "public, max-age=31536000, immutable" if "/_next/static/" in cache_key else "public, max-age=3600",
                 "Access-Control-Allow-Origin": "*"
             }
-
-            if "/_next/static/" in cache_key or cache_key.endswith((".woff2", ".png", ".svg", ".ico", ".jpg", ".jpeg", ".webp", ".gif", ".avif")):
-                GDM_STATIC_CACHE[full_cache_key] = (content, c_type, hdrs)
-
+            GDM_STATIC_CACHE[full_cache_key] = (content, c_type, hdrs)
             return Response(content=content, media_type=c_type, headers=hdrs)
         except Exception as e:
-            logger.error(f"Error proxying GDM asset {url}: {e}")
+            logger.error(f"Error serving tracker asset {url}: {e}")
             raise HTTPException(status_code=404, detail="Asset not found")
 
     async def proxy_gdm_html(path: str, request: Request) -> Response:
-        """Proxies upstream GDM HTML page and injects the live multiplayer bridge script."""
+        """Serves frozen local Tracker HTML page with live multiplayer bridge, falling back to upstream if needed."""
         # Enforce SSO authentication on all Tracker routes
         if "tracker" in path.lower():
             auth_mgr = get_auth_manager()
@@ -3793,6 +3796,31 @@ if FASTAPI_AVAILABLE:
                     redirect_target += f"?{request.url.query}"
                 return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
 
+        # 1. Serve local frozen HTML if available
+        is_play_page = "play" in path.lower()
+        body_class = "is-tracker-play" if is_play_page else "is-tracker-lobby"
+        local_html_file = (web_dir / "tracker" / "play.html") if is_play_page else (web_dir / "tracker" / "lobby.html")
+
+        if local_html_file.is_file():
+            try:
+                content = local_html_file.read_text(encoding="utf-8")
+                if "<body" in content:
+                    if 'class="' in content[content.find("<body"):content.find("<body") + 50]:
+                        content = re.sub(r'(<body[^>]*class=")([^"]*)(")', rf'\1\2 {body_class}\3', content, count=1)
+                    else:
+                        content = re.sub(r'<body(\s*[^>]*)>', rf'<body\1 class="{body_class}">', content, count=1)
+                return HTMLResponse(
+                    content=content,
+                    status_code=200,
+                    headers={
+                        "Content-Type": "text/html; charset=utf-8",
+                        "Cache-Control": "no-cache, must-revalidate"
+                    }
+                )
+            except Exception as e:
+                logger.warning(f"Failed to read local tracker HTML {local_html_file}: {e}")
+
+        # 2. Fallback to upstream proxy if needed
         url = f"{GDM_UPSTREAM}/{path.lstrip('/')}"
 
         def _fetch():
@@ -3813,13 +3841,10 @@ if FASTAPI_AVAILABLE:
             else:
                 modified_html = f"{BRIDGE_INJECTION_HTML}\n{raw_html}"
 
-            # Brand customization: replace GDM app branding in HTML
             modified_html = re.sub(r'<title>.*?</title>', '<title>Game Tracker | Warhammer 40,000 Elo Rankings</title>', modified_html, flags=re.IGNORECASE)
             modified_html = re.sub(r'content="GDM[^"]*"', 'content="40k Elo"', modified_html)
             modified_html = modified_html.replace('content="Game Day - Tabletop App"', 'content="Warhammer 40,000 Elo Game Tracker"')
 
-            is_play_page = "play" in path.lower()
-            body_class = "is-tracker-play" if is_play_page else "is-tracker-lobby"
             if "<body" in modified_html:
                 if 'class="' in modified_html[modified_html.find("<body"):modified_html.find("<body") + 50]:
                     modified_html = re.sub(r'(<body[^>]*class=")([^"]*)(")', rf'\1\2 {body_class}\3', modified_html, count=1)
