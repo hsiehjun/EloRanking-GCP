@@ -21,8 +21,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=63.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=17.0">
+  <link rel="stylesheet" href="/css/styles.css?v=64.0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=18.0">
 
   <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
   <script>
@@ -75,12 +75,12 @@
         </div>
 
         <div style="display:flex; align-items:center; gap:0.65rem;">
-          <button onclick="setAuthCardTab('login'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="nav-btn" style="padding: 6px 14px; font-size: 0.82rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(15,23,42,0.6); cursor: pointer;">
+          <a href="/login?redirect=/" class="nav-btn" style="padding: 6px 14px; font-size: 0.82rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: rgba(15,23,42,0.6); cursor: pointer; text-decoration: none;">
             Sign In
-          </button>
-          <button onclick="setAuthCardTab('register'); document.getElementById('landing-auth-card-anchor').scrollIntoView({behavior: 'smooth'});" class="auth-submit-btn" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800;">
+          </a>
+          <a href="/login?mode=register&redirect=/" class="auth-submit-btn" style="padding: 6px 16px; font-size: 0.82rem; font-weight: 800; text-decoration: none;">
             ⚡ Create Account
-          </button>
+          </a>
         </div>
       </div>
     </header>
@@ -125,123 +125,86 @@
             <div class="landing-stat-lbl">Live Game Tracker</div>
           </div>
         </div>
+
+        <!-- Call-to-Action Buttons -->
+        <div style="display: flex; gap: 0.85rem; align-items: center; margin-top: 1.75rem; flex-wrap: wrap;">
+          <a href="/login?mode=register&redirect=/" class="auth-submit-btn" style="padding: 0.75rem 1.6rem; font-size: 0.92rem; font-weight: 800; text-decoration: none; border-radius: 10px; box-shadow: 0 4px 20px rgba(56,189,248,0.3);">
+            ⚡ Create Free Account
+          </a>
+          <a href="/login?redirect=/" class="nav-btn" style="padding: 0.75rem 1.4rem; font-size: 0.88rem; font-weight: 700; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(15,23,42,0.7); text-decoration: none;">
+            🔑 Sign In to OmniTactica
+          </a>
+        </div>
       </div>
 
-      <!-- Hero Right: Unified Auth Card (Login / Register / 2FA Verify / Forgot Password) -->
+      <!-- Hero Right: Tactical Intelligence Cockpit Showcase Preview -->
       <div class="landing-hero-right">
-        <div class="landing-auth-card">
-          <!-- Auth Tab Switcher -->
-          <div class="landing-auth-tabs">
-            <button id="auth-tab-btn-login" class="landing-auth-tab active" onclick="setAuthCardTab('login')">
-              🔑 Sign In
-            </button>
-            <button id="auth-tab-btn-register" class="landing-auth-tab" onclick="setAuthCardTab('register')">
-              ⚡ Create Account
-            </button>
+        <div style="background: linear-gradient(180deg, #0d1527 0%, #080d1a 100%); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 20px; padding: 1.75rem; box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 40px rgba(56,189,248,0.1); position: relative; overflow: hidden;">
+          <!-- Glowing decorative accent -->
+          <div style="position: absolute; top: 0; right: 0; width: 140px; height: 140px; background: radial-gradient(circle, rgba(56,189,248,0.18) 0%, transparent 70%); pointer-events: none;"></div>
+
+          <!-- Header badge of preview -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.85rem;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 1.2rem;">📡</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 800; color: #38bdf8; letter-spacing: 0.08em; text-transform: uppercase;">Live Meta Telemetry</span>
+            </div>
+            <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.72rem; color: #22c55e; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); padding: 2px 8px; border-radius: 9999px; font-family: 'JetBrains Mono', monospace;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 6px #22c55e;"></span> ONLINE
+            </span>
           </div>
 
-          <div class="landing-auth-body">
-            <!-- VIEW 1: SIGN IN -->
-            <form id="auth-form-login" onsubmit="handleNativeLogin(event)" autocomplete="off">
-              <div style="margin-bottom: 1rem;">
-                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
-                <input type="email" id="login-email" class="form-input" placeholder="commander@example.com" required autocomplete="off" style="width: 100%;">
+          <!-- Card Item 1: Competitor Profile Preview -->
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1rem; margin-bottom: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Competitor Dossier</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-top: 2px;">Chapter Master Titus</div>
+                <div style="font-size: 0.75rem; color: #38bdf8;">Space Marines (Gladius Task Force)</div>
               </div>
-              <div style="margin-bottom: 0.5rem;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-                  <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Password</label>
-                  <a href="#" onclick="setAuthCardTab('forgot'); return false;" style="font-size: 0.74rem; color: #38bdf8; text-decoration: none;">Forgot?</a>
-                </div>
-                <input type="password" id="login-password" class="form-input" placeholder="••••••••••••" required autocomplete="new-password" style="width: 100%;">
-              </div>
-
-              <div id="login-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
-
-              <button type="submit" id="login-submit-btn" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
-                Sign In to OmniTactica
-              </button>
-              
-              <div style="font-size: 0.75rem; color: #64748b; text-align: center; margin-top: 1rem;">
-                Don't have an account? <a href="#" onclick="setAuthCardTab('register'); return false;" style="color: #38bdf8; font-weight: 700; text-decoration: none;">Create free account</a>
-              </div>
-            </form>
-
-            <!-- VIEW 2: CREATE ACCOUNT (Initiates 2FA) -->
-            <form id="auth-form-register" onsubmit="handleNativeRegister(event)" autocomplete="off" style="display: none;">
-              <div style="margin-bottom: 0.85rem;">
-                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Competitor / Display Name</label>
-                <input type="text" id="reg-name" class="form-input" placeholder="e.g. Captain Titus" required autocomplete="off" style="width: 100%;">
-                <span style="font-size: 0.7rem; color: #64748b; margin-top: 2px; display: block;">Automatically matches your historical tournament ratings</span>
-              </div>
-              <div style="margin-bottom: 0.85rem;">
-                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
-                <input type="email" id="reg-email" class="form-input" placeholder="commander@example.com" required autocomplete="off" style="width: 100%;">
-              </div>
-              <div style="margin-bottom: 0.5rem;">
-                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Password (Min 6 chars)</label>
-                <input type="password" id="reg-password" class="form-input" placeholder="••••••••••••" minlength="6" required autocomplete="new-password" style="width: 100%;">
-              </div>
-
-              <div id="reg-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin: 0.75rem 0;"></div>
-
-              <button type="submit" id="reg-submit-btn" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700; margin-top: 1rem;">
-                ⚡ Create Account (Send 2FA Code)
-              </button>
-
-              <div style="font-size: 0.72rem; color: #64748b; text-align: center; margin-top: 0.85rem; line-height: 1.4;">
-                🛡️ A 6-digit email verification code will be sent to activate your account.
-              </div>
-            </form>
-
-            <!-- VIEW 3: 2FA CODE VERIFICATION -->
-            <div id="auth-form-verify" style="display: none; text-align: center;">
-              <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">📬</div>
-              <h4 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 0.3rem;">Verify Your Email</h4>
-              <p style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 1.25rem; line-height: 1.45;">
-                We sent a 6-digit activation code to<br><strong id="verify-email-target" style="color: #38bdf8;">your email</strong>
-              </p>
-
-              <div style="margin-bottom: 1rem; text-align: left;">
-                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.4rem; text-align: center;">
-                  Enter 6-Digit Code
-                </label>
-                <input type="text" id="verify-code-input" maxlength="6" class="form-input" placeholder="123456" autocomplete="one-time-code" style="font-size: 1.7rem; font-family: 'JetBrains Mono', monospace; font-weight: 800; letter-spacing: 8px; text-align: center; color: #38bdf8; width: 100%;">
-              </div>
-
-              <div id="verify-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
-
-              <button type="button" id="btn-submit-verify" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleVerifyRegistrationCode()">
-                ✓ Activate Account & Enter
-              </button>
-
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.15rem; font-size: 0.78rem;">
-                <button type="button" id="btn-resend-code" onclick="handleResendVerificationCode()" style="background: none; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline; padding: 0;">Resend Code</button>
-                <button type="button" onclick="setAuthCardTab('register')" style="background: none; border: none; color: #64748b; cursor: pointer; padding: 0;">Change Email</button>
-              </div>
-            </div>
-
-            <!-- VIEW 4: FORGOT PASSWORD -->
-            <div id="auth-form-forgot" style="display: none;">
-              <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">Reset Account Password</h4>
-              <p style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 1rem; line-height: 1.45;">Enter your registered email address. We will dispatch a 6-digit reset code.</p>
-
-              <div style="margin-bottom: 1rem;">
-                <label style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 0.35rem;">Email Address</label>
-                <input type="email" id="forgot-email" class="form-input" placeholder="commander@example.com" style="width: 100%;">
-              </div>
-
-              <div id="forgot-error" style="display: none; color: #ef4444; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
-              <div id="forgot-success" style="display: none; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); border-radius: 6px; padding: 0.55rem; font-size: 0.8rem; margin-bottom: 1rem;"></div>
-
-              <button type="button" id="btn-submit-forgot" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.92rem; font-weight: 700;" onclick="handleForgotPasswordSubmit()">
-                Send Password Reset Code
-              </button>
-
-              <div style="text-align: center; margin-top: 1rem;">
-                <a href="#" onclick="setAuthCardTab('login'); return false;" style="font-size: 0.75rem; color: #64748b; text-decoration: none;">← Back to Sign In</a>
+              <div style="text-align: right;">
+                <div style="font-family: 'JetBrains Mono', monospace; font-size: 1.35rem; font-weight: 900; color: #38bdf8;">1,842</div>
+                <div style="font-size: 0.68rem; color: #22c55e; font-weight: 700;">▲ World Rank #142</div>
               </div>
             </div>
           </div>
+
+          <!-- Card Item 2: Live Game Tracker State -->
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 1rem; margin-bottom: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+              <span style="font-size: 0.72rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">🎲 Live Game Tracker</span>
+              <span style="font-size: 0.72rem; color: #f59e0b; font-weight: 700; font-family: 'JetBrains Mono', monospace;">ROUND 3 // TURN 1</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; text-align: center;">
+              <div style="background: rgba(2, 132, 199, 0.12); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px; padding: 6px;">
+                <div style="font-size: 0.68rem; color: #94a3b8;">Primary VP</div>
+                <div style="font-size: 1.15rem; font-weight: 800; color: #fff;">28 / 50</div>
+              </div>
+              <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 8px; padding: 6px;">
+                <div style="font-size: 0.68rem; color: #94a3b8;">Secondary VP</div>
+                <div style="font-size: 1.15rem; font-weight: 800; color: #fff;">16 / 40</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card Item 3: Radar & Predictive Analysis -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem;">
+              <div style="font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Tournament Radar</div>
+              <div style="font-size: 0.88rem; font-weight: 800; color: #fff; margin-top: 2px;">3 Events &lt; 50 mi</div>
+              <div style="font-size: 0.68rem; color: #38bdf8;">Avg Field: 1,640 Elo</div>
+            </div>
+            <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0.75rem;">
+              <div style="font-size: 0.68rem; color: #94a3b8; text-transform: uppercase; font-weight: 700;">Win Prediction</div>
+              <div style="font-size: 0.88rem; font-weight: 800; color: #22c55e; margin-top: 2px;">64.2% Expected</div>
+              <div style="font-size: 0.68rem; color: #94a3b8;">vs Aeldari (Warhost)</div>
+            </div>
+          </div>
+
+          <!-- Action CTA inside Showcase Card -->
+          <a href="/login?mode=register&redirect=/" class="auth-submit-btn" style="width: 100%; justify-content: center; padding: 0.75rem; font-size: 0.88rem; font-weight: 800; text-decoration: none; border-radius: 10px;">
+            ⚡ Launch Your Competitive Profile
+          </a>
         </div>
       </div>
     </section>
@@ -1762,19 +1725,19 @@
   </div> <!-- #app-shell -->
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=63.0"></script>
-  <script src="/js/api.js?v=63.0"></script>
-  <script src="/js/leaderboard.js?v=63.0"></script>
-  <script src="/js/teams.js?v=63.0"></script>
-  <script src="/js/players.js?v=63.0"></script>
-  <script src="/js/tournaments.js?v=63.0"></script>
-  <script src="/js/factions.js?v=63.0"></script>
-  <script src="/js/predictor.js?v=63.0"></script>
-  <script src="/js/modals.js?v=63.0"></script>
-  <script src="/js/auth.js?v=63.0"></script>
-  <script src="/js/my_hub.js?v=63.0"></script>
-  <script src="/js/eventstudio.js?v=63.0"></script>
-  <script src="/js/app.js?v=63.0"></script>
+  <script src="/js/utils.js?v=64.0"></script>
+  <script src="/js/api.js?v=64.0"></script>
+  <script src="/js/leaderboard.js?v=64.0"></script>
+  <script src="/js/teams.js?v=64.0"></script>
+  <script src="/js/players.js?v=64.0"></script>
+  <script src="/js/tournaments.js?v=64.0"></script>
+  <script src="/js/factions.js?v=64.0"></script>
+  <script src="/js/predictor.js?v=64.0"></script>
+  <script src="/js/modals.js?v=64.0"></script>
+  <script src="/js/auth.js?v=64.0"></script>
+  <script src="/js/my_hub.js?v=64.0"></script>
+  <script src="/js/eventstudio.js?v=64.0"></script>
+  <script src="/js/app.js?v=64.0"></script>
 
       <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">

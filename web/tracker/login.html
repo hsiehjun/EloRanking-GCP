@@ -186,23 +186,23 @@
     </div>
 
     <!-- MAIN LOGIN / REGISTER FORM -->
-    <form id="main-auth-form" class="login-body" onsubmit="handleSubmit(event)">
+    <form id="main-auth-form" class="login-body" onsubmit="handleSubmit(event)" autocomplete="off">
       <div id="auth-error" class="alert-error"></div>
       <div id="auth-success" class="alert-success"></div>
 
       <div id="name-group" class="form-group" style="display: none;">
         <label>Player Handle / Display Name</label>
-        <input id="auth-name" type="text" placeholder="e.g. Captain Titus" />
+        <input id="auth-name" type="text" placeholder="e.g. Captain Titus" autocomplete="off" />
       </div>
 
       <div class="form-group">
         <label>Email Address</label>
-        <input id="auth-email" type="email" required placeholder="player@chapter.com" />
+        <input id="auth-email" type="email" required placeholder="player@chapter.com" autocomplete="off" />
       </div>
 
       <div class="form-group">
         <label>Password</label>
-        <input id="auth-password" type="password" required placeholder="••••••••" />
+        <input id="auth-password" type="password" required placeholder="••••••••" autocomplete="new-password" />
       </div>
 
       <div id="forgot-link-row" style="display: flex; justify-content: flex-end; margin-top: -6px; margin-bottom: 14px;">
@@ -214,9 +214,43 @@
       <button id="btn-submit" type="submit" class="btn-submit">LOGIN</button>
 
       <div class="hub-link">
-        <a href="/">❮ Return to Elo Leaderboard</a>
+        <a href="/">❮ Return to OmniTactica Home</a>
       </div>
     </form>
+
+    <!-- EMAIL 2FA VERIFICATION STAGE -->
+    <div id="verify-auth-form" class="login-body" style="display: none; text-align: center;">
+      <div style="font-size: 38px; margin-bottom: 8px;">📬</div>
+      <h3 style="font-family: 'Cinzel', serif; font-size: 18px; color: #fff; margin-bottom: 6px;">VERIFY YOUR EMAIL</h3>
+      <div style="font-size: 13px; color: #94a3b8; line-height: 1.5; margin-bottom: 18px;">
+        We sent a 6-digit activation code to<br><strong id="verify-email-display" style="color: #38bdf8;"></strong>
+      </div>
+
+      <div id="verify-error" class="alert-error"></div>
+      <div id="verify-success" class="alert-success"></div>
+
+      <div class="form-group" style="text-align: left;">
+        <label style="text-align: center;">Enter 6-Digit Code</label>
+        <input id="verify-code" type="text" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="font-family: 'JetBrains Mono', monospace; font-size: 22px; letter-spacing: 6px; text-align: center; color: #38bdf8; width: 100%; padding: 12px; background: #070b14; border: 1px solid #1e293b; border-radius: 10px; outline: none;" />
+      </div>
+
+      <button id="btn-do-verify" type="button" onclick="handleVerifyRegistration()" class="btn-submit">
+        ACTIVATE ACCOUNT & ENTER
+      </button>
+
+      <div style="display: flex; justify-content: space-between; margin-top: 16px; font-size: 12px;">
+        <button type="button" id="btn-resend-code" onclick="handleResendVerificationCode()" style="background: transparent; border: none; color: #38bdf8; cursor: pointer; text-decoration: underline;">
+          Resend Code
+        </button>
+        <button type="button" onclick="switchTab('register')" style="background: transparent; border: none; color: #94a3b8; cursor: pointer;">
+          Change Email
+        </button>
+      </div>
+
+      <div class="hub-link" style="margin-top: 20px;">
+        <a href="/">❮ Return to OmniTactica Home</a>
+      </div>
+    </div>
 
     <!-- FORGOT / RESET PASSWORD FORM -->
     <div id="forgot-auth-form" class="login-body" style="display: none;">
@@ -294,10 +328,16 @@
   <script>
     let activeTab = 'login';
     let resetTokenFromUrl = '';
+    let pendingVerifyEmail = '';
     const params = new URLSearchParams(window.location.search);
-    const redirectUrl = params.get('redirect') || '/11th/tracker';
+    const redirectUrl = params.get('redirect') || '/';
 
     (function checkExistingSession() {
+      const mode = params.get('mode') || params.get('auth');
+      if (mode === 'register') {
+        switchTab('register');
+      }
+
       // Check if user came from a password reset email link
       const urlToken = params.get('token');
       const urlCode = params.get('code');
@@ -347,6 +387,16 @@
       if (success) success.style.display = 'none';
       if (forgotErr) forgotErr.style.display = 'none';
       if (forgotSuccess) forgotSuccess.style.display = 'none';
+
+      const verifyForm = document.getElementById('verify-auth-form');
+      if (verifyForm) verifyForm.style.display = 'none';
+      const verifyErr = document.getElementById('verify-error');
+      if (verifyErr) verifyErr.style.display = 'none';
+      const verifySuccess = document.getElementById('verify-success');
+      if (verifySuccess) verifySuccess.style.display = 'none';
+
+      const pass = document.getElementById('auth-password');
+      if (pass) pass.value = '';
 
       if (tab === 'login') {
         tabLog.className = 'tab-btn active';
@@ -609,6 +659,25 @@
           return;
         }
 
+        // If 2FA email verification is required
+        if (data.requires_verification) {
+          pendingVerifyEmail = email;
+          const vEmail = document.getElementById('verify-email-display');
+          if (vEmail) vEmail.textContent = email;
+          const mainForm = document.getElementById('main-auth-form');
+          const verifyForm = document.getElementById('verify-auth-form');
+          if (mainForm) mainForm.style.display = 'none';
+          if (verifyForm) verifyForm.style.display = 'block';
+          const codeInput = document.getElementById('verify-code');
+          if (codeInput) {
+            codeInput.value = '';
+            setTimeout(() => codeInput.focus(), 50);
+          }
+          btn.disabled = false;
+          btn.textContent = 'CREATE ACCOUNT';
+          return;
+        }
+
         const token = data.session_token || data.token;
         if (token) {
           localStorage.setItem('elo_auth_token', token);
@@ -620,6 +689,10 @@
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
         }
 
+        // Clear password before redirecting
+        const pass = document.getElementById('auth-password');
+        if (pass) pass.value = '';
+
         // Redirect to target destination
         window.location.href = redirectUrl;
       } catch (err) {
@@ -627,6 +700,119 @@
         errEl.style.display = 'block';
         btn.disabled = false;
         btn.textContent = activeTab === 'login' ? 'LOGIN' : 'CREATE ACCOUNT';
+      }
+    }
+
+    async function handleVerifyRegistration() {
+      const codeInput = document.getElementById('verify-code');
+      const errEl = document.getElementById('verify-error');
+      const successEl = document.getElementById('verify-success');
+      const btn = document.getElementById('btn-do-verify');
+
+      const code = codeInput ? codeInput.value.trim() : '';
+      if (!code || code.length < 6) {
+        if (errEl) {
+          errEl.textContent = 'Please enter the 6-digit verification code.';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (errEl) errEl.style.display = 'none';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'ACTIVATING ACCOUNT...';
+      }
+
+      try {
+        const resp = await fetch('/api/auth/verify-registration', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingVerifyEmail, code })
+        });
+        const data = await resp.json();
+        if (!resp.ok || !data.success) {
+          if (errEl) {
+            errEl.textContent = data.detail || data.error || 'Verification failed. Invalid or expired code.';
+            errEl.style.display = 'block';
+          }
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'ACTIVATE ACCOUNT & ENTER';
+          }
+          return;
+        }
+
+        if (successEl) {
+          successEl.textContent = '🎉 Account activated! Entering OmniTactica...';
+          successEl.style.display = 'block';
+        }
+
+        const token = data.session_token;
+        if (token) {
+          localStorage.setItem('elo_auth_token', token);
+          localStorage.setItem('native_session_token', token);
+          sessionStorage.setItem('elo_auth_token', token);
+          if (data.user) {
+            localStorage.setItem('native_user_profile', JSON.stringify(data.user));
+          }
+          document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
+        }
+
+        setTimeout(() => {
+          window.location.href = redirectUrl;
+        }, 800);
+      } catch (err) {
+        if (errEl) {
+          errEl.textContent = 'Connection error: ' + err.message;
+          errEl.style.display = 'block';
+        }
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'ACTIVATE ACCOUNT & ENTER';
+        }
+      }
+    }
+
+    async function handleResendVerificationCode() {
+      const btn = document.getElementById('btn-resend-code');
+      const errEl = document.getElementById('verify-error');
+      const successEl = document.getElementById('verify-success');
+
+      if (!pendingVerifyEmail) return;
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Sending...';
+      }
+
+      try {
+        const resp = await fetch('/api/auth/resend-verification', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: pendingVerifyEmail })
+        });
+        const data = await resp.json();
+        if (resp.ok && data.success) {
+          if (successEl) {
+            successEl.textContent = 'New verification code sent to your email!';
+            successEl.style.display = 'block';
+          }
+        } else {
+          if (errEl) {
+            errEl.textContent = data.detail || data.error || 'Failed to resend code.';
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (e) {
+        if (errEl) {
+          errEl.textContent = 'Error: ' + e.message;
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Resend Code';
+        }
       }
     }
 

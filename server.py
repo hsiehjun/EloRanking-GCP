@@ -3503,8 +3503,10 @@ if FASTAPI_AVAILABLE:
     @app.get("/login", include_in_schema=False)
     @app.get("/tracker/login", include_in_schema=False)
     async def serve_login(redirect: Optional[str] = Query(None)):
-        redir_param = f"&redirect={redirect}" if redirect else ""
-        return RedirectResponse(url=f"/?auth=login{redir_param}", status_code=303)
+        login_file = web_dir / "tracker" / "login.html"
+        if login_file.exists():
+            return FileResponse(str(login_file), media_type="text/html")
+        raise HTTPException(status_code=404, detail="login.html not found")
 
     @app.get("/my-hub", include_in_schema=False)
     @app.get("/hub", include_in_schema=False)
@@ -3514,7 +3516,7 @@ if FASTAPI_AVAILABLE:
         session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         if not user:
-            return RedirectResponse(url="/?auth=login&redirect=/#my-hub", status_code=303)
+            return RedirectResponse(url="/login?redirect=/#my-hub", status_code=303)
         return RedirectResponse(url="/#my-hub", status_code=303)
 
     @app.get("/tracker", include_in_schema=False)
@@ -3525,7 +3527,7 @@ if FASTAPI_AVAILABLE:
         session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         if not user:
-            return RedirectResponse(url="/?auth=login&redirect=/11th/tracker", status_code=303)
+            return RedirectResponse(url="/login?redirect=/11th/tracker", status_code=303)
         return RedirectResponse(url="/11th/tracker", status_code=303)
 
     @app.get("/tracker/play", include_in_schema=False)
@@ -3665,7 +3667,7 @@ if FASTAPI_AVAILABLE:
         session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         if not user:
-            return RedirectResponse(url="/?auth=login&redirect=/#event-studio", status_code=303)
+            return RedirectResponse(url="/login?redirect=/#event-studio", status_code=303)
         es_file = web_dir / "eventstudio.html"
         if es_file.exists():
             return FileResponse(str(es_file), media_type="text/html")

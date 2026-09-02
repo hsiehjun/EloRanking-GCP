@@ -303,10 +303,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (!currentUser) {
     const params = new URLSearchParams(window.location.search);
     const authAction = params.get('auth');
-    if (authAction === 'register' && typeof setAuthCardTab === 'function') {
-      setAuthCardTab('register');
-    } else if (authAction === 'login' && typeof setAuthCardTab === 'function') {
-      setAuthCardTab('login');
+    if (authAction === 'register') {
+      window.location.replace('/login?mode=register');
+      return;
+    } else if (authAction === 'login') {
+      window.location.replace('/login');
+      return;
     }
     return;
   }
