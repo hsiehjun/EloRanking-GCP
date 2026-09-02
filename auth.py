@@ -141,6 +141,8 @@ class AuthManager:
                         updated_at TIMESTAMPTZ DEFAULT NOW()
                     );
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
+                    ALTER TABLE users ALTER COLUMN role SET DEFAULT 'player';
+                    UPDATE users SET role = 'player' WHERE role != 'player' AND LOWER(email) NOT IN ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com');
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
@@ -449,8 +451,8 @@ class AuthManager:
                         inviter_id = c_row.get("created_by_user_id")
 
                 cur.execute("""
-                INSERT INTO users (id, email, password_hash, display_name, player_id, invited_by_user_id, invite_code_used, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW());
+                INSERT INTO users (id, email, password_hash, display_name, role, player_id, invited_by_user_id, invite_code_used, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, 'player', %s, %s, %s, NOW(), NOW());
                 """, (user_id, email, pw_hash, display_name, player_id, inviter_id, invite_code))
 
                 # Track redemption and increment count
@@ -713,14 +715,24 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     data["session_token"] = session_token
-                    data["role"] = data.get("role") or "player"
                     user_email = (data.get("email") or "").strip().lower()
-                    if user_email in ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com'):
-                        if data["role"] != "admin":
-                            data["role"] = "admin"
+                    admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+                    original_role = str(row.get("role") or "").strip().lower()
+                    if user_email in admin_emails:
+                        data["role"] = "admin"
+                        if original_role != "admin":
                             try:
                                 with conn.cursor() as up_cur:
                                     up_cur.execute("UPDATE users SET role = 'admin' WHERE id = %s;", (data.get("id"),))
+                                    conn.commit()
+                            except Exception:
+                                pass
+                    else:
+                        data["role"] = "player"
+                        if original_role != "player":
+                            try:
+                                with conn.cursor() as up_cur:
+                                    up_cur.execute("UPDATE users SET role = 'player' WHERE id = %s;", (data.get("id"),))
                                     conn.commit()
                             except Exception:
                                 pass
@@ -756,14 +768,24 @@ class AuthManager:
                 row = cur.fetchone()
                 if row:
                     data = dict(row)
-                    data["role"] = data.get("role") or "player"
                     user_email = (data.get("email") or "").strip().lower()
-                    if user_email in ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com'):
-                        if data["role"] != "admin":
-                            data["role"] = "admin"
+                    admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+                    original_role = str(row.get("role") or "").strip().lower()
+                    if user_email in admin_emails:
+                        data["role"] = "admin"
+                        if original_role != "admin":
                             try:
                                 with conn.cursor() as up_cur:
                                     up_cur.execute("UPDATE users SET role = 'admin' WHERE id = %s;", (data.get("id"),))
+                                    conn.commit()
+                            except Exception:
+                                pass
+                    else:
+                        data["role"] = "player"
+                        if original_role != "player":
+                            try:
+                                with conn.cursor() as up_cur:
+                                    up_cur.execute("UPDATE users SET role = 'player' WHERE id = %s;", (data.get("id"),))
                                     conn.commit()
                             except Exception:
                                 pass
