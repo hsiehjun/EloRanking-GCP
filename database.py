@@ -2721,6 +2721,9 @@ class PostgresDatabase:
                     results = []
                     for r in rows:
                         item = dict(r)
+                        for d_key in ("event_date", "end_date", "scraped_at", "created_at"):
+                            if item.get(d_key) and hasattr(item[d_key], "isoformat"):
+                                item[d_key] = item[d_key].isoformat()
                         roster = item.get("roster") or []
                         item["roster_count"] = len(roster) if isinstance(roster, list) else 0
                         results.append(item)
@@ -2814,6 +2817,10 @@ class PostgresDatabase:
                             })
                         ev["pairings"] = pairings_dict
 
+                for d_key in ("event_date", "end_date", "scraped_at", "created_at"):
+                    if ev.get(d_key) and hasattr(ev[d_key], "isoformat"):
+                        ev[d_key] = ev[d_key].isoformat()
+
                 return ev
 
     def save_studio_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -2849,11 +2856,11 @@ class PostgresDatabase:
             
         team_size = int(event_data.get("team_size") or event_data.get("teamSize") or default_ts)
         circuits = event_data.get("circuits") or []
-        circuits_json = json.dumps(circuits if isinstance(circuits, list) else [])
+        circuits_json = json.dumps(circuits if isinstance(circuits, list) else [], default=str)
         
-        roster_json = json.dumps(event_data.get("roster") or [])
-        pairings_json = json.dumps(event_data.get("pairings") or {})
-        raw_json = json.dumps(event_data.get("raw_json") or event_data)
+        roster_json = json.dumps(event_data.get("roster") or [], default=str)
+        pairings_json = json.dumps(event_data.get("pairings") or {}, default=str)
+        raw_json = json.dumps(event_data.get("raw_json") or event_data, default=str)
 
         with self.get_connection() as conn:
             with conn.cursor() as cursor:

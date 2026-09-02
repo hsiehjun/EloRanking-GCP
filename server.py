@@ -623,7 +623,9 @@ if FASTAPI_AVAILABLE:
 
         is_doubles_local = payload.event_type == "Doubles Event"
         is_teams_local = payload.event_type == "Teams Event" or is_doubles_local
-        team_sz_local = int(payload.team_size or (2 if is_doubles_local else (5 if is_teams_local else 1)))
+        now_date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        start_date_str = str(payload.start_date or now_date_str)
+        end_date_str = str(payload.end_date or start_date_str)
 
         saved = db.save_studio_event({
             "id": event_id,
@@ -632,8 +634,8 @@ if FASTAPI_AVAILABLE:
             "event_type": "doubles" if is_doubles_local else ("teams" if is_teams_local else "singles"),
             "team_size": team_sz_local,
             "circuits": circuits_list,
-            "event_date": payload.start_date or datetime.now(timezone.utc),
-            "end_date": payload.end_date or payload.start_date or datetime.now(timezone.utc),
+            "event_date": start_date_str,
+            "end_date": end_date_str,
             "city": payload.city,
             "state": payload.state,
             "country": payload.country,

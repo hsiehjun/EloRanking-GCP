@@ -63,41 +63,24 @@ function updateStudioAuthBadge() {
   const mainViews = document.querySelectorAll("#es-view-events, #es-view-create, #es-view-manage");
   const headerCreateBtns = document.querySelectorAll("#btn-sync-bcp-events, .es-create-tourney-btn");
 
-  if (!isBcpConnected) {
+  const isLoggedIn = !!(user || (token && token.length > 20) || (typeof API !== 'undefined' && API.getAuthToken()));
+
+  if (!isLoggedIn) {
     lockedGates.forEach(g => {
       g.style.display = "block";
-      if (!user) {
-        g.innerHTML = `
-          <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔑</div>
-          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Sign In to OmniTactica</h3>
-          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
-            Event Studio is the dedicated Tournament Director suite. Please sign in or create an account to organize tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
-          </p>
-          <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-            <a href="/login?redirect=%2F%23event-studio" class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;">🔑 Sign In / Register</a>
-            <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
-          </div>
-        `;
-      } else {
-        g.innerHTML = `
-          <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔒</div>
-          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Best Coast Pairings Link Required</h3>
-          <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
-            Event Studio is the dedicated Tournament Director suite for Best Coast Pairings. Link your BCP account to organize official tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
-          </p>
-          <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Link BCP Account</button>
-            <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
-          </div>
-        `;
-      }
+      g.innerHTML = `
+        <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔑</div>
+        <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Sign In to OmniTactica</h3>
+        <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
+          Event Studio is the dedicated Tournament Director suite. Please sign in or create an account to organize tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
+        </p>
+        <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+          <a href="/login?redirect=%2F%23event-studio" class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;">🔑 Sign In / Register</a>
+          <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
+        </div>
+      `;
     });
     mainViews.forEach(v => { v.style.display = "none"; });
-    headerCreateBtns.forEach(b => {
-      b.disabled = true;
-      b.style.opacity = "0.4";
-      b.style.cursor = "not-allowed";
-    });
   } else {
     lockedGates.forEach(g => { g.style.display = "none"; });
     headerCreateBtns.forEach(b => {
@@ -105,7 +88,7 @@ function updateStudioAuthBadge() {
       b.style.opacity = "1";
       b.style.cursor = "pointer";
     });
-    // If on events tab, show events directory
+    // If on events tab or unselected, show events directory
     if (studioState.activeTab === 'events' || !studioState.activeTab) {
       const evView = document.getElementById("es-view-events");
       if (evView) evView.style.display = "block";
@@ -202,12 +185,8 @@ async function loadStudioEvents() {
 }
 
 function switchStudioTab(tabName, eventId = null) {
-  if (typeof switchTab === 'function') switchTab('event-studio');
-
-  // Enforce BCP link requirement
-  if (!studioState.bcpConnected && tabName !== 'events') {
-    openBcpLinkModal();
-    return;
+  if (typeof switchTab === 'function' && typeof activeTab !== 'undefined' && activeTab !== 'event-studio') {
+    switchTab('event-studio');
   }
 
   studioState.activeTab = tabName || 'events';
@@ -219,6 +198,9 @@ function switchStudioTab(tabName, eventId = null) {
       el.style.display = (v === studioState.activeTab) ? "block" : "none";
     }
   });
+
+  const lockedGates = document.querySelectorAll("#es-locked-gate");
+  lockedGates.forEach(g => { g.style.display = "none"; });
 
   if (studioState.activeTab === "events") {
     renderEventsDirectory();
