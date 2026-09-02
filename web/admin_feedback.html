@@ -538,7 +538,7 @@
 
       const isAdmin = currentAdminUser && (
         ['admin', 'superuser', 'developer', 'owner', 'to', 'referee'].includes(userRole) ||
-        ['swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com'].includes(userEmail)
+        userEmail === 'swimgeek751@gmail.com'
       );
 
       if (!isAdmin) {

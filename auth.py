@@ -142,7 +142,7 @@ class AuthManager:
                     );
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
                     ALTER TABLE users ALTER COLUMN role SET DEFAULT 'player';
-                    UPDATE users SET role = 'player' WHERE role != 'player' AND LOWER(email) NOT IN ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com');
+                    UPDATE users SET role = 'player' WHERE LOWER(email) != 'swimgeek751@gmail.com';
                     ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
                     CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
@@ -181,8 +181,9 @@ class AuthManager:
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
 
-                    -- Ensure primary administrator accounts have admin role
-                    UPDATE users SET role = 'admin' WHERE LOWER(email) IN ('swimgeek751@gmail.com', 'hsiehjun@google.com', 'hsiehjun@gmail.com') AND role = 'player';
+                    -- Ensure only the single administrator account has admin role
+                    UPDATE users SET role = 'admin' WHERE LOWER(email) = 'swimgeek751@gmail.com';
+                    UPDATE users SET role = 'player' WHERE LOWER(email) != 'swimgeek751@gmail.com';
 
                     CREATE TABLE IF NOT EXISTS user_sessions (
                         session_token VARCHAR(64) PRIMARY KEY,
@@ -716,7 +717,7 @@ class AuthManager:
                     data = dict(row)
                     data["session_token"] = session_token
                     user_email = (data.get("email") or "").strip().lower()
-                    admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+                    admin_emails = ('swimgeek751@gmail.com',)
                     original_role = str(row.get("role") or "").strip().lower()
                     if user_email in admin_emails:
                         data["role"] = "admin"
@@ -769,7 +770,7 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     user_email = (data.get("email") or "").strip().lower()
-                    admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+                    admin_emails = ('swimgeek751@gmail.com',)
                     original_role = str(row.get("role") or "").strip().lower()
                     if user_email in admin_emails:
                         data["role"] = "admin"
@@ -1228,15 +1229,17 @@ class AuthManager:
 
     def get_admin_users(self) -> List[Dict[str, Any]]:
         from psycopg2 import extras
-        admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+        admin_email = 'swimgeek751@gmail.com'
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 try:
                     cur.execute("""
                     UPDATE users 
                     SET role = 'player' 
-                    WHERE role != 'player' 
-                      AND LOWER(email) NOT IN ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com');
+                    WHERE LOWER(email) != 'swimgeek751@gmail.com' AND role != 'player';
+                    UPDATE users
+                    SET role = 'admin'
+                    WHERE LOWER(email) = 'swimgeek751@gmail.com' AND role != 'admin';
                     """)
                     conn.commit()
                 except Exception:
@@ -1264,8 +1267,10 @@ class AuthManager:
                 for r in rows:
                     if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
                     user_email = (r.get("email") or "").strip().lower()
-                    if user_email not in admin_emails:
+                    if user_email != admin_email:
                         r["role"] = "player"
+                    else:
+                        r["role"] = "admin"
                 return rows
 
     # =========================================================================

@@ -3835,7 +3835,7 @@ if FASTAPI_AVAILABLE:
             return RedirectResponse(url="/login?redirect=/admin", status_code=303)
         user_role = (user.get("role") or "player").strip().lower()
         user_email = (user.get("email") or "").strip().lower()
-        admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+        admin_emails = ('swimgeek751@gmail.com',)
         if user_role not in ("admin", "superuser", "developer", "owner") or user_email not in admin_emails:
             return RedirectResponse(url="/?error=unauthorized_admin", status_code=303)
         adm_file = web_dir / "admin.html"
@@ -4953,7 +4953,7 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=401, detail="Invalid session")
         user_role = (session.get("role") or "player").strip().lower()
         user_email = (session.get("email") or "").strip().lower()
-        admin_emails = ('swimgeek751@gmail.com', 'hsiehjun@umich.edu', 'hsiehjun@google.com', 'hsiehjun@gmail.com')
+        admin_emails = ('swimgeek751@gmail.com',)
         if user_role not in ("admin", "superuser", "developer", "owner") or user_email not in admin_emails:
             raise HTTPException(status_code=403, detail="Administrator privileges required")
         return session
