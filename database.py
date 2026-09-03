@@ -4651,7 +4651,7 @@ class PostgresDatabase:
             effective_radius,
             days_ahead
         )
-        cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, ttl=180)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, ttl=300)
         if cached is not None:
             return list(cached)
 
@@ -4682,18 +4682,20 @@ class PostgresDatabase:
         raw_events = []
         next_key = None
 
-        for _ in range(4):  # Up to 200 events across 4 pages
+        for _ in range(2):  # Cap to 2 pages (up to 100 events) - page 1 has 50, UI displays up to 35
             if next_key:
                 params["nextKey"] = next_key
             url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
             try:
                 req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=4.5) as resp:
+                with urllib.request.urlopen(req, timeout=3.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
                     evs = data.get("data", [])
                     if not evs:
                         break
                     raw_events.extend(evs)
+                    if len(raw_events) >= 35:
+                        break
                     next_key = data.get("nextKey")
                     if not next_key:
                         break
@@ -4843,11 +4845,36 @@ class PostgresDatabase:
                 user_lat = None
                 user_lng = None
 
-        # Safeguard against stale client form defaults:
-        # If lat/lng roughly equal default San Diego (32.7157, -117.1611) but location_name specifies a different city
+        # Safeguard against stale client form coordinates / city mismatches:
+        # If user_lat and user_lng are provided along with location_name:
         if user_lat is not None and user_lng is not None and location_name:
             loc_lower = location_name.strip().lower()
-            if abs(user_lat - 32.7157) < 0.005 and abs(user_lng - (-117.1611)) < 0.005:
+            first_tok = loc_lower.split(',')[0].strip()
+            matched_hub = None
+            if loc_lower in self.KNOWN_COMMUNITY_HUBS:
+                matched_hub = self.KNOWN_COMMUNITY_HUBS[loc_lower]
+            elif first_tok in self.KNOWN_COMMUNITY_HUBS:
+                matched_hub = self.KNOWN_COMMUNITY_HUBS[first_tok]
+            else:
+                for k, v in self.KNOWN_COMMUNITY_HUBS.items():
+                    if k in loc_lower or loc_lower in k:
+                        matched_hub = v
+                        break
+
+            if matched_hub:
+                hub_lat, hub_lng, hub_name = matched_hub
+                # Haversine distance between client coordinates and matched hub coordinates
+                R = 3959.0
+                dlat = math.radians(hub_lat - user_lat)
+                dlng = math.radians(hub_lng - user_lng)
+                a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(hub_lat)) * math.sin(dlng / 2.0) ** 2
+                c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+                dist_to_hub = R * c
+                if dist_to_hub > 75.0:
+                    logger.info(f"Overriding stale user coordinates ({user_lat}, {user_lng}) for '{location_name}' with hub '{hub_name}' ({hub_lat}, {hub_lng}) [dist={dist_to_hub:.1f}mi]")
+                    user_lat = hub_lat
+                    user_lng = hub_lng
+            elif abs(user_lat - 32.7157) < 0.005 and abs(user_lng - (-117.1611)) < 0.005:
                 if "san diego" not in loc_lower and "socal" not in loc_lower:
                     user_lat = None
                     user_lng = None

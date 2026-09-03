@@ -240,8 +240,8 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     // Render current active subtab
     renderCurrentSubtab();
 
-    // Auto-refresh Sparring Radar players count & data in background so all subtabs have fresh data
-    if (typeof loadNearbyPlayers === 'function') {
+    // Auto-refresh Sparring Radar players count & data in background only if on radar subtab
+    if (communityState.activeSubtab === 'radar' && typeof loadNearbyPlayers === 'function') {
       loadNearbyPlayers();
     }
   } catch (err) {
@@ -315,7 +315,7 @@ function changeCommunityRadius(radius) {
 
   loadCommunityHub(communityState.lat, communityState.lng, r, communityState.locationName);
 
-  if (typeof loadNearbyPlayers === 'function') {
+  if (communityState.activeSubtab === 'radar' && typeof loadNearbyPlayers === 'function') {
     loadNearbyPlayers();
   }
 }
@@ -410,19 +410,35 @@ function detectCommunityGPS() {
  * Updates active community location and saves to localStorage
  */
 function updateCommunityLocation(lat, lng, locationName, radius = null) {
-  if (lat != null && lng != null) {
-    communityState.lat = parseFloat(lat);
-    communityState.lng = parseFloat(lng);
-    localStorage.setItem('comm_lat', String(lat));
-    localStorage.setItem('comm_lng', String(lng));
-  } else if (locationName && (typeof lookupCityCoordinates === 'function')) {
+  let finalLat = (lat != null && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
+  let finalLng = (lng != null && !isNaN(parseFloat(lng))) ? parseFloat(lng) : null;
+
+  if (locationName && (typeof lookupCityCoordinates === 'function')) {
     const resolved = lookupCityCoordinates(locationName);
     if (resolved) {
-      communityState.lat = resolved.lat;
-      communityState.lng = resolved.lng;
-      localStorage.setItem('comm_lat', String(resolved.lat));
-      localStorage.setItem('comm_lng', String(resolved.lng));
+      if (finalLat == null || finalLng == null) {
+        finalLat = resolved.lat;
+        finalLng = resolved.lng;
+      } else {
+        // Cross-validate: if passed coordinates are > 75 miles away from the named city,
+        // it's a stale coordinate mismatch! Override with resolved city coords.
+        const dLat = (resolved.lat - finalLat) * 69.0;
+        const dLng = (resolved.lng - finalLng) * 55.0;
+        const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+        if (dist > 75.0) {
+          console.warn(`Location coordinate mismatch: "${locationName}" is ~${Math.round(dist)}mi away from coords (${finalLat}, ${finalLng}). Overriding with resolved city coords.`);
+          finalLat = resolved.lat;
+          finalLng = resolved.lng;
+        }
+      }
     }
+  }
+
+  if (finalLat != null && finalLng != null) {
+    communityState.lat = finalLat;
+    communityState.lng = finalLng;
+    localStorage.setItem('comm_lat', String(finalLat));
+    localStorage.setItem('comm_lng', String(finalLng));
   }
 
   if (locationName) {

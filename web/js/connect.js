@@ -401,8 +401,10 @@ function openEditLocationModal() {
     venue.value = currentLocName;
     venue.dataset.origValue = currentLocName;
     venue.dataset.userEdited = 'false';
-    venue.dataset.placeLat = String(currentLat);
-    venue.dataset.placeLng = String(currentLng);
+    venue.dataset.placesSelected = 'false';
+    delete venue.dataset.placeLat;
+    delete venue.dataset.placeLng;
+    delete venue.dataset.placeName;
   }
   if (addr) addr.value = p.address || '';
   if (city) city.value = p.city || '';
@@ -452,16 +454,19 @@ async function handleSaveLocation(e) {
   let targetLng = null;
   let chosenLocName = rawInput || 'San Diego, CA';
 
-  // 1. If Google Places place_changed or GPS locked
-  if (venue && venue.dataset.placeLat && venue.dataset.placeLng && venue.dataset.userEdited !== 'true') {
+  // 1. If Google Places item was explicitly selected from autocomplete
+  if (venue && venue.dataset.placesSelected === 'true' && venue.dataset.placeLat && venue.dataset.placeLng) {
     targetLat = parseFloat(venue.dataset.placeLat);
     targetLng = parseFloat(venue.dataset.placeLng);
   } else if (rawInput && venue && rawInput === venue.dataset.origValue && lat && lat.value && lng && lng.value) {
-    // Unchanged from initial modal open state
+    // 2. Unchanged from initial modal open state
     targetLat = parseFloat(lat.value);
     targetLng = parseFloat(lng.value);
-  } else if (rawInput) {
-    // 2. City coordinates dictionary lookup (fast 0ms instant match)
+  }
+
+  // 3. User changed or entered new location text
+  if (targetLat == null && rawInput) {
+    // 3a. City coordinates dictionary lookup (fast 0ms instant match)
     const matched = lookupCityCoordinates(rawInput);
     if (matched) {
       targetLat = matched.lat;
@@ -1476,17 +1481,22 @@ function attachModalPlacesAutocomplete() {
 
   if (!venueInput._inputListenerAttached) {
     venueInput._inputListenerAttached = true;
-    venueInput.addEventListener('input', () => {
+    const onUserEdit = () => {
       venueInput.dataset.userEdited = 'true';
+      venueInput.dataset.placesSelected = 'false';
       delete venueInput.dataset.placeLat;
       delete venueInput.dataset.placeLng;
+      delete venueInput.dataset.placeName;
       const badge = document.getElementById('modal-loc-badge');
       if (badge) {
         badge.textContent = 'City / Store';
         badge.style.background = 'rgba(56,189,248,0.1)';
         badge.style.color = '#38bdf8';
       }
-    });
+    };
+    venueInput.addEventListener('input', onUserEdit);
+    venueInput.addEventListener('change', onUserEdit);
+    venueInput.addEventListener('paste', onUserEdit);
   }
 
   if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
@@ -1510,6 +1520,8 @@ function attachModalPlacesAutocomplete() {
 
       venueInput.dataset.placeLat = String(lat);
       venueInput.dataset.placeLng = String(lng);
+      venueInput.dataset.placeName = name;
+      venueInput.dataset.placesSelected = 'true';
       venueInput.dataset.userEdited = 'false';
 
       const latEl = document.getElementById('modal-lfg-lat');

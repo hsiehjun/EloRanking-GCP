@@ -599,15 +599,14 @@ async function loadUserSettingsLocation() {
     if (name) {
       locInput.value = name;
       locInput.dataset.origVal = name;
+      locInput.dataset.userEdited = 'false';
+      locInput.dataset.placesSelected = 'false';
+      delete locInput.dataset.placeLat;
+      delete locInput.dataset.placeLng;
+      delete locInput.dataset.placeName;
     }
-    if (prof.latitude != null) {
-      if (latEl) latEl.value = prof.latitude;
-      locInput.dataset.placeLat = String(prof.latitude);
-    }
-    if (prof.longitude != null) {
-      if (lngEl) lngEl.value = prof.longitude;
-      locInput.dataset.placeLng = String(prof.longitude);
-    }
+    if (prof.latitude != null && latEl) latEl.value = prof.latitude;
+    if (prof.longitude != null && lngEl) lngEl.value = prof.longitude;
     if (prof.city && cityEl) cityEl.value = prof.city;
     if (prof.state && stateEl) stateEl.value = prof.state;
     if (prof.country && countryEl) countryEl.value = prof.country;
@@ -647,10 +646,12 @@ function attachSettingsPlacesAutocomplete() {
 
   if (!locInput._inputListenerAttached) {
     locInput._inputListenerAttached = true;
-    locInput.addEventListener('input', () => {
+    const onUserEdit = () => {
       locInput.dataset.userEdited = 'true';
+      locInput.dataset.placesSelected = 'false';
       delete locInput.dataset.placeLat;
       delete locInput.dataset.placeLng;
+      delete locInput.dataset.placeName;
       const badge = document.getElementById('settings-loc-badge');
       if (badge) {
         badge.textContent = 'Custom Location';
@@ -658,7 +659,10 @@ function attachSettingsPlacesAutocomplete() {
         badge.style.color = '#38bdf8';
         badge.style.border = '1px solid rgba(56,189,248,0.25)';
       }
-    });
+    };
+    locInput.addEventListener('input', onUserEdit);
+    locInput.addEventListener('change', onUserEdit);
+    locInput.addEventListener('paste', onUserEdit);
   }
 
   if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
@@ -681,6 +685,8 @@ function attachSettingsPlacesAutocomplete() {
 
       locInput.dataset.placeLat = String(lat);
       locInput.dataset.placeLng = String(lng);
+      locInput.dataset.placeName = name;
+      locInput.dataset.placesSelected = 'true';
       locInput.dataset.userEdited = 'false';
 
       const latEl = document.getElementById('settings-loc-lat');
@@ -795,6 +801,8 @@ function detectUserSettingsGPS() {
         locInput.value = venueName || `${city}, ${state}`;
         locInput.dataset.placeLat = String(lat);
         locInput.dataset.placeLng = String(lng);
+        locInput.dataset.placeName = locInput.value;
+        locInput.dataset.placesSelected = 'true';
         locInput.dataset.userEdited = 'false';
       }
       if (latEl) latEl.value = lat;
@@ -859,15 +867,19 @@ async function handleSaveUserSettingsLocation(e) {
   let chosenCountry = countryEl ? countryEl.value.trim() : 'United States';
   let chosenLocName = rawInput;
 
-  // 1. Google Places dataset coords if selected from autocomplete or GPS
-  if (locInput && locInput.dataset.placeLat && locInput.dataset.placeLng && locInput.dataset.userEdited !== 'true') {
+  // 1. Google Places dataset coords if explicitly selected from autocomplete or GPS
+  if (locInput && locInput.dataset.placesSelected === 'true' && locInput.dataset.placeLat && locInput.dataset.placeLng) {
     targetLat = parseFloat(locInput.dataset.placeLat);
     targetLng = parseFloat(locInput.dataset.placeLng);
   } else if (rawInput && latEl && latEl.value && lngEl && lngEl.value && locInput && locInput.dataset.origVal === rawInput) {
+    // 2. Unchanged from initial modal open state
     targetLat = parseFloat(latEl.value);
     targetLng = parseFloat(lngEl.value);
-  } else {
-    // 2. City coordinates lookup dictionary (instant 0ms)
+  }
+
+  // 3. User changed or entered new location
+  if (targetLat == null && rawInput) {
+    // 3a. City coordinates lookup dictionary (instant 0ms)
     const matched = (typeof lookupCityCoordinates === 'function') ? lookupCityCoordinates(rawInput) : null;
     if (matched) {
       targetLat = matched.lat;
