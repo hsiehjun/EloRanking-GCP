@@ -147,10 +147,7 @@ main {
   margin: 0 auto;
   padding: 1.75rem 1.5rem;
   flex: 1;
-  min-height: 0;
   width: 100%;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
 }
@@ -887,15 +884,16 @@ input, select, textarea {
     padding: 0.65rem 0.5rem 1.5rem;
     width: 100%;
     overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
   }
 
   /* When Chat Tab is active, go edge-to-edge with zero outer scrolling */
+  body.chat-mode-active main,
   main:has(#tab-chat.active),
   main.main-chat-mode {
     padding: 0 !important;
     overflow: hidden !important;
+    height: calc(100vh - 58px) !important;
+    height: calc(100dvh - 58px) !important;
   }
 
   /* Eliminate nested scroll traps on mobile: cards flow cleanly inside main */
@@ -1612,7 +1610,7 @@ input, select, textarea {
 }
 
 .hub-armylists-list-container {
-  max-height: 240px;
+  max-height: 380px;
   overflow-y: auto;
 }
 

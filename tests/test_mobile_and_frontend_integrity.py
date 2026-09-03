@@ -111,9 +111,26 @@ def test_router_module_imports():
 
     print(f"✅ All 8 routers imported cleanly with a total of {total_routes} routes!")
 
+def test_document_scrolling_architecture():
+    """Verify that body/window scrolling is restored and main does not trap desktop scrollbars."""
+    theme_content = (root_dir / "web" / "css" / "theme.css").read_text(encoding="utf-8")
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    # body should have min-height: 100vh and NOT overflow: hidden (except for chat-mode-active)
+    assert "overflow-x: hidden;" in theme_content, "body should have overflow-x: hidden in theme.css"
+    assert "body.chat-mode-active" in theme_content, "chat-mode-active scroll lock should be defined"
+    
+    # main should NOT have overflow-y: auto in base styles (which caused the floating desktop scrollbar)
+    base_main = re.search(r'/\* Main Container \*/\s*main\s*\{([^}]+)\}', styles_content)
+    assert base_main is not None, "Base main rule not found in styles.css"
+    assert "overflow-y: auto" not in base_main.group(1), "Base main should NOT have overflow-y: auto"
+    print("✅ Document scrolling architecture verified (no floating scrollbar on desktop main)")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
     test_html_assets_exist()
     test_router_module_imports()
+    test_document_scrolling_architecture()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")

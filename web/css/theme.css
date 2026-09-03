@@ -39,29 +39,35 @@ body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
-  height: 100%;
-  min-height: 100%;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 #landing-page-view {
   width: 100%;
-  height: 100%;
-  height: 100dvh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  min-height: 100vh;
 }
 
 #app-shell {
   width: 100%;
-  height: 100%;
-  height: 100dvh;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   position: relative;
+}
+
+/* Chat mode lock: only lock body scroll when active in dedicated chat mode */
+body.chat-mode-active {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+body.chat-mode-active #app-shell {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 /* Scrollbar styling */

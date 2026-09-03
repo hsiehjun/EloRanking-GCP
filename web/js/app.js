@@ -58,9 +58,11 @@ function switchTab(tabName) {
   const mainEl = document.querySelector('main');
   if (mainEl) {
     mainEl.classList.toggle('main-chat-mode', tabName === 'chat');
-    if (tabName !== 'chat') {
-      mainEl.scrollTop = 0;
-    }
+  }
+  document.body.classList.toggle('chat-mode-active', tabName === 'chat');
+  if (tabName !== 'chat') {
+    if (mainEl) mainEl.scrollTop = 0;
+    window.scrollTo({ top: 0, behavior: 'instant' });
   }
 
   // Update URL hash history and clean away any query parameters

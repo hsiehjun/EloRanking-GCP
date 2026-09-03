@@ -1128,13 +1128,13 @@ function renderHubArmyLists(lists) {
 
   if (!lists || lists.length === 0) {
     container.innerHTML = `
-      <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-        <div style="font-size: 1.8rem; margin-bottom: 0.5rem;">📋</div>
-        <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">No Army Lists Imported Yet</div>
-        <div style="font-size: 0.8rem; max-width: 440px; margin: 0 auto 1.25rem; color: #94a3b8;">
+      <div style="padding: 1.25rem 1rem 0.5rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+        <div style="font-size: 1.6rem; margin-bottom: 0.35rem;">📋</div>
+        <div style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.25rem;">No Army Lists Imported Yet</div>
+        <div style="font-size: 0.78rem; max-width: 440px; margin: 0 auto 0.85rem; color: #94a3b8; line-height: 1.45;">
           Import your rosters from <b>NewRecruit</b> using a share link to view your units and launch into Game Tracker!
         </div>
-        <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.85rem; padding: 0.45rem 1rem; background: var(--accent); color: #0f172a; font-weight: 800;">
+        <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.82rem; padding: 0.4rem 0.95rem; background: var(--accent); color: #0f172a; font-weight: 800;">
           ➕ Import from NewRecruit
         </button>
       </div>
