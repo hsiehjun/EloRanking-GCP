@@ -1109,6 +1109,27 @@ if FASTAPI_AVAILABLE:
             other_id = receiver_id if sender_id == user["id"] else sender_id
             if other_id:
                 fs_engine.notify_user_requests_updated([other_id], reason="new_message")
+
+            # Ensure live multiplayer tracker room exists if a room_key was posted
+            if payload.room_key:
+                try:
+                    rkey = normalize_tracker_match_id(payload.room_key)
+                    if rkey not in TRACKER_ROOMS and not fs_engine.get_room(rkey) and not db.get_tracker_game(rkey):
+                        s_name = user.get("display_name") or "Player 1"
+                        r_name = req_info.get("receiver_name") if user["id"] == sender_id else (req_info.get("sender_name") or "Player 2")
+                        s_fac = req_info.get("sender_faction") if user["id"] == sender_id else req_info.get("receiver_faction")
+                        r_fac = req_info.get("receiver_faction") if user["id"] == sender_id else req_info.get("sender_faction")
+                        init_tracker_room_from_chat(rkey, {
+                            "sender_id": user["id"],
+                            "req_sender_id": sender_id,
+                            "req_receiver_id": receiver_id,
+                            "sender_name": s_name,
+                            "receiver_name": r_name,
+                            "sender_faction": s_fac,
+                            "receiver_faction": r_fac
+                        }, fs_engine)
+                except Exception as room_init_err:
+                    logger.warning(f"Notice auto-initializing tracker room from chat message: {room_init_err}")
         except Exception as e:
             logger.warning(f"Notice pushing chat message to Firestore: {e}")
 
@@ -2697,6 +2718,120 @@ if FASTAPI_AVAILABLE:
             return f"WH40K-{s_clean[:4]}-{s_clean[4:]}"
         return s
 
+    def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_engine) -> Dict[str, Any]:
+        """Auto-recovers an uninitialized tracker room that was generated in chat."""
+        sender_id = chat_info.get("sender_id") or chat_info.get("req_sender_id")
+        receiver_id = chat_info.get("req_receiver_id") if sender_id == chat_info.get("req_sender_id") else chat_info.get("req_sender_id")
+        sender_name = chat_info.get("sender_name") or "Player 1"
+        receiver_name = chat_info.get("receiver_name") or "Player 2"
+        sender_faction = chat_info.get("sender_faction")
+        receiver_faction = chat_info.get("receiver_faction")
+
+        initial_state = {
+            "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
+            "match_id": match_id,
+            "event_id": None,
+            "round_num": 1,
+            "table_num": None,
+            "user_id_p1": sender_id,
+            "user_id_p2": None,
+            "game": {
+                "p1Name": sender_name,
+                "p2Name": receiver_name,
+                "p1Faction": sender_faction,
+                "p2Faction": receiver_faction,
+                "p1Detachments": [],
+                "p2Detachments": [],
+                "p1Disposition": None,
+                "p2Disposition": None,
+                "p1Primary": None,
+                "p2Primary": None,
+                "p1Role": None,
+                "p2Role": None,
+                "p1MissionType": None,
+                "p2MissionType": None,
+                "rollOffWinner": None,
+                "firstTurn": None,
+                "deployment": None,
+                "terrainLayout": None,
+                "trackCP": True,
+                "showCP": True,
+                "enableCP": True,
+                "cpCounter": True,
+                "cp": True,
+                "eventId": None,
+                "roundNum": 1,
+                "tableNum": None
+            },
+            "p1": {
+                "score": 0,
+                "rounds": [
+                    {"round": i, "battleRound": i, "primaryScore": 0, "secondaryScore": 0, "secondaries": []}
+                    for i in range(1, 6)
+                ],
+                "battleReady": True,
+                "cp": 0
+            },
+            "p2": {
+                "score": 0,
+                "rounds": [
+                    {"round": i, "battleRound": i, "primaryScore": 0, "secondaryScore": 0, "secondaries": []}
+                    for i in range(1, 6)
+                ],
+                "battleReady": True,
+                "cp": 0
+            },
+            "round": 1,
+            "started": False,
+            "trackCP": True,
+            "showCP": True,
+            "enableCP": True,
+            "cpCounter": True
+        }
+
+        initial_clock = {
+            "visible": False,
+            "running": False,
+            "active_player": 1,
+            "duration_minutes": 75,
+            "p1_remaining": 4500,
+            "p2_remaining": 4500,
+            "round_remaining": 9000,
+            "last_start_time": None,
+            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000)
+        }
+
+        room = {
+            "match_id": match_id,
+            "user_id_p1": sender_id,
+            "user_id_p2": None,
+            "referee_ids": [],
+            "version": 1,
+            "p1_name": sender_name,
+            "p2_name": receiver_name,
+            "state": initial_state,
+            "chess_clock": initial_clock,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        TRACKER_ROOMS[match_id] = room
+        try:
+            fs_engine.create_room(match_id, {
+                "user_id_p1": sender_id,
+                "user_id_p2": None,
+                "referee_ids": [],
+                "version": 1,
+                "p1_name": sender_name,
+                "p2_name": receiver_name,
+                "state": initial_state,
+                "chess_clock": initial_clock
+            })
+            logger.info(f"🔥 [CHAT RECOVERY] Auto-initialized chat tracker room {match_id} in Firestore")
+        except Exception as err:
+            logger.error(f"❌ [CHAT RECOVERY] Error persisting recovered room {match_id}: {err}")
+
+        return room
+
     @app.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
     async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
         db = get_database()
@@ -2754,6 +2889,55 @@ if FASTAPI_AVAILABLE:
                     "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
                     "state": existing.get("state", {}),
                     "chess_clock": existing.get("chess_clock")
+                }
+
+            # Check Firestore for multi-worker support
+            fs_engine = get_firestore_engine()
+            fs_doc = fs_engine.get_room(match_id)
+            if fs_doc and fs_doc.get("state"):
+                u_id = user["id"] if user else None
+                p1_id = fs_doc.get("user_id_p1")
+                p2_id = fs_doc.get("user_id_p2")
+                if u_id and p1_id == u_id:
+                    role = "player1"
+                elif u_id and p2_id == u_id:
+                    role = "player2"
+                elif not p2_id and u_id != p1_id:
+                    role = "player2"
+                    fs_doc["user_id_p2"] = u_id or f"p2_{secrets.token_hex(3)}"
+                    if user and user.get("display_name"):
+                        if isinstance(fs_doc.get("state"), dict) and isinstance(fs_doc["state"].get("game"), dict):
+                            fs_doc["state"]["game"]["p2Name"] = user["display_name"]
+                    try:
+                        fs_engine.update_room(match_id, {
+                            "user_id_p2": fs_doc["user_id_p2"],
+                            "p2_name": fs_doc.get("state", {}).get("game", {}).get("p2Name") or user.get("display_name") if user else "Player 2"
+                        })
+                    except Exception:
+                        pass
+                else:
+                    role = "spectator" if (p1_id and p2_id) else "player1"
+
+                TRACKER_ROOMS[match_id] = {
+                    "match_id": match_id,
+                    "user_id_p1": fs_doc.get("user_id_p1"),
+                    "user_id_p2": fs_doc.get("user_id_p2"),
+                    "referee_ids": fs_doc.get("referee_ids", []),
+                    "version": fs_doc.get("version", 1),
+                    "state": fs_doc["state"],
+                    "chess_clock": fs_doc.get("chess_clock"),
+                    "updated_at": fs_doc.get("updated_at")
+                }
+                return {
+                    "success": True,
+                    "match_id": match_id,
+                    "role": role,
+                    "user_id_p1": fs_doc.get("user_id_p1"),
+                    "user_id_p2": fs_doc.get("user_id_p2"),
+                    "p1_name": fs_doc.get("p1_name") or "Player 1",
+                    "p2_name": fs_doc.get("p2_name") or "Player 2",
+                    "state": fs_doc["state"],
+                    "chess_clock": fs_doc.get("chess_clock")
                 }
             saved_game = db.get_tracker_game(match_id)
             if saved_game and saved_game.get("state"):
@@ -2976,7 +3160,11 @@ if FASTAPI_AVAILABLE:
                         except Exception:
                             pass
                 else:
-                    return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
+                    chat_room = db.find_chat_room_key(match_id)
+                    if chat_room:
+                        room = init_tracker_room_from_chat(match_id, chat_room, fs_engine)
+                    else:
+                        return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
                 
         p1_id = room.get("user_id_p1")
         p2_id = room.get("user_id_p2")
@@ -3047,7 +3235,11 @@ if FASTAPI_AVAILABLE:
                     except Exception:
                         pass
                 else:
-                    raise HTTPException(status_code=404, detail="Match room not found")
+                    chat_room = db.find_chat_room_key(match_id)
+                    if chat_room:
+                        room = init_tracker_room_from_chat(match_id, chat_room, fs_engine)
+                    else:
+                        raise HTTPException(status_code=404, detail="Match room not found")
                 
         room = TRACKER_ROOMS[match_id]
         st = room.get("state", {})
@@ -5190,9 +5382,12 @@ if FASTAPI_AVAILABLE:
         }
         return res
 
+    _active_event_syncs: set = set()
+
     # API: Tournament Details & Round Pairings
     @app.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
     async def api_event_details(event_id: str, force_sync: bool = False):
+        import threading
         db = get_database()
         event_id_str = event_id.strip()
 
@@ -5204,36 +5399,61 @@ if FASTAPI_AVAILABLE:
         # 2) Event is not yet in DB
         # 3) Event is ongoing/in-progress (is_ended is False)
         # 4) Event has 0 participants or matches scraped
-        has_data = event_details and bool(event_details.get("players")) and bool(event_details.get("matches"))
+        has_data = bool(event_details and event_details.get("players") and event_details.get("matches"))
         needs_roster_sync = (
             force_sync or 
             not has_data or 
             (event_details and all(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
         )
 
-        if needs_roster_sync:
-            try:
-                scraper = BestCoastPairingsScraper(db=db)
-                scraper.sync_event_roster(event_id_str)
-                if not has_data:
-                    scraper.scrape_event(event_id_str)
-                event_details = db.get_event_details(event_id_str)
-            except Exception as e:
-                logger.warning(f"Failed to sync BCP details for event {event_id_str}: {e}")
-        elif event_details and not event_details.get("is_ended", True):
-            # Background refresh for live ongoing tournament without blocking current response
-            def bg_scrape():
-                try:
-                    s = BestCoastPairingsScraper(db=db)
-                    s.scrape_event(event_id_str)
-                except Exception:
-                    pass
-            import threading
-            threading.Thread(target=bg_scrape, daemon=True).start()
+        # If event details exist in DB, NEVER block HTTP response! Return immediately (<15ms)
+        # and trigger BCP sync in a background thread.
+        if event_details:
+            is_syncing = event_id_str in _active_event_syncs
+            if needs_roster_sync and not is_syncing:
+                _active_event_syncs.add(event_id_str)
+                is_syncing = True
+                def bg_roster_sync(eid: str, scrape_full: bool):
+                    try:
+                        scraper = BestCoastPairingsScraper(db=db)
+                        scraper.sync_event_roster(eid)
+                        if scrape_full:
+                            scraper.scrape_event(eid)
+                    except Exception as e:
+                        logger.warning(f"Failed to sync BCP details in background for event {eid}: {e}")
+                    finally:
+                        _active_event_syncs.discard(eid)
+                threading.Thread(target=bg_roster_sync, args=(event_id_str, not has_data), daemon=True).start()
+            elif not event_details.get("is_ended", True) and not is_syncing:
+                # Background refresh for live ongoing tournament
+                _active_event_syncs.add(event_id_str)
+                is_syncing = True
+                def bg_live_scrape(eid: str):
+                    try:
+                        scraper = BestCoastPairingsScraper(db=db)
+                        scraper.scrape_event(eid)
+                    except Exception:
+                        pass
+                    finally:
+                        _active_event_syncs.discard(eid)
+                threading.Thread(target=bg_live_scrape, args=(event_id_str,), daemon=True).start()
+
+            event_details["sync_in_progress"] = is_syncing
+            return event_details
+
+        # Event is not yet in database: do initial fetch/scrape synchronously so we have data
+        try:
+            scraper = BestCoastPairingsScraper(db=db)
+            scraper.sync_event_roster(event_id_str)
+            scraper.scrape_event(event_id_str)
+            event_details = db.get_event_details(event_id_str)
+        except Exception as e:
+            logger.warning(f"Failed to sync BCP details for event {event_id_str}: {e}")
 
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found in database or on BCP")
 
+        event_details["sync_in_progress"] = False
         return event_details
 
     # API: Cloud Scheduler Cron Sync
@@ -5886,7 +6106,8 @@ if FASTAPI_AVAILABLE:
         radius_miles: float = Query(50.0),
         location_name: Optional[str] = Query(None),
         region: Optional[str] = Query(None),
-        token: Optional[str] = Query(None)
+        token: Optional[str] = Query(None),
+        include_bcp: bool = Query(False)
     ):
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
@@ -5903,8 +6124,20 @@ if FASTAPI_AVAILABLE:
             location_name=location_name,
             region=region,
             current_user_id=user_id,
-            current_player_id=player_id
+            current_player_id=player_id,
+            include_bcp=include_bcp
         )
+
+    @app.get("/api/community/bcp_upcoming", summary="Fetch live BCP upcoming tournaments asynchronously")
+    async def api_community_bcp_upcoming(
+        lat: float = Query(...),
+        lng: float = Query(...),
+        radius_miles: float = Query(50.0),
+        days_ahead: int = Query(92)
+    ):
+        db = get_database()
+        events = db.fetch_bcp_upcoming_events(user_lat=lat, user_lng=lng, radius_miles=radius_miles, days_ahead=days_ahead)
+        return {"success": True, "events": events}
 
     _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
 
@@ -6041,6 +6274,13 @@ if FASTAPI_AVAILABLE:
             lng=lng,
             place_id=place_id
         )
+
+    @app.get("/api/community/store/details", summary="Get Google Place Details including store website")
+    async def api_community_store_details(
+        place_id: str = Query(..., description="Google Place ID")
+    ):
+        db = get_database()
+        return db.get_place_details(place_id=place_id)
 
     @app.get("/api/community/chat/messages", summary="Get Regional Community Chat Messages")
     async def api_community_chat_messages(

@@ -71,6 +71,7 @@ class PostgresDatabase:
     _community_overview_cache_dict = {}
     _bcp_upcoming_cache_dict = {}
     _stores_cache_dict = {}
+    _place_details_cache_dict = {}
     CACHE_TTL_SECONDS = 600
 
     @classmethod
@@ -99,6 +100,7 @@ class PostgresDatabase:
         cls._community_overview_cache_dict.clear()
         cls._bcp_upcoming_cache_dict.clear()
         cls._stores_cache_dict.clear()
+        cls._place_details_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -4703,6 +4705,30 @@ class PostgresDatabase:
                 row = cursor.fetchone()
                 return int(row[0]) if row and row[0] is not None else 0
 
+    def find_chat_room_key(self, room_key: str) -> Optional[Dict[str, Any]]:
+        """Finds metadata for a room_key issued in chat to auto-recover orphaned room invites."""
+        if not room_key:
+            return None
+        room_key = room_key.strip().upper()
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT mcm.room_key, mcm.request_id, mcm.sender_id, mcm.created_at,
+                           mr.sender_id AS req_sender_id, mr.receiver_id AS req_receiver_id,
+                           su.display_name AS sender_name, ru.display_name AS receiver_name,
+                           spr.top_faction AS sender_faction, rpr.top_faction AS receiver_faction
+                    FROM match_chat_messages mcm
+                    LEFT JOIN match_requests mr ON mcm.request_id = mr.id
+                    LEFT JOIN users su ON mr.sender_id = su.id
+                    LEFT JOIN users ru ON mr.receiver_id = ru.id
+                    LEFT JOIN player_ratings spr ON (su.player_id = spr.player_id OR su.id = spr.player_id)
+                    LEFT JOIN player_ratings rpr ON (ru.player_id = rpr.player_id OR ru.id = rpr.player_id)
+                    WHERE UPPER(mcm.room_key) = %s
+                    ORDER BY mcm.created_at DESC LIMIT 1;
+                """, (room_key,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
 
     # =========================================================================
     # REGIONAL COMMUNITY HUB & COMPETITOR DISCOVERY
@@ -4967,7 +4993,8 @@ class PostgresDatabase:
         location_name: Optional[str] = None,
         region: Optional[str] = None,
         current_user_id: Optional[str] = None,
-        current_player_id: Optional[str] = None
+        current_player_id: Optional[str] = None,
+        include_bcp: bool = False
     ) -> Dict[str, Any]:
         """
         Builds complete community hub payload based on GPS location and search radius:
@@ -5138,7 +5165,8 @@ class PostgresDatabase:
                     round(user_lng, 3),
                     int(round(radius_miles)),
                     str(current_player_id or ""),
-                    str(current_user_id or "")
+                    str(current_user_id or ""),
+                    bool(include_bcp)
                 )
                 cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, cache_key, ttl=90)
                 if cached is not None:
@@ -5288,15 +5316,31 @@ class PostgresDatabase:
 
                 # Fetch live upcoming tournaments from BCP API (3 months / 92 days ahead)
                 bcp_upcoming = []
-                try:
-                    bcp_upcoming = self.fetch_bcp_upcoming_events(
-                        user_lat=user_lat,
-                        user_lng=user_lng,
-                        radius_miles=radius_miles,
-                        days_ahead=92
-                    )
-                except Exception as e:
-                    logger.warning(f"Notice fetching live BCP upcoming tournaments: {e}")
+                if include_bcp:
+                    try:
+                        bcp_upcoming = self.fetch_bcp_upcoming_events(
+                            user_lat=user_lat,
+                            user_lng=user_lng,
+                            radius_miles=radius_miles,
+                            days_ahead=92
+                        )
+                    except Exception as e:
+                        logger.warning(f"Notice fetching live BCP upcoming tournaments: {e}")
+                else:
+                    # Non-blocking: check if we already have warm cached BCP events in memory
+                    try:
+                        effective_radius = max(5, int(round(radius_miles)))
+                        bcp_cache_key = (
+                            round(user_lat, 2),
+                            round(user_lng, 2),
+                            effective_radius,
+                            92
+                        )
+                        cached_bcp = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, bcp_cache_key, ttl=300)
+                        if cached_bcp:
+                            bcp_upcoming = list(cached_bcp)
+                    except Exception:
+                        pass
 
                 # Merge BCP upcoming with DB upcoming events, deduplicating by event ID
                 seen_upcoming_ids = set()
@@ -5846,6 +5890,12 @@ class PostgresDatabase:
 
                         is_gw_official = bool("warhammer" in norm_name or "games workshop" in norm_name)
 
+                        # Check if website was already cached from Place Details
+                        cached_details = PostgresDatabase.get_cached(PostgresDatabase._place_details_cache_dict, pid, ttl=86400 * 7) if pid else None
+                        initial_website = cached_details.get("website") if cached_details else None
+                        if not initial_website and is_gw_official:
+                            initial_website = "https://www.warhammer.com/en-US/store-finder"
+
                         stores.append({
                             "id": pid or f"g_{len(stores)}",
                             "place_id": pid,
@@ -5861,6 +5911,7 @@ class PostgresDatabase:
                             "is_official_warhammer": is_gw_official,
                             "is_tournament_venue": False,
                             "tournament_count": 0,
+                            "website": initial_website,
                             "source": "google_places"
                         })
             except Exception as e:
@@ -5887,7 +5938,15 @@ class PostgresDatabase:
                                 e.latitude as lat,
                                 e.longitude as lng,
                                 COUNT(*) as tournament_count,
-                                MAX(e.event_date) as last_tournament_date
+                                MAX(e.event_date) as last_tournament_date,
+                                MAX(COALESCE(
+                                    NULLIF(TRIM(e.raw_json->>'website'), ''),
+                                    NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
+                                    NULLIF(TRIM(e.raw_json->>'url'), ''),
+                                    NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
+                                    NULLIF(TRIM(e.raw_json->>'facebook'), ''),
+                                    NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
+                                )) as website
                             FROM events e
                             WHERE e.latitude BETWEEN %s AND %s
                               AND e.longitude BETWEEN %s AND %s
@@ -5907,7 +5966,7 @@ class PostgresDatabase:
                               AND NOT (lat = 0.0 AND lng = 0.0)
                         )
                         SELECT venue_name, city, state, country, address, lat, lng,
-                               tournament_count, last_tournament_date,
+                               tournament_count, last_tournament_date, website,
                                ROUND(distance_miles::numeric, 1) as distance_miles
                         FROM venues_dist
                         WHERE distance_miles <= %s
@@ -5925,6 +5984,7 @@ class PostgresDatabase:
                         v_dist = float(v.get("distance_miles") or 0.0)
                         v_lat = float(v.get("lat") or 0.0)
                         v_lng = float(v.get("lng") or 0.0)
+                        v_website = (v.get("website") or "").strip() or None
                         t_count = int(v.get("tournament_count") or 0)
                         last_date = v.get("last_tournament_date")
                         if hasattr(last_date, "isoformat"):
@@ -5941,12 +6001,15 @@ class PostgresDatabase:
                             matched_existing["is_tournament_venue"] = True
                             matched_existing["tournament_count"] = max(matched_existing["tournament_count"], t_count)
                             matched_existing["last_tournament_date"] = last_date
+                            if not matched_existing.get("website") and v_website:
+                                matched_existing["website"] = v_website
                         else:
                             if v_norm not in seen_names:
                                 seen_names.add(v_norm)
                                 is_gw = bool("warhammer" in v_norm or "games workshop" in v_norm)
                                 city_state = f"{v.get('city') or ''}, {v.get('state') or ''}".strip(', ')
                                 full_addr = v.get("address") or city_state or location_name
+                                venue_web = v_website or ("https://www.warhammer.com/en-US/store-finder" if is_gw else None)
                                 stores.append({
                                     "id": f"db_{len(stores)}",
                                     "place_id": None,
@@ -5965,6 +6028,7 @@ class PostgresDatabase:
                                     "is_tournament_venue": True,
                                     "tournament_count": t_count,
                                     "last_tournament_date": last_date,
+                                    "website": venue_web,
                                     "source": "database_tournaments"
                                 })
         except Exception as e:
@@ -6041,6 +6105,14 @@ class PostgresDatabase:
                         e.country,
                         COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
                         COALESCE(e.address, e.raw_json->>'address', e.raw_json->'location'->>'address') as address,
+                        COALESCE(
+                            NULLIF(TRIM(e.raw_json->>'website'), ''),
+                            NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
+                            NULLIF(TRIM(e.raw_json->>'url'), ''),
+                            NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
+                            NULLIF(TRIM(e.raw_json->>'facebook'), ''),
+                            NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
+                        ) as venue_website,
                         COALESCE(e.total_players, 0) as total_players,
                         COALESCE(e.num_rounds, 0) as num_rounds,
                         COALESCE(e.current_round, 0) as current_round,
@@ -6097,6 +6169,7 @@ class PostgresDatabase:
                     raw_rows = cursor.fetchall()
 
                     seen_ids = set()
+                    found_website = None
                     for r in raw_rows:
                         eid = str(r.get("id"))
                         if eid in seen_ids:
@@ -6123,6 +6196,9 @@ class PostgresDatabase:
 
                         if is_match:
                             seen_ids.add(eid)
+                            if not found_website and r.get("venue_website"):
+                                found_website = (r.get("venue_website") or "").strip() or None
+
                             ed = r.get("event_date")
                             if hasattr(ed, "isoformat"):
                                 ed = ed.isoformat()
@@ -6151,12 +6227,65 @@ class PostgresDatabase:
         except Exception as e:
             logger.error(f"Error getting store tournaments for {store_name}: {e}")
 
+        if not found_website and place_id:
+            cached_d = PostgresDatabase.get_cached(PostgresDatabase._place_details_cache_dict, place_id, ttl=86400 * 7)
+            if cached_d and cached_d.get("website"):
+                found_website = cached_d.get("website")
+
         return {
             "success": True,
             "store_name": clean_name,
+            "store_website": found_website,
             "total_tournaments": len(events),
             "tournaments": events
         }
+
+    def get_place_details(self, place_id: str) -> Dict[str, Any]:
+        """
+        Fetches Google Place Details (website, maps url, phone) with in-memory 7-day caching.
+        """
+        if not place_id or not place_id.strip():
+            return {"success": False, "error": "Missing place_id"}
+
+        clean_pid = place_id.strip()
+        cached = PostgresDatabase.get_cached(PostgresDatabase._place_details_cache_dict, clean_pid, ttl=86400 * 7)
+        if cached is not None:
+            return cached
+
+        google_maps_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
+        if not google_maps_key:
+            try:
+                from config import GOOGLE_MAPS_API_KEY
+                google_maps_key = GOOGLE_MAPS_API_KEY
+            except Exception:
+                pass
+
+        if not google_maps_key:
+            return {"success": False, "error": "GOOGLE_MAPS_API_KEY not configured"}
+
+        url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={urllib.parse.quote(clean_pid)}&fields=website,url,formatted_phone_number,name&key={google_maps_key}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "EloRanking/1.0", "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                result = data.get("result", {})
+                website = (result.get("website") or "").strip() or None
+                maps_url = result.get("url") or None
+                phone = result.get("formatted_phone_number") or None
+                name = result.get("name") or None
+                res = {
+                    "success": True,
+                    "place_id": clean_pid,
+                    "name": name,
+                    "website": website,
+                    "maps_url": maps_url,
+                    "phone": phone
+                }
+                PostgresDatabase.set_cached(PostgresDatabase._place_details_cache_dict, clean_pid, res)
+                return res
+        except Exception as e:
+            logger.warning(f"Error fetching Google Place details for {clean_pid}: {e}")
+            return {"success": False, "error": str(e)}
 
     def get_community_chat_messages(self, region: str = "socal", limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves recent community messages for regional channel."""

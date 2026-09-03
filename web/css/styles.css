@@ -3659,6 +3659,18 @@ input, select, textarea {
   color: #fff;
 }
 
+.comm-store-btn-website {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.28);
+  background: rgba(56, 189, 248, 0.08);
+}
+
+.comm-store-btn-website:hover {
+  background: rgba(56, 189, 248, 0.18);
+  border-color: rgba(56, 189, 248, 0.45);
+  color: #7dd3fc;
+}
+
 /* View Mode Variations */
 .comm-stores-view-map #comm-stores-map {
   height: 620px !important;

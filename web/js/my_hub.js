@@ -4,6 +4,33 @@
 
 let myHubData = null;
 
+function buildMyHubShellData(u) {
+  if (!u) return null;
+  return {
+    player: {
+      player_name: u.display_name || '',
+      current_elo: u.current_elo || 1500.0,
+      peak_elo: u.peak_elo || u.current_elo || 1500.0,
+      win_rate: u.win_rate || 0.0,
+      matches_played: u.matches_played || 0,
+      wins: u.wins || 0,
+      losses: u.losses || 0,
+      top_faction: u.top_faction || '',
+      team: u.team || ''
+    },
+    rankings: {
+      global_rank: u.global_rank || null,
+      faction_rank: u.faction_rank || null
+    },
+    history: [],
+    faction_mastery: [],
+    matchup_matrix: [],
+    upcoming_events: [],
+    active_sessions: [],
+    _isSkeleton: true
+  };
+}
+
 async function loadMyHubDashboard() {
   const container = document.getElementById('my-hub-content');
   if (!container) return;
@@ -17,40 +44,69 @@ async function loadMyHubDashboard() {
     return;
   }
 
-  container.innerHTML = `
-    <div class="empty-state" style="padding: 3rem 1rem;">
-      <div class="spinner"></div>
-      <div style="margin-top: 0.75rem;">Loading your personalized competitor hub...</div>
-    </div>
-  `;
-
-  try {
-    const data = await window.api.getUserDashboard(currentUser.player_id);
+  // 1. Instant optimistic shell render (0ms perceived latency)
+  let cachedData = myHubData;
+  if (!cachedData) {
     try {
-      const sessResp = await fetch(`/api/tracker/sessions?token=${encodeURIComponent(window.api.getAuthToken())}`, {
-        headers: { 'Authorization': `Bearer ${window.api.getAuthToken()}` }
-      });
-      if (sessResp.ok) {
-        const sessData = await sessResp.json();
-        if (sessData && sessData.success) {
-          let hidden = [];
-          try { hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]'); } catch(e) {}
-          const hiddenSet = new Set(hidden);
-
-          const rawActive = sessData.active_sessions || (sessData.primary_active ? [sessData.primary_active, ...(sessData.unfinished_sessions || [])] : []);
-          data.active_sessions = rawActive.filter(m => !hiddenSet.has(m.match_id || m.id));
-          data.primary_active = data.active_sessions[0] || null;
-          data.unfinished_sessions = data.active_sessions.slice(1);
-          data.completed_history = (sessData.completed_history || []).filter(m => !hiddenSet.has(m.match_id || m.id));
-          data.tracker_history = data.completed_history;
-        }
-      }
+      const stored = localStorage.getItem('my_hub_cache');
+      if (stored) cachedData = JSON.parse(stored);
     } catch (e) {}
+  }
+
+  if (cachedData) {
+    renderMyHub(cachedData);
+  } else if (currentUser) {
+    renderMyHub(buildMyHubShellData(currentUser));
+  } else {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 3rem 1rem;">
+        <div class="spinner"></div>
+        <div style="margin-top: 0.75rem;">Loading your personalized competitor hub...</div>
+      </div>
+    `;
+  }
+
+  // 2. Parallel async hydration of dashboard analytics and live tracker sessions
+  try {
+    const token = window.api ? window.api.getAuthToken() : '';
+    const [dashRes, sessRes] = await Promise.allSettled([
+      window.api.getUserDashboard(currentUser.player_id),
+      fetch(`/api/tracker/sessions?token=${encodeURIComponent(token)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+
+    if (dashRes.status !== 'fulfilled' || !dashRes.value || dashRes.value.error) {
+      throw new Error((dashRes.value && dashRes.value.error) || 'Failed to load competitor data');
+    }
+
+    const data = dashRes.value;
+    const sessData = (sessRes.status === 'fulfilled' && sessRes.value) ? sessRes.value : null;
+
+    if (sessData && sessData.success) {
+      let hidden = [];
+      try { hidden = JSON.parse(localStorage.getItem('gt-hidden-matches') || '[]'); } catch (e) {}
+      const hiddenSet = new Set(hidden);
+
+      const rawActive = sessData.active_sessions || (sessData.primary_active ? [sessData.primary_active, ...(sessData.unfinished_sessions || [])] : []);
+      data.active_sessions = rawActive.filter(m => !hiddenSet.has(m.match_id || m.id));
+      data.primary_active = data.active_sessions[0] || null;
+      data.unfinished_sessions = data.active_sessions.slice(1);
+      data.completed_history = (sessData.completed_history || []).filter(m => !hiddenSet.has(m.match_id || m.id));
+      data.tracker_history = data.completed_history;
+    }
 
     myHubData = data;
+    try {
+      localStorage.setItem('my_hub_cache', JSON.stringify(data));
+    } catch (e) {}
+
     renderMyHub(data);
   } catch (err) {
-    container.innerHTML = `<div class="empty-state" style="color:var(--loss);">Error loading competitor hub: ${err.message}</div>`;
+    console.warn("Notice updating competitor hub from server:", err);
+    if (!cachedData) {
+      container.innerHTML = `<div class="empty-state" style="color:var(--loss);">Error loading competitor hub: ${err.message}</div>`;
+    }
   }
 }
 
@@ -208,7 +264,7 @@ function renderMyHub(data) {
               </tbody>
             </table>
           </div>
-        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>'}
+        ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading faction data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>')}
       </div>
 
       <!-- Card 4: Matchup Matrix vs Enemy Factions -->
@@ -244,7 +300,7 @@ function renderMyHub(data) {
               </tbody>
             </table>
           </div>
-        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>'}
+        ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading matchup data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>')}
       </div>
 
     </div>
@@ -296,7 +352,7 @@ function renderMyHub(data) {
               </tbody>
             </table>
           </div>
-        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
+        ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading match history...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>')}
       </div>
 
       <!-- Card 6: 3-Tier 11th Edition Live Game Tracker & Match History -->

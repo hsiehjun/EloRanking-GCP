@@ -1606,79 +1606,132 @@ async function handleSendChatMessage(e) {
 
 async function createGameTrackerRoomForChat() {
   if (!connectState.activeRequestId) return;
+  if (connectState._creatingRoom) return;
+  connectState._creatingRoom = true;
 
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let roomCode = "";
-  for (let i = 0; i < 6; i++) {
-    roomCode += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  const btn = document.getElementById('chat-invite-room-btn');
+  const desktopLabel = btn ? btn.querySelector('.oc-invite-desktop') : null;
+  const mobileLabel = btn ? btn.querySelector('.oc-invite-mobile') : null;
+  const origDesktopText = desktopLabel ? desktopLabel.innerText : '';
+  const origMobileText = mobileLabel ? mobileLabel.innerText : '';
 
-  const msg = `🎲 I generated an OmniTactica Game Tracker match room! Click the button below to join the digital scorecard.`;
+  if (btn) btn.disabled = true;
+  if (desktopLabel) desktopLabel.innerText = '⏳ Creating Room...';
+  if (mobileLabel) mobileLabel.innerText = '⏳ Creating...';
 
-  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
-  const myName = (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'You';
-
-  let randomHex = "";
-  if (window.crypto && window.crypto.getRandomValues) {
-    const bytes = new Uint8Array(8);
-    window.crypto.getRandomValues(bytes);
-    randomHex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
-  } else {
-    randomHex = Math.random().toString(16).slice(2, 18);
-  }
-  const msgId = `msg_${randomHex}`;
-  const nowIso = new Date().toISOString();
-
-  const newMsg = {
-    id: msgId,
-    request_id: connectState.activeRequestId,
-    sender_id: myId,
-    sender_name: myName,
-    message_text: msg,
-    room_key: roomCode,
-    created_at: nowIso
-  };
-
-  // 1. Instant optimistic local render (0ms response)
-  if (!connectState.activeMessages) connectState.activeMessages = [];
-  connectState.activeMessages.push(newMsg);
-  renderChatMessages(connectState.activeMessages, false);
-
-  // 2. Real-time push via Firestore
-  const fsDb = getConnectFirestoreDb();
-  if (fsDb && firebase.firestore?.FieldValue) {
-    try {
-      const now = Date.now();
-      const expiresAtDate = new Date(now + (30 * 24 * 60 * 60 * 1000));
-      const expiresAt = (firebase.firestore?.Timestamp)
-        ? firebase.firestore.Timestamp.fromDate(expiresAtDate)
-        : expiresAtDate;
-
-      const docRef = fsDb.collection('connect_chats').doc(connectState.activeRequestId);
-      docRef.set({
-        requestId: connectState.activeRequestId,
-        lastMessage: `🎲 Live Game Tracker Room: ${roomCode}`,
-        lastSenderId: myId,
-        lastSenderName: myName,
-        updatedAt: now,
-        expiresAt: expiresAt,
-        messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
-      }, { merge: true }).catch(err => {
-        console.warn("Notice pushing room to Firestore:", err);
-      });
-    } catch (err) {
-      console.warn("Notice writing room to Firestore:", err);
-    }
-  }
-
-  // 3. Durable write to PostgreSQL
   try {
-    const res = await window.api.sendConnectMessage(connectState.activeRequestId, msg, roomCode, msgId);
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let roomCode = "";
+    for (let i = 0; i < 6; i++) {
+      roomCode += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+
+    const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+    const myName = (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'You';
+
+    const activeReq = (connectState.requests || []).find(r => r.id === connectState.activeRequestId);
+    const isMeSender = (activeReq && activeReq.sender_id === myId);
+    const oppName = activeReq ? (isMeSender ? activeReq.receiver_name : activeReq.sender_name) : 'Opponent';
+    const myFaction = activeReq ? (isMeSender ? (activeReq.sender_faction || currentUser?.top_faction) : activeReq.receiver_faction) : (currentUser?.top_faction || null);
+    const oppFaction = activeReq ? (isMeSender ? activeReq.receiver_faction : activeReq.sender_faction) : null;
+
+    // 1. Actually instantiate the live room on the backend server!
+    const roomPayload = {
+      match_id: roomCode,
+      p1_name: myName,
+      p2_name: oppName || 'Player 2',
+      p1_faction: myFaction,
+      p2_faction: oppFaction
+    };
+
+    let roomResp = null;
+    if (window.api && typeof window.api.createTrackerRoom === 'function') {
+      roomResp = await window.api.createTrackerRoom(roomPayload);
+    } else {
+      const resp = await fetch('/api/tracker/room/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${window.api ? window.api.getAuthToken() : ''}`
+        },
+        body: JSON.stringify(roomPayload)
+      });
+      roomResp = await resp.json();
+    }
+
+    if (!roomResp || roomResp.error || (!roomResp.match_id && !roomResp.success)) {
+      throw new Error((roomResp && roomResp.error) || 'Failed to initialize multiplayer match room');
+    }
+
+    const confirmedRoomKey = roomResp.match_id || roomCode;
+    const msg = `🎲 I generated an OmniTactica Game Tracker match room! Click the button below to join the digital scorecard.`;
+
+    let randomHex = "";
+    if (window.crypto && window.crypto.getRandomValues) {
+      const bytes = new Uint8Array(8);
+      window.crypto.getRandomValues(bytes);
+      randomHex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    } else {
+      randomHex = Math.random().toString(16).slice(2, 18);
+    }
+    const msgId = `msg_${randomHex}`;
+    const nowIso = new Date().toISOString();
+
+    const newMsg = {
+      id: msgId,
+      request_id: connectState.activeRequestId,
+      sender_id: myId,
+      sender_name: myName,
+      message_text: msg,
+      room_key: confirmedRoomKey,
+      created_at: nowIso
+    };
+
+    // 2. Instant optimistic local render (0ms response)
+    if (!connectState.activeMessages) connectState.activeMessages = [];
+    connectState.activeMessages.push(newMsg);
+    renderChatMessages(connectState.activeMessages, false);
+
+    // 3. Real-time push via Firestore
+    const fsDb = getConnectFirestoreDb();
+    if (fsDb && firebase.firestore?.FieldValue) {
+      try {
+        const now = Date.now();
+        const expiresAtDate = new Date(now + (30 * 24 * 60 * 60 * 1000));
+        const expiresAt = (firebase.firestore?.Timestamp)
+          ? firebase.firestore.Timestamp.fromDate(expiresAtDate)
+          : expiresAtDate;
+
+        const docRef = fsDb.collection('connect_chats').doc(connectState.activeRequestId);
+        docRef.set({
+          requestId: connectState.activeRequestId,
+          lastMessage: `🎲 Live Game Tracker Room: ${confirmedRoomKey}`,
+          lastSenderId: myId,
+          lastSenderName: myName,
+          updatedAt: now,
+          expiresAt: expiresAt,
+          messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
+        }, { merge: true }).catch(err => {
+          console.warn("Notice pushing room to Firestore:", err);
+        });
+      } catch (err) {
+        console.warn("Notice writing room to Firestore:", err);
+      }
+    }
+
+    // 4. Durable write to PostgreSQL
+    const res = await window.api.sendConnectMessage(connectState.activeRequestId, msg, confirmedRoomKey, msgId);
     if (res && res.success) {
       loadUserRequests();
     }
   } catch (err) {
-    alert('Failed to create room: ' + err.message);
+    console.error("Error creating game tracker room for chat:", err);
+    alert('Failed to create match room: ' + err.message);
+  } finally {
+    connectState._creatingRoom = false;
+    if (btn) btn.disabled = false;
+    if (desktopLabel && origDesktopText) desktopLabel.innerText = origDesktopText;
+    if (mobileLabel && origMobileText) mobileLabel.innerText = origMobileText;
   }
 }
 

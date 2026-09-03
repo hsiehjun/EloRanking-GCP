@@ -499,6 +499,15 @@ window.api = {
     });
   },
 
+  // Create / Join Casual or Chat Match Room
+  async createTrackerRoom(payload) {
+    return this._fetchJson('/api/tracker/room/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload || {})
+    });
+  },
+
   // Submit Match Score to EventStudio / BCP
   async submitScoreToBcp(payload) {
     return this._fetchJson('/api/eventstudio/submit_score', {
@@ -951,8 +960,7 @@ window.api = {
     return this._fetchJson('/api/community/regions');
   },
 
-  // Community Hub: Overview within radius
-  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null) {
+  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null, includeBcp = false) {
     if (typeof lat === 'string' && lng == null) {
       region = lat;
       lat = null;
@@ -965,10 +973,22 @@ window.api = {
     }
     if (locationName) params.set('location_name', locationName);
     if (region) params.set('region', region);
+    if (includeBcp) params.set('include_bcp', 'true');
 
     return this._fetchJson(`/api/community/overview?${params.toString()}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
     });
+  },
+
+  // Community Hub: Live BCP upcoming tournaments (asynchronous)
+  async getCommunityBcpUpcoming(lat, lng, radiusMiles = 50, daysAhead = 92) {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lng: String(lng),
+      radius_miles: String(radiusMiles),
+      days_ahead: String(daysAhead)
+    });
+    return this._fetchJson(`/api/community/bcp_upcoming?${params.toString()}`);
   },
 
   // Community Hub: Local Game Stores for Warhammer 40k
@@ -996,6 +1016,13 @@ window.api = {
     if (placeId) params.set('place_id', placeId);
 
     return this._fetchJson(`/api/community/store/tournaments?${params.toString()}`);
+  },
+
+  // Community Hub: Store Place Details (official website, phone, Google Maps URL)
+  async getStoreDetails(placeId) {
+    if (!placeId) return { success: false, error: 'Missing placeId' };
+    const params = new URLSearchParams({ place_id: placeId });
+    return this._fetchJson(`/api/community/store/details?${params.toString()}`);
   },
 
   // Community Hub: Asynchronous Field Stats & Live Roster Hydration

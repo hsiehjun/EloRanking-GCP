@@ -109,7 +109,79 @@ async function refreshCurrentEventModal(e) {
   }
 }
 
+let eventSyncPollTimer = null;
+
+function stopEventSyncPoll() {
+  if (eventSyncPollTimer) {
+    clearTimeout(eventSyncPollTimer);
+    eventSyncPollTimer = null;
+  }
+  const statusEl = document.getElementById('modal-event-sync-status');
+  if (statusEl) statusEl.style.display = 'none';
+}
+window.stopEventSyncPoll = stopEventSyncPoll;
+
+function scheduleEventSyncPoll(eventId, attempt = 1) {
+  if (eventSyncPollTimer) clearTimeout(eventSyncPollTimer);
+  if (attempt > 6) {
+    const statusEl = document.getElementById('modal-event-sync-status');
+    if (statusEl) statusEl.style.display = 'none';
+    return;
+  }
+  eventSyncPollTimer = setTimeout(async () => {
+    if (currentOpenEventId !== eventId) return;
+    try {
+      const fresh = await window.api.getTournamentDetails(eventId, false);
+      if (currentOpenEventId !== eventId) return;
+      if (fresh && !fresh.error) {
+        currentEventData = fresh;
+        eventMatchesCache = fresh.matches || [];
+        eventPlayersCache = fresh.players || [];
+
+        document.getElementById('event-modal-players').innerText = fresh.total_players || eventPlayersCache.length || 0;
+        document.getElementById('event-modal-rounds').innerText = fresh.num_rounds || 0;
+        document.getElementById('event-modal-matches').innerText = eventMatchesCache.length;
+
+        const tabResultsCount = document.getElementById('event-tab-results-count');
+        const tabEloCount = document.getElementById('event-tab-elo-count');
+        const tabMatchesCount = document.getElementById('event-tab-matches-count');
+
+        const placementsCount = eventPlayersCache.filter(p => p.placement && p.placement > 0).length;
+        if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : eventPlayersCache.length;
+        if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
+        if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
+
+        renderEventResultsRows();
+        renderEventEloRows();
+        renderEventPairingsRows();
+
+        const statusEl = document.getElementById('modal-event-sync-status');
+        if (fresh.sync_in_progress) {
+          scheduleEventSyncPoll(eventId, attempt + 1);
+        } else {
+          if (statusEl) {
+            statusEl.style.display = 'inline-flex';
+            statusEl.innerHTML = `
+              <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; color:#10b981; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.28); padding:3px 9px; border-radius:6px; font-weight:700;">
+                <span>✓ Live BCP Synced</span>
+              </span>
+            `;
+            setTimeout(() => {
+              if (currentOpenEventId === eventId && statusEl) {
+                statusEl.style.display = 'none';
+              }
+            }, 3000);
+          }
+        }
+      }
+    } catch (e) {
+      console.debug('Notice polling event sync:', e);
+    }
+  }, attempt === 1 ? 2000 : 3000);
+}
+
 async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
+  stopEventSyncPoll();
   currentOpenEventId = eventId;
   const modal = document.getElementById('event-modal');
   if (!modal) return;
@@ -130,10 +202,17 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
   const rbody = document.getElementById('event-results-body');
   const ebody = document.getElementById('event-elo-body');
   const pbody = document.getElementById('event-pairings-body');
+  const hasCachedRows = (currentEventData && String(currentEventData.id) === String(eventId));
 
-  if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
-  if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
-  if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
+  if (hasCachedRows) {
+    if (rbody) rbody.style.opacity = '0.6';
+    if (ebody) ebody.style.opacity = '0.6';
+    if (pbody) pbody.style.opacity = '0.6';
+  } else {
+    if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
+    if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
+    if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
+  }
 
   try {
     const ev = await window.api.getTournamentDetails(eventId, forceSync);
@@ -162,19 +241,42 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
     if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
     if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
 
-    if (initialTab) {
-      switchEventModalTab(initialTab);
-    } else if (eventMatchesCache.length > 0) {
-      switchEventModalTab('matches');
-    } else if (placementsCount > 0) {
-      switchEventModalTab('results');
-    } else {
-      switchEventModalTab('elo');
+    if (!hasCachedRows) {
+      if (initialTab) {
+        switchEventModalTab(initialTab);
+      } else if (eventMatchesCache.length > 0) {
+        switchEventModalTab('matches');
+      } else if (placementsCount > 0) {
+        switchEventModalTab('results');
+      } else {
+        switchEventModalTab('elo');
+      }
     }
 
     renderEventResultsRows();
     renderEventEloRows();
     renderEventPairingsRows();
+
+    if (rbody) rbody.style.opacity = '1';
+    if (ebody) ebody.style.opacity = '1';
+    if (pbody) pbody.style.opacity = '1';
+
+    // Handle background BCP sync status pill
+    const statusEl = document.getElementById('modal-event-sync-status');
+    if (statusEl) {
+      if (ev.sync_in_progress) {
+        statusEl.style.display = 'inline-flex';
+        statusEl.innerHTML = `
+          <span style="display:inline-flex; align-items:center; gap:5px; font-size:0.75rem; color:#38bdf8; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); padding:3px 9px; border-radius:6px; font-weight:600;">
+            <span class="spinner-mini" style="display:inline-block; width:9px; height:9px; border:1.5px solid rgba(56,189,248,0.3); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite;"></span>
+            <span>Syncing BCP...</span>
+          </span>
+        `;
+        scheduleEventSyncPoll(eventId);
+      } else {
+        statusEl.style.display = 'none';
+      }
+    }
 
     // Sync computed field stats back into communityState overview if active
     if (typeof communityState !== 'undefined' && communityState.overview && eventPlayersCache.length > 0) {
@@ -242,9 +344,18 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
       }
     }
   } catch (err) {
-    if (rbody) rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;
-    if (ebody) ebody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading participant ratings: ${err.message}</td></tr>`;
-    if (pbody) pbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error syncing pairings: ${err.message}</td></tr>`;
+    if (rbody) {
+      rbody.style.opacity = '1';
+      rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;
+    }
+    if (ebody) {
+      ebody.style.opacity = '1';
+      ebody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading participant ratings: ${err.message}</td></tr>`;
+    }
+    if (pbody) {
+      pbody.style.opacity = '1';
+      pbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error syncing pairings: ${err.message}</td></tr>`;
+    }
   }
 }
 

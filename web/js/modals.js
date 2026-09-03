@@ -23,6 +23,9 @@ function bringModalToFront(modal) {
 window.bringModalToFront = bringModalToFront;
 
 function closeModal(modalId) {
+  if (modalId === 'event-modal' && typeof stopEventSyncPoll === 'function') {
+    stopEventSyncPoll();
+  }
   const modal = document.getElementById(modalId);
   if (modal) {
     modal.classList.remove('active');
@@ -32,6 +35,9 @@ function closeModal(modalId) {
 
 function closeModalOnBackdrop(e) {
   if (e.target && e.target.classList.contains('modal-backdrop')) {
+    if (e.target.id === 'event-modal' && typeof stopEventSyncPoll === 'function') {
+      stopEventSyncPoll();
+    }
     e.target.classList.remove('active');
     modalStack = modalStack.filter(id => id !== e.target.id);
   }

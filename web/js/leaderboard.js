@@ -30,6 +30,10 @@ function switchLeaderboardSubtab(subtab) {
   }
 }
 
+const leaderboardCache = new Map();
+const leaderboardTeamsCache = new Map();
+let leaderboardPrefetchTimer = null;
+
 let leaderboardData = [];
 let leaderboardTeamsData = [];
 let leaderboardPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
@@ -46,11 +50,50 @@ function setLeaderboardPageSize(newSize) {
   loadLeaderboard();
 }
 
-async function loadLeaderboard() {
+function prefetchNextLeaderboardPage(faction, nextPage, pageSize, sortState) {
+  if (leaderboardPrefetchTimer) clearTimeout(leaderboardPrefetchTimer);
+  const cacheKey = `lb_${faction}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}`;
+  if (leaderboardCache.has(cacheKey)) return;
+
+  leaderboardPrefetchTimer = setTimeout(async () => {
+    try {
+      const res = await window.api.getLeaderboard(
+        faction, nextPage, pageSize,
+        sortState.field, sortState.asc ? 'ASC' : 'DESC'
+      );
+      if (res && res.items) {
+        leaderboardCache.set(cacheKey, res);
+      }
+    } catch (e) {
+      // Non-critical background prefetch
+    }
+  }, 450);
+}
+
+async function loadLeaderboard(isPrefetch = false) {
   const faction = 'All';
   const tbody = document.getElementById('leaderboard-body');
+  const cacheKey = `lb_${faction}_${leaderboardPagination.page}_${leaderboardPagination.pageSize}_${leaderboardSortState.field}_${leaderboardSortState.asc ? 'ASC' : 'DESC'}`;
 
-  if (tbody && (!leaderboardData || leaderboardData.length === 0)) {
+  // 1. Stale-While-Revalidate: Instant cache hit rendering
+  const cached = leaderboardCache.get(cacheKey);
+  if (cached && !isPrefetch) {
+    leaderboardData = cached.items || [];
+    leaderboardPagination.total = cached.total || 0;
+    leaderboardPagination.page = cached.page || leaderboardPagination.page;
+    leaderboardPagination.pageSize = cached.page_size || leaderboardPagination.pageSize;
+    leaderboardPagination.totalPages = cached.total_pages || 1;
+
+    renderLeaderboardRows();
+    renderPaginationBar('leaderboard-pagination', leaderboardPagination, 'setLeaderboardPage', 'setLeaderboardPageSize');
+  }
+
+  // 2. Visual indication: if rows exist, dim with opacity instead of blanking out table
+  if (!cached && tbody && leaderboardData && leaderboardData.length > 0 && !isPrefetch) {
+    tbody.style.opacity = '0.45';
+    tbody.style.pointerEvents = 'none';
+    tbody.style.transition = 'opacity 0.15s ease';
+  } else if (!cached && tbody && (!leaderboardData || leaderboardData.length === 0) && !isPrefetch) {
     tbody.innerHTML = '<tr><td colspan="9" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading leaderboard...</div></td></tr>';
   }
 
@@ -60,25 +103,50 @@ async function loadLeaderboard() {
       leaderboardSortState.field, leaderboardSortState.asc ? 'ASC' : 'DESC'
     );
     if (res && res.items) {
-      leaderboardData = res.items;
-      leaderboardPagination.total = res.total || 0;
-      leaderboardPagination.page = res.page || 1;
-      leaderboardPagination.pageSize = res.page_size || 25;
-      leaderboardPagination.totalPages = res.total_pages || 1;
+      leaderboardCache.set(cacheKey, res);
+
+      if (!isPrefetch) {
+        leaderboardData = res.items;
+        leaderboardPagination.total = res.total || 0;
+        leaderboardPagination.page = res.page || 1;
+        leaderboardPagination.pageSize = res.page_size || 25;
+        leaderboardPagination.totalPages = res.total_pages || 1;
+
+        if (tbody) {
+          tbody.style.opacity = '1';
+          tbody.style.pointerEvents = '';
+        }
+        renderLeaderboardRows();
+        renderPaginationBar('leaderboard-pagination', leaderboardPagination, 'setLeaderboardPage', 'setLeaderboardPageSize');
+      }
     } else {
       leaderboardData = Array.isArray(res) ? res : [];
       leaderboardPagination.total = leaderboardData.length;
+      if (tbody) {
+        tbody.style.opacity = '1';
+        tbody.style.pointerEvents = '';
+      }
+      renderLeaderboardRows();
     }
-    renderLeaderboardRows();
-    renderPaginationBar('leaderboard-pagination', leaderboardPagination, 'setLeaderboardPage', 'setLeaderboardPageSize');
+
+    // 3. Prefetch next page during idle time
+    if (!isPrefetch && leaderboardPagination.page < leaderboardPagination.totalPages) {
+      prefetchNextLeaderboardPage(faction, leaderboardPagination.page + 1, leaderboardPagination.pageSize, leaderboardSortState);
+    }
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);">Error loading leaderboard: ${err.message}</td></tr>`;
+    if (tbody && !cached) {
+      tbody.style.opacity = '1';
+      tbody.style.pointerEvents = '';
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);">Error loading leaderboard: ${err.message}</td></tr>`;
+    }
   }
 }
 
 function renderLeaderboardRows() {
   const tbody = document.getElementById('leaderboard-body');
   if (!tbody) return;
+  tbody.style.opacity = '1';
+  tbody.style.pointerEvents = '';
   tbody.innerHTML = '';
 
   if (!leaderboardData || leaderboardData.length === 0) {
@@ -144,29 +212,45 @@ function renderLeaderboardRows() {
 async function loadLeaderboardTeams() {
   const minRoster = 5;
   const tbody = document.getElementById('lead-teams-body');
-  if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
+  const cacheKey = `lb_teams_${minRoster}_100`;
+
+  const cached = leaderboardTeamsCache.get(cacheKey);
+  if (cached) {
+    leaderboardTeamsData = cached;
+    renderLeaderboardTeamsRows();
+  } else if (tbody && leaderboardTeamsData && leaderboardTeamsData.length > 0) {
+    tbody.style.opacity = '0.45';
+    tbody.style.pointerEvents = 'none';
+    tbody.style.transition = 'opacity 0.15s ease';
+  } else if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team rankings...</div></td></tr>';
   }
 
   try {
     const data = await window.api.getLeaderboardTeams(minRoster, 100);
-    if (data && Array.isArray(data.items)) {
-      leaderboardTeamsData = data.items;
-    } else if (Array.isArray(data)) {
-      leaderboardTeamsData = data;
-    } else {
-      leaderboardTeamsData = [];
+    const items = (data && Array.isArray(data.items)) ? data.items : (Array.isArray(data) ? data : []);
+    leaderboardTeamsCache.set(cacheKey, items);
+    leaderboardTeamsData = items;
+    if (tbody) {
+      tbody.style.opacity = '1';
+      tbody.style.pointerEvents = '';
     }
     renderLeaderboardTeamsRows();
   } catch (err) {
     console.error('Error loading team rankings:', err);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading team rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardTeams()">🔄 Retry</button></td></tr>`;
+    if (tbody && !cached) {
+      tbody.style.opacity = '1';
+      tbody.style.pointerEvents = '';
+      tbody.innerHTML = `<tr><td colspan="8" class="empty-state" style="color:var(--loss);"><p>Error loading team rankings: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboardTeams()">🔄 Retry</button></td></tr>`;
+    }
   }
 }
 
 function renderLeaderboardTeamsRows() {
   const tbody = document.getElementById('lead-teams-body');
   if (!tbody) return;
+  tbody.style.opacity = '1';
+  tbody.style.pointerEvents = '';
   tbody.innerHTML = '';
 
   const list = Array.isArray(leaderboardTeamsData) ? leaderboardTeamsData : (leaderboardTeamsData && Array.isArray(leaderboardTeamsData.items) ? leaderboardTeamsData.items : []);
