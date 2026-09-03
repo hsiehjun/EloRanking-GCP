@@ -289,8 +289,88 @@ async function shareCurrentLocation(inModalOnly = false) {
 window.shareCurrentLocation = shareCurrentLocation;
 
 /* --------------------------------------------------------------------------
-   LOCATION MODAL (SET LOCATION & RADIUS)
+   LOCATION MODAL & SMART COORDINATE RESOLUTION
    -------------------------------------------------------------------------- */
+const CITY_COORDS_MAP = {
+  'san diego': { name: 'San Diego, CA', lat: 32.7157, lng: -117.1611 },
+  'los angeles': { name: 'Los Angeles, CA', lat: 34.0522, lng: -118.2437 },
+  'orange county': { name: 'Orange County, CA', lat: 33.7175, lng: -117.8311 },
+  'temecula': { name: 'Temecula, CA', lat: 33.4936, lng: -117.1484 },
+  'pasadena': { name: 'Pasadena, CA', lat: 34.1478, lng: -118.1445 },
+  'burbank': { name: 'Burbank, CA', lat: 34.1808, lng: -118.3090 },
+  'anaheim': { name: 'Anaheim, CA', lat: 33.8366, lng: -117.9143 },
+  'long beach': { name: 'Long Beach, CA', lat: 33.7701, lng: -118.1937 },
+  'irvine': { name: 'Irvine, CA', lat: 33.6846, lng: -117.8265 },
+  'riverside': { name: 'Riverside, CA', lat: 33.9806, lng: -117.3755 },
+  'san francisco': { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194 },
+  'san jose': { name: 'San Jose, CA', lat: 37.3382, lng: -121.8863 },
+  'sacramento': { name: 'Sacramento, CA', lat: 38.5816, lng: -121.4944 },
+  'seattle': { name: 'Seattle, WA', lat: 47.6062, lng: -122.3321 },
+  'portland': { name: 'Portland, OR', lat: 45.5152, lng: -122.6784 },
+  'phoenix': { name: 'Phoenix, AZ', lat: 33.4484, lng: -112.0740 },
+  'las vegas': { name: 'Las Vegas, NV', lat: 36.1699, lng: -115.1398 },
+  'denver': { name: 'Denver, CO', lat: 39.7392, lng: -104.9903 },
+  'austin': { name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
+  'dallas': { name: 'Dallas, TX', lat: 32.7767, lng: -96.7970 },
+  'houston': { name: 'Houston, TX', lat: 29.7604, lng: -95.3698 },
+  'san antonio': { name: 'San Antonio, TX', lat: 29.4241, lng: -98.4936 },
+  'chicago': { name: 'Chicago, IL', lat: 41.8781, lng: -87.6298 },
+  'minneapolis': { name: 'Minneapolis, MN', lat: 44.9778, lng: -93.2650 },
+  'new york': { name: 'New York, NY', lat: 40.7128, lng: -74.0060 },
+  'philadelphia': { name: 'Philadelphia, PA', lat: 39.9526, lng: -75.1652 },
+  'boston': { name: 'Boston, MA', lat: 42.3601, lng: -71.0589 },
+  'atlanta': { name: 'Atlanta, GA', lat: 33.7490, lng: -84.3880 },
+  'orlando': { name: 'Orlando, FL', lat: 28.5383, lng: -81.3792 },
+  'miami': { name: 'Miami, FL', lat: 25.7617, lng: -80.1918 },
+  'charlotte': { name: 'Charlotte, NC', lat: 35.2271, lng: -80.8431 },
+  'columbus': { name: 'Columbus, OH', lat: 39.9612, lng: -82.9988 },
+  'toronto': { name: 'Toronto, Canada', lat: 43.6532, lng: -79.3832 },
+  'vancouver': { name: 'Vancouver, Canada', lat: 49.2827, lng: -123.1207 },
+  'london': { name: 'London, UK', lat: 51.5074, lng: -0.1278 },
+  'manchester': { name: 'Manchester, UK', lat: 53.4808, lng: -2.2426 },
+  'paris': { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
+  'sydney': { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093 },
+  'melbourne': { name: 'Melbourne, Australia', lat: -37.8136, lng: 144.9631 }
+};
+
+function lookupCityCoordinates(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const q = raw.trim().toLowerCase();
+  if (!q) return null;
+
+  const dict = (typeof window !== 'undefined' && window.GLOBAL_CITY_COORDS) ? window.GLOBAL_CITY_COORDS : CITY_COORDS_MAP;
+  
+  if (dict[q]) return dict[q];
+
+  const firstToken = q.split(',')[0].trim();
+  if (dict[firstToken]) return dict[firstToken];
+
+  for (const [key, val] of Object.entries(dict)) {
+    if (q.includes(key) || key.includes(q) || (val.name && val.name.toLowerCase().includes(q))) {
+      return val;
+    }
+  }
+
+  // Common aliases
+  const aliases = {
+    'socal': dict['san diego'],
+    'norcal': dict['san francisco'],
+    'bay area': dict['san francisco'],
+    'pnw': dict['seattle'],
+    'texas': dict['austin'],
+    'midwest': dict['chicago'],
+    'northeast': dict['new york'],
+    'nyc': dict['new york'],
+    'southeast': dict['atlanta'],
+    'uk': dict['london']
+  };
+  if (aliases[q]) return aliases[q];
+  if (aliases[firstToken]) return aliases[firstToken];
+
+  return null;
+}
+window.lookupCityCoordinates = lookupCityCoordinates;
+
 function openEditLocationModal() {
   const p = connectState.userProfile || {};
   const modal = document.getElementById('edit-location-modal');
@@ -307,16 +387,39 @@ function openEditLocationModal() {
   const pts = document.getElementById('modal-lfg-points');
   const style = document.getElementById('modal-lfg-style');
 
-  if (venue) venue.value = p.home_venue_name || (p.city ? `${p.city}, ${p.state || ''}` : '');
+  const currentLocName = (typeof communityState !== 'undefined' && communityState.locationName)
+    ? communityState.locationName
+    : (p.home_venue_name || (p.city ? `${p.city}, ${p.state || ''}` : 'San Diego, CA'));
+  const currentLat = (typeof communityState !== 'undefined' && communityState.lat != null)
+    ? communityState.lat
+    : (p.latitude || 32.7157);
+  const currentLng = (typeof communityState !== 'undefined' && communityState.lng != null)
+    ? communityState.lng
+    : (p.longitude || -117.1611);
+
+  if (venue) {
+    venue.value = currentLocName;
+    venue.dataset.origValue = currentLocName;
+    venue.dataset.userEdited = 'false';
+    venue.dataset.placeLat = String(currentLat);
+    venue.dataset.placeLng = String(currentLng);
+  }
   if (addr) addr.value = p.address || '';
-  if (city) city.value = p.city || 'San Diego';
-  if (state) state.value = p.state || 'CA';
+  if (city) city.value = p.city || '';
+  if (state) state.value = p.state || '';
   if (country) country.value = p.country || 'United States';
-  if (lat) lat.value = p.latitude || 32.7157;
-  if (lng) lng.value = p.longitude || -117.1611;
+  if (lat) lat.value = currentLat;
+  if (lng) lng.value = currentLng;
   if (rad) rad.value = (typeof communityState !== 'undefined' && communityState.radiusMiles) ? communityState.radiusMiles : (p.radius_miles || 100);
   if (pts) pts.value = p.preferred_points || 2000;
   if (style) style.value = p.play_style || 'Competitive';
+
+  const badge = document.getElementById('modal-loc-badge');
+  if (badge) {
+    badge.textContent = 'Google Places';
+    badge.style.background = '';
+    badge.style.color = '';
+  }
 
   modal.style.display = 'flex';
   setTimeout(attachModalPlacesAutocomplete, 100);
@@ -344,22 +447,84 @@ async function handleSaveLocation(e) {
     ? communityState.radiusMiles
     : (rad ? parseInt(rad.value, 10) : 100);
 
-  const targetVenue = venue ? venue.value.trim() : '';
-  const targetCity = city ? city.value.trim() : 'San Diego';
-  const targetState = state ? state.value.trim() : 'CA';
-  const targetCountry = country ? country.value.trim() : 'United States';
-  const targetLat = lat && lat.value ? parseFloat(lat.value) : 32.7157;
-  const targetLng = lng && lng.value ? parseFloat(lng.value) : -117.1611;
-  const chosenLocName = targetVenue || (targetCity ? `${targetCity}${targetState ? ', ' + targetState : ''}` : 'San Diego, CA');
+  const rawInput = venue ? venue.value.trim() : '';
+  let targetLat = null;
+  let targetLng = null;
+  let chosenLocName = rawInput || 'San Diego, CA';
+
+  // 1. If Google Places place_changed or GPS locked
+  if (venue && venue.dataset.placeLat && venue.dataset.placeLng && venue.dataset.userEdited !== 'true') {
+    targetLat = parseFloat(venue.dataset.placeLat);
+    targetLng = parseFloat(venue.dataset.placeLng);
+  } else if (rawInput && venue && rawInput === venue.dataset.origValue && lat && lat.value && lng && lng.value) {
+    // Unchanged from initial modal open state
+    targetLat = parseFloat(lat.value);
+    targetLng = parseFloat(lng.value);
+  } else if (rawInput) {
+    // 2. City coordinates dictionary lookup (fast 0ms instant match)
+    const matched = lookupCityCoordinates(rawInput);
+    if (matched) {
+      targetLat = matched.lat;
+      targetLng = matched.lng;
+      chosenLocName = rawInput || matched.name;
+    } else {
+      // 3. Try Google Geocoder if loaded
+      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+        try {
+          const geocoder = new google.maps.Geocoder();
+          const gRes = await new Promise((resolve) => {
+            geocoder.geocode({ address: rawInput }, (results, status) => {
+              if (status === 'OK' && results && results[0] && results[0].geometry) {
+                resolve(results[0]);
+              } else {
+                resolve(null);
+              }
+            });
+          });
+          if (gRes && gRes.geometry && gRes.geometry.location) {
+            targetLat = gRes.geometry.location.lat();
+            targetLng = gRes.geometry.location.lng();
+            chosenLocName = rawInput || gRes.formatted_address;
+          }
+        } catch (err) {
+          console.warn('Google geocoder notice:', err);
+        }
+      }
+
+      // 4. Try Nominatim lookup fallback
+      if (targetLat == null) {
+        try {
+          const nRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(rawInput)}&limit=1`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (nRes.ok) {
+            const items = await nRes.json();
+            if (items && items.length > 0) {
+              targetLat = parseFloat(items[0].lat);
+              targetLng = parseFloat(items[0].lon);
+            }
+          }
+        } catch (err) {
+          console.warn('Nominatim lookup notice:', err);
+        }
+      }
+    }
+  }
+
+  // Fallback if empty or San Diego
+  if (targetLat == null && (!rawInput || rawInput.toLowerCase().includes('san diego'))) {
+    targetLat = 32.7157;
+    targetLng = -117.1611;
+  }
 
   const payload = {
     ...(connectState.userProfile || {}),
     is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
-    home_venue_name: targetVenue,
+    home_venue_name: chosenLocName,
     address: addr ? addr.value.trim() : '',
-    city: targetCity,
-    state: targetState,
-    country: targetCountry,
+    city: city ? city.value.trim() : '',
+    state: state ? state.value.trim() : '',
+    country: country ? country.value.trim() : 'United States',
     latitude: targetLat,
     longitude: targetLng,
     radius_miles: unifiedRadius,
@@ -500,8 +665,12 @@ async function loadNearbyPlayers() {
   `;
 
   const style = document.getElementById('filter-style')?.value || 'all';
-  const lat = p.latitude || 32.7157;
-  const lng = p.longitude || -117.1611;
+  const lat = (typeof communityState !== 'undefined' && communityState.lat != null)
+    ? communityState.lat
+    : (p.latitude || 32.7157);
+  const lng = (typeof communityState !== 'undefined' && communityState.lng != null)
+    ? communityState.lng
+    : (p.longitude || -117.1611);
 
   try {
     const res = await window.api.searchConnectPlayers(lat, lng, radius, style);
@@ -1300,7 +1469,24 @@ window.attachAllPlacesAutocompletes = attachAllPlacesAutocompletes;
 
 function attachModalPlacesAutocomplete() {
   const venueInput = document.getElementById('modal-lfg-venue');
-  if (!venueInput || typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+  if (!venueInput) return;
+
+  if (!venueInput._inputListenerAttached) {
+    venueInput._inputListenerAttached = true;
+    venueInput.addEventListener('input', () => {
+      venueInput.dataset.userEdited = 'true';
+      delete venueInput.dataset.placeLat;
+      delete venueInput.dataset.placeLng;
+      const badge = document.getElementById('modal-loc-badge');
+      if (badge) {
+        badge.textContent = 'City / Store';
+        badge.style.background = 'rgba(56,189,248,0.1)';
+        badge.style.color = '#38bdf8';
+      }
+    });
+  }
+
+  if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
   if (venueInput._autocompleteAttached) return;
   venueInput._autocompleteAttached = true;
 
@@ -1318,6 +1504,10 @@ function attachModalPlacesAutocomplete() {
       const lng = place.geometry.location.lng();
       const name = place.name || venueInput.value;
       const addr = place.formatted_address || '';
+
+      venueInput.dataset.placeLat = String(lat);
+      venueInput.dataset.placeLng = String(lng);
+      venueInput.dataset.userEdited = 'false';
 
       const latEl = document.getElementById('modal-lfg-lat');
       const lngEl = document.getElementById('modal-lfg-lng');

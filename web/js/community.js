@@ -181,7 +181,7 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     tourneyView.innerHTML = `
       <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
         <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles...</div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles of ${escapeHtml(communityState.locationName)}...</div>
       </div>
     `;
   }
@@ -190,7 +190,16 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     sceneView.innerHTML = `
       <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
         <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles...</div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles of ${escapeHtml(communityState.locationName)}...</div>
+      </div>
+    `;
+  }
+  const playersGrid = document.getElementById('players-grid');
+  if (playersGrid && communityState.activeSubtab === 'radar') {
+    playersGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🧭</div>
+        <div>Scanning local tabletop radar for active sparring partners within ${communityState.radiusMiles} miles...</div>
       </div>
     `;
   }
@@ -211,12 +220,30 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     if (data.location?.location_name) {
       communityState.locationName = data.location.location_name;
     }
+    if (data.location?.lat != null && data.location?.lng != null) {
+      communityState.lat = parseFloat(data.location.lat);
+      communityState.lng = parseFloat(data.location.lng);
+      localStorage.setItem('comm_lat', String(communityState.lat));
+      localStorage.setItem('comm_lng', String(communityState.lng));
+      localStorage.setItem('comm_loc_name', communityState.locationName);
+      if (typeof connectState !== 'undefined' && connectState.userProfile) {
+        connectState.userProfile.latitude = communityState.lat;
+        connectState.userProfile.longitude = communityState.lng;
+        connectState.userProfile.home_venue_name = communityState.locationName;
+        connectState.userProfile.radius_miles = communityState.radiusMiles;
+      }
+    }
 
     // Render region/location header info
     renderCommunityHeader(data.location || data.region);
 
     // Render current active subtab
     renderCurrentSubtab();
+
+    // Auto-refresh Sparring Radar players count & data in background so all subtabs have fresh data
+    if (typeof loadNearbyPlayers === 'function') {
+      loadNearbyPlayers();
+    }
   } catch (err) {
     console.error('Failed to load community hub:', err);
     const tourneyView = document.getElementById('comm-tournaments-content');
@@ -347,6 +374,25 @@ function detectCommunityGPS() {
         }
       }
 
+      // 2. Fallback reverse geocoding via OpenStreetMap Nominatim if Google Geocoder wasn't available
+      if (!locName || locName.startsWith('GPS (')) {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            const city = addr.city || addr.town || addr.village || addr.suburb || addr.county;
+            const state = addr.state || '';
+            if (city && state) locName = `${city}, ${state}`;
+            else if (city) locName = city;
+          }
+        } catch (e) {
+          console.warn("Nominatim reverse geocode notice:", e);
+        }
+      }
+
       updateCommunityLocation(lat, lng, locName);
     },
     (err) => {
@@ -364,16 +410,37 @@ function detectCommunityGPS() {
  * Updates active community location and saves to localStorage
  */
 function updateCommunityLocation(lat, lng, locationName, radius = null) {
-  if (lat == null || lng == null) return;
-  communityState.lat = parseFloat(lat);
-  communityState.lng = parseFloat(lng);
-  if (locationName) communityState.locationName = locationName;
-  if (radius) communityState.radiusMiles = parseInt(radius, 10) || communityState.radiusMiles;
+  if (lat != null && lng != null) {
+    communityState.lat = parseFloat(lat);
+    communityState.lng = parseFloat(lng);
+    localStorage.setItem('comm_lat', String(lat));
+    localStorage.setItem('comm_lng', String(lng));
+  } else if (locationName && (typeof lookupCityCoordinates === 'function')) {
+    const resolved = lookupCityCoordinates(locationName);
+    if (resolved) {
+      communityState.lat = resolved.lat;
+      communityState.lng = resolved.lng;
+      localStorage.setItem('comm_lat', String(resolved.lat));
+      localStorage.setItem('comm_lng', String(resolved.lng));
+    }
+  }
 
-  localStorage.setItem('comm_lat', String(lat));
-  localStorage.setItem('comm_lng', String(lng));
-  if (locationName) localStorage.setItem('comm_loc_name', locationName);
-  if (radius) localStorage.setItem('comm_radius', String(communityState.radiusMiles));
+  if (locationName) {
+    communityState.locationName = locationName;
+    localStorage.setItem('comm_loc_name', locationName);
+  }
+  if (radius) {
+    communityState.radiusMiles = parseInt(radius, 10) || communityState.radiusMiles;
+    localStorage.setItem('comm_radius', String(communityState.radiusMiles));
+  }
+
+  // Keep connectState userProfile in sync
+  if (typeof connectState !== 'undefined' && connectState.userProfile) {
+    if (communityState.lat != null) connectState.userProfile.latitude = communityState.lat;
+    if (communityState.lng != null) connectState.userProfile.longitude = communityState.lng;
+    if (communityState.locationName) connectState.userProfile.home_venue_name = communityState.locationName;
+    if (communityState.radiusMiles) connectState.userProfile.radius_miles = communityState.radiusMiles;
+  }
 
   // Optimistically update header immediately (0ms delay)
   renderCommunityHeader({

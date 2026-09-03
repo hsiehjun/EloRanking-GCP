@@ -574,6 +574,7 @@ const GLOBAL_CITY_COORDS = {
   'sydney': { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093 },
   'melbourne': { name: 'Melbourne, Australia', lat: -37.8136, lng: 144.9631 }
 };
+window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
 
 function openLocationPickerModal() {
   if (typeof bringModalToFront === 'function') {

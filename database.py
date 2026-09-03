@@ -4525,15 +4525,34 @@ class PostgresDatabase:
         "texas": (30.2672, -97.7431, "Texas"),
         "dallas": (32.7767, -96.7970, "Dallas, TX"),
         "houston": (29.7604, -95.3698, "Houston, TX"),
+        "san antonio": (29.4241, -98.4936, "San Antonio, TX"),
         "chicago": (41.8781, -87.6298, "Chicago, IL"),
         "midwest": (41.8781, -87.6298, "Midwest"),
         "seattle": (47.6062, -122.3321, "Seattle, WA"),
+        "portland": (45.5152, -122.6784, "Portland, OR"),
         "pnw": (47.6062, -122.3321, "Pacific Northwest"),
+        "denver": (39.7392, -104.9903, "Denver, CO"),
+        "phoenix": (33.4484, -112.0740, "Phoenix, AZ"),
+        "las vegas": (36.1699, -115.1398, "Las Vegas, NV"),
+        "minneapolis": (44.9778, -93.2650, "Minneapolis, MN"),
         "new york": (40.7128, -74.0060, "New York, NY"),
+        "nyc": (40.7128, -74.0060, "New York, NY"),
+        "philadelphia": (39.9526, -75.1652, "Philadelphia, PA"),
+        "boston": (42.3601, -71.0589, "Boston, MA"),
         "northeast": (40.7128, -74.0060, "Northeast"),
+        "atlanta": (33.7490, -84.3880, "Atlanta, GA"),
         "orlando": (28.5383, -81.3792, "Orlando, FL"),
+        "miami": (25.7617, -80.1918, "Miami, FL"),
+        "charlotte": (35.2271, -80.8431, "Charlotte, NC"),
+        "columbus": (39.9612, -82.9988, "Columbus, OH"),
         "southeast": (33.7490, -84.3880, "Southeast"),
+        "toronto": (43.6532, -79.3832, "Toronto, Canada"),
+        "vancouver": (49.2827, -123.1207, "Vancouver, Canada"),
         "london": (51.5074, -0.1278, "London, UK"),
+        "manchester": (53.4808, -2.2426, "Manchester, UK"),
+        "paris": (48.8566, 2.3522, "Paris, France"),
+        "sydney": (-33.8688, 151.2093, "Sydney, Australia"),
+        "melbourne": (-37.8136, 144.9631, "Melbourne, Australia"),
         "uk": (51.5074, -0.1278, "United Kingdom")
     }
 
@@ -4585,6 +4604,15 @@ class PostgresDatabase:
                 user_lat = None
                 user_lng = None
 
+        # Safeguard against stale client form defaults:
+        # If lat/lng roughly equal default San Diego (32.7157, -117.1611) but location_name specifies a different city
+        if user_lat is not None and user_lng is not None and location_name:
+            loc_lower = location_name.strip().lower()
+            if abs(user_lat - 32.7157) < 0.005 and abs(user_lng - (-117.1611)) < 0.005:
+                if "san diego" not in loc_lower and "socal" not in loc_lower:
+                    user_lat = None
+                    user_lng = None
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 # 1. Resolve user coordinates if missing
@@ -4619,17 +4647,53 @@ class PostgresDatabase:
                             location_name = f"{e_loc.get('city')}, {e_loc.get('state')}"
 
                 if user_lat is None or user_lng is None:
-                    lookup_key = (region or location_name or "san diego").strip().lower()
-                    if lookup_key in self.KNOWN_COMMUNITY_HUBS:
-                        hub_lat, hub_lng, hub_name = self.KNOWN_COMMUNITY_HUBS[lookup_key]
+                    raw_loc = (region or location_name or "san diego").strip().lower()
+                    
+                    # 1. Exact match
+                    if raw_loc in self.KNOWN_COMMUNITY_HUBS:
+                        hub_lat, hub_lng, hub_name = self.KNOWN_COMMUNITY_HUBS[raw_loc]
                         user_lat, user_lng = hub_lat, hub_lng
                         if not location_name:
                             location_name = hub_name
                     else:
-                        user_lat = 32.7157
-                        user_lng = -117.1611
-                        if not location_name:
-                            location_name = "San Diego, CA"
+                        # 2. Token or substring match (e.g. "Seattle, WA, USA" -> "seattle")
+                        first_token = raw_loc.split(',')[0].strip()
+                        matched_hub = None
+                        if first_token in self.KNOWN_COMMUNITY_HUBS:
+                            matched_hub = self.KNOWN_COMMUNITY_HUBS[first_token]
+                        else:
+                            for k, v in self.KNOWN_COMMUNITY_HUBS.items():
+                                if k in raw_loc or raw_loc in k:
+                                    matched_hub = v
+                                    break
+                        if matched_hub:
+                            user_lat, user_lng, hub_name = matched_hub
+                            if not location_name:
+                                location_name = hub_name
+                        else:
+                            # 3. Query events table for matching tournament city
+                            cursor.execute("""
+                                SELECT latitude, longitude, city, state
+                                FROM events
+                                WHERE (LOWER(city) = %s OR LOWER(city) = %s)
+                                  AND latitude IS NOT NULL AND longitude IS NOT NULL
+                                  AND NOT (latitude = 0.0 AND longitude = 0.0)
+                                ORDER BY event_date DESC
+                                LIMIT 1;
+                            """, (first_token, raw_loc))
+                            ev_loc = cursor.fetchone()
+                            if ev_loc and ev_loc.get("latitude") and ev_loc.get("longitude"):
+                                user_lat = float(ev_loc["latitude"])
+                                user_lng = float(ev_loc["longitude"])
+                                if not location_name:
+                                    c_name = ev_loc.get("city")
+                                    s_name = ev_loc.get("state")
+                                    location_name = f"{c_name}, {s_name}" if s_name else c_name
+                            else:
+                                user_lat = 32.7157
+                                user_lng = -117.1611
+                                if not location_name:
+                                    location_name = "San Diego, CA"
 
                 if not location_name:
                     location_name = f"{user_lat:.2f}, {user_lng:.2f}"
