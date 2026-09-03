@@ -99,21 +99,26 @@ async function toggleUserLfgStatus() {
   }
   const newStatus = !connectState.userProfile.is_active;
 
+  // Optimistic UI updates (0ms delay)
+  connectState.userProfile.is_active = newStatus;
+  renderTopBarOptions(connectState.userProfile);
+
+  const radarVisible = document.getElementById('players-grid') || (typeof communityState !== 'undefined' && communityState.activeSubtab === 'radar') || connectState.activeSubtab === 'players';
+  if (radarVisible) {
+    loadNearbyPlayers();
+  }
+
   try {
     const payload = {
       ...connectState.userProfile,
       is_active: newStatus
     };
     const res = await window.api.saveConnectProfile(payload);
-    if (res && res.success) {
-      connectState.userProfile.is_active = newStatus;
-      renderTopBarOptions(connectState.userProfile);
-      if (connectState.activeSubtab === 'players') {
-        loadNearbyPlayers();
-      }
+    if (!res || !res.success) {
+      console.warn('Failed to save status:', res?.error);
     }
   } catch (err) {
-    alert('Failed to update status: ' + err.message);
+    console.warn('Failed to update status:', err);
   }
 }
 
@@ -439,6 +444,54 @@ async function loadNearbyPlayers() {
   const countBadge = document.getElementById('badge-players-count');
   if (!container) return;
 
+  // If userProfile hasn't been loaded yet, attempt quick fetch
+  if (!connectState.userProfile && typeof window.api?.getConnectProfile === 'function') {
+    try {
+      const res = await window.api.getConnectProfile();
+      if (res && res.success && res.profile) {
+        connectState.userProfile = res.profile;
+        if (typeof renderTopBarOptions === 'function') {
+          renderTopBarOptions(res.profile);
+        }
+      }
+    } catch (e) {}
+  }
+
+  const p = connectState.userProfile || {};
+  const isOffDuty = !Boolean(p.is_active);
+  const radius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
+    ? communityState.radiusMiles
+    : (document.getElementById('comm-radius-select')?.value || p.radius_miles || 100);
+
+  // If user is currently Off Duty, clearly show that radar is paused and guide them to enable it
+  if (isOffDuty) {
+    if (countBadge) {
+      countBadge.textContent = 'Off';
+      countBadge.style.opacity = '0.7';
+    }
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto; width: 100%; box-sizing: border-box;">
+        <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(100, 116, 139, 0.15); border: 1px solid rgba(100, 116, 139, 0.3); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1rem;">
+          📡
+        </div>
+        <div style="display: inline-block; padding: 3px 12px; border-radius: 9999px; background: rgba(100, 116, 139, 0.2); color: #94a3b8; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem;">
+          Status: Off Duty (Hidden)
+        </div>
+        <h3 style="color: #fff; font-size: 1.25rem; font-weight: 800; margin: 0 0 0.5rem;">
+          Sparring Radar Is Paused
+        </h3>
+        <p style="color: #94a3b8; font-size: 0.9rem; line-height: 1.5; max-width: 520px; margin: 0 auto 1.5rem;">
+          You are currently marked as <strong>Off Duty</strong>. Your profile is hidden from local matchmaking and the live radar is turned off.<br><br>
+          Enable <strong>Available for Games</strong> to discover nearby sparring partners within <span style="color: #38bdf8; font-weight: 700;">${radius} miles</span> and allow opponents to challenge you.
+        </p>
+        <button onclick="toggleUserLfgStatus()" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-size: 0.9rem; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25); cursor: pointer;">
+          <span>⚡</span> <span>Enable "Available for Games"</span>
+        </button>
+      </div>
+    `;
+    return;
+  }
+
   container.innerHTML = `
     <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
       <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🧭</div>
@@ -446,10 +499,6 @@ async function loadNearbyPlayers() {
     </div>
   `;
 
-  const p = connectState.userProfile || {};
-  const radius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
-    ? communityState.radiusMiles
-    : (document.getElementById('comm-radius-select')?.value || p.radius_miles || 100);
   const style = document.getElementById('filter-style')?.value || 'all';
   const lat = p.latitude || 32.7157;
   const lng = p.longitude || -117.1611;
@@ -459,18 +508,28 @@ async function loadNearbyPlayers() {
     const players = (res && res.players) ? res.players : [];
     connectState.playersList = players;
 
-    if (countBadge) countBadge.textContent = players.length;
+    if (countBadge) {
+      countBadge.textContent = players.length;
+      countBadge.style.opacity = '1';
+    }
 
     if (players.length === 0) {
       container.innerHTML = `
-        <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg);">
-          <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">🛡️</div>
-          <h3 style="color: #fff; font-size: 1.15rem; margin-bottom: 0.4rem;">No Active Opponents Found Within ${radius} Miles</h3>
-          <p style="color: #94a3b8; font-size: 0.85rem; max-width: 480px; margin: 0 auto 1.25rem;">
-            Make sure your status is set to "Available for Games" above! Or try expanding your search radius.
+        <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto; width: 100%; box-sizing: border-box;">
+          <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1rem;">
+            🎯
+          </div>
+          <div style="display: inline-block; padding: 3px 12px; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem;">
+            ● Radar Active • Available for Games
+          </div>
+          <h3 style="color: #fff; font-size: 1.25rem; font-weight: 800; margin: 0 0 0.5rem;">
+            No Active Opponents Found Within ${radius} Miles
+          </h3>
+          <p style="color: #94a3b8; font-size: 0.9rem; line-height: 1.5; max-width: 520px; margin: 0 auto 1.5rem;">
+            Your status is broadcasting, but no other local players within <span style="color: #38bdf8; font-weight: 700;">${radius} miles</span> are currently checked in as available. Try expanding your search radius to discover tabletop players in nearby areas.
           </p>
-          <button onclick="if(typeof changeCommunityRadius==='function'){changeCommunityRadius(250);}else{loadNearbyPlayers();}" class="btn btn-primary" style="padding: 0.55rem 1.2rem;">
-            Expand Search Radius to 250 Miles
+          <button onclick="if(typeof changeCommunityRadius==='function'){changeCommunityRadius(250);}else{loadNearbyPlayers();}" class="btn btn-primary" style="padding: 0.65rem 1.5rem; font-size: 0.9rem; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;">
+            <span>📡</span> <span>Expand Search Radius to 250 Miles</span>
           </button>
         </div>
       `;
