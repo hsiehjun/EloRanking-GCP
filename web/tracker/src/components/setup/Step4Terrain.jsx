@@ -83,12 +83,14 @@ export function Step4Terrain() {
                   : "var(--gtk-tile)"
               }}
             >
-              <img
-                src={layout.image}
-                alt=""
-                aria-hidden="true"
-                className="w-full h-auto rounded-[8px] object-cover"
-              />
+              <div className="w-full aspect-[9/16] overflow-hidden rounded-[8px] bg-black/25 flex items-center justify-center">
+                <img
+                  src={layout.image}
+                  alt={`Layout ${layout.number}`}
+                  loading="lazy"
+                  className="w-full h-full object-cover"
+                />
+              </div>
               <div className="flex items-center gap-1.5">
                 <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.1em]">
                   Layout {layout.number}
@@ -107,19 +109,28 @@ export function Step4Terrain() {
         <button
           type="button"
           onClick={() => setViewingLayout(selectedLayoutObj)}
-          className="gtk-card mt-2 flex w-full items-center justify-between gap-3 p-3.5 text-left rounded-[12px] border-2 transition-colors"
+          className="gtk-card mt-2 flex w-full items-center justify-between gap-3.5 p-3 text-left rounded-[12px] border-2 transition-colors hover:border-[var(--gtk-accent)]"
           style={{ borderColor: "var(--gtk-line)", background: "var(--gtk-tile)" }}
         >
-          <div className="min-w-0">
-            <p
-              className="gtk-mono truncate text-[10px] font-bold uppercase tracking-[0.14em]"
-              style={{ color: "var(--gtk-muted)" }}
-            >
-              Terrain Layout
-            </p>
-            <p className="gtk-display text-[20px] font-bold uppercase leading-tight">
-              {matchup.name} · {selectedLayoutObj.number}
-            </p>
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="w-10 aspect-[9/16] flex-none overflow-hidden rounded-[6px] border border-[var(--gtk-line)] bg-black/30">
+              <img
+                src={selectedLayoutObj.image}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="min-w-0">
+              <p
+                className="gtk-mono truncate text-[10px] font-bold uppercase tracking-[0.14em]"
+                style={{ color: "var(--gtk-muted)" }}
+              >
+                Terrain Layout
+              </p>
+              <p className="gtk-display text-[19px] sm:text-[20px] font-bold uppercase leading-tight truncate">
+                {matchup.name} · {selectedLayoutObj.number}
+              </p>
+            </div>
           </div>
           <span
             className="gtk-mono flex flex-none items-center gap-1 text-[11px] font-bold uppercase tracking-[0.12em]"
@@ -136,6 +147,7 @@ export function Step4Terrain() {
           front={viewingLayout.image}
           back={viewingLayout.measurementsImage}
           title={`${matchup.name} · Layout ${viewingLayout.number}`}
+          borderColor="var(--gtk-accent, #38bdf8)"
           showMeasurementsToggle
           measurementsEnabled={measurements}
           onToggleMeasurements={toggleMeasurements}
