@@ -3681,7 +3681,7 @@ if FASTAPI_AVAILABLE:
     # NATIVE GAME TRACKER STATIC ASSET & PAGE SERVING
     # =========================================================================
     async def serve_tracker_asset(rel_path: str) -> Response:
-        """Serves static chunks, CSS, fonts, and images from local disk. Returns 404 if missing."""
+        """Serves static CSS, fonts, and media images from local disk. Returns 404 if missing."""
         cache_key = rel_path.lstrip("/")
 
         # 1. Check local tracker static directory web/tracker/static/
