@@ -1402,6 +1402,32 @@ function calcHaversineDistanceMiles(lat1, lon1, lat2, lon2) {
 }
 
 /**
+ * Validates whether a Google Places or external result is a legitimate tabletop/hobby store
+ */
+function isValidStoreResult(name, types = []) {
+  if (!name || name.trim().length < 3) return false;
+  const norm = name.trim().toLowerCase().replace(/['"]/g, '');
+
+  const JUNK = ['asdf', 'test', 'tbd', 'n/a', 'na', 'online', 'discord', 'unknown', 'somewhere'];
+  if (JUNK.includes(norm)) return false;
+
+  const excludedTypes = ['lodging', 'hotel', 'campground', 'tourist_attraction', 'airport', 'movie_theater', 'bar'];
+  if (types && Array.isArray(types) && types.some(t => excludedTypes.includes(t))) return false;
+
+  const NON_STORES = [
+    'hotel', 'motel', 'resort', 'fairground', 'convention center', 'expo center',
+    'brewery', 'brewing', 'brewhouse', 'pub', 'tavern', 'winery', 'church'
+  ];
+  if (NON_STORES.some(ns => norm.includes(ns))) {
+    if (!norm.includes('board game') && !norm.includes('tabletop cafe') && !norm.includes('game cafe')) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Searches client-side PlacesService if Google Maps JavaScript SDK is loaded
  */
 function searchGooglePlacesClient(lat, lng, radiusMiles, query) {
@@ -1484,6 +1510,7 @@ async function loadLocalGameStores(forceRefresh = false) {
       for (const place of clientPlaces) {
         const pid = place.place_id;
         const pName = place.name || 'Game Store';
+        if (!isValidStoreResult(pName, place.types || [])) continue;
         const normName = pName.toLowerCase().replace(/['"]/g, '').trim();
         const pLat = place.geometry?.location ? (typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat) : null;
         const pLng = place.geometry?.location ? (typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng) : null;
@@ -1654,6 +1681,12 @@ function renderStoreCard(store) {
   const isTourney = store.is_tournament_venue;
   const dist = store.distance_miles != null ? store.distance_miles.toFixed(1) : '?';
 
+  // Build clean directions URL that combines name and address if needed
+  const cleanAddr = (store.address || '').trim();
+  const nameInAddr = cleanAddr.toLowerCase().includes((store.name || '').toLowerCase().trim());
+  const destQuery = (nameInAddr ? cleanAddr : `${store.name}, ${cleanAddr || store.city || ''}`).replace(/,\s*$/, '').trim();
+  const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destQuery)}${store.place_id ? `&destination_place_id=${encodeURIComponent(store.place_id)}` : ''}`;
+
   return `
     <div class="comm-store-card ${isOfficial ? 'official-gw' : ''} ${isTourney ? 'tournament-venue' : ''}" id="store-card-${escapeHtml(store.id)}">
       <!-- Top Badges & Distance -->
@@ -1695,16 +1728,16 @@ function renderStoreCard(store) {
       <!-- Ratings & Tournament Box -->
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 5px;">
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
-          <span style="color: #94a3b8;">Google Rating:</span>
-          <span style="font-weight: 700; color: #facc15;">
-            ${store.rating ? `⭐ ${store.rating.toFixed(1)} <span style="color: #64748b; font-weight: 500; font-size: 0.75rem;">(${store.user_ratings_total || 0} reviews)</span>` : '<span style="color: #64748b;">Not rated</span>'}
+          <span style="color: #94a3b8;">${store.rating ? 'Google Rating:' : 'Verification:'}</span>
+          <span style="font-weight: 700; color: ${store.rating ? '#facc15' : '#10b981'};">
+            ${store.rating ? `⭐ ${store.rating.toFixed(1)} <span style="color: #64748b; font-weight: 500; font-size: 0.75rem;">(${store.user_ratings_total || 0} reviews)</span>` : (isTourney ? '✓ Verified Tournament Host' : '<span style="color: #64748b;">Community Listed</span>')}
           </span>
         </div>
 
         ${isTourney ? `
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
             <span style="color: #94a3b8;">Tournaments Hosted:</span>
-            <span style="font-weight: 700; color: #38bdf8;">${store.tournament_count} verified events</span>
+            <span style="font-weight: 700; color: #38bdf8;">${store.tournament_count} verified event${store.tournament_count === 1 ? '' : 's'}</span>
           </div>
           ${store.last_tournament_date ? `
             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b;">
@@ -1721,7 +1754,7 @@ function renderStoreCard(store) {
 
       <!-- Actions -->
       <div class="comm-store-actions">
-        <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(store.address || store.name)}&destination_place_id=${encodeURIComponent(store.place_id || '')}" target="_blank" rel="noopener noreferrer" class="comm-store-btn comm-store-btn-primary" title="Open Google Maps Driving / Transit Directions">
+        <a href="${escapeHtml(dirUrl)}" target="_blank" rel="noopener noreferrer" class="comm-store-btn comm-store-btn-primary" title="Open Google Maps Driving / Transit Directions">
           <span>🧭</span> <span>Directions</span>
         </a>
 
@@ -1843,20 +1876,25 @@ function initStoresGoogleMap(stores = null) {
     });
 
     marker.addListener('click', () => {
+      const cleanAddr = (store.address || '').trim();
+      const nameInAddr = cleanAddr.toLowerCase().includes((store.name || '').toLowerCase().trim());
+      const destQuery = (nameInAddr ? cleanAddr : `${store.name}, ${cleanAddr || store.city || ''}`).replace(/,\s*$/, '').trim();
+      const dirUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destQuery)}${store.place_id ? `&destination_place_id=${encodeURIComponent(store.place_id)}` : ''}`;
+
       const infoContent = `
         <div style="color: #0f172a; padding: 6px; max-width: 250px; font-family: system-ui, -apple-system, sans-serif;">
           <div style="font-weight: 800; font-size: 14px; margin-bottom: 4px; color: #0f172a; line-height: 1.3;">
             ${escapeHtml(store.name)}
           </div>
           ${isOfficial ? '<div style="display:inline-block; font-size:10px; font-weight:700; color:#ef4444; background:#fee2e2; padding:1px 6px; border-radius:4px; margin-bottom:4px;">🛡️ OFFICIAL WARHAMMER</div>' : ''}
-          ${isTourney ? `<div style="display:inline-block; font-size:10px; font-weight:700; color:#b45309; background:#fef3c7; padding:1px 6px; border-radius:4px; margin-bottom:4px; margin-left:3px;">🏆 ${store.tournament_count} EVENTS</div>` : ''}
+          ${isTourney ? `<div style="display:inline-block; font-size:10px; font-weight:700; color:#b45309; background:#fef3c7; padding:1px 6px; border-radius:4px; margin-bottom:4px; margin-left:3px;">🏆 ${store.tournament_count} EVENT${store.tournament_count === 1 ? '' : 'S'}</div>` : ''}
           <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">${escapeHtml(store.address || '')}</div>
           <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #334155; margin-bottom: 8px;">
             <span>🚗 <strong>${store.distance_miles != null ? store.distance_miles.toFixed(1) : '?'} mi</strong></span>
-            ${store.rating ? `<span>⭐ <strong>${store.rating.toFixed(1)}</strong> (${store.user_ratings_total || 0})</span>` : ''}
+            ${store.rating ? `<span>⭐ <strong>${store.rating.toFixed(1)}</strong> (${store.user_ratings_total || 0})</span>` : (isTourney ? '<span style="color: #10b981; font-weight: 700;">✓ Tournament Host</span>' : '')}
           </div>
           <div style="display: flex; gap: 6px; align-items: center;">
-            <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(store.address || store.name)}&destination_place_id=${encodeURIComponent(store.place_id || '')}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 700; padding: 4px 10px; background: #0284c7; color: #ffffff; border-radius: 4px; text-decoration: none; display: inline-block;">
+            <a href="${escapeHtml(dirUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 700; padding: 4px 10px; background: #0284c7; color: #ffffff; border-radius: 4px; text-decoration: none; display: inline-block;">
               🧭 Directions
             </a>
             <button onclick="setStoreAsMatchmakingLocation('${escapeHtml(store.id)}')" style="font-size: 11px; font-weight: 700; padding: 4px 8px; background: #f1f5f9; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;">

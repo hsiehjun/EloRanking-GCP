@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -5454,6 +5455,109 @@ class PostgresDatabase:
                 PostgresDatabase.set_cached(PostgresDatabase._community_overview_cache_dict, cache_key, result)
                 return result
 
+    @classmethod
+    def is_valid_game_store_name(
+        cls,
+        name: str,
+        types: Optional[List[str]] = None,
+        is_from_google_places: bool = False
+    ) -> bool:
+        """
+        Validates whether a venue corresponds to a legitimate local game/hobby store
+        rather than a hotel, convention hall, brewery, private residence, tournament title, or junk test event.
+        """
+        if not name or len(name.strip()) < 3:
+            return False
+
+        name_clean = name.strip()
+        norm = name_clean.lower().replace("'", "").replace('"', '').strip()
+
+        # 1. Obvious junk / test strings / virtual platforms / private residences
+        JUNK_EXACT = {
+            "asdf", "test", "testing", "tbd", "na", "n/a", "none", "null", "undefined",
+            "unknown", "online", "discord", "tabletop simulator", "tts", "vassal",
+            "home", "house", "garage", "basement", "private", "my house", "my home",
+            "somewhere", "anywhere", "tba", "zoom", "google meet", "room"
+        }
+        if norm in JUNK_EXACT:
+            return False
+
+        # Single word without store keywords (e.g. personal names like "Luis", "Dave", "John")
+        words = [w for w in norm.split() if w]
+        if len(words) == 1 and len(norm) <= 7:
+            if not any(k in norm for k in ("game", "hobby", "comic", "cards", "dice", "gunnzo")):
+                return False
+
+        # 2. Google Places specific type check
+        if types:
+            excluded_types = {"lodging", "hotel", "campground", "tourist_attraction", "airport", "movie_theater"}
+            if any(t in excluded_types for t in types):
+                return False
+
+        # 3. Excluded non-store venue categories (Hotels, Fairgrounds, Convention Centers, Breweries, etc.)
+        NON_STORE_PATTERNS = (
+            r"\b("
+            r"hotel|motel|resort|suites|inn\b|lodge|banquet|ballroom|fairground|fairgrounds|"
+            r"convention\s*center|conference\s*center|expo\s*center|civic\s*center|events?\s*center|"
+            r"coliseum|arena|pavilion|hall\b|"
+            r"brewing|brewery|brewhouse|beer|winery|vineyard|saloon|bar\s*&\s*grill|bar\s*and\s*grill|"
+            r"tavern|pub\b|pizzeria|pizza|restaurant|bistro|cantina|"
+            r"park|recreation\s*center|rec\s*center|church|temple|chapel|community\s*center|"
+            r"elementary|high\s*school|middle\s*school|university|college|campus"
+            r")\b"
+        )
+        SPECIFIC_NON_STORES = {
+            "del mar fairgrounds", "town and country san diego", "town and country",
+            "handlery hotel", "handlery hotel: garden space", "crowne plaza", "crowne plaza san diego",
+            "alesmith", "alesmith brewing", "alesmith brewing company", "stone brewing", "ballast point"
+        }
+
+        if any(bad in norm for bad in SPECIFIC_NON_STORES):
+            return False
+
+        if re.search(NON_STORE_PATTERNS, norm, re.IGNORECASE):
+            # Exception only if explicitly marked as a board game / tabletop cafe
+            if not any(good in norm for good in ("board game", "boardgame", "tabletop cafe", "game cafe", "gaming cafe")):
+                return False
+
+        # 4. Tournament / Event title in place of venue name (e.g. "Warhammer League 12", "San Diego GT")
+        EVENT_TITLES_PATTERN = (
+            r"\b("
+            r"tournament|grand\s*tournament|\bgt\b|\brtt\b|championship|invitational|"
+            r"qualifier|\bleague\b|\bcup\b"
+            r")\b"
+        )
+        if re.search(EVENT_TITLES_PATTERN, norm, re.IGNORECASE):
+            if not any(good in norm for good in ("store", "shop", "hobbies", "hobby", "games", "gaming")):
+                return False
+
+        # If from Google Places, we already know it was returned for a game store query
+        if is_from_google_places:
+            return True
+
+        # 5. For database tournament venues: require explicit store/hobby keywords or known store whitelist
+        STORE_KEYWORDS = (
+            r"\b("
+            r"game|games|gaming|hobby|hobbies|tabletop|comic|comics|card|cards|"
+            r"collectible|collectibles|warhammer|games\s*workshop|miniature|miniatures|"
+            r"dice|wargame|wargames|wargaming|boardgame|boardgames|tcg"
+            r")\b"
+        )
+        KNOWN_STORES = {
+            "tc rockets", "tcs rockets", "tc's rockets", "gunnzo", "pair a dice",
+            "off the shelf", "crazy squirrel", "bards & cards", "bards and cards",
+            "at ease", "game empire", "warp rider", "villainous lair", "so cal games",
+            "socal games", "brookhurst"
+        }
+
+        if any(known in norm for known in KNOWN_STORES):
+            return True
+
+        if re.search(STORE_KEYWORDS, norm, re.IGNORECASE):
+            return True
+
+        return False
+
     def get_local_game_stores(
         self,
         lat: Optional[float] = None,
@@ -5523,6 +5627,7 @@ class PostgresDatabase:
 
         clean_query = (query or "").strip()
         cache_key = (
+            "v2",
             round(user_lat, 2),
             round(user_lng, 2),
             int(round(radius_miles)),
@@ -5565,6 +5670,9 @@ class PostgresDatabase:
                             continue
                         pid = place.get("place_id") or ""
                         p_name = place.get("name", "Game Store").strip()
+                        types = place.get("types") or []
+                        if not self.is_valid_game_store_name(p_name, types=types, is_from_google_places=True):
+                            continue
                         geom = place.get("geometry", {}).get("location", {})
                         p_lat = geom.get("lat")
                         p_lng = geom.get("lng")
@@ -5684,6 +5792,8 @@ class PostgresDatabase:
                         v_name = (v.get("venue_name") or "").strip()
                         if not v_name or len(v_name) < 3:
                             continue
+                        if not self.is_valid_game_store_name(v_name, is_from_google_places=False):
+                            continue
                         v_norm = v_name.lower().replace("'", "").replace('"', '').strip()
                         v_dist = float(v.get("distance_miles") or 0.0)
                         v_lat = float(v.get("lat") or 0.0)
@@ -5720,8 +5830,8 @@ class PostgresDatabase:
                                     "latitude": v_lat,
                                     "longitude": v_lng,
                                     "distance_miles": v_dist,
-                                    "rating": 4.8 if is_gw else 4.7,
-                                    "user_ratings_total": 50 + (t_count * 15),
+                                    "rating": None,
+                                    "user_ratings_total": 0,
                                     "open_now": None,
                                     "photo_reference": None,
                                     "is_official_warhammer": is_gw,
