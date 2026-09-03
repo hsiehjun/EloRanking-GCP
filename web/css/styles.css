@@ -1201,12 +1201,12 @@ input, select, textarea {
   /* Local Player Standings Mobile Card */
   #comm-leaderboard-table td:nth-child(1)::before { content: "Rank"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #comm-leaderboard-table td:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.3rem !important; font-size: 0.95rem !important; font-weight: 700 !important; }
-  #comm-leaderboard-table td:nth-child(3)::before { content: "Current Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #comm-leaderboard-table td:nth-child(4)::before { content: "Peak Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #comm-leaderboard-table td:nth-child(5)::before { content: "Primary Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #comm-leaderboard-table td:nth-child(6)::before { content: "Team / Club"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #comm-leaderboard-table td:nth-child(7)::before { content: "Local Events"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #comm-leaderboard-table td:nth-child(8)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(3)::before { content: "Local Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(4)::before { content: "Local Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(5)::before { content: "Local Win %"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(6)::before { content: "Local Events"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(7)::before { content: "Primary Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(8)::before { content: "Global Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
   /* Pagination Bar Mobile Stacking */
   .pagination-bar {

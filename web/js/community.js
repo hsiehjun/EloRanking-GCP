@@ -1050,12 +1050,14 @@ function renderCommunityCompetitors() {
 }
 
 function renderCompetitorCard(c) {
-  const elo = c.current_elo ? Math.round(Number(c.current_elo)) : 1500;
-  const peak = c.peak_elo ? Math.round(Number(c.peak_elo)) : elo;
-  const faction = c.top_faction || 'Unknown Faction';
+  const localElo = c.local_elo ? Math.round(Number(c.local_elo)) : 1500;
+  const globalElo = c.current_elo ? Math.round(Number(c.current_elo)) : 1500;
+  const peak = c.peak_elo ? Math.round(Number(c.peak_elo)) : globalElo;
+  const faction = c.local_top_faction || c.top_faction || 'Unknown Faction';
   const name = c.player_name || 'Tournament Competitor';
   const initials = name.split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase() || '40K';
-  const winRate = c.win_rate != null ? Number(c.win_rate).toFixed(1) : '-';
+  const localMatches = c.local_matches || 0;
+  const localWinRate = (c.local_win_rate != null && localMatches > 0) ? Number(c.local_win_rate).toFixed(1) : (c.win_rate != null ? Number(c.win_rate).toFixed(1) : '-');
 
   // Shared event badge logic
   let sharedBadge = '';
@@ -1098,11 +1100,17 @@ function renderCompetitorCard(c) {
     const sign = diffNum > 0 ? `+${diffNum}` : `${diffNum}`;
     const absDiff = Math.abs(diffNum);
     eloDeltaBadge = `
-      <span class="badge" style="background: rgba(168, 85, 247, 0.14); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.28); font-size: 0.68rem; font-weight: 700;" title="Rating difference compared to your ${Math.round(c.user_elo)} Elo">
+      <span class="badge" style="background: rgba(168, 85, 247, 0.14); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.28); font-size: 0.68rem; font-weight: 700;" title="Rating difference compared to your rating">
         Δ ${absDiff} (${sign})
       </span>
     `;
   }
+
+  const provBadge = (c.is_provisional && localMatches > 0) ? `
+    <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.68rem; font-weight: 700;" title="Provisional: Less than 5 local matches or 2 local events">
+      Prov.
+    </span>
+  ` : '';
 
   // Action buttons
   let actionButton = '';
@@ -1126,6 +1134,18 @@ function renderCompetitorCard(c) {
     `;
   }
 
+  const recordStatsHtml = (localMatches > 0) ? `
+    <div style="font-size: 0.74rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+      <span>Local Record: <strong style="color: #cbd5e1;">${c.local_record || '0-0-0'}</strong></span>
+      <span>Local Win %: <strong style="color: #10b981;">${localWinRate}%</strong></span>
+    </div>
+  ` : `
+    <div style="font-size: 0.74rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+      <span>Peak: <strong style="color: #cbd5e1;">${peak} Elo</strong></span>
+      <span>Win Rate: <strong style="color: #10b981;">${localWinRate}%</strong></span>
+    </div>
+  `;
+
   return `
     <div class="comm-competitor-card">
       <div style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 0.7rem;">
@@ -1137,8 +1157,12 @@ function renderCompetitorCard(c) {
             ${escapeHtml(name)}
           </div>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
-            <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.72rem; font-weight: 800; padding: 2px 7px;">
-              ${elo} Elo
+            <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.72rem; font-weight: 800; padding: 2px 7px;" title="Local Elo Rating calculated across regional tournament circuit">
+              📍 ${localElo} Local
+            </span>
+            ${provBadge}
+            <span class="badge" style="background: rgba(255,255,255,0.06); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12); font-size: 0.70rem; font-weight: 600; padding: 2px 6px;" title="Global Rating: ${globalElo}">
+              🌐 ${globalElo}
             </span>
             ${eloDeltaBadge}
             ${accountBadge}
@@ -1153,10 +1177,7 @@ function renderCompetitorCard(c) {
 
       <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; display: flex; flex-direction: column; gap: 6px;">
         ${sharedBadge}
-        <div style="font-size: 0.74rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
-          <span>Peak: <strong style="color: #cbd5e1;">${peak} Elo</strong></span>
-          <span>Win Rate: <strong style="color: #10b981;">${winRate}%</strong></span>
-        </div>
+        ${recordStatsHtml}
       </div>
 
       <div style="margin-top: auto;">
@@ -1354,7 +1375,7 @@ function renderCommunityLeaderboard() {
           <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${leaderboard.length} ranked competitors within ${rad} miles)</span>
         </h3>
         <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Top rated tournament players actively competing in tournaments within ${rad} miles of ${escapeHtml(locName)}
+          Dynamic circuit ratings and match records calculated strictly from tournaments within ${rad} miles of ${escapeHtml(locName)}
         </div>
       </div>
     </div>
@@ -1363,14 +1384,14 @@ function renderCommunityLeaderboard() {
       <table id="comm-leaderboard-table" class="data-table">
         <thead>
           <tr>
-            <th style="width: 65px; text-align: center;">Rank</th>
+            <th style="width: 60px; text-align: center;">Rank</th>
             <th>Competitor</th>
-            <th>Current Elo</th>
-            <th>Peak Elo</th>
+            <th>Local Elo</th>
+            <th>Local Record</th>
+            <th>Local Win %</th>
+            <th style="text-align: center;">Local Events</th>
             <th>Primary Faction</th>
-            <th>Team / Club</th>
-            <th>Local Events</th>
-            <th>Win Rate</th>
+            <th>Global Rating</th>
           </tr>
         </thead>
         <tbody>
@@ -1398,9 +1419,12 @@ function renderCommunityLeaderboard() {
       else if (rank === 2) rankDisplay = '🥈 2';
       else if (rank === 3) rankDisplay = '🥉 3';
 
-      const elo = row.current_elo ? Math.round(Number(row.current_elo)) : 1500;
-      const peak = row.peak_elo ? Math.round(Number(row.peak_elo)) : elo;
-      const winRate = row.win_rate != null ? `${Number(row.win_rate).toFixed(1)}%` : '-';
+      const localElo = row.local_elo ? Math.round(Number(row.local_elo)) : 1500;
+      const localMatches = row.local_matches || 0;
+      const localWinRate = (row.local_win_rate != null && localMatches > 0) ? `${Number(row.local_win_rate).toFixed(1)}%` : '-';
+      const localRecord = row.local_record || '0-0-0';
+      const globalElo = row.current_elo ? Math.round(Number(row.current_elo)) : 1500;
+      const globalPeak = row.peak_elo ? Math.round(Number(row.peak_elo)) : globalElo;
 
       const isSelf = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === row.player_id || currentUser.id === row.account_user_id));
       const chatPill = (row.has_account && !isSelf) ? `
@@ -1408,6 +1432,15 @@ function renderCommunityLeaderboard() {
           💬 Chat
         </button>
       ` : '';
+
+      const provBadge = row.is_provisional ? `
+        <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.65rem; font-weight: 700; padding: 1px 5px; margin-left: 5px;" title="Provisional: Less than 5 local matches or 2 local events in this circuit">
+          Prov.
+        </span>
+      ` : '';
+
+      const wrNum = Number(row.local_win_rate || 0);
+      const wrColor = (localMatches > 0 && wrNum >= 60) ? '#10b981' : (localMatches > 0 && wrNum >= 45 ? '#38bdf8' : '#94a3b8');
 
       html += `
         <tr onclick="openPlayerModal('${escapeHtml(row.player_id)}')" style="cursor: pointer;">
@@ -1419,25 +1452,32 @@ function renderCommunityLeaderboard() {
               <div style="font-weight: 700; color: #fff;">${escapeHtml(row.player_name || 'Competitor')}</div>
               ${chatPill}
             </div>
-            ${row.has_shared_events ? `<span style="font-size: 0.68rem; color: #10b981; font-weight: 700;">★ Shared Tournament Competitor</span>` : ''}
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px;">
+              ${row.team ? `<span style="font-size: 0.72rem; color: #94a3b8;">${escapeHtml(row.team)}</span>` : ''}
+              ${row.has_shared_events ? `<span style="font-size: 0.68rem; color: #10b981; font-weight: 700;">★ Shared Tournament Competitor</span>` : ''}
+            </div>
           </td>
-          <td style="font-weight: 800; color: #38bdf8; font-family: monospace;">
-            ${elo}
+          <td style="font-weight: 800; color: #38bdf8; font-family: monospace; white-space: nowrap;">
+            <span>${localElo}</span>
+            ${provBadge}
           </td>
-          <td style="color: #94a3b8; font-family: monospace;">
-            ${peak}
+          <td>
+            <div style="font-weight: 700; font-family: monospace; color: #f8fafc;">${localRecord}</div>
+            <div style="font-size: 0.7rem; color: #64748b;">${localMatches} match${localMatches === 1 ? '' : 'es'}</div>
+          </td>
+          <td style="color: ${wrColor}; font-weight: 700; font-family: monospace;">
+            ${localWinRate}
+          </td>
+          <td style="text-align: center; color: #cbd5e1; font-weight: 600;">
+            ${row.regional_events_count || 1}
           </td>
           <td style="color: #cbd5e1;">
             ${escapeHtml(row.top_faction || 'Unknown')}
           </td>
-          <td style="color: #94a3b8;">
-            ${escapeHtml(row.team || '-')}
-          </td>
-          <td style="text-align: center; color: #cbd5e1;">
-            ${row.regional_events_count || 1}
-          </td>
-          <td style="color: #10b981; font-weight: 700; font-family: monospace;">
-            ${winRate}
+          <td>
+            <div style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 0.75rem; color: #cbd5e1;" title="Global Rating: ${globalElo} (Peak: ${globalPeak})">
+              <span>🌐</span> <strong>${globalElo}</strong>
+            </div>
           </td>
         </tr>
       `;

@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import collections
 from typing import Any, Dict, List, Optional, Tuple, Set, Union
 from datetime import datetime, timezone, timedelta
 
@@ -5298,7 +5299,7 @@ class PostgresDatabase:
                         WHERE distance_miles <= %s
                           AND event_date < CURRENT_DATE - INTERVAL '1 day'
                         ORDER BY event_date DESC, distance_miles ASC
-                        LIMIT 25
+                        LIMIT 50
                     );
                 """
                 cursor.execute(
@@ -5312,7 +5313,8 @@ class PostgresDatabase:
                 )
                 all_event_rows = cursor.fetchall()
                 events_upcoming_db = [dict(r) for r in all_event_rows if r.get("event_group") == "upcoming"]
-                events_recent = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
+                events_recent_all = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
+                events_recent = events_recent_all[:25]
 
                 # Fetch live upcoming tournaments from BCP API (3 months / 92 days ahead)
                 bcp_upcoming = []
@@ -5385,7 +5387,7 @@ class PostgresDatabase:
                 events_upcoming = merged_upcoming[:35]
 
                 # Collect event IDs for field stats and player discovery
-                all_event_ids = [e["id"] for e in (events_upcoming + events_recent)]
+                all_event_ids = list({e["id"] for e in (events_upcoming + events_recent_all) if e.get("id")})
                 field_stats_map = self.get_events_field_stats(all_event_ids) if all_event_ids else {}
 
                 for ev in (events_upcoming + events_recent):
@@ -5450,7 +5452,89 @@ class PostgresDatabase:
                             user_event_names[eid] = u_row["event_name"] or "Tournament Match"
 
                 local_competitors = []
+                player_local_stats = collections.defaultdict(lambda: {
+                    "elo": 1500.0,
+                    "peak_elo": 1500.0,
+                    "matches": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "events": set(),
+                    "factions": collections.Counter(),
+                })
+
                 if all_event_ids:
+                    # Query all completed regional matches chronologically for on-the-fly local Elo calculation
+                    cursor.execute("""
+                        SELECT m.id, m.event_id, m.round,
+                               COALESCE(m.match_date, e.event_date) as match_date,
+                               m.player1_id, m.player2_id, m.winner_id, m.loser_id, m.is_draw,
+                               m.player1_faction, m.player2_faction
+                        FROM matches m
+                        LEFT JOIN events e ON m.event_id = e.id
+                        WHERE m.event_id = ANY(%s)
+                          AND m.is_done = TRUE
+                          AND m.is_bye = FALSE
+                          AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                          AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                        ORDER BY COALESCE(m.match_date, e.event_date) ASC NULLS LAST, m.round ASC, m.id ASC;
+                    """, (all_event_ids,))
+                    regional_matches = cursor.fetchall()
+
+                    for m in regional_matches:
+                        p1 = m.get("player1_id")
+                        p2 = m.get("player2_id")
+                        if not p1 or not p2 or p1 == p2:
+                            continue
+
+                        eid = m.get("event_id")
+                        if eid:
+                            player_local_stats[p1]["events"].add(eid)
+                            player_local_stats[p2]["events"].add(eid)
+
+                        if m.get("player1_faction"):
+                            player_local_stats[p1]["factions"][m["player1_faction"]] += 1
+                        if m.get("player2_faction"):
+                            player_local_stats[p2]["factions"][m["player2_faction"]] += 1
+
+                        r1 = player_local_stats[p1]["elo"]
+                        r2 = player_local_stats[p2]["elo"]
+
+                        k1 = 32.0 if player_local_stats[p1]["matches"] < 10 else 24.0
+                        k2 = 32.0 if player_local_stats[p2]["matches"] < 10 else 24.0
+
+                        exp1 = 1.0 / (1.0 + math.pow(10.0, (r2 - r1) / 400.0))
+                        exp2 = 1.0 - exp1
+
+                        is_draw = bool(m.get("is_draw"))
+                        w_id = m.get("winner_id")
+                        l_id = m.get("loser_id")
+
+                        if is_draw:
+                            s1, s2 = 0.5, 0.5
+                            player_local_stats[p1]["draws"] += 1
+                            player_local_stats[p2]["draws"] += 1
+                        elif w_id == p1 or l_id == p2:
+                            s1, s2 = 1.0, 0.0
+                            player_local_stats[p1]["wins"] += 1
+                            player_local_stats[p2]["losses"] += 1
+                        elif w_id == p2 or l_id == p1:
+                            s1, s2 = 0.0, 1.0
+                            player_local_stats[p2]["wins"] += 1
+                            player_local_stats[p1]["losses"] += 1
+                        else:
+                            continue
+
+                        new_r1 = r1 + k1 * (s1 - exp1)
+                        new_r2 = r2 + k2 * (s2 - exp2)
+
+                        player_local_stats[p1]["elo"] = new_r1
+                        player_local_stats[p2]["elo"] = new_r2
+                        player_local_stats[p1]["peak_elo"] = max(player_local_stats[p1]["peak_elo"], new_r1)
+                        player_local_stats[p2]["peak_elo"] = max(player_local_stats[p2]["peak_elo"], new_r2)
+                        player_local_stats[p1]["matches"] += 1
+                        player_local_stats[p2]["matches"] += 1
+
                     cursor.execute("""
                         SELECT 
                             ep.player_id,
@@ -5479,59 +5563,155 @@ class PostgresDatabase:
                         GROUP BY ep.player_id, pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
                                  pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
                         ORDER BY current_elo DESC
-                        LIMIT 100;
+                        LIMIT 500;
                     """, (all_event_ids,))
                     comp_rows = cursor.fetchall()
 
-                    event_title_map = {e["id"]: e.get("name", "Tournament") for e in (events_recent + events_upcoming)}
+                    # Check if any players in player_local_stats were missing from event_participants
+                    comp_rows_pids = {r["player_id"] for r in comp_rows}
+                    missing_pids = [pid for pid in player_local_stats if pid not in comp_rows_pids]
+                    if missing_pids:
+                        cursor.execute("""
+                            SELECT 
+                                pr.player_id,
+                                COALESCE(pr.player_name, 'Competitor') as player_name,
+                                COALESCE(pr.current_elo, 1500.0) as current_elo,
+                                COALESCE(pr.peak_elo, 1500.0) as peak_elo,
+                                COALESCE(pr.top_faction, 'Unknown Faction') as top_faction,
+                                pr.team as team,
+                                COALESCE(pr.matches_played, 0) as matches_played,
+                                COALESCE(pr.wins, 0) as wins,
+                                COALESCE(pr.losses, 0) as losses,
+                                COALESCE(pr.win_rate, 0.0) as win_rate,
+                                u.id as account_user_id,
+                                u.display_name as account_display_name,
+                                CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
+                            FROM player_ratings pr
+                            LEFT JOIN users u ON (
+                                (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = pr.player_id)
+                                OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = pr.player_id)
+                                OR u.id = pr.player_id
+                            )
+                            WHERE pr.player_id = ANY(%s);
+                        """, (missing_pids,))
+                        for mr in cursor.fetchall():
+                            md = dict(mr)
+                            md["event_ids"] = list(player_local_stats[md["player_id"]]["events"])
+                            md["regional_events_count"] = len(md["event_ids"])
+                            comp_rows.append(md)
+
+                    event_title_map = {e["id"]: e.get("name", "Tournament") for e in (events_recent_all + events_upcoming)}
+
+                    user_local_elo = None
+                    if current_player_id and current_player_id in player_local_stats and player_local_stats[current_player_id]["matches"] > 0:
+                        user_local_elo = round(player_local_stats[current_player_id]["elo"], 1)
 
                     for r in comp_rows:
                         p_dict = dict(r)
-                        e_ids = p_dict.get("event_ids") or []
-                        
+                        pid = p_dict["player_id"]
+                        l_stats = player_local_stats.get(pid)
+
+                        e_ids = set(p_dict.get("event_ids") or [])
+                        if l_stats and l_stats["events"]:
+                            e_ids.update(l_stats["events"])
+                        p_dict["event_ids"] = list(e_ids)
+                        reg_events = max(int(p_dict.get("regional_events_count") or 1), len(e_ids) if e_ids else 1)
+                        p_dict["regional_events_count"] = reg_events
+
                         shared_ids = [eid for eid in e_ids if eid in user_event_ids]
                         shared_names = [event_title_map.get(eid) or user_event_names.get(eid) for eid in shared_ids if (event_title_map.get(eid) or user_event_names.get(eid))]
                         recent_local_names = [event_title_map.get(eid) for eid in e_ids if eid in event_title_map]
-                        
+
                         p_dict["shared_events_count"] = len(shared_ids)
                         p_dict["shared_event_names"] = shared_names[:3]
                         p_dict["has_shared_events"] = len(shared_ids) > 0
                         p_dict["recent_local_event"] = recent_local_names[0] if recent_local_names else (shared_names[0] if shared_names else None)
-                        
+
+                        # Local circuit rating & record
+                        if l_stats and l_stats["matches"] > 0:
+                            p_dict["local_elo"] = round(float(l_stats["elo"]), 1)
+                            p_dict["local_peak_elo"] = round(float(l_stats["peak_elo"]), 1)
+                            p_dict["local_matches"] = l_stats["matches"]
+                            p_dict["local_wins"] = l_stats["wins"]
+                            p_dict["local_losses"] = l_stats["losses"]
+                            p_dict["local_draws"] = l_stats["draws"]
+                            p_dict["local_record"] = f"{l_stats['wins']}-{l_stats['losses']}-{l_stats['draws']}"
+                            p_dict["local_win_rate"] = round((l_stats["wins"] / l_stats["matches"]) * 100.0, 1)
+                            if l_stats["factions"]:
+                                p_dict["local_top_faction"] = l_stats["factions"].most_common(1)[0][0]
+                            else:
+                                p_dict["local_top_faction"] = p_dict.get("top_faction")
+                        else:
+                            p_dict["local_elo"] = 1500.0
+                            p_dict["local_peak_elo"] = 1500.0
+                            p_dict["local_matches"] = 0
+                            p_dict["local_wins"] = 0
+                            p_dict["local_losses"] = 0
+                            p_dict["local_draws"] = 0
+                            p_dict["local_record"] = "0-0-0"
+                            p_dict["local_win_rate"] = 0.0
+                            p_dict["local_top_faction"] = p_dict.get("top_faction")
+
+                        # Qualified: >= 5 local matches OR >= 2 local events. Provisional if < 5 matches AND < 2 events.
+                        p_dict["is_provisional"] = bool(p_dict["local_matches"] < 5 and reg_events < 2)
+
                         if p_dict.get("current_elo"): p_dict["current_elo"] = round(float(p_dict["current_elo"]), 1)
                         if p_dict.get("peak_elo"): p_dict["peak_elo"] = round(float(p_dict["peak_elo"]), 1)
                         if p_dict.get("win_rate"): p_dict["win_rate"] = round(float(p_dict["win_rate"]), 1)
 
                         # Relevance & Elo Delta calculation
-                        comp_elo = float(p_dict.get("current_elo") or 1500.0)
-                        baseline = float(user_elo) if user_elo is not None else 1500.0
+                        comp_elo = float(p_dict.get("local_elo") if p_dict.get("local_matches", 0) > 0 else (p_dict.get("current_elo") or 1500.0))
+                        baseline = float(user_local_elo) if user_local_elo is not None else (float(user_elo) if user_elo is not None else 1500.0)
                         elo_diff = comp_elo - baseline
                         p_dict["elo_delta"] = round(abs(elo_diff), 1)
                         p_dict["elo_diff"] = round(elo_diff, 1)
                         p_dict["user_elo"] = round(user_elo, 1) if user_elo is not None else None
+                        p_dict["user_local_elo"] = user_local_elo
                         p_dict["can_chat"] = bool(p_dict.get("has_account"))
                         p_dict["is_self"] = bool(
                             (current_player_id and p_dict["player_id"] == current_player_id) or
                             (current_user_id and p_dict.get("account_user_id") == current_user_id)
                         )
-                        
+
                         local_competitors.append(p_dict)
 
-                # 4. Local Player Leaderboard (strictly ranked by Elo descending)
-                leaderboard = []
-                sorted_by_elo = sorted(
+                # 4. Local Player Leaderboard (Option 3: Hybrid Local Ranking)
+                # Qualified local regulars (>= 5 matches or >= 2 events) rank first by Local Elo.
+                # Provisional competitors (< 5 matches and 1 event) rank below qualified players.
+                def leaderboard_sort_key(c):
+                    has_played = 1 if c.get("local_matches", 0) > 0 else 0
+                    is_qualified = 1 if not c.get("is_provisional", True) else 0
+                    local_elo = float(c.get("local_elo") or 1500.0)
+                    local_wr = float(c.get("local_win_rate") or 0.0)
+                    local_w = int(c.get("local_wins") or 0)
+                    reg_events = int(c.get("regional_events_count") or 1)
+                    global_elo = float(c.get("current_elo") or 1500.0)
+                    return (has_played, is_qualified, local_elo, local_wr, local_w, reg_events, global_elo)
+
+                sorted_leaderboard = sorted(
                     local_competitors,
-                    key=lambda x: (float(x.get("current_elo") or 1500.0), int(x.get("regional_events_count") or 1)),
+                    key=leaderboard_sort_key,
                     reverse=True
                 )
-                for idx, c in enumerate(sorted_by_elo[:50], start=1):
+
+                leaderboard = []
+                for idx, c in enumerate(sorted_leaderboard[:50], start=1):
                     leaderboard.append({
                         "rank": idx,
                         "player_id": c["player_id"],
                         "player_name": c.get("player_name") or "Competitor",
+                        "local_elo": c.get("local_elo", 1500.0),
+                        "local_peak_elo": c.get("local_peak_elo", 1500.0),
+                        "local_record": c.get("local_record", "0-0-0"),
+                        "local_matches": c.get("local_matches", 0),
+                        "local_wins": c.get("local_wins", 0),
+                        "local_losses": c.get("local_losses", 0),
+                        "local_draws": c.get("local_draws", 0),
+                        "local_win_rate": c.get("local_win_rate", 0.0),
+                        "is_provisional": c.get("is_provisional", False),
                         "current_elo": c.get("current_elo", 1500.0),
                         "peak_elo": c.get("peak_elo", 1500.0),
-                        "top_faction": c.get("top_faction") or "Unknown Faction",
+                        "top_faction": c.get("local_top_faction") or c.get("top_faction") or "Unknown Faction",
                         "team": c.get("team"),
                         "win_rate": c.get("win_rate", 0.0),
                         "matches_played": c.get("matches_played", 0),
@@ -5539,20 +5719,23 @@ class PostgresDatabase:
                         "shared_events_count": c.get("shared_events_count", 0),
                         "has_shared_events": c.get("has_shared_events", False),
                         "has_account": c.get("has_account", False),
-                        "can_chat": c.get("can_chat", False)
+                        "can_chat": c.get("can_chat", False),
+                        "account_user_id": c.get("account_user_id")
                     })
 
                 # Sort local_competitors for Sparring cards:
                 # 1) Registered users with accounts (can chat) at the top
                 # 2) Closest Elo delta to current user
                 # 3) Most shared events
-                # 4) Higher Elo
+                # 4) Qualified before provisional
+                # 5) Higher Local Elo
                 def competitor_rank_key(c):
                     acc_rank = -1 if c.get("has_account") else 0
                     delta = float(c.get("elo_delta") if c.get("elo_delta") is not None else 9999.0)
                     shared = int(c.get("shared_events_count") or 0)
-                    elo = float(c.get("current_elo") or 1500.0)
-                    return (acc_rank, delta, -shared, -elo)
+                    is_qual = -1 if not c.get("is_provisional") else 0
+                    local_elo = float(c.get("local_elo") or 1500.0)
+                    return (acc_rank, delta, -shared, is_qual, -local_elo)
 
                 local_competitors.sort(key=competitor_rank_key)
 
@@ -5620,10 +5803,11 @@ class PostgresDatabase:
                     "local_leaderboard": leaderboard,
                     "local_teams_leaderboard": local_teams,
                     "user_elo": round(user_elo, 1) if user_elo is not None else None,
+                    "user_local_elo": user_local_elo,
                     "available_regions": self.COMMUNITY_REGIONS,
                     "disclaimer": (
-                        f"Competitors and leaderboard standings are surfaced exclusively from verified tournament rosters "
-                        f"and matches played within {radius_int} miles of {location_name}."
+                        f"Competitors and local standings are calculated on the fly from verified tournament match records "
+                        f"and rosters within {radius_int} miles of {location_name}."
                     ),
                     "bcp_prompt": {
                         "is_linked": bool(current_player_id),
