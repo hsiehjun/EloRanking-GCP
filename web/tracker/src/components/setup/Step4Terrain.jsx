@@ -65,6 +65,31 @@ export function Step4Terrain() {
         </p>
       </div>
 
+      {/* 3 Layout Thumbnails Header & Measurements Toggle */}
+      <div className="flex items-center justify-between px-0.5">
+        <span className="gtk-mono text-[11px] font-bold text-[var(--gtk-muted)] uppercase tracking-wider">
+          Recommended Layouts
+        </span>
+        <button
+          type="button"
+          onClick={toggleMeasurements}
+          aria-pressed={measurements}
+          className="flex items-center gap-2 rounded-full px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-[0.08em] transition-all hover:brightness-110 active:scale-95"
+          style={{
+            background: measurements ? "#2563eb" : "rgba(255,255,255,0.08)",
+            border: measurements ? "1px solid #60a5fa" : "1px solid var(--gtk-line)",
+            color: "#fff",
+            boxShadow: measurements ? "0 0 10px rgba(37, 99, 235, 0.4)" : "none"
+          }}
+        >
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full transition-colors"
+            style={{ background: measurements ? "#60a5fa" : "rgba(255,255,255,0.4)" }}
+          />
+          {measurements ? "Measurements: On" : "Measurements: Off"}
+        </button>
+      </div>
+
       {/* 3 Layout Thumbnails */}
       <div className="grid grid-cols-3 gap-3">
         {matchup.layouts.map(layout => {
@@ -85,7 +110,7 @@ export function Step4Terrain() {
             >
               <div className="w-full aspect-[9/16] overflow-hidden rounded-[8px] bg-black/25 flex items-center justify-center">
                 <img
-                  src={layout.image}
+                  src={measurements ? layout.measurementsImage : layout.image}
                   alt={`Layout ${layout.number}`}
                   loading="lazy"
                   className="w-full h-full object-cover"
@@ -115,7 +140,7 @@ export function Step4Terrain() {
           <div className="flex items-center gap-3.5 min-w-0">
             <div className="w-10 aspect-[9/16] flex-none overflow-hidden rounded-[6px] border border-[var(--gtk-line)] bg-black/30">
               <img
-                src={selectedLayoutObj.image}
+                src={measurements ? selectedLayoutObj.measurementsImage : selectedLayoutObj.image}
                 alt=""
                 className="w-full h-full object-cover"
               />

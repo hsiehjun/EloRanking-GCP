@@ -31,9 +31,23 @@ export function CardImageModal({
     };
   }, [onClose]);
 
+  // Preload front and back images for instant switching without flicker
+  useEffect(() => {
+    if (front) {
+      const img = new Image();
+      img.src = front;
+    }
+    if (back) {
+      const img = new Image();
+      img.src = back;
+    }
+  }, [front, back]);
+
   if (!mounted) return null;
 
-  const currentImage = showingBack ? back : front;
+  const currentImage = showMeasurementsToggle
+    ? (measurementsEnabled && back ? back : front)
+    : (showingBack && back ? back : front);
 
   return createPortal(
     <div
@@ -54,12 +68,13 @@ export function CardImageModal({
       {/* Card Image Container */}
       <div
         onClick={e => e.stopPropagation()}
-        className="relative flex items-center justify-center max-h-[82vh] max-w-[95vw]"
+        className="relative flex items-center justify-center max-h-[72vh] sm:max-h-[80vh] max-w-[95vw]"
       >
         <img
+          key={currentImage}
           src={currentImage}
           alt={alt}
-          className="max-h-[78vh] w-auto rounded-[12px] border-2 shadow-2xl object-contain"
+          className="max-h-[68vh] sm:max-h-[76vh] w-auto rounded-[12px] border-2 shadow-2xl object-contain transition-all"
           style={{ borderColor: borderColor || "#fff" }}
         />
       </div>
@@ -67,13 +82,13 @@ export function CardImageModal({
       {/* Controls: Back/Front flip, Measurements toggle, Close */}
       <div
         onClick={e => e.stopPropagation()}
-        className="flex items-center gap-3"
+        className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3 px-2 pb-2"
       >
-        {back && (
+        {!showMeasurementsToggle && back && (
           <button
             type="button"
             onClick={() => setShowingBack(prev => !prev)}
-            className="flex items-center gap-2 rounded-full px-4 py-2 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-white transition-colors"
+            className="flex items-center gap-2 rounded-full px-4 py-2 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-white transition-colors hover:bg-white/25"
             style={{
               background: "rgba(255,255,255,0.18)",
               border: "1px solid rgba(255,255,255,0.35)"
@@ -87,12 +102,18 @@ export function CardImageModal({
           <button
             type="button"
             onClick={onToggleMeasurements}
-            className="flex items-center gap-2 rounded-full px-4 py-2 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-white transition-colors"
+            aria-pressed={measurementsEnabled}
+            className="flex items-center gap-2 rounded-full px-4 py-2 font-mono text-[12px] font-bold uppercase tracking-[0.1em] text-white transition-all hover:brightness-110 active:scale-95"
             style={{
-              background: measurementsEnabled ? "#3b82f6" : "rgba(255,255,255,0.18)",
-              border: "1px solid rgba(255,255,255,0.35)"
+              background: measurementsEnabled ? "#2563eb" : "rgba(255,255,255,0.18)",
+              border: measurementsEnabled ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.35)",
+              boxShadow: measurementsEnabled ? "0 0 12px rgba(37, 99, 235, 0.45)" : "none"
             }}
           >
+            <span
+              className="inline-block h-2 w-2 rounded-full transition-colors"
+              style={{ background: measurementsEnabled ? "#60a5fa" : "rgba(255,255,255,0.4)" }}
+            />
             {measurementsEnabled ? "Measurements: On" : "Measurements: Off"}
           </button>
         )}

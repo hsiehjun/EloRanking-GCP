@@ -290,7 +290,9 @@ export function BattleScorecard() {
         <CardImageModal
           front={currentTerrainLayout.image}
           back={currentTerrainLayout.measurementsImage}
+          alt={`${matchup.name} · Layout ${currentTerrainLayout.number}`}
           title={`${matchup.name} · Layout ${currentTerrainLayout.number}`}
+          borderColor="var(--gtk-accent, #38bdf8)"
           showMeasurementsToggle
           measurementsEnabled={measurements}
           onToggleMeasurements={toggleMeasurements}
