@@ -478,6 +478,19 @@ class PostgresDatabase:
             "ALTER TABLE match_chat_messages ADD COLUMN IF NOT EXISTS room_key VARCHAR(64);",
             "ALTER TABLE match_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ;",
             "CREATE INDEX IF NOT EXISTS idx_chat_messages_req ON match_chat_messages(request_id, created_at ASC);",
+            """CREATE TABLE IF NOT EXISTS community_chat_messages (
+                id VARCHAR(64) PRIMARY KEY,
+                region VARCHAR(128) NOT NULL DEFAULT 'global',
+                sender_id VARCHAR(64) NOT NULL,
+                sender_name TEXT NOT NULL,
+                sender_role VARCHAR(32) DEFAULT 'player',
+                sender_elo DOUBLE PRECISION,
+                message_text TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            "ALTER TABLE community_chat_messages ADD COLUMN IF NOT EXISTS sender_role VARCHAR(32) DEFAULT 'player';",
+            "ALTER TABLE community_chat_messages ADD COLUMN IF NOT EXISTS sender_elo DOUBLE PRECISION;",
+            "CREATE INDEX IF NOT EXISTS idx_comm_chat_reg_created ON community_chat_messages(region, created_at DESC);",
             """CREATE TABLE IF NOT EXISTS waha_factions (
                 id TEXT,
                 name TEXT,
@@ -4420,6 +4433,414 @@ class PostgresDatabase:
                 """, (user_id, user_id, user_id, user_id))
                 row = cursor.fetchone()
                 return int(row[0]) if row and row[0] is not None else 0
+
+
+    # =========================================================================
+    # REGIONAL COMMUNITY HUB & COMPETITOR DISCOVERY
+    # =========================================================================
+
+    COMMUNITY_REGIONS = [
+        {
+            "id": "socal",
+            "name": "Southern California",
+            "badge": "🌴 SoCal Scene",
+            "description": "Los Angeles, San Diego, Orange County, Inland Empire",
+            "keywords": ["los angeles", "san diego", "orange", "anaheim", "pasadena", "burbank", "riverside", "ca", "california", "long beach", "irvine"],
+            "lat": 33.7490, "lng": -117.8732
+        },
+        {
+            "id": "norcal",
+            "name": "Northern California / Bay Area",
+            "badge": "🌉 NorCal Scene",
+            "description": "San Francisco, San Jose, Silicon Valley, Sacramento, Oakland",
+            "keywords": ["san francisco", "san jose", "oakland", "sacramento", "santa clara", "berkeley", "sunnyvale", "fremont", "bay area", "ca"],
+            "lat": 37.7749, "lng": -122.4194
+        },
+        {
+            "id": "texas",
+            "name": "Texas Metro",
+            "badge": "⭐ Lone Star Scene",
+            "description": "Dallas-Fort Worth, Austin, Houston, San Antonio",
+            "keywords": ["dallas", "austin", "houston", "san antonio", "fort worth", "plano", "arlington", "tx", "texas"],
+            "lat": 30.2672, "lng": -97.7431
+        },
+        {
+            "id": "pnw",
+            "name": "Pacific Northwest",
+            "badge": "🌲 PNW Scene",
+            "description": "Seattle, Portland, Tacoma, Vancouver, Bellevue",
+            "keywords": ["seattle", "portland", "tacoma", "bellevue", "vancouver", "wa", "or", "washington", "oregon"],
+            "lat": 47.6062, "lng": -122.3321
+        },
+        {
+            "id": "midwest",
+            "name": "Midwest",
+            "badge": "🏙️ Midwest Scene",
+            "description": "Chicago, Indianapolis, Minneapolis, Milwaukee, Detroit",
+            "keywords": ["chicago", "indianapolis", "minneapolis", "milwaukee", "detroit", "il", "in", "mn", "wi", "mi", "illinois", "indiana"],
+            "lat": 41.8781, "lng": -87.6298
+        },
+        {
+            "id": "northeast",
+            "name": "Mid-Atlantic & Northeast",
+            "badge": "🗽 Northeast Scene",
+            "description": "New York City, Philadelphia, Boston, DC, Baltimore",
+            "keywords": ["new york", "brooklyn", "philadelphia", "boston", "washington", "baltimore", "ny", "pa", "ma", "md", "dc", "nj"],
+            "lat": 40.7128, "lng": -74.0060
+        },
+        {
+            "id": "southeast",
+            "name": "Southeast",
+            "badge": "☀️ Southeast Scene",
+            "description": "Atlanta, Orlando, Tampa, Miami, Charlotte, Raleigh",
+            "keywords": ["atlanta", "orlando", "tampa", "miami", "charlotte", "raleigh", "ga", "fl", "nc", "sc", "florida", "georgia"],
+            "lat": 33.7490, "lng": -84.3880
+        },
+        {
+            "id": "mountain",
+            "name": "Mountain West",
+            "badge": "🏔️ Mountain Scene",
+            "description": "Denver, Phoenix, Salt Lake City, Las Vegas",
+            "keywords": ["denver", "phoenix", "salt lake", "las vegas", "co", "az", "ut", "nv", "colorado", "arizona", "nevada"],
+            "lat": 39.7392, "lng": -104.9903
+        },
+        {
+            "id": "uk",
+            "name": "United Kingdom",
+            "badge": "🏰 UK Scene",
+            "description": "London, Midlands, Manchester, Nottingham, Scotland",
+            "keywords": ["london", "manchester", "birmingham", "nottingham", "uk", "united kingdom", "england", "scotland", "wales"],
+            "lat": 51.5074, "lng": -0.1278
+        },
+        {
+            "id": "all",
+            "name": "All Regions / Global",
+            "badge": "🌍 Global Circuit",
+            "description": "Competitive circuit across all regions and tournaments",
+            "keywords": [],
+            "lat": None, "lng": None
+        }
+    ]
+
+    def get_community_regions(self) -> List[Dict[str, Any]]:
+        """Returns standard regional hubs for community selection."""
+        return self.COMMUNITY_REGIONS
+
+    def get_community_overview(
+        self,
+        region: Optional[str] = "socal",
+        lat: Optional[float] = None,
+        lng: Optional[float] = None,
+        current_user_id: Optional[str] = None,
+        current_player_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Builds complete community hub payload:
+        - Upcoming & ongoing events in region
+        - Past regional tournament history & field ratings
+        - Local community leaderboard
+        - Local competitors discovered via shared event participation
+        - Verified matching disclaimer & BCP linking prompts
+        """
+        region_key = (region or "socal").strip().lower()
+        matched_region = next((r for r in self.COMMUNITY_REGIONS if r["id"] == region_key), None)
+
+        # Build region filter clause
+        where_clauses = []
+        params = []
+
+        if matched_region and matched_region.get("keywords"):
+            kw_conditions = []
+            for kw in matched_region["keywords"]:
+                kw_conditions.append("(e.city ILIKE %s OR e.state ILIKE %s OR e.name ILIKE %s)")
+                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
+            where_clauses.append(f"({' OR '.join(kw_conditions)})")
+            region_name = matched_region["name"]
+            region_badge = matched_region["badge"]
+            region_desc = matched_region["description"]
+        elif region_key and region_key != "all":
+            # Custom search query for city/state/region
+            clean_q = region_key.strip()
+            where_clauses.append("(e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s OR e.name ILIKE %s)")
+            params.extend([f"%{clean_q}%", f"%{clean_q}%", f"%{clean_q}%", f"%{clean_q}%"])
+            region_name = clean_q.title()
+            region_badge = f"📍 {region_name} Scene"
+            region_desc = f"Local tournament scene in {region_name}"
+        else:
+            region_name = "Global Community"
+            region_badge = "🌍 Global Circuit"
+            region_desc = "Global tournament scene and international competitors"
+
+        filter_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                # 1. Fetch Upcoming & Ongoing Regional Events
+                upcoming_sql = f"""
+                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                           COALESCE(e.venue, e.venue_name) as venue, e.total_players, e.num_rounds,
+                           e.current_round, e.is_ended, e.circuits
+                    FROM events e
+                    {filter_sql}
+                    {"AND" if filter_sql else "WHERE"} (e.is_ended = FALSE OR e.event_date >= NOW() - INTERVAL '3 days')
+                    ORDER BY e.event_date ASC NULLS LAST
+                    LIMIT 10;
+                """
+                cursor.execute(upcoming_sql, params)
+                events_upcoming = [dict(r) for r in cursor.fetchall()]
+
+                # 2. Fetch Recent Past Regional Events
+                recent_sql = f"""
+                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                           COALESCE(e.venue, e.venue_name) as venue, e.total_players, e.num_rounds,
+                           e.current_round, e.is_ended, e.circuits
+                    FROM events e
+                    {filter_sql}
+                    {"AND" if filter_sql else "WHERE"} (e.is_ended = TRUE OR e.event_date < NOW())
+                    ORDER BY e.event_date DESC NULLS LAST
+                    LIMIT 10;
+                """
+                cursor.execute(recent_sql, params)
+                events_recent = [dict(r) for r in cursor.fetchall()]
+
+                # Fallback if specific region has zero events
+                if not events_upcoming and not events_recent and filter_sql:
+                    cursor.execute("""
+                        SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                               COALESCE(e.venue, e.venue_name) as venue, e.total_players, e.num_rounds,
+                               e.current_round, e.is_ended, e.circuits
+                        FROM events e
+                        ORDER BY e.event_date DESC NULLS LAST
+                        LIMIT 10;
+                    """)
+                    events_recent = [dict(r) for r in cursor.fetchall()]
+
+                # Collect all event IDs for field stats
+                all_event_ids = [e["id"] for e in (events_upcoming + events_recent)]
+                field_stats_map = self.get_events_field_stats(all_event_ids) if all_event_ids else {}
+
+                for ev in (events_upcoming + events_recent):
+                    eid = ev["id"]
+                    stats = field_stats_map.get(eid, {})
+                    ev["avg_field_elo"] = stats.get("avg_field_elo")
+                    ev["top_seed_elo"] = stats.get("top_seed_elo")
+                    if ev.get("event_date") and hasattr(ev["event_date"], "isoformat"):
+                        ev["event_date"] = ev["event_date"].isoformat()
+                    if ev.get("end_date") and hasattr(ev["end_date"], "isoformat"):
+                        ev["end_date"] = ev["end_date"].isoformat()
+
+                # 3. Discover Local Community Competitors based on Event Participation
+                # We query players who actively played matches in these regional events
+                regional_event_ids = [e["id"] for e in (events_recent + events_upcoming)]
+                
+                # Fetch user's played events if current_player_id is known
+                user_event_ids = set()
+                user_event_names = {}
+                if current_player_id:
+                    cursor.execute("""
+                        SELECT DISTINCT m.event_id, e.name as event_name
+                        FROM matches m
+                        LEFT JOIN events e ON m.event_id = e.id
+                        WHERE (m.player1_id = %s OR m.player2_id = %s)
+                           OR (LOWER(m.player1_name) = LOWER(%s) OR LOWER(m.player2_name) = LOWER(%s));
+                    """, (current_player_id, current_player_id, current_player_id, current_player_id))
+                    for u_row in cursor.fetchall():
+                        eid = u_row["event_id"]
+                        if eid:
+                            user_event_ids.add(eid)
+                            user_event_names[eid] = u_row["event_name"] or "Tournament Match"
+
+                local_competitors = []
+                if regional_event_ids:
+                    # Query participants from event_participants and matches
+                    cursor.execute("""
+                        WITH reg_participants AS (
+                            SELECT ep.player_id, ep.full_name as player_name, ep.event_id
+                            FROM event_participants ep
+                            WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
+                            UNION
+                            SELECT m.player1_id as player_id, m.player1_name as player_name, m.event_id
+                            FROM matches m
+                            WHERE m.event_id = ANY(%s) AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                            UNION
+                            SELECT m.player2_id as player_id, m.player2_name as player_name, m.event_id
+                            FROM matches m
+                            WHERE m.event_id = ANY(%s) AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                        ),
+                        part_summary AS (
+                            SELECT player_id,
+                                   COUNT(DISTINCT event_id) as regional_events_count,
+                                   ARRAY_AGG(DISTINCT event_id) as event_ids
+                            FROM reg_participants
+                            GROUP BY player_id
+                        )
+                        SELECT ps.player_id, ps.regional_events_count, ps.event_ids,
+                               pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
+                               pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
+                        FROM part_summary ps
+                        JOIN player_ratings pr ON ps.player_id = pr.player_id
+                        ORDER BY pr.current_elo DESC
+                        LIMIT 60;
+                    """, (regional_event_ids, regional_event_ids, regional_event_ids))
+                    comp_rows = cursor.fetchall()
+
+                    # Build quick lookup of regional event names
+                    event_title_map = {e["id"]: e.get("name", "Tournament") for e in (events_recent + events_upcoming)}
+
+                    for r in comp_rows:
+                        p_dict = dict(r)
+                        e_ids = p_dict.get("event_ids") or []
+                        
+                        # Calculate shared events with current user
+                        shared_ids = [eid for eid in e_ids if eid in user_event_ids]
+                        shared_names = [event_title_map.get(eid) or user_event_names.get(eid) for eid in shared_ids if (event_title_map.get(eid) or user_event_names.get(eid))]
+                        
+                        # Competitor's recent events in region
+                        recent_local_names = [event_title_map.get(eid) for eid in e_ids if eid in event_title_map]
+                        
+                        p_dict["shared_events_count"] = len(shared_ids)
+                        p_dict["shared_event_names"] = shared_names[:3]
+                        p_dict["has_shared_events"] = len(shared_ids) > 0
+                        p_dict["recent_local_event"] = recent_local_names[0] if recent_local_names else (shared_names[0] if shared_names else None)
+                        
+                        # Format floats
+                        if p_dict.get("current_elo"): p_dict["current_elo"] = round(float(p_dict["current_elo"]), 1)
+                        if p_dict.get("peak_elo"): p_dict["peak_elo"] = round(float(p_dict["peak_elo"]), 1)
+                        if p_dict.get("win_rate"): p_dict["win_rate"] = round(float(p_dict["win_rate"]), 1)
+                        
+                        local_competitors.append(p_dict)
+
+                # Fallback if no competitors found for selected region
+                if not local_competitors:
+                    cursor.execute("""
+                        SELECT player_id, player_name, current_elo, peak_elo, top_faction,
+                               team, matches_played, wins, losses, win_rate, 1 as regional_events_count
+                        FROM player_ratings
+                        ORDER BY current_elo DESC
+                        LIMIT 30;
+                    """)
+                    for r in cursor.fetchall():
+                        pd = dict(r)
+                        pd["shared_events_count"] = 0
+                        pd["shared_event_names"] = []
+                        pd["has_shared_events"] = False
+                        pd["recent_local_event"] = "Grand Tournament Circuit"
+                        if pd.get("current_elo"): pd["current_elo"] = round(float(pd["current_elo"]), 1)
+                        if pd.get("peak_elo"): pd["peak_elo"] = round(float(pd["peak_elo"]), 1)
+                        if pd.get("win_rate"): pd["win_rate"] = round(float(pd["win_rate"]), 1)
+                        local_competitors.append(pd)
+
+                # 4. Regional Leaderboard
+                # Top competitors ranked in this local scene
+                leaderboard = []
+                for idx, c in enumerate(local_competitors[:40], start=1):
+                    leaderboard.append({
+                        "rank": idx,
+                        "player_id": c["player_id"],
+                        "player_name": c.get("player_name") or "Competitor",
+                        "current_elo": c.get("current_elo", 1500.0),
+                        "peak_elo": c.get("peak_elo", 1500.0),
+                        "top_faction": c.get("top_faction") or "Unknown Faction",
+                        "team": c.get("team"),
+                        "win_rate": c.get("win_rate", 0.0),
+                        "matches_played": c.get("matches_played", 0),
+                        "regional_events_count": c.get("regional_events_count", 1),
+                        "shared_events_count": c.get("shared_events_count", 0),
+                        "has_shared_events": c.get("has_shared_events", False)
+                    })
+
+                return {
+                    "success": True,
+                    "region": {
+                        "id": region_key,
+                        "name": region_name,
+                        "badge": region_badge,
+                        "description": region_desc
+                    },
+                    "events_upcoming": events_upcoming,
+                    "events_recent": events_recent,
+                    "local_competitors": local_competitors[:40],
+                    "local_leaderboard": leaderboard,
+                    "available_regions": self.COMMUNITY_REGIONS,
+                    "disclaimer": (
+                        "Competitors and community members are surfaced here based on verified tournament participation "
+                        "and shared event rosters in your region. Linking your Best Coast Pairings (BCP) account "
+                        "enables automatic local scene matching and personalized community discovery."
+                    ),
+                    "bcp_prompt": {
+                        "is_linked": bool(current_player_id),
+                        "prompt_title": "Link Best Coast Pairings for Automatic Community Matching",
+                        "prompt_text": (
+                            "Linking your BCP account enables automatic local scene matching, surfaces competitors "
+                            "you've shared tournaments with, and enters you into your regional leaderboard."
+                        )
+                    }
+                }
+
+    def get_community_chat_messages(self, region: str = "socal", limit: int = 50) -> List[Dict[str, Any]]:
+        """Retrieves recent community messages for regional channel."""
+        limit = max(1, min(int(limit or 50), 100))
+        region_key = (region or "socal").strip().lower()
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    SELECT id, region, sender_id, sender_name, sender_role, sender_elo, message_text, created_at
+                    FROM community_chat_messages
+                    WHERE region = %s OR region = 'global'
+                    ORDER BY created_at ASC
+                    LIMIT %s;
+                """, (region_key, limit))
+                rows = cursor.fetchall()
+                res = []
+                for r in rows:
+                    d = dict(r)
+                    if d.get("created_at") and hasattr(d["created_at"], "isoformat"):
+                        d["created_at"] = d["created_at"].isoformat()
+                    res.append(d)
+                return res
+
+    def save_community_chat_message(
+        self,
+        region: str,
+        sender_id: str,
+        sender_name: str,
+        sender_role: str = "player",
+        sender_elo: Optional[float] = None,
+        message_text: str = ""
+    ) -> Dict[str, Any]:
+        """Saves new community chat message."""
+        import uuid
+        msg_id = str(uuid.uuid4())
+        region_key = (region or "socal").strip().lower()
+        cleaned_text = (message_text or "").strip()
+        if not cleaned_text:
+            return {"success": False, "error": "Message text cannot be empty"}
+
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                cursor.execute("""
+                    INSERT INTO community_chat_messages (
+                        id, region, sender_id, sender_name, sender_role, sender_elo, message_text, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    RETURNING created_at;
+                """, (msg_id, region_key, sender_id, sender_name, sender_role, sender_elo, cleaned_text))
+                row = cursor.fetchone()
+                conn.commit()
+                created_at = row["created_at"] if row else None
+                created_at_str = created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
+                return {
+                    "success": True,
+                    "message": {
+                        "id": msg_id,
+                        "region": region_key,
+                        "sender_id": sender_id,
+                        "sender_name": sender_name,
+                        "sender_role": sender_role,
+                        "sender_elo": sender_elo,
+                        "message_text": cleaned_text,
+                        "created_at": created_at_str
+                    }
+                }
 
 
 class PostgresConnectionContext:

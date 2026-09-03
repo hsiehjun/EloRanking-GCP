@@ -349,16 +349,36 @@ if FASTAPI_AVAILABLE:
             logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
         return None, err
 
-    @app.get("/api/eventstudio/events", summary="List organizer tournaments")
-    async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None)):
-        db = get_database()
+    def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+        """Validates that session is active and user has Tournament Organizer (TO) or Admin role."""
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
-        bcp_user_id = user.get("bcp_user_id") if user else None
-        player_id = user.get("player_id") if user else None
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        if not session_token:
+            raise HTTPException(status_code=401, detail="Authentication required to access Event Studio.")
+        session = auth_mgr.get_session(session_token)
+        if not session:
+            raise HTTPException(status_code=401, detail="Invalid or expired session.")
+        user_role = (session.get("role") or "player").strip().lower()
+        user_email = (session.get("email") or "").strip().lower()
+        admin_emails = ('swimgeek751@gmail.com',)
+        is_admin = (user_role in ("admin", "superuser", "developer", "owner")) or (user_email in admin_emails)
+        is_to = user_role in ("to", "organizer", "referee")
+        if not (is_admin or is_to):
+            raise HTTPException(
+                status_code=403,
+                detail="Tournament Organizer (TO) or Administrator role required to access Event Studio."
+            )
+        return session
+
+    @app.get("/api/eventstudio/events", summary="List organizer tournaments")
+    async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None)):
+        user = _get_to_session_or_403(request)
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        user_id = user["id"]
+        bcp_user_id = user.get("bcp_user_id")
+        player_id = user.get("player_id")
 
         if not user_id and not bcp_user_id and not player_id:
             return {"success": True, "count": 0, "events": []}
@@ -505,13 +525,11 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/create", summary="Create new tournament and register to BCP")
     async def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
-        bcp_user_id = user.get("bcp_user_id") if user else None
+        user_id = user["id"]
+        bcp_user_id = user.get("bcp_user_id")
         bcp_token = payload.bcp_token or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
 
         event_id = f"ES-{secrets.token_hex(4).upper()}"
@@ -730,12 +748,10 @@ if FASTAPI_AVAILABLE:
 
     @app.put("/api/eventstudio/event/{event_id}", summary="Modify tournament details and push to BCP")
     async def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -1212,12 +1228,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/circuits/submit", summary="Link tournament to circuit on BCP")
     async def api_eventstudio_submit_circuit(event_id: str, payload: SubmitCircuitPayload, request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -1249,12 +1263,10 @@ if FASTAPI_AVAILABLE:
 
     @app.delete("/api/eventstudio/event/{event_id}", summary="Delete tournament from Event Studio and BCP")
     async def api_eventstudio_delete_event(event_id: str, request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
         bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
 
         db.delete_studio_event(event_id, organizer_id=user_id)
@@ -1279,12 +1291,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/start", summary="Start tournament on OmniTactica and BCP")
     async def api_eventstudio_start_event(event_id: str, request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -1552,12 +1562,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/pairings", summary="Save round pairings and sync game rooms")
     async def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         round_num = str(payload.get("round") or payload.get("round_num") or 1)
         pairings_list = payload.get("pairings") or []
@@ -1660,6 +1668,7 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/roster", summary="Update event competitor roster")
     async def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request: Request):
+        _get_to_session_or_403(request)
         db = get_database()
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -1678,6 +1687,7 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round (staged locally)")
     async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        _get_to_session_or_403(request)
         db = get_database()
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -1894,6 +1904,7 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/pairings/swap", summary="Dynamically swap two competitors between tables before applying to BCP")
     async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, request: Request):
+        _get_to_session_or_403(request)
         db = get_database()
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -1963,12 +1974,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/pairings/apply_bcp", summary="Apply staged tournament pairings to Best Coast Pairings")
     async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -2052,12 +2061,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
     async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -2087,12 +2094,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/pairings/unpublish", summary="Unpublish tournament round pairings on OmniTactica and BCP")
     async def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -2121,12 +2126,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/round/finalize", summary="Finalize and lock round, advancing tournament round")
     async def api_eventstudio_finalize_round(event_id: str, payload: Dict[str, Any], request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -2160,12 +2163,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/round/reset", summary="Reset a round for corrections")
     async def api_eventstudio_reset_round(event_id: str, payload: Dict[str, Any], request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -2194,12 +2195,10 @@ if FASTAPI_AVAILABLE:
 
     @app.post("/api/eventstudio/event/{event_id}/end", summary="End and archive tournament on OmniTactica and BCP")
     async def api_eventstudio_end_tournament(event_id: str, request: Request):
+        user = _get_to_session_or_403(request)
         db = get_database()
         auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
+        user_id = user["id"]
 
         ev = db.get_studio_event(event_id)
         if not ev:
@@ -5725,6 +5724,117 @@ if FASTAPI_AVAILABLE:
     async def api_admin_get_users(request: Request, token: Optional[str] = Query(None)):
         _get_admin_session_or_403(request, token)
         return {"users": get_auth_manager().get_admin_users()}
+
+    # =========================================================================
+    # ROLE MANAGEMENT & TO STATUS REQUESTS
+    # =========================================================================
+
+    class AdminSetUserRolePayload(BaseModel):
+        role: str
+
+    @app.post("/api/admin/users/{user_id}/role", summary="Update User Role (Admin)")
+    async def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, request: Request, token: Optional[str] = Query(None)):
+        _get_admin_session_or_403(request, token)
+        valid_roles = ("player", "to", "organizer", "admin", "referee")
+        new_role = payload.role.strip().lower()
+        if new_role not in valid_roles:
+            raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+        ok = get_auth_manager().set_user_role(user_id, new_role)
+        if not ok:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"success": True, "user_id": user_id, "role": new_role}
+
+    class RequestToPayload(BaseModel):
+        organization: Optional[str] = ""
+        venue_or_store: Optional[str] = ""
+        details: Optional[str] = ""
+
+    @app.post("/api/auth/request-to", summary="Request Tournament Organizer (TO) Status")
+    async def api_auth_request_to(payload: RequestToPayload, request: Request, token: Optional[str] = Query(None)):
+        session = _get_user_session_or_401(request, token)
+        db = get_database()
+        user_id = session.get("id")
+        user_email = session.get("email") or ""
+        msg = f"TO Verification Request:\nOrganization/Club: {payload.organization}\nStore/Venue: {payload.venue_or_store}\nDetails: {payload.details}"
+        import uuid
+        fb_id = str(uuid.uuid4())
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO user_feedbacks (id, user_id, user_email, feedback_type, message, status, created_at)
+                        VALUES (%s, %s, %s, 'to_request', %s, 'open', NOW());
+                    """, (fb_id, user_id, user_email, msg))
+                    conn.commit()
+        except Exception as e:
+            logger.warning(f"Notice saving TO request to feedback: {e}")
+        return {"success": True, "message": "TO verification request submitted successfully. An administrator will review your application."}
+
+    # =========================================================================
+    # REGIONAL COMMUNITY HUB & COMPETITOR DISCOVERY
+    # =========================================================================
+
+    @app.get("/api/community/regions", summary="Get Available Community Hub Regions")
+    async def api_community_regions():
+        db = get_database()
+        return {"success": True, "regions": db.get_community_regions()}
+
+    @app.get("/api/community/overview", summary="Get Regional Community Hub Overview, Events, and Competitors")
+    async def api_community_overview(
+        request: Request,
+        region: Optional[str] = Query("socal"),
+        lat: Optional[float] = Query(None),
+        lng: Optional[float] = Query(None),
+        token: Optional[str] = Query(None)
+    ):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+        player_id = user.get("player_id") or user.get("bcp_user_id") if user else None
+
+        db = get_database()
+        return db.get_community_overview(
+            region=region,
+            lat=lat,
+            lng=lng,
+            current_user_id=user_id,
+            current_player_id=player_id
+        )
+
+    @app.get("/api/community/chat/messages", summary="Get Regional Community Chat Messages")
+    async def api_community_chat_messages(
+        region: str = Query("socal"),
+        limit: int = Query(50)
+    ):
+        db = get_database()
+        return {"success": True, "messages": db.get_community_chat_messages(region=region, limit=limit)}
+
+    class CommunityChatMessagePayload(BaseModel):
+        region: str = "socal"
+        message: str
+
+    @app.post("/api/community/chat/message", summary="Send Message in Regional Community Chat")
+    async def api_community_chat_send(
+        payload: CommunityChatMessagePayload,
+        request: Request,
+        token: Optional[str] = Query(None)
+    ):
+        session = _get_user_session_or_401(request, token)
+        db = get_database()
+        res = db.save_community_chat_message(
+            region=payload.region,
+            sender_id=session["id"],
+            sender_name=session.get("display_name") or session.get("email") or "Competitor",
+            sender_role=session.get("role") or "player",
+            sender_elo=session.get("current_elo"),
+            message_text=payload.message
+        )
+        if not res.get("success"):
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message"))
+        return res
+
 
 
 

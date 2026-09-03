@@ -497,6 +497,45 @@
       </div>
     </div>
 
+    <!-- MODAL: Request TO Verification -->
+    <div id="request-to-modal" class="modal-backdrop" onclick="if(event.target === this) closeRequestToModal()">
+      <div class="modal-window" style="max-width: 520px; width: 92%; padding: 1.75rem; background: var(--bg-card, #0f172a); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: var(--radius-lg, 14px); box-shadow: 0 25px 50px rgba(0,0,0,0.85); position: relative; margin: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.4rem;">🛡️</span>
+            <div>
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Request TO Verification</h3>
+              <div style="font-size: 0.78rem; color: #94a3b8;">Tournament Director & Event Studio permissions</div>
+            </div>
+          </div>
+          <button type="button" onclick="closeRequestToModal()" style="background: transparent; border: none; color: #94a3b8; font-size: 1.25rem; cursor: pointer;">✕</button>
+        </div>
+
+        <form onsubmit="submitRequestTo(event)">
+          <div style="display: flex; flex-direction: column; gap: 0.9rem;">
+            <div>
+              <label style="display: block; font-size: 0.8rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.3rem;">Organization, Club, or Store Name *</label>
+              <input type="text" id="req-to-org" class="form-input" placeholder="e.g. SoCal 40k Club, Titan Games & Hobbies" required style="width: 100%; box-sizing: border-box; font-size: 0.88rem; padding: 0.6rem 0.85rem; background: #070b14; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #fff;">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.8rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.3rem;">Store, Venue, or City/State *</label>
+              <input type="text" id="req-to-venue" class="form-input" placeholder="e.g. 123 Main St, Los Angeles, CA" required style="width: 100%; box-sizing: border-box; font-size: 0.88rem; padding: 0.6rem 0.85rem; background: #070b14; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #fff;">
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.8rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.3rem;">Organizer Experience & Event Details</label>
+              <textarea id="req-to-details" class="form-input" rows="3" placeholder="Tell us about your tournaments (frequency, format, BCP organizer link)..." style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.6rem 0.85rem; background: #070b14; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #fff; resize: vertical;"></textarea>
+            </div>
+            <div id="req-to-status" style="display: none; padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600;"></div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 1.35rem;">
+            <button type="button" class="btn btn-outline" onclick="closeRequestToModal()" style="padding: 0.5rem 1rem;">Cancel</button>
+            <button type="submit" id="req-to-submit-btn" class="btn btn-primary" style="font-weight: 700; padding: 0.5rem 1.25rem; background: #0284c7; color: #fff; border: none; border-radius: 8px; cursor: pointer;">Submit Request</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
   </div>
 
   <script src="/js/api.js?v=72.0"></script>

@@ -14,6 +14,7 @@ function switchTab(tabName) {
   if (tabName === 'tournaments' || tabName === 'events' || tabName === 'sparring') tabName = 'connect';
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
+  if (tabName === 'community-hub' || tabName === 'communityhub') tabName = 'community';
 
   activeTab = tabName;
 
@@ -45,6 +46,12 @@ function switchTab(tabName) {
     loadLeaderboard();
   } else if (tabName === 'search') {
     switchSearchSubtab('players');
+  } else if (tabName === 'community') {
+    if (!currentUser) {
+      window.location.href = '/login?redirect=' + encodeURIComponent('/#community');
+      return;
+    }
+    if (typeof initCommunityHub === 'function') initCommunityHub();
   } else if (tabName === 'connect') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#connect');
@@ -318,6 +325,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
   if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring') targetTab = 'connect';
   if (targetTab === 'eventstudio') targetTab = 'event-studio';
+  if (targetTab === 'community-hub' || targetTab === 'communityhub') targetTab = 'community';
   if (targetTab) {
     switchTab(targetTab);
   } else {

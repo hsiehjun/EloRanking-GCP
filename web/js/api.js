@@ -919,6 +919,58 @@ window.api = {
     return this._fetchJson('/api/connect/unread-count', {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
     });
+  },
+
+  // Admin: Update User Role
+  async setAdminUserRole(userId, role) {
+    return this._fetchJson(`/api/admin/users/${encodeURIComponent(userId)}/role`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify({ role: role })
+    });
+  },
+
+  // User: Request TO Verification
+  async requestToStatus(organization = '', venueOrStore = '', details = '') {
+    return this._fetchJson('/api/auth/request-to', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify({
+        organization: organization,
+        venue_or_store: venueOrStore,
+        details: details
+      })
+    });
+  },
+
+  // Community Hub: Available Regions
+  async getCommunityRegions() {
+    return this._fetchJson('/api/community/regions');
+  },
+
+  // Community Hub: Regional Overview
+  async getCommunityOverview(region = 'socal', lat = null, lng = null) {
+    let url = `/api/community/overview?region=${encodeURIComponent(region || 'socal')}`;
+    if (lat != null && lng != null) {
+      url += `&lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`;
+    }
+    return this._fetchJson(url, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    });
+  },
+
+  // Community Hub: Chat Messages
+  async getCommunityChatMessages(region = 'socal', limit = 50) {
+    return this._fetchJson(`/api/community/chat/messages?region=${encodeURIComponent(region || 'socal')}&limit=${limit}`);
+  },
+
+  // Community Hub: Send Chat Message
+  async sendCommunityChatMessage(region, message) {
+    return this._fetchJson('/api/community/chat/message', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
+      body: JSON.stringify({ region: region, message: message })
+    });
   }
 };
 

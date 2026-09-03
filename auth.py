@@ -709,7 +709,7 @@ class AuthManager:
                     data = dict(row)
                     data["session_token"] = session_token
                     user_email = (data.get("email") or "").strip().lower()
-                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else "player"
+                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else (str(row.get("role") or "player").lower())
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
 
                     # Touch last_active_at periodically (at most once every 5 minutes)
@@ -743,7 +743,7 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     user_email = (data.get("email") or "").strip().lower()
-                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else "player"
+                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else (str(row.get("role") or "player").lower())
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
@@ -1208,10 +1208,10 @@ class AuthManager:
                 for r in rows:
                     if r.get("created_at"): r["created_at"] = r["created_at"].isoformat()
                     user_email = (r.get("email") or "").strip().lower()
-                    if user_email != admin_email:
-                        r["role"] = "player"
-                    else:
+                    if user_email == admin_email:
                         r["role"] = "admin"
+                    else:
+                        r["role"] = str(r.get("role") or "player").lower()
                 return rows
 
     # =========================================================================

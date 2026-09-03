@@ -64,6 +64,10 @@ function updateStudioAuthBadge() {
   const headerCreateBtns = document.querySelectorAll("#btn-sync-bcp-events, .es-create-tourney-btn");
 
   const isLoggedIn = !!(user || (token && token.length > 20) || (typeof API !== 'undefined' && API.getAuthToken()));
+  const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
+  const userEmail = ((user && user.email) ? user.email : '').toLowerCase();
+  const isSuperAdmin = userEmail === 'swimgeek751@gmail.com';
+  const isTO = isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
 
   if (!isLoggedIn) {
     lockedGates.forEach(g => {
@@ -76,12 +80,44 @@ function updateStudioAuthBadge() {
         </p>
         <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
           <a href="/login?redirect=%2F%23event-studio" class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;">🔑 Sign In / Register</a>
-          <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
+          <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="typeof switchTab === 'function' ? switchTab('community') : window.location.href='/#community'">👥 Explore Community Hub</button>
         </div>
       `;
     });
     mainViews.forEach(v => { v.style.display = "none"; });
+    headerCreateBtns.forEach(b => {
+      b.disabled = true;
+      b.style.opacity = "0.5";
+      b.style.cursor = "not-allowed";
+    });
+  } else if (!isTO) {
+    // User is signed in as standard player without TO permissions
+    lockedGates.forEach(g => {
+      g.style.display = "block";
+      g.innerHTML = `
+        <div style="font-size: 3rem; margin-bottom: 0.75rem;">🛡️</div>
+        <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Tournament Organizer Access Required</h3>
+        <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.25rem;">
+          Event Studio is restricted to certified Tournament Organizers and Platform Admins. Your account currently holds the <strong style="color: #38bdf8;">Player</strong> role.
+        </p>
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; text-align: left; font-size: 0.84rem; color: #94a3b8; max-width: 480px; margin-left: auto; margin-right: auto;">
+          <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem;">Are you a Tournament Organizer?</div>
+          <div>If you host local RTTs, Grand Tournaments, or game store leagues, request TO verification to unlock event creation, Swiss pairings, and BCP sync.</div>
+        </div>
+        <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
+          <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openRequestToModal()">📝 Request TO Verification</button>
+          <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="typeof switchTab === 'function' ? switchTab('community') : window.location.href='/#community'">👥 Explore Community Hub</button>
+        </div>
+      `;
+    });
+    mainViews.forEach(v => { v.style.display = "none"; });
+    headerCreateBtns.forEach(b => {
+      b.disabled = true;
+      b.style.opacity = "0.5";
+      b.style.cursor = "not-allowed";
+    });
   } else {
+    // Certified TO or Admin
     lockedGates.forEach(g => { g.style.display = "none"; });
     headerCreateBtns.forEach(b => {
       b.disabled = false;
@@ -96,7 +132,7 @@ function updateStudioAuthBadge() {
   }
 
   if (statusText) {
-    if (isBcpConnected) {
+    if (isBcpConnected && isTO) {
       const email = (user && (user.bcp_email || user.email || user.display_name)) || "BCP Organizer";
       if (banner) {
         banner.style.background = "rgba(16, 185, 129, 0.08)";
@@ -106,7 +142,17 @@ function updateStudioAuthBadge() {
         dot.style.background = "#10b981";
         dot.style.boxShadow = "0 0 8px #10b981";
       }
-      statusText.innerHTML = `Connected to Best Coast Pairings as <strong style="color: #10b981;">${escapeHtml(email)}</strong>`;
+      statusText.innerHTML = `Connected to Best Coast Pairings as <strong style="color: #10b981;">${escapeHtml(email)}</strong> (${userRole.toUpperCase()})`;
+    } else if (user && !isTO) {
+      if (banner) {
+        banner.style.background = "rgba(239, 68, 68, 0.08)";
+        banner.style.borderColor = "rgba(239, 68, 68, 0.25)";
+      }
+      if (dot) {
+        dot.style.background = "#ef4444";
+        dot.style.boxShadow = "none";
+      }
+      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> (${userRole.toUpperCase()}) — <a href="javascript:void(0)" onclick="openRequestToModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Request TO Verification</a>`;
     } else if (user) {
       if (banner) {
         banner.style.background = "rgba(245, 158, 11, 0.08)";
@@ -116,7 +162,7 @@ function updateStudioAuthBadge() {
         dot.style.background = "#f59e0b";
         dot.style.boxShadow = "none";
       }
-      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> — <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Link BCP Account</a> to unlock Event Studio`;
+      statusText.innerHTML = `Signed in as <strong style="color: #38bdf8;">${escapeHtml(user.display_name || user.email)}</strong> (${userRole.toUpperCase()}) — <a href="javascript:void(0)" onclick="openBcpLinkModal()" style="color: #f59e0b; text-decoration: underline; font-weight: 600;">Link BCP Account</a> to unlock Event Studio`;
     } else {
       if (banner) {
         banner.style.background = "rgba(56, 189, 248, 0.05)";
@@ -127,6 +173,82 @@ function updateStudioAuthBadge() {
         dot.style.boxShadow = "none";
       }
       statusText.innerHTML = `<span style="color: #94a3b8;">Guest Mode</span> — <a href="/login?redirect=%2F%23event-studio" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Sign In</a> to unlock Event Studio`;
+    }
+  }
+}
+
+function openRequestToModal() {
+  const modal = document.getElementById("request-to-modal");
+  if (modal) {
+    modal.classList.add("active");
+    const statusDiv = document.getElementById("req-to-status");
+    if (statusDiv) statusDiv.style.display = "none";
+  }
+}
+
+function closeRequestToModal() {
+  const modal = document.getElementById("request-to-modal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function submitRequestTo(e) {
+  if (e) e.preventDefault();
+  const orgInput = document.getElementById("req-to-org");
+  const venueInput = document.getElementById("req-to-venue");
+  const detailsInput = document.getElementById("req-to-details");
+  const statusDiv = document.getElementById("req-to-status");
+  const submitBtn = document.getElementById("req-to-submit-btn");
+
+  const org = orgInput ? orgInput.value.trim() : "";
+  const venue = venueInput ? venueInput.value.trim() : "";
+  const details = detailsInput ? detailsInput.value.trim() : "";
+
+  if (!org || !venue) {
+    if (statusDiv) {
+      statusDiv.textContent = "Please provide your organization/club name and venue location.";
+      statusDiv.style.display = "block";
+      statusDiv.style.background = "rgba(239,68,68,0.15)";
+      statusDiv.style.color = "#ef4444";
+    }
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "Submitting application...";
+  }
+
+  try {
+    const res = await API.requestToStatus(org, venue, details);
+    if (res && res.success) {
+      if (statusDiv) {
+        statusDiv.textContent = "🎉 Application submitted successfully! An administrator will review your TO request shortly.";
+        statusDiv.style.display = "block";
+        statusDiv.style.background = "rgba(16,185,129,0.15)";
+        statusDiv.style.color = "#10b981";
+      }
+      setTimeout(() => {
+        closeRequestToModal();
+      }, 2000);
+    } else {
+      if (statusDiv) {
+        statusDiv.textContent = res?.error || "Failed to submit request. Please try again.";
+        statusDiv.style.display = "block";
+        statusDiv.style.background = "rgba(239,68,68,0.15)";
+        statusDiv.style.color = "#ef4444";
+      }
+    }
+  } catch (err) {
+    if (statusDiv) {
+      statusDiv.textContent = err.message || "Network error submitting request.";
+      statusDiv.style.display = "block";
+      statusDiv.style.background = "rgba(239,68,68,0.15)";
+      statusDiv.style.color = "#ef4444";
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Submit Application";
     }
   }
 }

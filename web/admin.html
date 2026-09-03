@@ -925,9 +925,16 @@
       }
 
       tbody.innerHTML = users.map(u => {
-        const rolePill = u.role === 'admin' 
-          ? '<span class="pill pill-admin">🛡️ ADMIN</span>' 
-          : '<span class="pill pill-user">PLAYER</span>';
+        const isSuperAdmin = (u.email || '').toLowerCase() === 'swimgeek751@gmail.com';
+        const rolePill = isSuperAdmin
+          ? '<span class="pill pill-admin" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">👑 SUPERADMIN</span>'
+          : `
+            <select onchange="handleRoleChange('${u.id}', this.value, '${escapeHtml(u.email)}')" style="background:rgba(15,23,42,0.85); color:${u.role === 'to' || u.role === 'organizer' ? '#f59e0b' : (u.role === 'admin' ? '#c084fc' : '#94a3b8')}; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:3px 6px; font-size:0.75rem; font-weight:700; cursor:pointer;">
+              <option value="player" ${u.role === 'player' || !u.role ? 'selected' : ''}>👤 Player</option>
+              <option value="to" ${(u.role === 'to' || u.role === 'organizer') ? 'selected' : ''}>🛠️ TO (Organizer)</option>
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>🛡️ Admin</option>
+            </select>
+          `;
         const bcpStr = u.bcp_user_id 
           ? `<span class="pill pill-active">🟢 Linked</span>` 
           : `<span style="color:var(--text-muted);">⚪ None</span>`;
@@ -948,6 +955,26 @@
           </tr>
         `;
       }).join('');
+    }
+
+    async function handleRoleChange(userId, newRole, email) {
+      if (!confirm(`Are you sure you want to change role of ${email} to "${newRole.toUpperCase()}"?`)) {
+        loadUsersList();
+        return;
+      }
+      try {
+        const res = await API.setAdminUserRole(userId, newRole);
+        if (res && res.success) {
+          alert(`Role updated successfully to ${newRole.toUpperCase()}`);
+          loadUsersList();
+        } else {
+          alert(`Failed to update role: ${res?.error || 'Unknown error'}`);
+          loadUsersList();
+        }
+      } catch (e) {
+        alert(`Error updating role: ${e.message}`);
+        loadUsersList();
+      }
     }
 
     function filterUsersTable(query) {
