@@ -2,6 +2,10 @@
    STYLES.CSS - Layout, Components, Tables, Modals, Charts & Views
    ========================================================================== */
 
+html {
+  scroll-behavior: smooth;
+}
+
 /* Header & Top Navigation */
 header {
   background: var(--bg-secondary);

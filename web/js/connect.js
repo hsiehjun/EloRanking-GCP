@@ -565,30 +565,46 @@ async function loadNearbyTournaments() {
       const venue = ev.venue_name || ev.venue || `${ev.city || ''}, ${ev.state || ''}`;
       const dateStr = ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Upcoming';
       const capStr = `${ev.total_players || 0} / ${ev.capacity || 32} Players`;
+      const avgElo = ev.avg_elo_display ? Math.round(ev.avg_elo_display) : (ev.avg_field_elo ? Math.round(ev.avg_field_elo) : 1550);
+      const skillLabel = ev.skill_match_label || `Field Avg: ${avgElo} Elo`;
+      const skillBadge = ev.skill_match_badge || 'badge-match-prime';
+      const tierBadge = ev.tier_badge || 'tier-B';
+      const tierName = ev.tier || 'RTT / Tournament';
 
       return `
-        <div class="oc-player-card">
+        <div class="oc-player-card" style="display: flex; flex-direction: column; justify-content: space-between;">
           <div>
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-              <span class="oc-badge" style="background: rgba(56,189,248,0.15); color: #38bdf8;">${escapeHtml(ev.tier || 'RTT / Tournament')}</span>
+              <span class="tier-badge ${tierBadge}" style="font-size: 0.72rem; padding: 0.2rem 0.55rem;">${escapeHtml(tierName)}</span>
               <span style="font-size: 0.78rem; font-weight: 700; color: #10b981;">📍 ${dist}</span>
             </div>
 
             <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem; line-height: 1.35;">${escapeHtml(ev.name || '40k Tournament')}</h4>
 
-            <div style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 0.85rem; display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="font-size: 0.82rem; color: #94a3b8; margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
               <div>📅 <strong>${dateStr}</strong></div>
               <div>🏪 ${escapeHtml(venue)}</div>
               <div>👥 ${capStr} • <strong>${ev.points || 2000} pts</strong></div>
             </div>
+
+            <!-- Field Avg Tactical Bar -->
+            <div class="hub-card-analytics-bar" style="margin-bottom: 1rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <span style="color: #f59e0b;">⭐</span>
+                <span>Field Avg: <b style="color: #fff; font-family: var(--font-mono);">${avgElo}</b> Elo</span>
+              </div>
+              <span class="badge ${skillBadge}" style="font-size: 0.72rem; padding: 0.2rem 0.55rem; font-weight: 700;">
+                ${escapeHtml(skillLabel)}
+              </span>
+            </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-            <button onclick="switchTab('event-studio')" class="btn" style="background: rgba(255,255,255,0.06); color: #cbd5e1; border: 1px solid var(--border); font-size: 0.78rem; text-align: center; padding: 0.45rem;">
-              Event Studio
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: auto;">
+            <button onclick="openEventModal('${ev.id}')" class="btn" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.78rem; font-weight: 700; text-align: center; padding: 0.45rem;">
+              Roster & Details ⚔️
             </button>
-            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-primary" style="font-size: 0.78rem; text-align: center; text-decoration: none; padding: 0.45rem;">
-              BCP Listing ↗
+            <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; text-align: center; text-decoration: none; padding: 0.45rem;">
+              BCP ↗
             </a>
           </div>
         </div>
