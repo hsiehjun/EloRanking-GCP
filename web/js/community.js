@@ -260,6 +260,8 @@ function renderCommunityHeader(locInfo) {
   if (badgeEl) badgeEl.textContent = `📍 ${rad}-Mile Tournament Radius`;
   if (titleEl) titleEl.textContent = `Tournaments within ${rad} miles of ${locName}`;
   if (descEl) descEl.textContent = `Showing verified upcoming & recent tournaments, local competitor rosters, and standings within ${rad} miles.`;
+  const userLocEl = document.getElementById('user-location-text');
+  if (userLocEl && locName) userLocEl.textContent = locName;
 }
 
 /**

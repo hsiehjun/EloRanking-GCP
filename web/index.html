@@ -849,42 +849,43 @@
         <!-- BCP Account Linking Highlight Banner -->
         <div id="comm-bcp-banner" class="comm-bcp-banner unlinked"></div>
 
-        <!-- Unified Top Controls Bar: Status, Location & Regional Scene Selector -->
-        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.85rem 1.25rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem;">
-          
-          <!-- Left: Status & Location -->
-          <div style="display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap;">
-            <!-- Status Toggle -->
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Status:</span>
-              <button id="btn-toggle-lfg" onclick="toggleUserLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.82rem; padding: 0.42rem 0.95rem; cursor: pointer; border-radius: 9999px; display: flex; align-items: center; gap: 7px; transition: all 0.2s;">
-                <span id="user-status-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
-                <span id="user-status-text">Available for Games</span>
-              </button>
+        <!-- Unified Community Hub Header & Controls Banner -->
+        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.9) 100%); border: 1px solid rgba(56, 189, 248, 0.28); border-radius: var(--radius-lg); padding: 1.1rem 1.4rem; margin-bottom: 1.1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <!-- Left: Title, Badge & Description -->
+          <div style="min-width: 260px; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.3rem;">
+              <span id="comm-header-badge" style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 9px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">
+                📍 100-Mile Tournament Radius
+              </span>
+              <span style="color: #64748b;">•</span>
+              <span style="font-size: 0.76rem; color: #10b981; font-weight: 700;">Active Local Scene</span>
             </div>
-
-            <div style="width: 1px; height: 22px; background: var(--border);"></div>
-
-            <!-- Location -->
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Location:</span>
-              <button onclick="openEditLocationModal()" class="btn btn-outline" style="font-size: 0.82rem; padding: 0.42rem 0.95rem; border-radius: 9999px; display: flex; align-items: center; gap: 6px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;">
-                <span>📍</span>
-                <span id="user-location-text" style="font-weight: 600;">San Diego, CA (30 mi)</span>
-                <span style="font-size: 0.72rem; color: #38bdf8; font-weight: 700; margin-left: 2px;">✏️ Set</span>
-              </button>
-              <button id="btn-share-location" onclick="shareCurrentLocation(false)" class="btn" style="font-size: 0.8rem; padding: 0.42rem 0.95rem; border-radius: 9999px; display: flex; align-items: center; gap: 6px; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-weight: 700; cursor: pointer;" title="Automatically detect and use your current GPS location">
-                <span id="share-loc-icon">🛰️</span>
-                <span id="share-loc-text">Share GPS</span>
-              </button>
-            </div>
+            <h2 id="comm-header-title" style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
+              Tournaments within 100 miles of San Diego, CA
+            </h2>
+            <p id="comm-header-desc" style="font-size: 0.8rem; color: #94a3b8; margin: 0; max-width: 650px;">
+              Showing verified tournaments, local competitor rosters, and standings within 100 miles.
+            </p>
           </div>
 
-          <!-- Right: Search Radius & Location Controls -->
-          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-            <div style="display: flex; align-items: center; gap: 0.4rem;">
-              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Radius:</span>
-              <select id="comm-radius-select" class="form-input" style="font-size: 0.85rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.85rem; cursor: pointer;" onchange="changeCommunityRadius(this.value)">
+          <!-- Right: Status, Location, Radius & GPS Controls -->
+          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; justify-content: flex-end;">
+            <!-- Status Toggle -->
+            <button id="btn-toggle-lfg" onclick="toggleUserLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Toggle your Sparring Radar game availability">
+              <span id="user-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
+              <span id="user-status-text">Available</span>
+            </button>
+
+            <!-- Location Pill -->
+            <button onclick="openCommunityLocationModal()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
+              <span>📍</span>
+              <span id="user-location-text" style="font-weight: 600;">San Diego, CA</span>
+              <span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">✏️ Set</span>
+            </button>
+
+            <!-- Radius Dropdown -->
+            <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
+              <select id="comm-radius-select" class="form-input" style="font-size: 0.78rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer;" onchange="changeCommunityRadius(this.value)">
                 <option value="25">Within 25 Miles</option>
                 <option value="50">Within 50 Miles</option>
                 <option value="100" selected>Within 100 Miles (Default)</option>
@@ -893,43 +894,13 @@
               </select>
             </div>
 
-            <button id="comm-btn-gps" class="btn" style="font-size: 0.78rem; padding: 0.42rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700; cursor: pointer;" onclick="detectCommunityGPS()" title="Use Current GPS Coordinates">
-              <span id="comm-gps-icon">🛰️</span> <span id="comm-gps-label">Use GPS</span>
+            <!-- GPS Button -->
+            <button id="comm-btn-gps" class="btn" style="font-size: 0.78rem; padding: 0.4rem 0.8rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-weight: 700; cursor: pointer;" onclick="detectCommunityGPS()" title="Detect current GPS location">
+              <span id="comm-gps-icon">🛰️</span> <span id="comm-gps-label">GPS</span>
             </button>
 
-            <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.85rem; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px;" onclick="openCommunityLocationModal()" title="Change city, venue, or address">
-              <span>📍</span> <span>Change Location</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Local Tournament Scene Header Banner -->
-        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.85) 100%); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-          <div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.35rem;">
-              <span id="comm-header-badge" style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 9px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">
-                📍 100-Mile Tournament Radius
-              </span>
-              <span style="color: #64748b;">•</span>
-              <span style="font-size: 0.76rem; color: #10b981; font-weight: 700;">Active Local Scene</span>
-            </div>
-            <h2 id="comm-header-title" style="font-size: 1.35rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
-              Tournaments within 100 miles of San Diego, CA
-            </h2>
-            <p id="comm-header-desc" style="font-size: 0.82rem; color: #94a3b8; margin: 0; max-width: 680px;">
-              Showing verified tournaments, local competitor rosters, and standings within 100 miles.
-            </p>
-          </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-            <button onclick="switchCommunitySubtab('tournaments')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; border-color: rgba(56,189,248,0.3); color: #38bdf8;">
-              🏆 Local Tournaments
-            </button>
-            <button onclick="switchCommunitySubtab('scene')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; border-color: rgba(168,85,247,0.3); color: #c084fc;">
-              👑 Local Leaderboard
-            </button>
-            <button onclick="switchCommunitySubtab('radar')" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.95rem;">
-              🎯 Sparring Radar
-            </button>
+            <!-- Compatibility dummy for legacy button references -->
+            <button id="btn-share-location" onclick="shareCurrentLocation(false)" style="display: none;"></button>
           </div>
         </div>
 

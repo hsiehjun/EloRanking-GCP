@@ -31,6 +31,7 @@ class PostgresDatabase:
     _players_cache_dict = {}
     _teams_cache_dict = {}
     _team_roster_cache_dict = {}
+    _community_overview_cache_dict = {}
     CACHE_TTL_SECONDS = 600
 
     @classmethod
@@ -56,6 +57,7 @@ class PostgresDatabase:
         cls._players_cache_dict.clear()
         cls._teams_cache_dict.clear()
         cls._team_roster_cache_dict.clear()
+        cls._community_overview_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -679,7 +681,9 @@ class PostgresDatabase:
                 key VARCHAR(64) PRIMARY KEY,
                 value TEXT,
                 updated_at TIMESTAMPTZ DEFAULT NOW()
-            );"""
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_lower ON player_ratings(LOWER(player_name));"
         ]
         try:
             with self.get_connection() as conn:
@@ -1865,13 +1869,12 @@ class PostgresDatabase:
                 cursor.execute("""
                 SELECT 
                     ep.event_id,
-                    ROUND(AVG(COALESCE(pr.current_elo, pr_name.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
-                    MAX(COALESCE(pr.current_elo, pr_name.current_elo, 1500.0)) as top_seed_elo,
+                    ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
+                    MAX(COALESCE(pr.current_elo, 1500.0)) as top_seed_elo,
                     COUNT(DISTINCT ep.player_id) as total_enrolled,
-                    COUNT(DISTINCT COALESCE(pr.player_id, pr_name.player_id)) as rated_players_count
+                    COUNT(DISTINCT CASE WHEN pr.player_id IS NOT NULL THEN ep.player_id ELSE NULL END) as rated_players_count
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
-                LEFT JOIN player_ratings pr_name ON LOWER(ep.full_name) = LOWER(pr_name.player_name)
                 WHERE ep.event_id = ANY(%s)
                 GROUP BY ep.event_id;
                 """, (event_ids,))
@@ -4630,9 +4633,29 @@ class PostgresDatabase:
                 if not location_name:
                     location_name = f"{user_lat:.2f}, {user_lng:.2f}"
 
-                # 2. Haversine distance query for tournaments within radius
-                geo_cte = """
-                    WITH events_geo AS (
+                # Cache lookup
+                cache_key = (
+                    round(user_lat, 3),
+                    round(user_lng, 3),
+                    int(round(radius_miles)),
+                    str(current_player_id or "")
+                )
+                cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, cache_key, ttl=90)
+                if cached is not None:
+                    return cached
+
+                # Bounding box delta: 1 degree latitude ~ 69 miles
+                lat_delta = (radius_miles / 69.0) * 1.15
+                cos_lat = max(0.01, abs(math.cos(math.radians(user_lat))))
+                lng_delta = (radius_miles / (69.0 * cos_lat)) * 1.15
+                min_lat = max(-90.0, user_lat - lat_delta)
+                max_lat = min(90.0, user_lat + lat_delta)
+                min_lng = max(-180.0, user_lng - lng_delta)
+                max_lng = min(180.0, user_lng + lng_delta)
+
+                # 2. Combined Haversine distance query with bounding-box pre-filtering
+                combined_events_sql = """
+                    WITH events_filtered AS (
                         SELECT 
                             e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
                             COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
@@ -4706,6 +4729,10 @@ class PostgresDatabase:
                                 END
                             ) AS ev_lng
                         FROM events e
+                        WHERE (
+                            (e.latitude BETWEEN %s AND %s AND e.longitude BETWEEN %s AND %s)
+                            OR (e.latitude IS NULL)
+                        )
                     ),
                     events_dist AS (
                         SELECT *,
@@ -4715,41 +4742,48 @@ class PostgresDatabase:
                                     sin(radians(%s)) * sin(radians(ev_lat))
                                 ))
                             )) AS distance_miles
-                        FROM events_geo
+                        FROM events_filtered
                         WHERE ev_lat IS NOT NULL AND ev_lng IS NOT NULL
-                          AND ev_lat BETWEEN -90.0 AND 90.0
-                          AND ev_lng BETWEEN -180.0 AND 180.0
+                          AND ev_lat BETWEEN %s AND %s
+                          AND ev_lng BETWEEN %s AND %s
                           AND NOT (ev_lat = 0.0 AND ev_lng = 0.0)
                     )
+                    (
+                        SELECT id, name, event_date, end_date, city, state, country,
+                               venue, total_players, num_rounds, current_round, is_ended, circuits,
+                               ROUND(distance_miles::numeric, 1) as distance_miles,
+                               'upcoming' as event_group
+                        FROM events_dist
+                        WHERE distance_miles <= %s
+                          AND event_date >= CURRENT_DATE - INTERVAL '1 day'
+                        ORDER BY event_date ASC, distance_miles ASC
+                        LIMIT 25
+                    )
+                    UNION ALL
+                    (
+                        SELECT id, name, event_date, end_date, city, state, country,
+                               venue, total_players, num_rounds, current_round, is_ended, circuits,
+                               ROUND(distance_miles::numeric, 1) as distance_miles,
+                               'recent' as event_group
+                        FROM events_dist
+                        WHERE distance_miles <= %s
+                          AND event_date < CURRENT_DATE - INTERVAL '1 day'
+                        ORDER BY event_date DESC, distance_miles ASC
+                        LIMIT 25
+                    );
                 """
-
-                # Upcoming Tournaments (Strictly event_date >= CURRENT_DATE - INTERVAL '1 day')
-                upcoming_sql = geo_cte + """
-                    SELECT id, name, event_date, end_date, city, state, country,
-                           venue, total_players, num_rounds, current_round, is_ended, circuits,
-                           ROUND(distance_miles::numeric, 1) as distance_miles
-                    FROM events_dist
-                    WHERE distance_miles <= %s
-                      AND event_date >= CURRENT_DATE - INTERVAL '1 day'
-                    ORDER BY event_date ASC, distance_miles ASC
-                    LIMIT 25;
-                """
-                cursor.execute(upcoming_sql, (user_lat, user_lng, user_lat, radius_miles))
-                events_upcoming = [dict(r) for r in cursor.fetchall()]
-
-                # Recent Past Tournaments (Strictly event_date < CURRENT_DATE - INTERVAL '1 day')
-                recent_sql = geo_cte + """
-                    SELECT id, name, event_date, end_date, city, state, country,
-                           venue, total_players, num_rounds, current_round, is_ended, circuits,
-                           ROUND(distance_miles::numeric, 1) as distance_miles
-                    FROM events_dist
-                    WHERE distance_miles <= %s
-                      AND event_date < CURRENT_DATE - INTERVAL '1 day'
-                    ORDER BY event_date DESC, distance_miles ASC
-                    LIMIT 25;
-                """
-                cursor.execute(recent_sql, (user_lat, user_lng, user_lat, radius_miles))
-                events_recent = [dict(r) for r in cursor.fetchall()]
+                cursor.execute(
+                    combined_events_sql,
+                    (
+                        min_lat, max_lat, min_lng, max_lng,
+                        user_lat, user_lng, user_lat,
+                        min_lat, max_lat, min_lng, max_lng,
+                        radius_miles, radius_miles
+                    )
+                )
+                all_event_rows = cursor.fetchall()
+                events_upcoming = [dict(r) for r in all_event_rows if r.get("event_group") == "upcoming"]
+                events_recent = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
 
                 # Collect event IDs for field stats and player discovery
                 all_event_ids = [e["id"] for e in (events_upcoming + events_recent)]
@@ -4772,12 +4806,21 @@ class PostgresDatabase:
                 user_event_names = {}
                 if current_player_id:
                     cursor.execute("""
+                        SELECT DISTINCT ep.event_id, e.name as event_name
+                        FROM event_participants ep
+                        LEFT JOIN events e ON ep.event_id = e.id
+                        WHERE ep.player_id = %s
+                        UNION
                         SELECT DISTINCT m.event_id, e.name as event_name
                         FROM matches m
                         LEFT JOIN events e ON m.event_id = e.id
-                        WHERE (m.player1_id = %s OR m.player2_id = %s)
-                           OR (LOWER(m.player1_name) = LOWER(%s) OR LOWER(m.player2_name) = LOWER(%s));
-                    """, (current_player_id, current_player_id, current_player_id, current_player_id))
+                        WHERE m.player1_id = %s
+                        UNION
+                        SELECT DISTINCT m.event_id, e.name as event_name
+                        FROM matches m
+                        LEFT JOIN events e ON m.event_id = e.id
+                        WHERE m.player2_id = %s;
+                    """, (current_player_id, current_player_id, current_player_id))
                     for u_row in cursor.fetchall():
                         eid = u_row["event_id"]
                         if eid:
@@ -4787,34 +4830,27 @@ class PostgresDatabase:
                 local_competitors = []
                 if all_event_ids:
                     cursor.execute("""
-                        WITH local_participants AS (
-                            SELECT ep.player_id, ep.full_name as player_name, ep.event_id
-                            FROM event_participants ep
-                            WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
-                            UNION
-                            SELECT m.player1_id as player_id, m.player1_name as player_name, m.event_id
-                            FROM matches m
-                            WHERE m.event_id = ANY(%s) AND m.player1_id IS NOT NULL AND m.player1_id != ''
-                            UNION
-                            SELECT m.player2_id as player_id, m.player2_name as player_name, m.event_id
-                            FROM matches m
-                            WHERE m.event_id = ANY(%s) AND m.player2_id IS NOT NULL AND m.player2_id != ''
-                        ),
-                        part_summary AS (
-                            SELECT player_id,
-                                   COUNT(DISTINCT event_id) as regional_events_count,
-                                   ARRAY_AGG(DISTINCT event_id) as event_ids
-                            FROM local_participants
-                            GROUP BY player_id
-                        )
-                        SELECT ps.player_id, ps.regional_events_count, ps.event_ids,
-                               pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
-                               pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
-                        FROM part_summary ps
-                        JOIN player_ratings pr ON ps.player_id = pr.player_id
-                        ORDER BY pr.current_elo DESC
+                        SELECT 
+                            ep.player_id,
+                            COUNT(DISTINCT ep.event_id) as regional_events_count,
+                            ARRAY_AGG(DISTINCT ep.event_id) as event_ids,
+                            COALESCE(pr.player_name, MAX(ep.full_name), 'Competitor') as player_name,
+                            COALESCE(pr.current_elo, 1500.0) as current_elo,
+                            COALESCE(pr.peak_elo, 1500.0) as peak_elo,
+                            COALESCE(pr.top_faction, MAX(ep.faction), 'Unknown Faction') as top_faction,
+                            COALESCE(pr.team, MAX(ep.team)) as team,
+                            COALESCE(pr.matches_played, 0) as matches_played,
+                            COALESCE(pr.wins, 0) as wins,
+                            COALESCE(pr.losses, 0) as losses,
+                            COALESCE(pr.win_rate, 0.0) as win_rate
+                        FROM event_participants ep
+                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                        WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
+                        GROUP BY ep.player_id, pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
+                                 pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
+                        ORDER BY current_elo DESC
                         LIMIT 60;
-                    """, (all_event_ids, all_event_ids, all_event_ids))
+                    """, (all_event_ids,))
                     comp_rows = cursor.fetchall()
 
                     event_title_map = {e["id"]: e.get("name", "Tournament") for e in (events_recent + events_upcoming)}
@@ -4857,7 +4893,7 @@ class PostgresDatabase:
                     })
 
                 radius_int = int(round(radius_miles))
-                return {
+                result = {
                     "success": True,
                     "location": {
                         "lat": round(user_lat, 4),
@@ -4891,6 +4927,9 @@ class PostgresDatabase:
                         )
                     }
                 }
+
+                PostgresDatabase.set_cached(PostgresDatabase._community_overview_cache_dict, cache_key, result)
+                return result
 
     def get_community_chat_messages(self, region: str = "socal", limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves recent community messages for regional channel."""
