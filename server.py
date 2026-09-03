@@ -3875,6 +3875,14 @@ if FASTAPI_AVAILABLE:
     async def serve_tracker_sync_css():
         return FileResponse(str(web_dir / "tracker" / "tracker_sync.css"), media_type="text/css", headers={"Cache-Control": "no-cache, must-revalidate"})
 
+    @app.get("/tracker/bundle.js", include_in_schema=False)
+    @app.get("/11th/tracker/bundle.js", include_in_schema=False)
+    async def serve_tracker_bundle_js():
+        bundle_file = web_dir / "tracker" / "bundle.js"
+        if bundle_file.exists():
+            return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+        raise HTTPException(status_code=404, detail="Tracker bundle not found")
+
     @app.get("/login", include_in_schema=False)
     @app.get("/tracker/login", include_in_schema=False)
     async def serve_login(redirect: Optional[str] = Query(None)):
