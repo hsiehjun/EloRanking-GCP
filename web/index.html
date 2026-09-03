@@ -221,10 +221,10 @@
         </div>
 
         <div style="background: linear-gradient(180deg, #0d1527 0%, #080d1a 100%); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 14px; padding: 1.4rem; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">💬</div>
-          <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 0.4rem;">Regional Town Hall & Match Sync</h3>
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚔️</div>
+          <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin-bottom: 0.4rem;">Direct Matchmaking &amp; Live Sync</h3>
           <p style="font-size: 0.84rem; color: #94a3b8; line-height: 1.55; margin: 0;">
-            Live regional community chat for carpools, meta discussion, and direct match proposals. Generate live synchronized Game Tracker score rooms with a single click.
+            Directly challenge nearby competitors via private sparring messages. Coordinate match times and venues, and launch synchronized live Game Tracker rooms with a single click.
           </p>
         </div>
       </div>
@@ -937,7 +937,7 @@
             <span>👑</span> <span>Local Leaderboard &amp; Competitors</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-chat" data-subtab="chat" onclick="switchCommunitySubtab('chat')">
-            <span>💬</span> <span>Messages &amp; Chat</span>
+            <span>💬</span> <span>Sparring Messages</span>
             <span id="badge-unread-count" class="oc-badge oc-badge-danger" style="display: none; margin-left: 5px;">0</span>
           </button>
         </div>
@@ -996,62 +996,21 @@
           <div id="comm-scene-content"></div>
         </div>
 
-        <!-- SUBVIEW 4: MESSAGES & CHAT -->
+        <!-- SUBVIEW 4: DIRECT SPARRING MESSAGES -->
         <div id="comm-subview-chat" class="comm-subview" style="display: none;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div style="display: inline-flex; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 3px;">
-              <button id="comm-chat-toggle-regional" class="comm-toggle-btn active" onclick="setCommunityChatMode('regional')">
-                📢 Regional Scene Town Hall
-              </button>
-              <button id="comm-chat-toggle-direct" class="comm-toggle-btn" onclick="setCommunityChatMode('direct')">
-                ⚔️ Direct Sparring Chats
-                <span id="badge-chat-direct-unread" class="oc-badge oc-badge-danger" style="display: none; margin-left: 4px;">0</span>
-              </button>
-            </div>
-            <div style="font-size: 0.78rem; color: #94a3b8;">
-              Real-time matchmaking communication &amp; 1-click live game room creation
+            <div>
+              <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+                <span>💬 Direct Sparring Messages</span>
+              </h3>
+              <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+                Private matchmaking chats, sparring challenge coordination &amp; 1-click live game room creation
+              </div>
             </div>
           </div>
 
-          <!-- Panel A: Regional Scene Town Hall Feed -->
-          <div id="comm-chat-panel-regional">
-            <div class="comm-chat-container">
-              <div class="comm-chat-header">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                  <span style="font-size: 1.3rem;">💬</span>
-                  <div>
-                    <div id="comm-chat-region-title" style="font-weight: 800; font-size: 0.95rem; color: #fff;">
-                      Regional Scene Chat
-                    </div>
-                    <div style="font-size: 0.74rem; color: #94a3b8;">
-                      Discuss local tournaments, carpools, army list tuning &amp; sparring matches
-                    </div>
-                  </div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981;"></span>
-                  <span style="font-size: 0.72rem; color: #10b981; font-weight: 700; text-transform: uppercase;">Live Feed</span>
-                </div>
-              </div>
-
-              <div id="comm-chat-messages" class="comm-chat-messages">
-                <div style="padding: 2.5rem; text-align: center; color: var(--text-muted);">
-                  <div class="spinner" style="margin: 0 auto 0.5rem;"></div>
-                  Connecting to regional chat feed...
-                </div>
-              </div>
-
-              <form class="comm-chat-input-bar" onsubmit="handleSendCommunityChat(event)">
-                <input type="text" id="comm-chat-input" placeholder="Type a message to the regional community..." required autocomplete="off">
-                <button type="submit" id="comm-chat-send-btn" class="btn btn-primary" style="padding: 0.6rem 1.25rem; font-weight: 700;">
-                  Send
-                </button>
-              </form>
-            </div>
-          </div>
-
-          <!-- Panel B: Direct Sparring Chats (From OmniConnect) -->
-          <div id="comm-chat-panel-direct" style="display: none;">
+          <!-- Direct Sparring Chats (From OmniConnect) -->
+          <div id="comm-chat-panel-direct">
             <div class="oc-chat-layout">
               <div class="oc-chat-sidebar">
                 <div style="padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); font-weight: 800; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em; display:flex; justify-content:space-between; align-items:center;">

@@ -205,12 +205,6 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     // Render region/location header info
     renderCommunityHeader(data.location || data.region);
 
-    // Update title in chat header
-    const chatTitle = document.getElementById('comm-chat-region-title');
-    if (chatTitle) {
-      chatTitle.textContent = `${communityState.locationName || 'Local'} Community Chat`;
-    }
-
     // Render current active subtab
     renderCurrentSubtab();
   } catch (err) {
@@ -418,7 +412,6 @@ function switchCommunitySubtab(subtabName) {
 
   // Stop chat polling if leaving chat subtab
   if (subtabName !== 'chat') {
-    stopCommunityChatPolling();
     if (typeof stopChatPolling === 'function') stopChatPolling();
     if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
   }
@@ -1131,164 +1124,23 @@ function renderCommunityLeaderboard() {
 
 /**
  * --------------------------------------------------------------------------
- * SUBTAB 4: MESSAGES & CHAT (REGIONAL TOWN HALL + DIRECT MATCH CHATS)
+ * SUBTAB 4: DIRECT SPARRING MESSAGES (1-ON-1 MATCHMAKING)
  * --------------------------------------------------------------------------
  */
-function setCommunityChatMode(mode) {
-  communityState.chatMode = mode;
-  const btnReg = document.getElementById('comm-chat-toggle-regional');
-  const btnDir = document.getElementById('comm-chat-toggle-direct');
-  const panelReg = document.getElementById('comm-chat-panel-regional');
-  const panelDir = document.getElementById('comm-chat-panel-direct');
-
-  if (btnReg) btnReg.classList.toggle('active', mode === 'regional');
-  if (btnDir) btnDir.classList.toggle('active', mode === 'direct');
-
-  if (panelReg) panelReg.style.display = (mode === 'regional') ? 'block' : 'none';
-  if (panelDir) panelDir.style.display = (mode === 'direct') ? 'block' : 'none';
-
-  if (mode === 'regional') {
-    if (typeof stopChatPolling === 'function') stopChatPolling();
-    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
-    const chatTitle = document.getElementById('comm-chat-region-title');
-    if (chatTitle && communityState.overview?.region?.name) {
-      chatTitle.textContent = `${communityState.overview.region.name} Community Chat`;
-    }
-    loadCommunityChatMessages();
-    startCommunityChatPolling();
-  } else {
-    stopCommunityChatPolling();
-    if (typeof loadUserRequests === 'function') loadUserRequests();
-    if (typeof startChatPolling === 'function') startChatPolling();
-    if (typeof attachChatSnapshot === 'function' && typeof connectState !== 'undefined' && connectState.activeRequestId) {
-      attachChatSnapshot(connectState.activeRequestId);
-    }
+function renderCommunityChat() {
+  if (typeof loadUserRequests === 'function') loadUserRequests();
+  if (typeof startChatPolling === 'function') startChatPolling();
+  if (typeof attachChatSnapshot === 'function' && typeof connectState !== 'undefined' && connectState.activeRequestId) {
+    attachChatSnapshot(connectState.activeRequestId);
   }
 }
 
 function renderCurrentChatView() {
-  setCommunityChatMode(communityState.chatMode || 'regional');
+  renderCommunityChat();
 }
 
-function renderCommunityChat() {
-  renderCurrentChatView();
-}
-
-async function loadCommunityChatMessages(scrollIfBottom = true) {
-  const stream = document.getElementById('comm-chat-messages');
-  if (!stream) return;
-
-  try {
-    const channel = communityState.chatChannel || 'global';
-    const res = await API.getCommunityChatMessages(channel, 60);
-    const messages = (res && res.messages) ? res.messages : [];
-    communityState.chatMessages = messages;
-
-    if (messages.length === 0) {
-      stream.innerHTML = `
-        <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">💬</div>
-          <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.2rem;">Welcome to the Regional Channel!</div>
-          <div style="font-size: 0.8rem; color: #64748b;">Be the first to say hello, announce an upcoming RTT, or ask for sparring practice.</div>
-        </div>
-      `;
-      return;
-    }
-
-    const currentUserId = (typeof currentUser !== 'undefined' && currentUser) ? currentUser.id : null;
-    let html = '';
-
-    messages.forEach(msg => {
-      const isMine = currentUserId && msg.sender_id === currentUserId;
-      const role = (msg.sender_role || 'player').toUpperCase();
-      const elo = msg.sender_elo ? Math.round(Number(msg.sender_elo)) : null;
-      const initials = (msg.sender_name || 'C').slice(0, 2).toUpperCase();
-
-      let roleBadge = '';
-      if (role === 'ADMIN') {
-        roleBadge = `<span style="font-size: 0.65rem; background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4); padding: 1px 5px; border-radius: 4px; font-weight: 800;">ADMIN</span>`;
-      } else if (role === 'TO' || role === 'ORGANIZER') {
-        roleBadge = `<span style="font-size: 0.65rem; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); padding: 1px 5px; border-radius: 4px; font-weight: 800;">TO</span>`;
-      }
-
-      let timeStr = '';
-      if (msg.created_at) {
-        try {
-          const d = new Date(msg.created_at);
-          timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } catch(e) {}
-      }
-
-      html += `
-        <div class="comm-chat-msg ${isMine ? 'mine' : ''}">
-          <div class="comm-chat-avatar">${escapeHtml(initials)}</div>
-          <div class="comm-chat-content">
-            <div class="comm-chat-meta">
-              <span class="comm-chat-name">${escapeHtml(msg.sender_name || 'Competitor')}</span>
-              ${roleBadge}
-              ${elo ? `<span class="comm-chat-elo">${elo} Elo</span>` : ''}
-              <span class="comm-chat-time">${timeStr}</span>
-            </div>
-            <div class="comm-chat-bubble">${escapeHtml(msg.message_text)}</div>
-          </div>
-        </div>
-      `;
-    });
-
-    stream.innerHTML = html;
-    if (scrollIfBottom) {
-      stream.scrollTop = stream.scrollHeight;
-    }
-  } catch (err) {
-    console.warn('Notice loading community chat:', err);
-  }
-}
-
-async function handleSendCommunityChat(e) {
-  if (e) e.preventDefault();
-  if (communityState.isSendingChat) return;
-
-  const input = document.getElementById('comm-chat-input');
-  const btn = document.getElementById('comm-chat-send-btn');
-  const text = input ? input.value.trim() : '';
-  if (!text) return;
-
-  communityState.isSendingChat = true;
-  if (btn) btn.disabled = true;
-
-  try {
-    const channel = communityState.chatChannel || 'global';
-    const res = await API.sendCommunityChatMessage(channel, text);
-    if (res && res.success) {
-      if (input) input.value = '';
-      await loadCommunityChatMessages(true);
-    } else {
-      alert(res?.error || 'Failed to send message');
-    }
-  } catch (err) {
-    console.error('Failed to send community chat message:', err);
-    alert('Failed to send message. Please check your connection.');
-  } finally {
-    communityState.isSendingChat = false;
-    if (btn) btn.disabled = false;
-    if (input) input.focus();
-  }
-}
-
-function startCommunityChatPolling() {
-  stopCommunityChatPolling();
-  communityState.chatPollingInterval = setInterval(() => {
-    if (communityState.activeSubtab === 'chat') {
-      loadCommunityChatMessages(false);
-    }
-  }, 4000);
-}
-
-function stopCommunityChatPolling() {
-  if (communityState.chatPollingInterval) {
-    clearInterval(communityState.chatPollingInterval);
-    communityState.chatPollingInterval = null;
-  }
+function setCommunityChatMode(mode) {
+  // Retained as safe no-op for backward compatibility
 }
 
 // Attach global helpers for window scope
@@ -1304,8 +1156,8 @@ window.challengeCompetitor = challengeCompetitor;
 window.showUnregisteredCompetitorAlert = showUnregisteredCompetitorAlert;
 window.setCommunitySceneView = setCommunitySceneView;
 window.renderCommunityTeamsLeaderboard = renderCommunityTeamsLeaderboard;
+window.renderCommunityChat = renderCommunityChat;
 window.setCommunityChatMode = setCommunityChatMode;
-window.handleSendCommunityChat = handleSendCommunityChat;
 
 // Backwards compatibility aliases
 window.changeCommunityRegion = (region) => {
