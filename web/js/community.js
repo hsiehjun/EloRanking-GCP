@@ -273,7 +273,16 @@ function changeCommunityRadius(radius) {
   localStorage.setItem('comm_radius', String(r));
   const select = document.getElementById('comm-radius-select');
   if (select) select.value = String(r);
+  const modalRadius = document.getElementById('modal-lfg-radius');
+  if (modalRadius) modalRadius.value = String(r);
+  const filterRadius = document.getElementById('filter-radius');
+  if (filterRadius) filterRadius.value = String(r);
+
   loadCommunityHub(communityState.lat, communityState.lng, r, communityState.locationName);
+
+  if (typeof loadNearbyPlayers === 'function') {
+    loadNearbyPlayers();
+  }
 }
 
 /**
@@ -383,6 +392,9 @@ function switchCommunitySubtab(subtabName) {
   if (subtabName === 'competitors') {
     subtabName = 'scene';
     communityState.sceneView = 'competitors';
+  } else if (subtabName === 'teams') {
+    subtabName = 'scene';
+    communityState.sceneView = 'teams';
   } else if (subtabName === 'leaderboard') {
     subtabName = 'scene';
     communityState.sceneView = 'leaderboard';
@@ -688,11 +700,11 @@ function renderCommunityCompetitors() {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
       <div>
         <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>👥 Local Tournament Competitors</span>
+          <span>👥 Shared Tournament Competitors</span>
           <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${competitors.length} active players within ${rad} miles)</span>
         </h3>
         <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Tabletop players identified through tournament participation within ${rad} miles of ${escapeHtml(locName)}
+          Tabletop players identified through tournament participation within ${rad} miles of ${escapeHtml(locName)} &bull; Sorted by account status &amp; Elo closeness
         </div>
       </div>
     </div>
@@ -748,6 +760,58 @@ function renderCompetitorCard(c) {
     `;
   }
 
+  // Account status badge
+  let accountBadge = '';
+  if (c.has_account) {
+    accountBadge = `
+      <span class="badge" style="background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.68rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px;">
+        <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span>
+        Active Account
+      </span>
+    `;
+  } else {
+    accountBadge = `
+      <span class="badge" style="background: rgba(148, 163, 184, 0.1); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.2); font-size: 0.68rem; display: inline-flex; align-items: center; gap: 4px;">
+        Tournament Roster
+      </span>
+    `;
+  }
+
+  // Elo delta badge compared to user's Elo
+  let eloDeltaBadge = '';
+  if (c.user_elo != null && c.elo_diff != null && !c.is_self) {
+    const diffNum = Math.round(Number(c.elo_diff));
+    const sign = diffNum > 0 ? `+${diffNum}` : `${diffNum}`;
+    const absDiff = Math.abs(diffNum);
+    eloDeltaBadge = `
+      <span class="badge" style="background: rgba(168, 85, 247, 0.14); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.28); font-size: 0.68rem; font-weight: 700;" title="Rating difference compared to your ${Math.round(c.user_elo)} Elo">
+        Δ ${absDiff} (${sign})
+      </span>
+    `;
+  }
+
+  // Action buttons
+  let actionButton = '';
+  if (c.is_self) {
+    actionButton = `
+      <button class="btn btn-outline" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; opacity: 0.6; cursor: default;" disabled>
+        👤 You
+      </button>
+    `;
+  } else if (c.can_chat) {
+    actionButton = `
+      <button class="btn btn-primary" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; font-weight: 700;" onclick="challengeCompetitor('${escapeHtml(c.player_id)}', '${escapeHtml(name)}')">
+        💬 Challenge / Chat
+      </button>
+    `;
+  } else {
+    actionButton = `
+      <button class="btn btn-outline" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; color: #94a3b8; border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.02);" onclick="showUnregisteredCompetitorAlert('${escapeHtml(name)}')">
+        🔒 Chat (Unregistered)
+      </button>
+    `;
+  }
+
   return `
     <div class="comm-competitor-card">
       <div style="display: flex; gap: 12px; align-items: flex-start;">
@@ -759,12 +823,18 @@ function renderCompetitorCard(c) {
             <div style="font-weight: 800; font-size: 0.98rem; color: #fff; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" onclick="openPlayerModal('${escapeHtml(c.player_id)}')">
               ${escapeHtml(name)}
             </div>
-            <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.7rem; font-weight: 700; flex-shrink: 0;">
-              ${elo} Elo
-            </span>
+            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
+              <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.7rem; font-weight: 700;">
+                ${elo} Elo
+              </span>
+              ${eloDeltaBadge}
+            </div>
           </div>
           <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 2px;">
             ${escapeHtml(faction)} ${c.team ? `&bull; <strong style="color: #cbd5e1;">${escapeHtml(c.team)}</strong>` : ''}
+          </div>
+          <div style="margin-top: 5px;">
+            ${accountBadge}
           </div>
         </div>
       </div>
@@ -778,9 +848,7 @@ function renderCompetitorCard(c) {
       </div>
 
       <div style="display: flex; gap: 0.5rem; margin-top: auto;">
-        <button class="btn btn-primary" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; font-weight: 700;" onclick="challengeCompetitor('${escapeHtml(c.player_id)}', '${escapeHtml(name)}')">
-          ⚡ Challenge
-        </button>
+        ${actionButton}
         <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.75rem; color: #cbd5e1;" onclick="openPlayerModal('${escapeHtml(c.player_id)}')">
           Profile
         </button>
@@ -793,11 +861,24 @@ function renderCompetitorCard(c) {
  * Trigger match challenge or redirect to OmniConnect
  */
 function challengeCompetitor(playerId, playerName) {
+  if (typeof currentUser !== 'undefined' && !currentUser) {
+    if (confirm(`You need an OmniTactica account to challenge or chat with ${playerName}. Would you like to sign in or register?`)) {
+      window.location.href = '/login?redirect=/';
+    }
+    return;
+  }
   if (typeof openProposeMatchModal === 'function') {
     openProposeMatchModal(playerId, playerName);
   } else {
     switchCommunitySubtab('radar');
   }
+}
+
+/**
+ * Alert shown when attempting to chat with a competitor who has not registered an account yet
+ */
+function showUnregisteredCompetitorAlert(playerName) {
+  alert(`${playerName} is verified on local tournament rosters, but has not yet registered an account on OmniTactica. Direct chat and match proposals will be enabled once they register or link their BCP account!`);
 }
 
 /**
@@ -808,8 +889,10 @@ function challengeCompetitor(playerId, playerName) {
 function setCommunitySceneView(mode) {
   communityState.sceneView = mode;
   const btnLead = document.getElementById('comm-scene-toggle-leaderboard');
+  const btnTeams = document.getElementById('comm-scene-toggle-teams');
   const btnComp = document.getElementById('comm-scene-toggle-competitors');
   if (btnLead) btnLead.classList.toggle('active', mode === 'leaderboard');
+  if (btnTeams) btnTeams.classList.toggle('active', mode === 'teams');
   if (btnComp) btnComp.classList.toggle('active', mode === 'competitors');
   renderCurrentSceneView();
 }
@@ -830,9 +913,119 @@ function renderCurrentSceneView() {
 
   if (communityState.sceneView === 'competitors') {
     renderCommunityCompetitors();
+  } else if (communityState.sceneView === 'teams') {
+    renderCommunityTeamsLeaderboard();
   } else {
     renderCommunityLeaderboard();
   }
+}
+
+function renderCommunityTeamsLeaderboard() {
+  const container = document.getElementById('comm-scene-content');
+  if (!container) return;
+
+  const overview = communityState.overview;
+  const teams = overview?.local_teams_leaderboard || [];
+  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 100;
+  const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
+
+  let html = `
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
+      <div>
+        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>🛡️ Local Team Leaderboard</span>
+          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${teams.length} clubs & teams within ${rad} miles)</span>
+        </h3>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
+          Active gaming clubs and teams ranked by average competitor Elo across tournaments within ${rad} miles of ${escapeHtml(locName)}
+        </div>
+      </div>
+    </div>
+
+    <div class="table-container" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;">
+      <table id="comm-teams-leaderboard-table" class="data-table">
+        <thead>
+          <tr>
+            <th style="width: 65px; text-align: center;">Rank</th>
+            <th>Team / Gaming Club</th>
+            <th style="text-align: center;">Local Roster</th>
+            <th>Top Ace</th>
+            <th>Team Avg Elo</th>
+            <th style="text-align: center;">Regional Events</th>
+            <th>Win Rate</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  if (teams.length === 0) {
+    html += `
+      <tr>
+        <td colspan="7" class="empty-state" style="padding: 2.5rem 1rem; text-align: center;">
+          <div style="font-size: 1.6rem; margin-bottom: 0.4rem;">🛡️</div>
+          <div style="font-weight: 700; color: #fff; margin-bottom: 0.25rem;">No Local Teams Found within ${rad} Miles</div>
+          <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">No club affiliations recorded in tournament rosters in this area yet. Try expanding your search radius.</div>
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.78rem;" onclick="changeCommunityRadius(250)">Search 250 Miles</button>
+            <button class="btn btn-outline" style="font-size: 0.78rem;" onclick="openCommunityLocationModal()">Change Location</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  } else {
+    teams.forEach(t => {
+      const rank = t.rank;
+      let rankDisplay = `#${rank}`;
+      if (rank === 1) rankDisplay = '🥇 1';
+      else if (rank === 2) rankDisplay = '🥈 2';
+      else if (rank === 3) rankDisplay = '🥉 3';
+
+      const avgElo = t.avg_elo ? Math.round(Number(t.avg_elo)) : 1500;
+      const topElo = t.top_player_elo ? Math.round(Number(t.top_player_elo)) : avgElo;
+      const winRate = t.team_win_rate != null ? `${Number(t.team_win_rate).toFixed(1)}%` : '-';
+      const membersCount = t.local_members_count || 1;
+      const eventsCount = t.regional_events_count || 1;
+      const topName = t.top_player_name || 'Competitor';
+
+      html += `
+        <tr onclick="if(typeof openTeamModal==='function') openTeamModal('${escapeHtml(t.team_name)}')" style="cursor: pointer;">
+          <td style="text-align: center; font-weight: 800; font-family: monospace; color: ${rank <= 3 ? '#f59e0b' : '#94a3b8'};">
+            ${rankDisplay}
+          </td>
+          <td>
+            <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
+              <span>🛡️</span>
+              <span>${escapeHtml(t.team_name)}</span>
+            </div>
+          </td>
+          <td style="text-align: center; color: #cbd5e1; font-weight: 600;">
+            ${membersCount} player${membersCount > 1 ? 's' : ''}
+          </td>
+          <td>
+            <div style="color: #fff; font-weight: 600;">${escapeHtml(topName)}</div>
+            <div style="font-size: 0.72rem; color: #f59e0b; font-family: monospace; font-weight: 700;">${topElo} Elo</div>
+          </td>
+          <td style="font-weight: 800; color: #38bdf8; font-family: monospace;">
+            ${avgElo}
+          </td>
+          <td style="text-align: center; color: #cbd5e1;">
+            ${eventsCount}
+          </td>
+          <td style="color: #10b981; font-weight: 700; font-family: monospace;">
+            ${winRate}
+          </td>
+        </tr>
+      `;
+    });
+  }
+
+  html += `
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.innerHTML = html;
 }
 
 function renderCommunityLeaderboard() {
@@ -1113,7 +1306,9 @@ window.openCommunityLocationModal = openCommunityLocationModal;
 window.switchCommunitySubtab = switchCommunitySubtab;
 window.setCommunityEventsFilter = setCommunityEventsFilter;
 window.challengeCompetitor = challengeCompetitor;
+window.showUnregisteredCompetitorAlert = showUnregisteredCompetitorAlert;
 window.setCommunitySceneView = setCommunitySceneView;
+window.renderCommunityTeamsLeaderboard = renderCommunityTeamsLeaderboard;
 window.setCommunityChatMode = setCommunityChatMode;
 window.handleSendCommunityChat = handleSendCommunityChat;
 

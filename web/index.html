@@ -926,21 +926,14 @@
         <div id="comm-subview-radar" class="comm-subview" style="display: block;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; background: var(--bg-card); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
             <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-              <span style="font-size: 0.82rem; font-weight: 700; color: #38bdf8;">📍 Search Radius:</span>
-              <select id="filter-radius" class="search-input" style="padding: 0.35rem 0.75rem; font-size: 0.82rem; width: auto;" onchange="loadNearbyPlayers()">
-                <option value="15">Within 15 Miles</option>
-                <option value="30" selected>Within 30 Miles</option>
-                <option value="50">Within 50 Miles</option>
-                <option value="100">Within 100 Miles</option>
-              </select>
-
-              <span style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; margin-left: 8px;">⚔️ Play Style:</span>
+              <span style="font-size: 0.82rem; font-weight: 700; color: #38bdf8;">⚔️ Play Style:</span>
               <select id="filter-style" class="search-input" style="padding: 0.35rem 0.75rem; font-size: 0.82rem; width: auto;" onchange="loadNearbyPlayers()">
                 <option value="all">All Play Styles</option>
                 <option value="Competitive">Competitive / Tournament Prep</option>
                 <option value="Casual">Casual / Practice</option>
                 <option value="Narrative">Narrative / Crusade</option>
               </select>
+              <input type="hidden" id="filter-radius" value="100">
             </div>
 
             <button onclick="loadNearbyPlayers()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.38rem 0.85rem;">
@@ -966,7 +959,10 @@
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
             <div style="display: inline-flex; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 3px;">
               <button id="comm-scene-toggle-leaderboard" class="comm-toggle-btn active" onclick="setCommunitySceneView('leaderboard')">
-                👑 Regional Standings
+                👑 Player Standings
+              </button>
+              <button id="comm-scene-toggle-teams" class="comm-toggle-btn" onclick="setCommunitySceneView('teams')">
+                🛡️ Team Standings
               </button>
               <button id="comm-scene-toggle-competitors" class="comm-toggle-btn" onclick="setCommunitySceneView('competitors')">
                 👥 Shared Tournament Competitors
@@ -2704,21 +2700,13 @@
           <input type="hidden" id="modal-lfg-lng" value="-117.1611">
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1.25rem;">
-          <div>
-            <label class="form-label">Search Radius</label>
-            <select id="modal-lfg-radius" class="search-input" style="width: 100%;">
-              <option value="15">15 Miles</option>
-              <option value="30" selected>30 Miles</option>
-              <option value="50">50 Miles</option>
-              <option value="100">100 Miles</option>
-              <option value="250">250 Miles</option>
-            </select>
-          </div>
-          <div>
-            <label class="form-label">Preferred Points</label>
-            <input type="number" id="modal-lfg-points" class="search-input" style="width: 100%;" value="2000" min="500" max="3000" step="500">
-          </div>
+        <div style="margin-bottom: 1.25rem;">
+          <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+            <span>Preferred Army Points</span>
+            <span style="font-size: 0.72rem; color: #94a3b8;">Standard: 2,000 pts</span>
+          </label>
+          <input type="number" id="modal-lfg-points" class="search-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000" step="250">
+          <input type="hidden" id="modal-lfg-radius" value="100">
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">

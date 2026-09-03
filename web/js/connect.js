@@ -308,7 +308,7 @@ function openEditLocationModal() {
   if (country) country.value = p.country || 'United States';
   if (lat) lat.value = p.latitude || 32.7157;
   if (lng) lng.value = p.longitude || -117.1611;
-  if (rad) rad.value = p.radius_miles || 30;
+  if (rad) rad.value = (typeof communityState !== 'undefined' && communityState.radiusMiles) ? communityState.radiusMiles : (p.radius_miles || 100);
   if (pts) pts.value = p.preferred_points || 2000;
   if (style) style.value = p.play_style || 'Competitive';
 
@@ -334,6 +334,10 @@ async function handleSaveLocation(e) {
   const pts = document.getElementById('modal-lfg-points');
   const style = document.getElementById('modal-lfg-style');
 
+  const unifiedRadius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
+    ? communityState.radiusMiles
+    : (rad ? parseInt(rad.value, 10) : 100);
+
   const payload = {
     ...(connectState.userProfile || {}),
     is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
@@ -344,7 +348,7 @@ async function handleSaveLocation(e) {
     country: country ? country.value.trim() : 'United States',
     latitude: lat && lat.value ? parseFloat(lat.value) : 32.7157,
     longitude: lng && lng.value ? parseFloat(lng.value) : -117.1611,
-    radius_miles: rad ? parseInt(rad.value, 10) : 30,
+    radius_miles: unifiedRadius,
     preferred_points: pts ? parseInt(pts.value, 10) : 2000,
     play_style: style ? style.value : 'Competitive'
   };
@@ -432,7 +436,9 @@ async function loadNearbyPlayers() {
   `;
 
   const p = connectState.userProfile || {};
-  const radius = document.getElementById('filter-radius')?.value || p.radius_miles || 30;
+  const radius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
+    ? communityState.radiusMiles
+    : (document.getElementById('comm-radius-select')?.value || p.radius_miles || 100);
   const style = document.getElementById('filter-style')?.value || 'all';
   const lat = p.latitude || 32.7157;
   const lng = p.longitude || -117.1611;
@@ -450,10 +456,10 @@ async function loadNearbyPlayers() {
           <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">🛡️</div>
           <h3 style="color: #fff; font-size: 1.15rem; margin-bottom: 0.4rem;">No Active Opponents Found Within ${radius} Miles</h3>
           <p style="color: #94a3b8; font-size: 0.85rem; max-width: 480px; margin: 0 auto 1.25rem;">
-            Make sure your status is set to "Available for Games" above! Or try expanding your search radius to 50 or 100 miles.
+            Make sure your status is set to "Available for Games" above! Or try expanding your search radius.
           </p>
-          <button onclick="document.getElementById('filter-radius').value='50'; loadNearbyPlayers();" class="btn btn-primary" style="padding: 0.55rem 1.2rem;">
-            Expand Search Radius to 50 Miles
+          <button onclick="if(typeof changeCommunityRadius==='function'){changeCommunityRadius(250);}else{loadNearbyPlayers();}" class="btn btn-primary" style="padding: 0.55rem 1.2rem;">
+            Expand Search Radius to 250 Miles
           </button>
         </div>
       `;

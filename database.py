@@ -683,7 +683,8 @@ class PostgresDatabase:
                 updated_at TIMESTAMPTZ DEFAULT NOW()
             );""",
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
-            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_lower ON player_ratings(LOWER(player_name));"
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_lower ON player_ratings(LOWER(player_name));",
+            "CREATE INDEX IF NOT EXISTS idx_users_player_id ON users(player_id);"
         ]
         try:
             with self.get_connection() as conn:
@@ -4638,7 +4639,8 @@ class PostgresDatabase:
                     round(user_lat, 3),
                     round(user_lng, 3),
                     int(round(radius_miles)),
-                    str(current_player_id or "")
+                    str(current_player_id or ""),
+                    str(current_user_id or "")
                 )
                 cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, cache_key, ttl=90)
                 if cached is not None:
@@ -4801,9 +4803,32 @@ class PostgresDatabase:
                     if ev.get("distance_miles") is not None:
                         ev["distance_miles"] = float(ev["distance_miles"])
 
-                # 3. Discover Local Competitors from the tournaments within this radius
+                # 3. Discover Local Competitors & Tournament Participants
                 user_event_ids = set()
                 user_event_names = {}
+                user_elo = None
+
+                # Resolve user Elo for relevance and delta calculations
+                if current_player_id:
+                    cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (current_player_id,))
+                    u_elo_row = cursor.fetchone()
+                    if u_elo_row and u_elo_row.get("current_elo"):
+                        user_elo = float(u_elo_row["current_elo"])
+                if user_elo is None and current_user_id:
+                    cursor.execute("""
+                        SELECT pr.current_elo 
+                        FROM users u 
+                        JOIN player_ratings pr ON (
+                            (u.player_id IS NOT NULL AND u.player_id != '' AND pr.player_id = u.player_id)
+                            OR
+                            (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND pr.player_id = u.bcp_user_id)
+                        ) 
+                        WHERE u.id = %s;
+                    """, (current_user_id,))
+                    u_elo_row = cursor.fetchone()
+                    if u_elo_row and u_elo_row.get("current_elo"):
+                        user_elo = float(u_elo_row["current_elo"])
+
                 if current_player_id:
                     cursor.execute("""
                         SELECT DISTINCT ep.event_id, e.name as event_name
@@ -4842,14 +4867,22 @@ class PostgresDatabase:
                             COALESCE(pr.matches_played, 0) as matches_played,
                             COALESCE(pr.wins, 0) as wins,
                             COALESCE(pr.losses, 0) as losses,
-                            COALESCE(pr.win_rate, 0.0) as win_rate
+                            COALESCE(pr.win_rate, 0.0) as win_rate,
+                            MAX(u.id) as account_user_id,
+                            MAX(u.display_name) as account_display_name,
+                            CASE WHEN MAX(u.id) IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                         FROM event_participants ep
                         LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                        LEFT JOIN users u ON (
+                            (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = ep.player_id)
+                            OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = ep.player_id)
+                            OR u.id = ep.player_id
+                        )
                         WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
                         GROUP BY ep.player_id, pr.player_name, pr.current_elo, pr.peak_elo, pr.top_faction,
                                  pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
                         ORDER BY current_elo DESC
-                        LIMIT 60;
+                        LIMIT 100;
                     """, (all_event_ids,))
                     comp_rows = cursor.fetchall()
 
@@ -4871,12 +4904,30 @@ class PostgresDatabase:
                         if p_dict.get("current_elo"): p_dict["current_elo"] = round(float(p_dict["current_elo"]), 1)
                         if p_dict.get("peak_elo"): p_dict["peak_elo"] = round(float(p_dict["peak_elo"]), 1)
                         if p_dict.get("win_rate"): p_dict["win_rate"] = round(float(p_dict["win_rate"]), 1)
+
+                        # Relevance & Elo Delta calculation
+                        comp_elo = float(p_dict.get("current_elo") or 1500.0)
+                        baseline = float(user_elo) if user_elo is not None else 1500.0
+                        elo_diff = comp_elo - baseline
+                        p_dict["elo_delta"] = round(abs(elo_diff), 1)
+                        p_dict["elo_diff"] = round(elo_diff, 1)
+                        p_dict["user_elo"] = round(user_elo, 1) if user_elo is not None else None
+                        p_dict["can_chat"] = bool(p_dict.get("has_account"))
+                        p_dict["is_self"] = bool(
+                            (current_player_id and p_dict["player_id"] == current_player_id) or
+                            (current_user_id and p_dict.get("account_user_id") == current_user_id)
+                        )
                         
                         local_competitors.append(p_dict)
 
-                # 4. Local Leaderboard (Competitors who played in tournaments within radius)
+                # 4. Local Player Leaderboard (strictly ranked by Elo descending)
                 leaderboard = []
-                for idx, c in enumerate(local_competitors[:50], start=1):
+                sorted_by_elo = sorted(
+                    local_competitors,
+                    key=lambda x: (float(x.get("current_elo") or 1500.0), int(x.get("regional_events_count") or 1)),
+                    reverse=True
+                )
+                for idx, c in enumerate(sorted_by_elo[:50], start=1):
                     leaderboard.append({
                         "rank": idx,
                         "player_id": c["player_id"],
@@ -4889,8 +4940,65 @@ class PostgresDatabase:
                         "matches_played": c.get("matches_played", 0),
                         "regional_events_count": c.get("regional_events_count", 1),
                         "shared_events_count": c.get("shared_events_count", 0),
-                        "has_shared_events": c.get("has_shared_events", False)
+                        "has_shared_events": c.get("has_shared_events", False),
+                        "has_account": c.get("has_account", False),
+                        "can_chat": c.get("can_chat", False)
                     })
+
+                # Sort local_competitors for Sparring cards:
+                # 1) Registered users with accounts (can chat) at the top
+                # 2) Closest Elo delta to current user
+                # 3) Most shared events
+                # 4) Higher Elo
+                def competitor_rank_key(c):
+                    acc_rank = -1 if c.get("has_account") else 0
+                    delta = float(c.get("elo_delta") if c.get("elo_delta") is not None else 9999.0)
+                    shared = int(c.get("shared_events_count") or 0)
+                    elo = float(c.get("current_elo") or 1500.0)
+                    return (acc_rank, delta, -shared, -elo)
+
+                local_competitors.sort(key=competitor_rank_key)
+
+                # 5. Local Team Leaderboard (teams represented by competitors in regional events)
+                local_teams = []
+                if all_event_ids:
+                    cursor.execute("""
+                        SELECT 
+                            TRIM(COALESCE(NULLIF(TRIM(ep.team), ''), NULLIF(TRIM(pr.team), ''))) as team_name,
+                            COUNT(DISTINCT ep.player_id) as local_members_count,
+                            ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_elo,
+                            ROUND(MAX(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as top_player_elo,
+                            (ARRAY_AGG(COALESCE(pr.player_name, ep.full_name, 'Player') ORDER BY COALESCE(pr.current_elo, 1500.0) DESC))[1] as top_player_name,
+                            (ARRAY_AGG(ep.player_id ORDER BY COALESCE(pr.current_elo, 1500.0) DESC))[1] as top_player_id,
+                            COUNT(DISTINCT ep.event_id) as regional_events_count,
+                            SUM(COALESCE(pr.wins, 0)) as total_wins,
+                            SUM(COALESCE(pr.losses, 0)) as total_losses,
+                            SUM(COALESCE(pr.draws, 0)) as total_draws,
+                            SUM(COALESCE(pr.matches_played, 0)) as total_matches,
+                            ROUND((
+                                SUM(COALESCE(pr.wins, 0)) * 100.0 / NULLIF(SUM(COALESCE(pr.matches_played, 0)), 0)
+                            )::numeric, 1) as team_win_rate
+                        FROM event_participants ep
+                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                        WHERE ep.event_id = ANY(%s)
+                          AND (
+                              (ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-'))
+                              OR
+                              (pr.team IS NOT NULL AND TRIM(pr.team) != '' AND LOWER(TRIM(pr.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-'))
+                          )
+                        GROUP BY TRIM(COALESCE(NULLIF(TRIM(ep.team), ''), NULLIF(TRIM(pr.team), '')))
+                        HAVING COUNT(DISTINCT ep.player_id) >= 1
+                        ORDER BY avg_elo DESC, local_members_count DESC
+                        LIMIT 50;
+                    """, (all_event_ids,))
+                    team_rows = cursor.fetchall()
+                    for idx, tr in enumerate(team_rows, start=1):
+                        td = dict(tr)
+                        td["rank"] = idx
+                        if td.get("avg_elo"): td["avg_elo"] = float(td["avg_elo"])
+                        if td.get("top_player_elo"): td["top_player_elo"] = float(td["top_player_elo"])
+                        if td.get("team_win_rate"): td["team_win_rate"] = float(td["team_win_rate"])
+                        local_teams.append(td)
 
                 radius_int = int(round(radius_miles))
                 result = {
@@ -4913,6 +5021,8 @@ class PostgresDatabase:
                     "events_recent": events_recent,
                     "local_competitors": local_competitors[:50],
                     "local_leaderboard": leaderboard,
+                    "local_teams_leaderboard": local_teams,
+                    "user_elo": round(user_elo, 1) if user_elo is not None else None,
                     "available_regions": self.COMMUNITY_REGIONS,
                     "disclaimer": (
                         f"Competitors and leaderboard standings are surfaced exclusively from verified tournament rosters "
