@@ -1464,6 +1464,9 @@ async function initConnectGooglePlaces() {
 function attachAllPlacesAutocompletes() {
   attachModalPlacesAutocomplete();
   attachProposeVenueAutocomplete();
+  if (typeof attachSettingsPlacesAutocomplete === 'function') {
+    attachSettingsPlacesAutocomplete();
+  }
 }
 window.attachAllPlacesAutocompletes = attachAllPlacesAutocompletes;
 

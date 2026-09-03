@@ -518,6 +518,7 @@ function openUserSettingsModal() {
   }
 
   loadActiveSessionsList();
+  loadUserSettingsLocation();
   modal.classList.add('active');
 }
 
@@ -564,6 +565,428 @@ async function handleSaveDisplayName(e) {
     }
   } finally {
     if (btn) { btn.disabled = false; btn.innerText = 'Save Name'; }
+  }
+}
+
+/* --------------------------------------------------------------------------
+   USER ACCOUNT SETTINGS: HOME LOCATION & RADAR
+   -------------------------------------------------------------------------- */
+async function loadUserSettingsLocation() {
+  const locInput = document.getElementById('settings-home-location');
+  const radSelect = document.getElementById('settings-home-radius');
+  const activeSelect = document.getElementById('settings-lfg-active');
+  const latEl = document.getElementById('settings-loc-lat');
+  const lngEl = document.getElementById('settings-loc-lng');
+  const cityEl = document.getElementById('settings-loc-city');
+  const stateEl = document.getElementById('settings-loc-state');
+  const countryEl = document.getElementById('settings-loc-country');
+  const badge = document.getElementById('settings-loc-badge');
+
+  if (!locInput) return;
+
+  // 1. Initial fast populate from window.connectState or localStorage if available
+  let profile = (window.connectState && window.connectState.userProfile) ? window.connectState.userProfile : null;
+  if (!profile) {
+    try {
+      const stored = localStorage.getItem('native_user_lfg_profile');
+      if (stored) profile = JSON.parse(stored);
+    } catch(e) {}
+  }
+
+  const applyProfileToUI = (prof) => {
+    if (!prof) return;
+    const name = prof.home_venue_name || (prof.city ? (prof.state ? `${prof.city}, ${prof.state}` : prof.city) : '');
+    if (name) {
+      locInput.value = name;
+      locInput.dataset.origVal = name;
+    }
+    if (prof.latitude != null) {
+      if (latEl) latEl.value = prof.latitude;
+      locInput.dataset.placeLat = String(prof.latitude);
+    }
+    if (prof.longitude != null) {
+      if (lngEl) lngEl.value = prof.longitude;
+      locInput.dataset.placeLng = String(prof.longitude);
+    }
+    if (prof.city && cityEl) cityEl.value = prof.city;
+    if (prof.state && stateEl) stateEl.value = prof.state;
+    if (prof.country && countryEl) countryEl.value = prof.country;
+    if (prof.radius_miles && radSelect) radSelect.value = String(prof.radius_miles);
+    if (prof.is_active !== undefined && activeSelect) activeSelect.value = prof.is_active ? 'true' : 'false';
+
+    if (badge && (prof.latitude != null || name)) {
+      badge.textContent = '✓ Saved Location';
+      badge.style.background = 'rgba(16,185,129,0.15)';
+      badge.style.color = '#10b981';
+      badge.style.border = '1px solid rgba(16,185,129,0.3)';
+    }
+  };
+
+  if (profile) applyProfileToUI(profile);
+
+  // 2. Fetch fresh profile from API
+  try {
+    const res = await window.api.getConnectProfile();
+    if (res && res.success && res.profile) {
+      profile = res.profile;
+      if (window.connectState) window.connectState.userProfile = profile;
+      localStorage.setItem('native_user_lfg_profile', JSON.stringify(profile));
+      applyProfileToUI(profile);
+    }
+  } catch (e) {
+    console.warn("Notice: could not load fresh user connect profile:", e);
+  }
+
+  // 3. Attach Google Places Autocomplete if available
+  setTimeout(attachSettingsPlacesAutocomplete, 100);
+}
+
+function attachSettingsPlacesAutocomplete() {
+  const locInput = document.getElementById('settings-home-location');
+  if (!locInput) return;
+
+  if (!locInput._inputListenerAttached) {
+    locInput._inputListenerAttached = true;
+    locInput.addEventListener('input', () => {
+      locInput.dataset.userEdited = 'true';
+      delete locInput.dataset.placeLat;
+      delete locInput.dataset.placeLng;
+      const badge = document.getElementById('settings-loc-badge');
+      if (badge) {
+        badge.textContent = 'Custom Location';
+        badge.style.background = 'rgba(56,189,248,0.1)';
+        badge.style.color = '#38bdf8';
+        badge.style.border = '1px solid rgba(56,189,248,0.25)';
+      }
+    });
+  }
+
+  if (typeof google === 'undefined' || !google.maps || !google.maps.places) return;
+  if (locInput._autocompleteAttached) return;
+  locInput._autocompleteAttached = true;
+
+  try {
+    const autocomplete = new google.maps.places.Autocomplete(locInput, {
+      types: ['establishment', 'geocode'],
+      fields: ['name', 'formatted_address', 'geometry', 'address_components']
+    });
+
+    autocomplete.addListener('place_changed', () => {
+      const place = autocomplete.getPlace();
+      if (!place || !place.geometry || !place.geometry.location) return;
+
+      const lat = place.geometry.location.lat();
+      const lng = place.geometry.location.lng();
+      const name = place.name || locInput.value;
+
+      locInput.dataset.placeLat = String(lat);
+      locInput.dataset.placeLng = String(lng);
+      locInput.dataset.userEdited = 'false';
+
+      const latEl = document.getElementById('settings-loc-lat');
+      const lngEl = document.getElementById('settings-loc-lng');
+      const cityEl = document.getElementById('settings-loc-city');
+      const stateEl = document.getElementById('settings-loc-state');
+      const countryEl = document.getElementById('settings-loc-country');
+      const badge = document.getElementById('settings-loc-badge');
+
+      if (latEl) latEl.value = lat;
+      if (lngEl) lngEl.value = lng;
+
+      if (place.address_components) {
+        for (const comp of place.address_components) {
+          const types = comp.types || [];
+          if (types.includes('locality') || (!cityEl.value && types.includes('sublocality'))) {
+            if (cityEl) cityEl.value = comp.long_name;
+          }
+          if (types.includes('administrative_area_level_1')) {
+            if (stateEl) stateEl.value = comp.short_name || comp.long_name;
+          }
+          if (types.includes('country')) {
+            if (countryEl) countryEl.value = comp.long_name;
+          }
+        }
+      }
+
+      if (badge) {
+        badge.textContent = '✓ Places Verified';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        badge.style.color = '#10b981';
+        badge.style.border = '1px solid rgba(16,185,129,0.3)';
+      }
+    });
+  } catch (e) {
+    console.warn("attachSettingsPlacesAutocomplete notice:", e);
+  }
+}
+
+function detectUserSettingsGPS() {
+  if (!navigator.geolocation) {
+    alert("Geolocation is not supported by your device or browser.");
+    return;
+  }
+  const btn = document.getElementById('btn-settings-gps');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> <span>Detecting GPS...</span>';
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    async (position) => {
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+      let city = 'Local Area';
+      let state = '';
+      let country = 'United States';
+      let venueName = '';
+
+      // Try Google reverse geocode if loaded
+      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+        try {
+          const geocoder = new google.maps.Geocoder();
+          const gRes = await new Promise((resolve) => {
+            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+              if (status === 'OK' && results && results[0]) resolve(results[0]);
+              else resolve(null);
+            });
+          });
+          if (gRes && gRes.address_components) {
+            for (const comp of gRes.address_components) {
+              const types = comp.types || [];
+              if (types.includes('locality')) city = comp.long_name;
+              if (types.includes('administrative_area_level_1')) state = comp.short_name || comp.long_name;
+              if (types.includes('country')) country = comp.long_name;
+            }
+            venueName = state ? `${city}, ${state}` : city;
+          }
+        } catch (e) {
+          console.warn("Google reverse geocode notice:", e);
+        }
+      }
+
+      // Nominatim fallback
+      if (city === 'Local Area') {
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const addr = data.address || {};
+            city = addr.city || addr.town || addr.village || addr.suburb || addr.county || 'Local Area';
+            state = addr.state || '';
+            country = addr.country || 'United States';
+            venueName = state ? `${city}, ${state}` : city;
+          }
+        } catch (e) {
+          console.warn("Nominatim reverse geocode notice:", e);
+        }
+      }
+
+      const locInput = document.getElementById('settings-home-location');
+      const latEl = document.getElementById('settings-loc-lat');
+      const lngEl = document.getElementById('settings-loc-lng');
+      const cityEl = document.getElementById('settings-loc-city');
+      const stateEl = document.getElementById('settings-loc-state');
+      const countryEl = document.getElementById('settings-loc-country');
+      const badge = document.getElementById('settings-loc-badge');
+
+      if (locInput) {
+        locInput.value = venueName || `${city}, ${state}`;
+        locInput.dataset.placeLat = String(lat);
+        locInput.dataset.placeLng = String(lng);
+        locInput.dataset.userEdited = 'false';
+      }
+      if (latEl) latEl.value = lat;
+      if (lngEl) lngEl.value = lng;
+      if (cityEl) cityEl.value = city;
+      if (stateEl) stateEl.value = state;
+      if (countryEl) countryEl.value = country;
+      if (badge) {
+        badge.textContent = '✓ GPS Locked';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        badge.style.color = '#10b981';
+        badge.style.border = '1px solid rgba(16,185,129,0.3)';
+      }
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>✓</span> <span>GPS Locked</span>';
+      }
+    },
+    (err) => {
+      console.warn("GPS error:", err);
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<span>🛰️</span> <span>Use Device GPS</span>';
+      }
+      alert("Could not detect device GPS: " + (err.message || "Permission denied or timeout."));
+    },
+    { timeout: 10000, enableHighAccuracy: true }
+  );
+}
+
+async function handleSaveUserSettingsLocation(e) {
+  if (e) e.preventDefault();
+  const locInput = document.getElementById('settings-home-location');
+  const radSelect = document.getElementById('settings-home-radius');
+  const activeSelect = document.getElementById('settings-lfg-active');
+  const latEl = document.getElementById('settings-loc-lat');
+  const lngEl = document.getElementById('settings-loc-lng');
+  const cityEl = document.getElementById('settings-loc-city');
+  const stateEl = document.getElementById('settings-loc-state');
+  const countryEl = document.getElementById('settings-loc-country');
+  const btn = document.getElementById('btn-save-settings-loc');
+  const errDiv = document.getElementById('settings-error');
+  const successDiv = document.getElementById('settings-success');
+
+  const rawInput = locInput ? locInput.value.trim() : '';
+  if (!rawInput) {
+    if (errDiv) {
+      errDiv.innerText = 'Please enter a home city, game store, or club.';
+      errDiv.style.display = 'block';
+    }
+    return;
+  }
+
+  if (btn) { btn.disabled = true; btn.innerText = 'Saving Location...'; }
+  if (errDiv) errDiv.style.display = 'none';
+  if (successDiv) successDiv.style.display = 'none';
+
+  let targetLat = null;
+  let targetLng = null;
+  let chosenCity = cityEl ? cityEl.value.trim() : '';
+  let chosenState = stateEl ? stateEl.value.trim() : '';
+  let chosenCountry = countryEl ? countryEl.value.trim() : 'United States';
+  let chosenLocName = rawInput;
+
+  // 1. Google Places dataset coords if selected from autocomplete or GPS
+  if (locInput && locInput.dataset.placeLat && locInput.dataset.placeLng && locInput.dataset.userEdited !== 'true') {
+    targetLat = parseFloat(locInput.dataset.placeLat);
+    targetLng = parseFloat(locInput.dataset.placeLng);
+  } else if (rawInput && latEl && latEl.value && lngEl && lngEl.value && locInput && locInput.dataset.origVal === rawInput) {
+    targetLat = parseFloat(latEl.value);
+    targetLng = parseFloat(lngEl.value);
+  } else {
+    // 2. City coordinates lookup dictionary (instant 0ms)
+    const matched = (typeof lookupCityCoordinates === 'function') ? lookupCityCoordinates(rawInput) : null;
+    if (matched) {
+      targetLat = matched.lat;
+      targetLng = matched.lng;
+      chosenCity = matched.name ? matched.name.split(',')[0].trim() : rawInput;
+      chosenState = (matched.name && matched.name.includes(',')) ? matched.name.split(',')[1].trim() : '';
+      chosenLocName = matched.name || rawInput;
+    } else {
+      // 3. Try Google geocoder if available
+      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+        try {
+          const geocoder = new google.maps.Geocoder();
+          const gRes = await new Promise((resolve) => {
+            geocoder.geocode({ address: rawInput }, (results, status) => {
+              if (status === 'OK' && results && results[0] && results[0].geometry) resolve(results[0]);
+              else resolve(null);
+            });
+          });
+          if (gRes && gRes.geometry && gRes.geometry.location) {
+            targetLat = gRes.geometry.location.lat();
+            targetLng = gRes.geometry.location.lng();
+            chosenLocName = gRes.formatted_address || rawInput;
+            if (gRes.address_components) {
+              for (const comp of gRes.address_components) {
+                const types = comp.types || [];
+                if (types.includes('locality')) chosenCity = comp.long_name;
+                if (types.includes('administrative_area_level_1')) chosenState = comp.short_name || comp.long_name;
+                if (types.includes('country')) chosenCountry = comp.long_name;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Google geocode lookup error:", e);
+        }
+      }
+
+      // 4. Nominatim geocode fallback
+      if (targetLat == null) {
+        try {
+          const nRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(rawInput)}&limit=1`, {
+            headers: { 'Accept': 'application/json' }
+          });
+          if (nRes.ok) {
+            const items = await nRes.json();
+            if (items && items.length > 0) {
+              targetLat = parseFloat(items[0].lat);
+              targetLng = parseFloat(items[0].lon);
+              const displayName = items[0].display_name || '';
+              const parts = displayName.split(',').map(s => s.trim());
+              if (parts.length > 0) chosenCity = parts[0];
+              if (parts.length > 1) chosenState = parts[1];
+            }
+          }
+        } catch (e) {
+          console.warn("Nominatim search error:", e);
+        }
+      }
+    }
+  }
+
+  // Fallback defaults if San Diego
+  if (targetLat == null && rawInput.toLowerCase().includes('san diego')) {
+    targetLat = 32.7157;
+    targetLng = -117.1611;
+    chosenCity = 'San Diego';
+    chosenState = 'CA';
+  }
+
+  const radius = radSelect ? parseInt(radSelect.value, 10) : 50;
+  const isActive = activeSelect ? (activeSelect.value === 'true') : true;
+
+  const existing = (window.connectState && window.connectState.userProfile) ? window.connectState.userProfile : {};
+  const payload = {
+    ...existing,
+    is_active: isActive,
+    home_venue_name: chosenLocName,
+    city: chosenCity || rawInput,
+    state: chosenState,
+    country: chosenCountry || 'United States',
+    latitude: targetLat,
+    longitude: targetLng,
+    radius_miles: radius
+  };
+
+  try {
+    const res = await window.api.saveConnectProfile(payload);
+    if (res && res.success) {
+      if (window.connectState) {
+        window.connectState.userProfile = { ...(window.connectState.userProfile || {}), ...payload };
+        if (typeof renderTopBarOptions === 'function') renderTopBarOptions(window.connectState.userProfile);
+      }
+      localStorage.setItem('native_user_lfg_profile', JSON.stringify(payload));
+      if (typeof updateCommunityLocation === 'function') {
+        updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
+      }
+      if (successDiv) {
+        successDiv.innerText = `✓ Home location saved as "${chosenLocName}"! Local radar and matchmaking updated.`;
+        successDiv.style.display = 'block';
+      }
+      const badge = document.getElementById('settings-loc-badge');
+      if (badge) {
+        badge.textContent = '✓ Saved Location';
+        badge.style.background = 'rgba(16,185,129,0.15)';
+        badge.style.color = '#10b981';
+        badge.style.border = '1px solid rgba(16,185,129,0.3)';
+      }
+    } else {
+      if (errDiv) {
+        errDiv.innerText = res?.error || 'Failed to save location.';
+        errDiv.style.display = 'block';
+      }
+    }
+  } catch (err) {
+    if (errDiv) {
+      errDiv.innerText = 'Error: ' + err.message;
+      errDiv.style.display = 'block';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerText = 'Save Home Location'; }
   }
 }
 
@@ -773,6 +1196,10 @@ window.handleLogout = handleLogout;
 window.loadActiveSessionsList = loadActiveSessionsList;
 window.handleRevokeSession = handleRevokeSession;
 window.handleSignOutAllDevices = handleSignOutAllDevices;
+window.loadUserSettingsLocation = loadUserSettingsLocation;
+window.attachSettingsPlacesAutocomplete = attachSettingsPlacesAutocomplete;
+window.detectUserSettingsGPS = detectUserSettingsGPS;
+window.handleSaveUserSettingsLocation = handleSaveUserSettingsLocation;
 
 // =========================================================================
 // 24-HOUR PLAYER INVITATION PASS

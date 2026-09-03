@@ -1658,24 +1658,44 @@ class PostgresDatabase:
                 }
 
                 if player_id:
-                    # Detect home region
+                    # 1. Check explicit profile location first (set in Account Settings / LFG)
                     cursor.execute("""
-                    SELECT e.state, e.city, COUNT(*) as cnt
-                    FROM event_participants ep
-                    JOIN events e ON ep.event_id = e.id
-                    WHERE ep.player_id = %s 
-                      AND e.state IS NOT NULL 
-                      AND TRIM(e.state) != ''
-                    GROUP BY e.state, e.city
-                    ORDER BY cnt DESC, MAX(e.event_date) DESC
+                    SELECT p.latitude, p.longitude, p.city, p.state
+                    FROM player_lfg_profiles p
+                    WHERE p.player_id = %s
+                    UNION ALL
+                    SELECT p.latitude, p.longitude, p.city, p.state
+                    FROM player_lfg_profiles p
+                    JOIN users u ON u.id = p.player_id
+                    WHERE u.player_id = %s
                     LIMIT 1;
-                    """, (player_id,))
-                    loc_row = cursor.fetchone()
-                    if loc_row:
-                        detected_state = loc_row.get("state")
-                        detected_city = loc_row.get("city")
-                        if not user_lat and detected_city and detected_city.strip().lower() in KNOWN_CITIES:
-                            user_lat, user_lng = KNOWN_CITIES[detected_city.strip().lower()]
+                    """, (player_id, player_id))
+                    lfg_row = cursor.fetchone()
+                    if lfg_row and (lfg_row.get("city") or lfg_row.get("latitude") is not None):
+                        detected_city = lfg_row.get("city")
+                        detected_state = lfg_row.get("state")
+                        if not user_lat and lfg_row.get("latitude") is not None:
+                            user_lat = float(lfg_row["latitude"])
+                            user_lng = float(lfg_row["longitude"])
+                    else:
+                        # 2. Fall back to tournament location inference only if explicit profile is missing
+                        cursor.execute("""
+                        SELECT e.state, e.city, COUNT(*) as cnt
+                        FROM event_participants ep
+                        JOIN events e ON ep.event_id = e.id
+                        WHERE ep.player_id = %s 
+                          AND e.state IS NOT NULL 
+                          AND TRIM(e.state) != ''
+                        GROUP BY e.state, e.city
+                        ORDER BY cnt DESC, MAX(e.event_date) DESC
+                        LIMIT 1;
+                        """, (player_id,))
+                        loc_row = cursor.fetchone()
+                        if loc_row:
+                            detected_state = loc_row.get("state")
+                            detected_city = loc_row.get("city")
+                            if not user_lat and detected_city and detected_city.strip().lower() in KNOWN_CITIES:
+                                user_lat, user_lng = KNOWN_CITIES[detected_city.strip().lower()]
 
                     # Get user's current Elo
                     cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id,))
@@ -4629,6 +4649,27 @@ class PostgresDatabase:
                         if not location_name:
                             location_name = p_row.get("home_venue_name") or f"{p_row.get('city')}, {p_row.get('state')}"
 
+                if (user_lat is None or user_lng is None) and current_player_id:
+                    # Check explicit profile location for player
+                    cursor.execute("""
+                        SELECT p.latitude, p.longitude, p.city, p.state, p.home_venue_name
+                        FROM player_lfg_profiles p
+                        WHERE p.player_id = %s AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+                        UNION ALL
+                        SELECT p.latitude, p.longitude, p.city, p.state, p.home_venue_name
+                        FROM player_lfg_profiles p
+                        JOIN users u ON u.id = p.player_id
+                        WHERE u.player_id = %s AND p.latitude IS NOT NULL AND p.longitude IS NOT NULL
+                        LIMIT 1;
+                    """, (current_player_id, current_player_id))
+                    p_row2 = cursor.fetchone()
+                    if p_row2:
+                        user_lat = float(p_row2["latitude"])
+                        user_lng = float(p_row2["longitude"])
+                        if not location_name:
+                            location_name = p_row2.get("home_venue_name") or f"{p_row2.get('city')}, {p_row2.get('state')}"
+
+                # Only if explicit profile is missing, fallback to tournament match history
                 if (user_lat is None or user_lng is None) and current_player_id:
                     cursor.execute("""
                         SELECT e.latitude, e.longitude, e.city, e.state, COUNT(*) as cnt

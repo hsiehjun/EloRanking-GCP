@@ -4658,7 +4658,39 @@ if FASTAPI_AVAILABLE:
 
         with db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                if player_id_clean:
+                # 1. First Priority: Check explicit user profile location (set in Account Settings / LFG)
+                lfg_loc = None
+                if auth_user and auth_user.get("id"):
+                    cursor.execute("""
+                        SELECT latitude, longitude, city, state, country, home_venue_name
+                        FROM player_lfg_profiles
+                        WHERE player_id = %s;
+                    """, (auth_user["id"],))
+                    lfg_loc = cursor.fetchone()
+
+                if not lfg_loc and player_id_clean:
+                    cursor.execute("""
+                        SELECT p.latitude, p.longitude, p.city, p.state, p.country, p.home_venue_name
+                        FROM player_lfg_profiles p
+                        WHERE p.player_id = %s
+                        UNION ALL
+                        SELECT p.latitude, p.longitude, p.city, p.state, p.country, p.home_venue_name
+                        FROM player_lfg_profiles p
+                        JOIN users u ON u.id = p.player_id
+                        WHERE u.player_id = %s
+                        LIMIT 1;
+                    """, (player_id_clean, player_id_clean))
+                    lfg_loc = cursor.fetchone()
+
+                if lfg_loc and (lfg_loc.get("city") or lfg_loc.get("latitude") is not None):
+                    detected_city = lfg_loc.get("city")
+                    detected_state = lfg_loc.get("state")
+                    if not lat and lfg_loc.get("latitude") is not None:
+                        lat = float(lfg_loc["latitude"])
+                    if not lng and lfg_loc.get("longitude") is not None:
+                        lng = float(lfg_loc["longitude"])
+                elif player_id_clean:
+                    # 2. Fallback: only if explicit user location doesn't exist, check tournament history
                     cursor.execute("""
                     SELECT e.state, e.city, COUNT(*) as cnt
                     FROM event_participants ep
@@ -4673,9 +4705,10 @@ if FASTAPI_AVAILABLE:
                         detected_state = loc_row.get("state")
                         detected_city = loc_row.get("city")
 
+                if player_id_clean:
                     cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (player_id_clean,))
                     elo_row = cursor.fetchone()
-                    if elo_row:
+                    if elo_row and user_elo is None:
                         user_elo = float(elo_row.get("current_elo") or 1500.0)
 
         target_state = (state.strip() if state and state.strip() else detected_state)

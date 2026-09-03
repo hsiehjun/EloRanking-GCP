@@ -2008,111 +2008,180 @@
 
   <!-- USER ACCOUNT SETTINGS MODAL -->
   <div id="user-settings-modal" class="modal-backdrop" onclick="if(event.target === this) closeUserSettingsModal()">
-    <div class="modal-card" style="max-width: 480px; padding: 1.75rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
-        <div style="display: flex; align-items: center; gap: 0.6rem;">
-          <span style="font-size: 1.4rem;">⚙️</span>
+    <div class="modal-card" style="max-width: 520px; padding: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden; max-height: min(90vh, 840px);">
+      <!-- Sticky Header -->
+      <div style="position: sticky; top: 0; z-index: 10; background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 1.15rem 1.4rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 0.65rem;">
+          <span style="font-size: 1.35rem;">⚙️</span>
           <div>
             <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Account Settings</h3>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">Manage gamer tag, password, and connected accounts</div>
+            <div style="font-size: 0.76rem; color: var(--text-secondary);">Manage gamer tag, home location, password, and security</div>
           </div>
         </div>
-        <button class="modal-close-btn" onclick="closeUserSettingsModal()">✕</button>
+        <button class="modal-close-btn" onclick="closeUserSettingsModal()" aria-label="Close Settings" style="background: none; border: none; color: var(--text-muted); font-size: 1.3rem; cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: color 0.15s;">✕</button>
       </div>
 
-      <!-- Account Info -->
-      <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1rem; margin-bottom: 1.25rem; font-size: 0.82rem;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
-          <span style="color: var(--text-muted);">Email Address:</span>
-          <b id="settings-email-display" style="color: #fff;">-</b>
+      <!-- Scrollable Settings Body -->
+      <div style="padding: 1.4rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+        <!-- Account Info -->
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1rem; font-size: 0.82rem;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
+            <span style="color: var(--text-muted);">Email Address:</span>
+            <b id="settings-email-display" style="color: #fff;">-</b>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
+            <span style="color: var(--text-muted);">Account Role:</span>
+            <span id="settings-role-display" style="color: #fff;">-</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: var(--text-muted);">BCP Status:</span>
+            <span id="settings-bcp-status" style="color: #fff;">-</span>
+          </div>
         </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
-          <span style="color: var(--text-muted);">Account Role:</span>
-          <span id="settings-role-display" style="color: #fff;">-</span>
-        </div>
-        <div style="display: flex; justify-content: space-between;">
-          <span style="color: var(--text-muted);">BCP Status:</span>
-          <span id="settings-bcp-status" style="color: #fff;">-</span>
-        </div>
-      </div>
 
-      <!-- Status / Error Messages -->
-      <div id="settings-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.6rem; background: rgba(239,68,68,0.1); border-radius: 6px; border: 1px solid rgba(239,68,68,0.25);"></div>
-      <div id="settings-success" style="display: none; color: var(--win); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.6rem; background: rgba(16,185,129,0.1); border-radius: 6px; border: 1px solid rgba(16,185,129,0.25);"></div>
+        <!-- Status / Error Messages -->
+        <div id="settings-error" style="display: none; color: var(--loss); font-size: 0.82rem; padding: 0.6rem 0.85rem; background: rgba(239,68,68,0.1); border-radius: 6px; border: 1px solid rgba(239,68,68,0.25);"></div>
+        <div id="settings-success" style="display: none; color: var(--win); font-size: 0.82rem; padding: 0.6rem 0.85rem; background: rgba(16,185,129,0.1); border-radius: 6px; border: 1px solid rgba(16,185,129,0.25);"></div>
 
-      <!-- Form 1: Gamer Tag / Display Name -->
-      <form onsubmit="handleSaveDisplayName(event)" style="margin-bottom: 1.5rem; padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
-        <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;">
-          Display Name / Gamer Tag
-        </label>
-        <div style="display: flex; gap: 0.5rem;">
-          <input type="text" id="settings-display-name" class="search-input" style="flex: 1; font-size: 0.9rem;" placeholder="e.g. John Hsieh" required>
-          <button type="submit" id="btn-save-name" class="btn btn-primary" style="padding: 0.55rem 1rem; white-space: nowrap;">
-            Save Name
-          </button>
-        </div>
-      </form>
-
-      <!-- Form 2: Change Password -->
-      <form onsubmit="handleSavePassword(event)">
-        <label style="font-size: 0.82rem; font-weight: 700; color: #f59e0b; display: block; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em;">
-          Change Password
-        </label>
-        <div style="margin-bottom: 0.75rem;">
-          <input type="password" id="settings-old-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Current Password" required>
-        </div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
-          <input type="password" id="settings-new-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="New Password (min 6)" required>
-          <input type="password" id="settings-confirm-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Confirm New Password" required>
-        </div>
-        <button type="submit" id="btn-save-pass" class="btn" style="width: 100%; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 700; padding: 0.65rem; cursor: pointer;">
-          Update Password
-        </button>
-      </form>
-
-      <!-- Section: Invite Players / Friends -->
-      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-          <label style="font-size: 0.82rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
-            🎟️ Invite Players
+        <!-- Section 1: Gamer Tag / Display Name -->
+        <form onsubmit="handleSaveDisplayName(event)" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+          <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;">
+            Display Name / Gamer Tag
           </label>
-        </div>
-        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
-          Invite fellow tabletop players to join OmniTactica with your exclusive invitation pass.
-        </p>
-        <button type="button" onclick="closeUserSettingsModal(); openInviteModal();" class="btn" style="width: 100%; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.82rem; padding: 0.65rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <span>🎟️</span> <span>Invite Players (Get Code & Link)</span>
-        </button>
-      </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="settings-display-name" class="search-input" style="flex: 1; font-size: 0.9rem;" placeholder="e.g. John Hsieh" required>
+            <button type="submit" id="btn-save-name" class="btn btn-primary" style="padding: 0.55rem 1rem; white-space: nowrap;">
+              Save Name
+            </button>
+          </div>
+        </form>
 
-      <!-- Section 3: Device Security & Active Sessions -->
-      <div style="margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border);">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-          <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
-            🛡️ Device Security & Active Sessions
+        <!-- Section 2: Home Location & Matchmaking Base -->
+        <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <label style="font-size: 0.82rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+              <span>📍 Home Location & Matchmaking Hub</span>
+            </label>
+            <span id="settings-loc-badge" class="oc-badge" style="font-size: 0.68rem; padding: 2px 7px; background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); border-radius: 4px;">
+              Primary Base
+            </span>
+          </div>
+          <p style="font-size: 0.77rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
+            Your primary base for local tournament radar, community leaderboards, and nearby player matchmaking. We default to this explicit location instead of inferring from tournament travel history.
+          </p>
+
+          <form id="form-user-settings-location" onsubmit="handleSaveUserSettingsLocation(event)">
+            <div style="margin-bottom: 0.75rem;">
+              <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
+                Home Club, Game Store, or City:
+              </label>
+              <div style="position: relative;">
+                <input type="text" id="settings-home-location" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 34px; font-size: 0.88rem;" placeholder="e.g. San Diego, CA or Dice Dojo, Chicago" autocomplete="off" required>
+                <span style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; opacity: 0.8;">📍</span>
+              </div>
+              <input type="hidden" id="settings-loc-lat">
+              <input type="hidden" id="settings-loc-lng">
+              <input type="hidden" id="settings-loc-city">
+              <input type="hidden" id="settings-loc-state">
+              <input type="hidden" id="settings-loc-country">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
+              <div>
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
+                  Default Search Radius:
+                </label>
+                <select id="settings-home-radius" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                  <option value="25">25 miles (Local Club)</option>
+                  <option value="50" selected>50 miles (Metro Area)</option>
+                  <option value="100">100 miles (Regional Scene)</option>
+                  <option value="250">250 miles (Multi-State)</option>
+                  <option value="500">500 miles (Super-Regional)</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
+                  Sparring Radar Status:
+                </label>
+                <select id="settings-lfg-active" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                  <option value="true">🟢 Available for Games</option>
+                  <option value="false">⚪ Off Duty / Idle</option>
+                </select>
+              </div>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+              <button type="button" onclick="detectUserSettingsGPS()" id="btn-settings-gps" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.5rem 0.75rem; white-space: nowrap; display: flex; align-items: center; gap: 5px;">
+                <span>🛰️</span> <span>Use Device GPS</span>
+              </button>
+              <button type="submit" id="btn-save-settings-loc" class="btn btn-primary" style="flex: 1; font-size: 0.82rem; font-weight: 700; padding: 0.5rem 0.85rem;">
+                Save Home Location
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Section 3: Change Password -->
+        <form onsubmit="handleSavePassword(event)" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+          <label style="font-size: 0.82rem; font-weight: 700; color: #f59e0b; display: block; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em;">
+            Change Password
           </label>
-          <button type="button" onclick="loadActiveSessionsList()" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
-            🔄 Refresh
+          <div style="margin-bottom: 0.75rem;">
+            <input type="password" id="settings-old-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Current Password" required>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
+            <input type="password" id="settings-new-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="New Password (min 6)" required>
+            <input type="password" id="settings-confirm-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Confirm New Password" required>
+          </div>
+          <button type="submit" id="btn-save-pass" class="btn" style="width: 100%; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 700; padding: 0.65rem; cursor: pointer;">
+            Update Password
+          </button>
+        </form>
+
+        <!-- Section 4: Invite Players / Friends -->
+        <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <label style="font-size: 0.82rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+              🎟️ Invite Players
+            </label>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
+            Invite fellow tabletop players to join OmniTactica with your exclusive invitation pass.
+          </p>
+          <button type="button" onclick="closeUserSettingsModal(); openInviteModal();" class="btn" style="width: 100%; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.82rem; padding: 0.65rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>🎟️</span> <span>Invite Players (Get Code & Link)</span>
           </button>
         </div>
 
-        <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
-          Devices currently logged into your OmniTactica account. You can revoke individual devices or sign out everywhere.
-        </p>
+        <!-- Section 5: Device Security & Active Sessions -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+              🛡️ Device Security & Active Sessions
+            </label>
+            <button type="button" onclick="loadActiveSessionsList()" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+              🔄 Refresh
+            </button>
+          </div>
 
-        <!-- Active Sessions Container -->
-        <div id="settings-sessions-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; max-height: 180px; overflow-y: auto;">
-          <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Loading active sessions...</div>
-        </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
+            Devices currently logged into your OmniTactica account. You can revoke individual devices or sign out everywhere.
+          </p>
 
-        <!-- Multi-Device Action Buttons -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-          <button type="button" onclick="handleSignOutAllDevices(true)" class="btn" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
-            🛡️ Sign Out Other Devices
-          </button>
-          <button type="button" onclick="handleSignOutAllDevices(false)" class="btn" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
-            🛑 Sign Out Everywhere
-          </button>
+          <!-- Active Sessions Container -->
+          <div id="settings-sessions-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; max-height: 180px; overflow-y: auto;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Loading active sessions...</div>
+          </div>
+
+          <!-- Multi-Device Action Buttons -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+            <button type="button" onclick="handleSignOutAllDevices(true)" class="btn" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
+              🛡️ Sign Out Other Devices
+            </button>
+            <button type="button" onclick="handleSignOutAllDevices(false)" class="btn" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
+              🛑 Sign Out Everywhere
+            </button>
+          </div>
         </div>
       </div>
     </div>
