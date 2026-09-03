@@ -118,123 +118,181 @@ class AuthManager:
             AuthManager._tables_initialized = True
 
     def _ensure_tables(self):
-        """Creates native users and sessions tables safely without heavy indexing locks."""
+        """Creates native users and sessions tables safely without heavy indexing locks or deadlocks."""
         try:
+            # Fast check: If users and user_sessions already exist and auth schema is ready, return immediately
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
-                        id VARCHAR(64) PRIMARY KEY,
-                        email TEXT UNIQUE NOT NULL,
-                        password_hash TEXT NOT NULL,
-                        display_name TEXT NOT NULL,
-                        role TEXT DEFAULT 'player',
-                        player_id VARCHAR(64),
-                        bcp_user_id VARCHAR(64),
-                        bcp_email TEXT,
-                        bcp_access_token TEXT,
-                        bcp_id_token TEXT,
-                        bcp_refresh_token TEXT,
-                        bcp_token_expires_at TIMESTAMPTZ,
-                        bcp_linked_at TIMESTAMPTZ,
-                        created_at TIMESTAMPTZ DEFAULT NOW(),
-                        updated_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
-                    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-
-                    -- Enforce unique BCP link constraints
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
-
-                    -- Ensure administrator account has admin role in database
-                    UPDATE users SET role = 'admin' WHERE LOWER(email) = 'swimgeek751@gmail.com';
-
-                    CREATE TABLE IF NOT EXISTS user_sessions (
-                        session_token VARCHAR(64) PRIMARY KEY,
-                        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
-                        created_at TIMESTAMPTZ DEFAULT NOW(),
-                        expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '60 days')
-                    );
-                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);
-                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT;
-                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS ip_address TEXT;
-                    ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ DEFAULT NOW();
-                    CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
-                    CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
-
-                    CREATE TABLE IF NOT EXISTS password_resets (
-                        id VARCHAR(64) PRIMARY KEY,
-                        user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
-                        email TEXT NOT NULL,
-                        token VARCHAR(128) UNIQUE NOT NULL,
-                        code VARCHAR(16) NOT NULL,
-                        expires_at TIMESTAMPTZ NOT NULL,
-                        used_at TIMESTAMPTZ,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
-                    CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
-                    CREATE INDEX IF NOT EXISTS idx_password_resets_code ON password_resets(code);
-
-                    CREATE TABLE IF NOT EXISTS pending_registrations (
-                        email TEXT PRIMARY KEY,
-                        password_hash TEXT NOT NULL,
-                        display_name TEXT NOT NULL,
-                        verify_code VARCHAR(16) NOT NULL,
-                        registration_token VARCHAR(128) NOT NULL,
-                        expires_at TIMESTAMPTZ NOT NULL,
-                        created_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_pending_reg_email ON pending_registrations(email);
-                    CREATE INDEX IF NOT EXISTS idx_pending_reg_code ON pending_registrations(verify_code);
-
-                    -- User lineage columns
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL;
-                    ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code_used VARCHAR(64);
-                    ALTER TABLE pending_registrations ADD COLUMN IF NOT EXISTS invite_code VARCHAR(64);
-
-                    -- Invitation Codes Table
-                    CREATE TABLE IF NOT EXISTS invitation_codes (
-                        code VARCHAR(64) PRIMARY KEY,
-                        created_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
-                        is_admin_code BOOLEAN DEFAULT FALSE,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        max_uses INTEGER DEFAULT NULL,
-                        use_count INTEGER DEFAULT 0,
-                        created_at TIMESTAMPTZ DEFAULT NOW(),
-                        expires_at TIMESTAMPTZ
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_invitation_codes_creator ON invitation_codes(created_by_user_id);
-                    CREATE INDEX IF NOT EXISTS idx_invitation_codes_active ON invitation_codes(is_active);
-
-                    -- Invite Redemptions Table
-                    CREATE TABLE IF NOT EXISTS invite_redemptions (
-                        id VARCHAR(64) PRIMARY KEY,
-                        code VARCHAR(64) REFERENCES invitation_codes(code) ON DELETE CASCADE,
-                        invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
-                        new_user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
-                        ip_address TEXT,
-                        redeemed_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_redemptions_inviter ON invite_redemptions(invited_by_user_id);
-                    CREATE INDEX IF NOT EXISTS idx_redemptions_new_user ON invite_redemptions(new_user_id);
-                    CREATE INDEX IF NOT EXISTS idx_redemptions_code ON invite_redemptions(code);
-
-                    -- System Settings Table
-                    CREATE TABLE IF NOT EXISTS system_settings (
-                        key VARCHAR(64) PRIMARY KEY,
-                        value TEXT NOT NULL,
-                        updated_at TIMESTAMPTZ DEFAULT NOW(),
-                        updated_by_user_id VARCHAR(64)
-                    );
-                    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS value TEXT;
-                    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
-                    ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_by_user_id VARCHAR(64);
-                    INSERT INTO system_settings (key, value) VALUES ('invites_enabled', 'true') ON CONFLICT (key) DO NOTHING;
+                    SELECT 
+                        to_regclass('public.users') IS NOT NULL 
+                        AND to_regclass('public.user_sessions') IS NOT NULL
+                        AND to_regclass('public.system_settings') IS NOT NULL;
                     """)
-                conn.commit()
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        cur.execute("SELECT value FROM system_settings WHERE key = 'auth_schema_ready';")
+                        setting = cur.fetchone()
+                        if setting and setting[0] == 'true':
+                            return
+        except Exception as e:
+            logger.debug(f"Auth schema pre-check notice: {e}")
+
+        # Acquire an advisory lock so only one worker runs DDL at a time
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_try_advisory_lock(83921938);")
+                    acquired = cur.fetchone()[0]
+                    if not acquired:
+                        logger.info("Another process is currently ensuring auth tables; skipping.")
+                        return
+
+                try:
+                    # Run DDL table-by-table with short lock_timeout and individual commits
+                    # to prevent multi-table exclusive lock accumulation and deadlocks.
+                    table_statements = [
+                        # Table: users
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS users (
+                            id VARCHAR(64) PRIMARY KEY,
+                            email TEXT UNIQUE NOT NULL,
+                            password_hash TEXT NOT NULL,
+                            display_name TEXT NOT NULL,
+                            role TEXT DEFAULT 'player',
+                            player_id VARCHAR(64),
+                            bcp_user_id VARCHAR(64),
+                            bcp_email TEXT,
+                            bcp_access_token TEXT,
+                            bcp_id_token TEXT,
+                            bcp_refresh_token TEXT,
+                            bcp_token_expires_at TIMESTAMPTZ,
+                            bcp_linked_at TIMESTAMPTZ,
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'player';
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS bcp_id_token TEXT;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL;
+                        ALTER TABLE users ADD COLUMN IF NOT EXISTS invite_code_used VARCHAR(64);
+                        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
+                        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
+                        UPDATE users SET role = 'admin' WHERE LOWER(email) = 'swimgeek751@gmail.com';
+                        """,
+                        # Table: user_sessions
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS user_sessions (
+                            session_token VARCHAR(64) PRIMARY KEY,
+                            user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '60 days')
+                        );
+                        ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_id VARCHAR(64);
+                        ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS user_agent TEXT;
+                        ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS ip_address TEXT;
+                        ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMPTZ DEFAULT NOW();
+                        CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+                        CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions(user_id);
+                        """,
+                        # Table: password_resets
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS password_resets (
+                            id VARCHAR(64) PRIMARY KEY,
+                            user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                            email TEXT NOT NULL,
+                            token VARCHAR(128) UNIQUE NOT NULL,
+                            code VARCHAR(16) NOT NULL,
+                            expires_at TIMESTAMPTZ NOT NULL,
+                            used_at TIMESTAMPTZ,
+                            created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token);
+                        CREATE INDEX IF NOT EXISTS idx_password_resets_email ON password_resets(email);
+                        CREATE INDEX IF NOT EXISTS idx_password_resets_code ON password_resets(code);
+                        """,
+                        # Table: pending_registrations
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS pending_registrations (
+                            email TEXT PRIMARY KEY,
+                            password_hash TEXT NOT NULL,
+                            display_name TEXT NOT NULL,
+                            verify_code VARCHAR(16) NOT NULL,
+                            registration_token VARCHAR(128) NOT NULL,
+                            expires_at TIMESTAMPTZ NOT NULL,
+                            created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        ALTER TABLE pending_registrations ADD COLUMN IF NOT EXISTS invite_code VARCHAR(64);
+                        CREATE INDEX IF NOT EXISTS idx_pending_reg_email ON pending_registrations(email);
+                        CREATE INDEX IF NOT EXISTS idx_pending_reg_code ON pending_registrations(verify_code);
+                        """,
+                        # Table: invitation_codes
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS invitation_codes (
+                            code VARCHAR(64) PRIMARY KEY,
+                            created_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                            is_admin_code BOOLEAN DEFAULT FALSE,
+                            is_active BOOLEAN DEFAULT TRUE,
+                            max_uses INTEGER DEFAULT NULL,
+                            use_count INTEGER DEFAULT 0,
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            expires_at TIMESTAMPTZ
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_invitation_codes_creator ON invitation_codes(created_by_user_id);
+                        CREATE INDEX IF NOT EXISTS idx_invitation_codes_active ON invitation_codes(is_active);
+                        """,
+                        # Table: invite_redemptions
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS invite_redemptions (
+                            id VARCHAR(64) PRIMARY KEY,
+                            code VARCHAR(64) REFERENCES invitation_codes(code) ON DELETE CASCADE,
+                            invited_by_user_id VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
+                            new_user_id VARCHAR(64) REFERENCES users(id) ON DELETE CASCADE,
+                            ip_address TEXT,
+                            redeemed_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_redemptions_inviter ON invite_redemptions(invited_by_user_id);
+                        CREATE INDEX IF NOT EXISTS idx_redemptions_new_user ON invite_redemptions(new_user_id);
+                        CREATE INDEX IF NOT EXISTS idx_redemptions_code ON invite_redemptions(code);
+                        """,
+                        # Table: system_settings & mark ready
+                        """
+                        SET lock_timeout = '2s';
+                        CREATE TABLE IF NOT EXISTS system_settings (
+                            key VARCHAR(64) PRIMARY KEY,
+                            value TEXT NOT NULL,
+                            updated_at TIMESTAMPTZ DEFAULT NOW(),
+                            updated_by_user_id VARCHAR(64)
+                        );
+                        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS value TEXT;
+                        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+                        ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_by_user_id VARCHAR(64);
+                        INSERT INTO system_settings (key, value) VALUES ('invites_enabled', 'true') ON CONFLICT (key) DO NOTHING;
+                        INSERT INTO system_settings (key, value) VALUES ('auth_schema_ready', 'true') ON CONFLICT (key) DO UPDATE SET value = 'true';
+                        """
+                    ]
+
+                    for stmt in table_statements:
+                        try:
+                            with conn.cursor() as cur:
+                                cur.execute(stmt)
+                            conn.commit()
+                        except Exception as step_err:
+                            conn.rollback()
+                            logger.debug(f"Auth schema step notice (continuing): {step_err}")
+                finally:
+                    try:
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT pg_advisory_unlock(83921938);")
+                        conn.commit()
+                    except Exception:
+                        pass
         except Exception as e:
             logger.debug(f"Ensure tables notice: {e}")
 
@@ -692,39 +750,53 @@ class AuthManager:
         """Retrieves user profile and BCP link status for active session token."""
         if not session_token:
             return None
+        import time
         from psycopg2 import extras
-        with self.db.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute("""
-                SELECT u.id, u.email, u.display_name, u.role, u.player_id,
-                       u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
-                       p.current_elo, p.peak_elo, p.top_faction, p.team
-                FROM user_sessions s
-                JOIN users u ON s.user_id = u.id
-                LEFT JOIN player_ratings p ON u.player_id = p.player_id
-                WHERE s.session_token = %s AND s.expires_at > NOW();
-                """, (session_token,))
-                row = cur.fetchone()
-                if row:
-                    data = dict(row)
-                    data["session_token"] = session_token
-                    user_email = (data.get("email") or "").strip().lower()
-                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else (str(row.get("role") or "player").lower())
-                    data["bcp_connected"] = bool(data.get("bcp_user_id"))
+        import psycopg2.errors
 
-                    # Touch last_active_at periodically (at most once every 5 minutes)
-                    try:
+        for attempt in range(2):
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                         cur.execute("""
-                        UPDATE user_sessions 
-                        SET last_active_at = NOW() 
-                        WHERE session_token = %s AND (last_active_at IS NULL OR last_active_at < NOW() - INTERVAL '5 minutes');
+                        SELECT u.id, u.email, u.display_name, u.role, u.player_id,
+                               u.bcp_user_id, u.bcp_email, u.bcp_linked_at,
+                               p.current_elo, p.peak_elo, p.top_faction, p.team
+                        FROM user_sessions s
+                        JOIN users u ON s.user_id = u.id
+                        LEFT JOIN player_ratings p ON u.player_id = p.player_id
+                        WHERE s.session_token = %s AND s.expires_at > NOW();
                         """, (session_token,))
-                        conn.commit()
-                    except Exception:
-                        pass
+                        row = cur.fetchone()
+                        if row:
+                            data = dict(row)
+                            data["session_token"] = session_token
+                            user_email = (data.get("email") or "").strip().lower()
+                            data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else (str(row.get("role") or "player").lower())
+                            data["bcp_connected"] = bool(data.get("bcp_user_id"))
 
-                    return data
-        return None
+                            # Touch last_active_at periodically (at most once every 5 minutes)
+                            try:
+                                cur.execute("""
+                                UPDATE user_sessions 
+                                SET last_active_at = NOW() 
+                                WHERE session_token = %s AND (last_active_at IS NULL OR last_active_at < NOW() - INTERVAL '5 minutes');
+                                """, (session_token,))
+                                conn.commit()
+                            except Exception:
+                                pass
+
+                            return data
+                return None
+            except (psycopg2.errors.DeadlockDetected, psycopg2.OperationalError) as exc:
+                if attempt == 0:
+                    time.sleep(0.06)
+                    continue
+                logger.warning(f"get_session transient DB error after retry: {exc}")
+                return None
+            except Exception as e:
+                logger.error(f"get_session unexpected error: {e}")
+                return None
 
     def get_user_by_id(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Fetches user dict by user ID."""

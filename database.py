@@ -151,7 +151,34 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SET lock_timeout = '4s';")
+                    cursor.execute("""
+                    SELECT 
+                        to_regclass('public.events') IS NOT NULL
+                        AND to_regclass('public.matches') IS NOT NULL
+                        AND to_regclass('public.player_ratings') IS NOT NULL
+                        AND to_regclass('public.system_settings') IS NOT NULL;
+                    """)
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_ready';")
+                        setting = cursor.fetchone()
+                        if setting and setting[0] == 'true':
+                            return
+        except Exception as e:
+            logger.debug(f"DB schema pre-check notice: {e}")
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT pg_try_advisory_lock(123456789);")
+                    acquired = cursor.fetchone()[0]
+                    if not acquired:
+                        logger.info("Another process is currently initializing DB schema; skipping.")
+                        return
+
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '2s';")
                     cursor.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id VARCHAR(64) PRIMARY KEY,
@@ -656,18 +683,55 @@ class PostgresDatabase:
         ]
         try:
             with self.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    for migration in migrations_list:
-                        try:
+                for migration in migrations_list:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SET lock_timeout = '2s';")
                             cursor.execute(migration)
-                        except Exception as e:
-                            logger.debug(f"Migration notice: {e}")
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        logger.debug(f"Migration notice: {e}")
+
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        key VARCHAR(64) PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TIMESTAMPTZ DEFAULT NOW(),
+                        updated_by_user_id VARCHAR(64)
+                    );
+                    CREATE TABLE IF NOT EXISTS deleted_studio_events (
+                        event_id VARCHAR(64) PRIMARY KEY,
+                        deleted_at TIMESTAMPTZ DEFAULT NOW()
+                    );
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true')
+                    ON CONFLICT (key) DO UPDATE SET value = 'true';
+                    """)
                 conn.commit()
         except Exception as err:
             logger.debug(f"init_db migrations notice: {err}")
+        finally:
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT pg_advisory_unlock(123456789);")
+                    conn.commit()
+            except Exception:
+                pass
 
     def ensure_tracker_table(self):
         """Guarantees that tracker_games table and all required columns exist."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT to_regclass('public.tracker_games') IS NOT NULL;")
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        return
+        except Exception:
+            pass
+
         stmts = [
             """CREATE TABLE IF NOT EXISTS tracker_games (
                 match_id VARCHAR(64) PRIMARY KEY,
@@ -726,13 +790,15 @@ class PostgresDatabase:
         ]
         try:
             with self.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    for s in stmts:
-                        try:
+                for s in stmts:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SET lock_timeout = '2s';")
                             cursor.execute(s)
-                        except Exception as e:
-                            logger.debug(f"Tracker ensure table notice: {e}")
-                conn.commit()
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        logger.debug(f"Tracker ensure table notice: {e}")
         except Exception as err:
             logger.debug(f"ensure_tracker_table batch notice: {err}")
 
@@ -3078,12 +3144,6 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS deleted_studio_events (
-                        event_id VARCHAR(64) PRIMARY KEY,
-                        deleted_at TIMESTAMPTZ DEFAULT NOW()
-                    );
-                    """)
                     cursor.execute("SELECT 1 FROM deleted_studio_events WHERE event_id = %s AND deleted_at > NOW() - INTERVAL '7 days';", (event_id,))
                     return bool(cursor.fetchone())
         except Exception:
