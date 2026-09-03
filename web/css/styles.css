@@ -1022,7 +1022,8 @@ input, select, textarea {
 
   /* Faction Meta Chips */
   .faction-chip-container {
-    max-height: 180px;
+    max-height: none !important;
+    overflow-y: visible !important;
   }
 }
 
@@ -1610,6 +1611,26 @@ input, select, textarea {
   background: #475569;
 }
 
+.hub-armylists-list-container {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.hub-armylists-list-container::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.hub-armylists-list-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.hub-armylists-list-container::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+.hub-armylists-list-container::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 .hub-table {
   width: 100%;
   border-collapse: collapse;
@@ -1729,8 +1750,8 @@ input, select, textarea {
   }
 
   .hub-table-wrapper {
-    max-height: 360px;
-    overflow-y: auto;
+    max-height: none !important;
+    overflow-y: visible !important;
     overflow-x: hidden !important;
     background: transparent !important;
     border: none !important;
@@ -2038,7 +2059,8 @@ input, select, textarea {
   /* Responsive Event Cards */
   .hub-events-grid {
     grid-template-columns: 1fr !important;
-    max-height: 480px !important;
+    max-height: none !important;
+    overflow-y: visible !important;
     gap: 0.6rem !important;
   }
 
@@ -2097,6 +2119,12 @@ input, select, textarea {
 @media (max-width: 1024px) {
   .hub-events-grid {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 768px) {
+  .hub-events-grid {
+    max-height: none !important;
+    overflow-y: visible !important;
   }
 }
 
@@ -3790,6 +3818,12 @@ input, select, textarea {
   display: none !important;
 }
 
+/* ==========================================================================
+   MOBILE UNIFIED VIEWPORT & SCROLL TRAP ELIMINATION (<= 768px)
+   Eliminates all nested inner-component scrolling and scroll traps on mobile
+   (Pixel 9, iPhone, Android). The outer <main> or landing view flows naturally
+   with a single fluid vertical gesture.
+   ========================================================================== */
 @media (max-width: 768px) {
   .comm-stores-grid {
     grid-template-columns: 1fr;
@@ -3799,6 +3833,53 @@ input, select, textarea {
   }
   .comm-stores-view-map #comm-stores-map {
     height: 460px !important;
+  }
+
+  /* Universal elimination of inner scroll traps on mobile */
+  .table-container,
+  .hub-table-wrapper,
+  .hub-events-grid,
+  .comm-events-grid,
+  .comm-competitors-grid,
+  .comm-table-container,
+  .comm-stores-grid,
+  .faction-chip-container,
+  .hub-armylists-list-container,
+  #hub-armylists-list-container,
+  #faction-toggle-chips,
+  .es-events-grid,
+  .oc-players-grid {
+    max-height: none !important;
+    min-height: auto !important;
+    overflow-y: visible !important;
+  }
+
+  /* Leaderboard & Community tables convert cleanly to mobile cards without horizontal scroll trap */
+  .table-container,
+  .comm-table-container {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow-x: hidden !important;
+    padding: 0 !important;
+    margin-bottom: 2rem !important;
+  }
+
+  /* Ensure hub table wrappers flow cleanly without nested vertical scroll */
+  .hub-table-wrapper {
+    overflow-x: hidden !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Prevent table containers inside modals from trapping vertical scroll */
+  .modal-window .table-container,
+  .modal-card .table-container,
+  .modal-body .table-container {
+    max-height: none !important;
+    min-height: auto !important;
+    overflow-y: visible !important;
   }
 }
 

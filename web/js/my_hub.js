@@ -211,7 +211,7 @@ function renderMyHub(data) {
             </button>
           </div>
 
-          <div id="hub-armylists-list-container" style="max-height: 240px; overflow-y: auto;">
+          <div id="hub-armylists-list-container" class="hub-armylists-list-container">
             <div style="text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.82rem;">
               <div class="spinner"></div>
               <div style="margin-top: 0.5rem;">Loading your army lists...</div>
