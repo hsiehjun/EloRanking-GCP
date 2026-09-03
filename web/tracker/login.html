@@ -347,66 +347,11 @@
     let activeTab = 'login';
     let resetTokenFromUrl = '';
     let pendingVerifyEmail = '';
+    let isRegistrationLocked = false;
+    let inviteValidateTimer = null;
     const params = new URLSearchParams(window.location.search);
     const redirectUrl = params.get('redirect') || '/';
 
-    (function checkExistingSession() {
-      const mode = params.get('mode') || params.get('auth');
-      const urlInvite = params.get('invite') || params.get('code');
-      if (mode === 'register' || urlInvite) {
-        switchTab('register');
-        if (urlInvite) {
-          const inviteInput = document.getElementById('auth-invite-code');
-          if (inviteInput) {
-            inviteInput.value = urlInvite.trim().toUpperCase();
-            handleInviteCodeInput(urlInvite);
-          }
-        }
-      }
-
-      // Check if user came from a password reset email link
-      const urlToken = params.get('token');
-      const urlCode = params.get('code');
-      const urlEmail = params.get('email');
-      const urlView = params.get('view');
-
-      if (urlToken || urlCode || urlView === 'reset') {
-        resetTokenFromUrl = urlToken || '';
-        switchTab('forgot');
-        setForgotStage('reset');
-        if (urlEmail) {
-          const rEmail = document.getElementById('reset-email');
-          const fEmail = document.getElementById('forgot-email');
-          if (rEmail) rEmail.value = urlEmail;
-          if (fEmail) fEmail.value = urlEmail;
-        }
-        if (urlCode) {
-          const rCode = document.getElementById('reset-code');
-          if (rCode) rCode.value = urlCode;
-        }
-        return;
-      }
-
-      const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
-      if (token) {
-        document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
-        let target = redirectUrl;
-        if (target.startsWith('/admin')) {
-          try {
-            const p = JSON.parse(localStorage.getItem('native_user_profile') || '{}');
-            const email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
-            if (email !== 'swimgeek751@gmail.com') {
-              target = '/';
-            }
-          } catch(e) {
-            target = '/';
-          }
-        }
-        window.location.replace(target);
-      }
-    })();
-
-    let isRegistrationLocked = false;
     async function checkRegistrationStatus() {
       try {
         const res = await fetch('/api/auth/registration-status');
@@ -417,12 +362,15 @@
           if (banner && activeTab === 'register') banner.style.display = 'block';
           const tabReg = document.getElementById('tab-register');
           if (tabReg) tabReg.title = 'Account registration is currently locked';
+          const btn = document.getElementById('btn-submit');
+          if (btn && activeTab === 'register') {
+            btn.disabled = true;
+            btn.textContent = 'REGISTRATION LOCKED';
+          }
         }
       } catch (e) {}
     }
-    checkRegistrationStatus();
 
-    let inviteValidateTimer = null;
     function handleInviteCodeInput(val) {
       val = (val || '').trim().toUpperCase();
       const icon = document.getElementById('invite-code-icon');
@@ -590,6 +538,67 @@
         if (stageReset) stageReset.style.display = 'block';
       }
     }
+
+    function checkExistingSession() {
+      const mode = params.get('mode') || params.get('auth');
+      const urlInvite = params.get('invite') || params.get('code');
+      if (mode === 'register' || urlInvite) {
+        switchTab('register');
+        if (urlInvite) {
+          const inviteInput = document.getElementById('auth-invite-code');
+          if (inviteInput) {
+            inviteInput.value = urlInvite.trim().toUpperCase();
+            handleInviteCodeInput(urlInvite);
+          }
+        }
+      }
+
+      // Check if user came from a password reset email link
+      const urlToken = params.get('token');
+      const urlCode = params.get('code');
+      const urlEmail = params.get('email');
+      const urlView = params.get('view');
+
+      if (urlToken || urlCode || urlView === 'reset') {
+        resetTokenFromUrl = urlToken || '';
+        switchTab('forgot');
+        setForgotStage('reset');
+        if (urlEmail) {
+          const rEmail = document.getElementById('reset-email');
+          const fEmail = document.getElementById('forgot-email');
+          if (rEmail) rEmail.value = urlEmail;
+          if (fEmail) fEmail.value = urlEmail;
+        }
+        if (urlCode) {
+          const rCode = document.getElementById('reset-code');
+          if (rCode) rCode.value = urlCode;
+        }
+        return;
+      }
+
+      if (mode !== 'register' && !urlInvite) {
+        const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
+        if (token) {
+          document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
+          let target = redirectUrl;
+          if (target.startsWith('/admin')) {
+            try {
+              const p = JSON.parse(localStorage.getItem('native_user_profile') || '{}');
+              const email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
+              if (email !== 'swimgeek751@gmail.com') {
+                target = '/';
+              }
+            } catch(e) {
+              target = '/';
+            }
+          }
+          window.location.replace(target);
+        }
+      }
+    }
+
+    checkRegistrationStatus();
+    checkExistingSession();
 
     async function handleRequestReset() {
       const emailInput = document.getElementById('forgot-email');
