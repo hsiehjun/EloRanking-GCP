@@ -47,8 +47,7 @@ function setLeaderboardPageSize(newSize) {
 }
 
 async function loadLeaderboard() {
-  const factionSelect = document.getElementById('leaderboard-faction-filter') || document.getElementById('faction-filter');
-  const faction = factionSelect ? factionSelect.value : 'All';
+  const faction = 'All';
   const tbody = document.getElementById('leaderboard-body');
 
   if (tbody && (!leaderboardData || leaderboardData.length === 0)) {
@@ -83,7 +82,7 @@ function renderLeaderboardRows() {
   tbody.innerHTML = '';
 
   if (!leaderboardData || leaderboardData.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No players found matching filter.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No players found.</td></tr>';
     return;
   }
 
@@ -134,8 +133,7 @@ function renderLeaderboardRows() {
 }
 
 async function loadLeaderboardTeams() {
-  const minRosterSelect = document.getElementById('lead-teams-min-roster-filter');
-  const minRoster = minRosterSelect ? parseInt(minRosterSelect.value, 10) : 5;
+  const minRoster = 5;
   const tbody = document.getElementById('lead-teams-body');
   if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
     tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team rankings...</div></td></tr>';

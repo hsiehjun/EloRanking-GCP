@@ -305,12 +305,6 @@
           <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem;">
             <span>👑 Global Player Elo Standings</span>
           </div>
-
-          <div class="filter-group">
-            <select id="faction-filter" onchange="loadLeaderboard()">
-              <option value="All">All Factions</option>
-            </select>
-          </div>
         </div>
 
         <div class="table-container">
@@ -345,15 +339,6 @@
           <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem;">
             <span>🛡️ Global Team Power Standings</span>
             <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">(Search gaming clubs in 🔍 Search)</span>
-          </div>
-          <div class="filter-group">
-            <select id="lead-teams-min-roster-filter" onchange="loadLeaderboardTeams()">
-              <option value="5" selected>Min 5 Players (Tournament Squad)</option>
-              <option value="8">Min 8 Players (Major Club)</option>
-              <option value="3">Min 3 Players</option>
-              <option value="2">Min 2 Players</option>
-              <option value="1">All Teams (1+ Players)</option>
-            </select>
           </div>
         </div>
 
@@ -1921,7 +1906,7 @@
   <!-- Modular Scripts -->
   <script src="/js/utils.js?v=64.0"></script>
   <script src="/js/api.js?v=74.0"></script>
-  <script src="/js/leaderboard.js?v=64.0"></script>
+  <script src="/js/leaderboard.js?v=65.0"></script>
   <script src="/js/teams.js?v=64.0"></script>
   <script src="/js/players.js?v=64.0"></script>
   <script src="/js/tournaments.js?v=64.0"></script>
@@ -1932,7 +1917,7 @@
   <script src="/js/my_hub.js?v=71.0"></script>
   <script src="/js/eventstudio.js?v=73.0"></script>
   <script src="/js/connect.js?v=3.0"></script>
-  <script src="/js/app.js?v=71.0"></script>
+  <script src="/js/app.js?v=72.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

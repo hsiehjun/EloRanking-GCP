@@ -97,12 +97,12 @@ function switchSearchSubtab(subtab) {
 }
 
 function filterByFaction(faction) {
-  switchTab('leaderboard');
-  switchLeaderboardSubtab('players');
-  const sel = document.getElementById('faction-filter');
+  switchTab('search');
+  switchSearchSubtab('players');
+  const sel = document.getElementById('dir-faction-filter');
   if (sel) {
     sel.value = faction;
-    loadLeaderboard();
+    loadPlayersDirectory();
   }
 }
 
@@ -130,8 +130,7 @@ async function loadGlobalStats() {
     const elTopElo = document.getElementById('stat-top-elo');
     if (elTopElo) elTopElo.innerText = stats.top_player_elo ? Number(stats.top_player_elo).toFixed(1) : '-';
 
-    // Populate faction filter options
-    const factionSelect = document.getElementById('faction-filter');
+    // Populate faction filter options for players directory search
     const dirFactionSelect = document.getElementById('dir-faction-filter');
 
     if (stats.factions && stats.factions.length > 0) {
@@ -142,15 +141,6 @@ async function loadGlobalStats() {
           .filter(f => f && f !== 'Unknown' && f !== 'Unknown Faction')
       )).sort();
 
-      if (factionSelect) {
-        factionSelect.innerHTML = '<option value="All">All Factions</option>';
-        flatFactions.forEach(f => {
-          const opt = document.createElement('option');
-          opt.value = f;
-          opt.innerText = f;
-          factionSelect.appendChild(opt);
-        });
-      }
       if (dirFactionSelect) {
         dirFactionSelect.innerHTML = '<option value="All">All Factions</option>';
         flatFactions.forEach(f => {

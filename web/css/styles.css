@@ -288,20 +288,7 @@ select, .btn-action {
 }
 select:focus { border-color: var(--accent); }
 
-#faction-filter,
-#lead-teams-min-roster-filter {
-  max-width: 220px;
-  width: auto;
-  font-size: 0.82rem;
-  padding: 0.4rem 0.75rem;
-  height: 36px;
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+
 .btn-action {
   font-weight: 600;
   background: var(--bg-card);
@@ -848,13 +835,6 @@ input, select, textarea {
     height: 34px;
   }
 
-  #faction-filter,
-  #lead-teams-min-roster-filter {
-    max-width: 180px;
-    font-size: 0.78rem;
-    padding: 0.3rem 0.6rem;
-    height: 32px;
-  }
 
   .subtabs-bar {
     width: 100%;
