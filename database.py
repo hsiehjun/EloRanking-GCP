@@ -1657,6 +1657,11 @@ class PostgresDatabase:
                 res["matches"] = matches
                 res["total_players"] = res.get("total_players") or len(final_players)
                 res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
+                if final_players:
+                    elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
+                    if elos:
+                        res["avg_field_elo"] = round(sum(elos) / len(elos), 1)
+                        res["top_seed_elo"] = max(elos)
                 return res
 
     def get_recommended_events(
@@ -4635,7 +4640,7 @@ class PostgresDatabase:
         self,
         user_lat: float,
         user_lng: float,
-        radius_miles: float = 100.0,
+        radius_miles: float = 50.0,
         days_ahead: int = 92
     ) -> List[Dict[str, Any]]:
         """
@@ -4818,7 +4823,7 @@ class PostgresDatabase:
         self,
         lat: Optional[float] = None,
         lng: Optional[float] = None,
-        radius_miles: float = 100.0,
+        radius_miles: float = 50.0,
         location_name: Optional[str] = None,
         region: Optional[str] = None,
         current_user_id: Optional[str] = None,
@@ -4832,9 +4837,9 @@ class PostgresDatabase:
         - Local competitors discovered via tournament participation
         """
         try:
-            radius_miles = float(radius_miles or 100.0)
+            radius_miles = float(radius_miles or 50.0)
         except (ValueError, TypeError):
-            radius_miles = 100.0
+            radius_miles = 50.0
         radius_miles = max(5.0, min(radius_miles, 1000.0))
 
         user_lat = None

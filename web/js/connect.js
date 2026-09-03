@@ -412,7 +412,7 @@ function openEditLocationModal() {
   if (country) country.value = p.country || 'United States';
   if (lat) lat.value = currentLat;
   if (lng) lng.value = currentLng;
-  if (rad) rad.value = (typeof communityState !== 'undefined' && communityState.radiusMiles) ? communityState.radiusMiles : (p.radius_miles || 100);
+  if (rad) rad.value = (typeof communityState !== 'undefined' && communityState.radiusMiles) ? communityState.radiusMiles : (p.radius_miles || 50);
   if (pts) pts.value = p.preferred_points || 2000;
   if (style) style.value = p.play_style || 'Competitive';
 
@@ -447,7 +447,7 @@ async function handleSaveLocation(e) {
 
   const unifiedRadius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
     ? communityState.radiusMiles
-    : (rad ? parseInt(rad.value, 10) : 100);
+    : (rad ? parseInt(rad.value, 10) : 50);
 
   const rawInput = venue ? venue.value.trim() : '';
   let targetLat = null;
@@ -631,7 +631,7 @@ async function loadNearbyPlayers() {
   const isOffDuty = !Boolean(p.is_active);
   const radius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
     ? communityState.radiusMiles
-    : (document.getElementById('comm-radius-select')?.value || p.radius_miles || 100);
+    : (document.getElementById('comm-radius-select')?.value || p.radius_miles || 50);
 
   // If user is currently Off Duty, clearly show that radar is paused and guide them to enable it
   if (isOffDuty) {

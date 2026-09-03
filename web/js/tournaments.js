@@ -176,6 +176,30 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
     renderEventEloRows();
     renderEventPairingsRows();
 
+    // Sync computed field stats back into communityState overview if active
+    if (typeof communityState !== 'undefined' && communityState.overview && eventPlayersCache.length > 0) {
+      const elos = eventPlayersCache.map(p => Number(p.current_elo)).filter(e => !isNaN(e) && e > 0);
+      if (elos.length > 0) {
+        const avgElo = Math.round(elos.reduce((a, b) => a + b, 0) / elos.length);
+        const maxElo = Math.max(...elos);
+        let updated = false;
+        ['upcoming_events', 'recent_events'].forEach(k => {
+          const list = communityState.overview[k];
+          if (Array.isArray(list)) {
+            const match = list.find(item => item.id === eventId);
+            if (match) {
+              match.avg_field_elo = avgElo;
+              match.top_seed_elo = maxElo;
+              updated = true;
+            }
+          }
+        });
+        if (updated && typeof renderCommunityTournaments === 'function') {
+          renderCommunityTournaments(communityState.overview);
+        }
+      }
+    }
+
     // Update Tournament Registration Button state
     const regBtn = document.getElementById('modal-event-register-btn');
     if (regBtn) {

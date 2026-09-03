@@ -306,14 +306,14 @@
             <div>
               <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
                 <span>📍 Hyperlocal Competitor Radar</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px;">Active Within 100 Miles</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px;">Active Within 50 Miles</span>
               </h4>
               <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
                 Players are sorted by active account status, closest Elo delta, and proximity. Filter by preferred playstyle or army faction.
               </p>
             </div>
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-              <span class="hub-loc-chip active" style="font-size: 0.74rem; padding: 4px 10px;">📍 100 Miles (Unified)</span>
+              <span class="hub-loc-chip active" style="font-size: 0.74rem; padding: 4px 10px;">📍 50 Miles (Unified)</span>
               <span class="hub-loc-chip" style="font-size: 0.74rem; padding: 4px 10px;">Competitive (GT Prep)</span>
               <span class="hub-loc-chip" style="font-size: 0.74rem; padding: 4px 10px;">Strike Force (2000 pts)</span>
             </div>
@@ -883,16 +883,16 @@
           <div style="min-width: 260px; flex: 1;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.3rem;">
               <span id="comm-header-badge" style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 9px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">
-                📍 100-Mile Tournament Radius
+                📍 50-Mile Tournament Radius
               </span>
               <span style="color: #64748b;">•</span>
               <span style="font-size: 0.76rem; color: #10b981; font-weight: 700;">Active Local Scene</span>
             </div>
             <h2 id="comm-header-title" style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
-              Tournaments within 100 miles of San Diego, CA
+              Tournaments within 50 miles of San Diego, CA
             </h2>
             <p id="comm-header-desc" style="font-size: 0.8rem; color: #94a3b8; margin: 0; max-width: 650px;">
-              Showing verified tournaments, local competitor rosters, and standings within 100 miles.
+              Showing verified tournaments, local competitor rosters, and standings within 50 miles.
             </p>
           </div>
 
@@ -915,8 +915,8 @@
             <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
               <select id="comm-radius-select" class="form-input" style="font-size: 0.78rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer;" onchange="changeCommunityRadius(this.value)">
                 <option value="25">Within 25 Miles</option>
-                <option value="50">Within 50 Miles</option>
-                <option value="100" selected>Within 100 Miles (Default)</option>
+                <option value="50" selected>Within 50 Miles (Default)</option>
+                <option value="100">Within 100 Miles</option>
                 <option value="250">Within 250 Miles</option>
                 <option value="500">Within 500 Miles</option>
               </select>
@@ -2777,15 +2777,15 @@
   <script src="/js/leaderboard.js?v=65.0"></script>
   <script src="/js/teams.js?v=64.0"></script>
   <script src="/js/players.js?v=64.0"></script>
-  <script src="/js/tournaments.js?v=64.0"></script>
+  <script src="/js/tournaments.js?v=65.0"></script>
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=64.0"></script>
   <script src="/js/auth.js?v=72.0"></script>
   <script src="/js/my_hub.js?v=72.0"></script>
   <script src="/js/eventstudio.js?v=74.0"></script>
-  <script src="/js/connect.js?v=3.4"></script>
-  <script src="/js/community.js?v=1.3"></script>
+  <script src="/js/connect.js?v=3.5"></script>
+  <script src="/js/community.js?v=1.4"></script>
   <script src="/js/app.js?v=72.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
@@ -2838,7 +2838,7 @@
             <span style="font-size: 0.72rem; color: #94a3b8;">Standard: 2,000 pts</span>
           </label>
           <input type="number" id="modal-lfg-points" class="search-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000" step="250">
-          <input type="hidden" id="modal-lfg-radius" value="100">
+          <input type="hidden" id="modal-lfg-radius" value="50">
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">

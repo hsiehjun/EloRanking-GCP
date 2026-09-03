@@ -6,7 +6,7 @@
 const communityState = {
   lat: null,
   lng: null,
-  radiusMiles: 100,
+  radiusMiles: 50,
   locationName: 'San Diego, CA',
   activeSubtab: 'radar', // 'radar', 'tournaments', 'stores', 'scene', 'chat'
   sceneView: 'leaderboard', // 'leaderboard', 'competitors'
@@ -37,15 +37,19 @@ async function initCommunityHub(targetSubtab = null) {
   // 1. Check saved local preferences
   const savedLat = localStorage.getItem('comm_lat');
   const savedLng = localStorage.getItem('comm_lng');
-  const savedRad = localStorage.getItem('comm_radius');
+  const savedRad = localStorage.getItem('comm_radius_v2') || localStorage.getItem('comm_radius');
   const savedLoc = localStorage.getItem('comm_loc_name');
 
   if (savedLat && savedLng) {
     communityState.lat = parseFloat(savedLat);
     communityState.lng = parseFloat(savedLng);
   }
-  if (savedRad) {
-    communityState.radiusMiles = parseInt(savedRad, 10) || 100;
+  if (savedRad && savedRad !== '100') {
+    communityState.radiusMiles = parseInt(savedRad, 10) || 50;
+  } else if (localStorage.getItem('comm_radius_v2')) {
+    communityState.radiusMiles = parseInt(localStorage.getItem('comm_radius_v2'), 10) || 50;
+  } else {
+    communityState.radiusMiles = 50;
   }
   if (savedLoc) {
     communityState.locationName = savedLoc;
@@ -166,7 +170,7 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     communityState.lng = parseFloat(lng);
   }
   if (radius != null) {
-    communityState.radiusMiles = parseInt(radius, 10) || 100;
+    communityState.radiusMiles = parseInt(radius, 10) || 50;
   }
   if (locationName != null) {
     communityState.locationName = locationName;
@@ -303,7 +307,7 @@ function renderCommunityHeader(locInfo) {
   const titleEl = document.getElementById('comm-header-title');
   const descEl = document.getElementById('comm-header-desc');
 
-  const rad = locInfo?.radius_miles || communityState.radiusMiles || 100;
+  const rad = locInfo?.radius_miles || communityState.radiusMiles || 50;
   const locName = locInfo?.location_name || locInfo?.name || communityState.locationName || 'Your Location';
 
   if (badgeEl) badgeEl.textContent = `📍 ${rad}-Mile Tournament Radius`;
@@ -317,9 +321,10 @@ function renderCommunityHeader(locInfo) {
  * Change search radius (25, 50, 100, 250, 500 mi)
  */
 function changeCommunityRadius(radius) {
-  const r = parseInt(radius, 10) || 100;
+  const r = parseInt(radius, 10) || 50;
   communityState.radiusMiles = r;
   localStorage.setItem('comm_radius', String(r));
+  localStorage.setItem('comm_radius_v2', String(r));
   const select = document.getElementById('comm-radius-select');
   if (select) select.value = String(r);
   const modalRadius = document.getElementById('modal-lfg-radius');
@@ -469,6 +474,7 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
   if (radius) {
     communityState.radiusMiles = parseInt(radius, 10) || communityState.radiusMiles;
     localStorage.setItem('comm_radius', String(communityState.radiusMiles));
+    localStorage.setItem('comm_radius_v2', String(communityState.radiusMiles));
   }
 
   // Keep connectState userProfile in sync
@@ -784,7 +790,7 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
           <span style="color: #94a3b8;">⭐ Field Avg:</span>
           <span style="font-weight: 800; color: #fff; font-family: monospace;">
-            ${fieldAvg ? `${fieldAvg} Elo` : 'Calculating...'}
+            ${fieldAvg ? `${fieldAvg} Elo` : (isUpcoming ? (ev.total_players > 0 ? '<span style="color: #94a3b8; font-weight: 600; font-size: 0.78rem;" title="Roster is forming on BCP. Click Roster & Details to sync live players">Roster Forming</span>' : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>') : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>')}
             ${deltaMarkup}
           </span>
         </div>
@@ -824,7 +830,7 @@ function renderCommunityCompetitors() {
 
   const overview = communityState.overview;
   const competitors = overview?.local_competitors || [];
-  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 100;
+  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
   const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
   const disclaimer = overview?.disclaimer || (
     `Competitors surfaced here based on verified tournament participation and event rosters within ${rad} miles of ${locName}. ` +
@@ -1069,7 +1075,7 @@ function renderCommunityTeamsLeaderboard() {
 
   const overview = communityState.overview;
   const teams = overview?.local_teams_leaderboard || [];
-  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 100;
+  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
   const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
 
   let html = `
@@ -1177,7 +1183,7 @@ function renderCommunityLeaderboard() {
 
   const overview = communityState.overview;
   const leaderboard = overview?.local_leaderboard || [];
-  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 100;
+  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
   const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
 
   let html = `
@@ -1445,7 +1451,7 @@ async function loadLocalGameStores(forceRefresh = false) {
   try {
     const lat = communityState.lat || 32.7157;
     const lng = communityState.lng || -117.1611;
-    const radius = communityState.radiusMiles || 100;
+    const radius = communityState.radiusMiles || 50;
     const locName = communityState.locationName || 'San Diego, CA';
 
     // 1. Fetch from backend API

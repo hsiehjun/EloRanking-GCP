@@ -5817,7 +5817,7 @@ if FASTAPI_AVAILABLE:
         request: Request,
         lat: Optional[float] = Query(None),
         lng: Optional[float] = Query(None),
-        radius_miles: float = Query(100.0),
+        radius_miles: float = Query(50.0),
         location_name: Optional[str] = Query(None),
         region: Optional[str] = Query(None),
         token: Optional[str] = Query(None)
