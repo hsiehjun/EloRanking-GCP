@@ -4,6 +4,7 @@
 
 html {
   scroll-behavior: smooth;
+  height: 100%;
 }
 
 /* Header & Top Navigation */
@@ -14,6 +15,9 @@ header {
   top: 0;
   z-index: 100;
   backdrop-filter: blur(8px);
+}
+#app-header {
+  flex-shrink: 0;
 }
 .header-inner {
   max-width: 1440px;
@@ -143,7 +147,12 @@ main {
   margin: 0 auto;
   padding: 1.75rem 1.5rem;
   flex: 1;
+  min-height: 0;
   width: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Stats Ribbon */
@@ -191,8 +200,17 @@ main {
 }
 
 /* Tab Panels */
-.tab-panel { display: none; }
-.tab-panel.active { display: block; }
+.tab-panel {
+  display: none;
+  width: 100%;
+}
+.tab-panel.active {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
 
 /* Subtabs Bar */
 .subtabs-bar {
@@ -796,15 +814,33 @@ input, select, textarea {
 /* Mobile Devices (<= 768px) */
 @media (max-width: 768px) {
   /* Header & Navigation */
+  #app-header {
+    flex-shrink: 0;
+  }
+
   .header-inner {
-    padding: 0.5rem 0.75rem;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.5rem;
+    padding: 0.45rem 0.75rem;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "logo actions"
+      "tabs tabs";
+    row-gap: 0.4rem;
+    column-gap: 0.5rem;
+    align-items: center;
   }
 
   .logo-group {
-    justify-content: center;
+    grid-area: logo;
+    justify-content: flex-start;
+  }
+
+  .header-actions-group {
+    grid-area: actions;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: flex-end;
   }
 
   .logo-icon {
@@ -823,12 +859,14 @@ input, select, textarea {
 
   /* Smooth horizontally scrollable touch navbar */
   .nav-tabs {
+    grid-area: tabs;
+    width: 100%;
     display: flex;
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
-    padding: 0.3rem;
+    padding: 0.2rem 0;
     gap: 0.25rem;
     border-radius: 9999px;
   }
@@ -846,9 +884,46 @@ input, select, textarea {
 
   /* Main Container */
   main {
-    padding: 0.85rem 0.5rem;
+    padding: 0.65rem 0.5rem 1.5rem;
     width: 100%;
     overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* When Chat Tab is active, go edge-to-edge with zero outer scrolling */
+  main:has(#tab-chat.active),
+  main.main-chat-mode {
+    padding: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Eliminate nested scroll traps on mobile: cards flow cleanly inside main */
+  .table-container {
+    max-height: none !important;
+    min-height: auto !important;
+    overflow-y: visible !important;
+  }
+
+  .hub-table-wrapper {
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  .hub-events-grid {
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  /* Sticky subtabs inside mobile main view */
+  .comm-subtabs {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    background: rgba(10, 12, 16, 0.95);
+    backdrop-filter: blur(8px);
+    padding: 0.4rem 0;
+    margin-bottom: 0.85rem;
   }
 
   /* Controls & Search Bars */
@@ -955,6 +1030,9 @@ input, select, textarea {
 @media (max-width: 640px) {
   .table-container {
     overflow-x: hidden !important;
+    overflow-y: visible !important;
+    max-height: none !important;
+    min-height: auto !important;
     background: transparent !important;
     border: none !important;
     padding: 0 !important;
@@ -3000,15 +3078,43 @@ input, select, textarea {
   }
 }
 @media (max-width: 768px) {
+  #tab-chat.tab-panel.active {
+    height: 100%;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #tab-chat .comm-container {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+  }
+  #tab-chat .chat-tab-header {
+    display: none !important;
+  }
+  #comm-chat-panel-direct {
+    flex: 1 !important;
+    min-height: 0 !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
   .oc-chat-layout {
     display: flex;
     flex-direction: column;
     grid-template-columns: none;
-    height: calc(100dvh - 165px);
-    min-height: 480px;
-    max-height: 850px;
-    border-radius: 12px;
-    margin: 0;
+    height: 100% !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+    margin: 0 !important;
   }
   .oc-chat-layout .oc-chat-sidebar {
     display: flex;

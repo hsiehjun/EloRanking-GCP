@@ -38,7 +38,7 @@
         var style = document.createElement('style');
         style.id = 'auth-fouc-guard';
         if (isAuthenticated) {
-          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: block !important; } #app-header { display: block !important; }';
+          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; } #app-header { display: block !important; }';
         } else {
           style.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';
         }
@@ -856,7 +856,7 @@
       </div>
 
       <!-- User Account Action & Feedback Area -->
-      <div style="display: flex; align-items: center; gap: 0.6rem;">
+      <div class="header-actions-group" style="display: flex; align-items: center; gap: 0.6rem;">
         <button id="nav-btn-feedback" onclick="openFeedbackModal()" class="nav-btn" style="padding: 5px 12px; font-size: 0.82rem; display: none; align-items: center; gap: 5px; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; background: rgba(15,23,42,0.6); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#38bdf8'; this.style.borderColor='rgba(56,189,248,0.4)';" onmouseout="this.style.color='#94a3b8'; this.style.borderColor='rgba(255,255,255,0.1)';" title="Send Feedback or Report an Issue">
           <span>💬</span> <span style="font-weight: 600;">Feedback</span>
         </button>
@@ -1076,7 +1076,7 @@
     <!-- TAB: DEDICATED SPARRING & MATCH CHAT -->
     <section id="tab-chat" class="tab-panel">
       <div class="comm-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div class="chat-tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 0.75rem;">
           <div>
             <h2 style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem; display: flex; align-items: center; gap: 8px;">
               <span>💬 Direct Sparring &amp; Match Chat</span>

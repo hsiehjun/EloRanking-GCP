@@ -42,9 +42,9 @@ function syncAppAuthView() {
   }
 
   if (currentUser) {
-    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: block !important; } #app-header { display: block !important; }';
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; } #app-header { display: block !important; }';
     if (landingView) landingView.style.display = 'none';
-    if (appShell) appShell.style.display = 'block';
+    if (appShell) appShell.style.display = 'flex';
     if (appHeader) appHeader.style.display = 'block';
     if (typeof renderHeaderAuth === 'function') renderHeaderAuth();
   } else {

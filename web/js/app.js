@@ -55,6 +55,14 @@ function switchTab(tabName) {
   const activePanel = document.getElementById(`tab-${tabName}`);
   if (activePanel) activePanel.classList.add('active');
 
+  const mainEl = document.querySelector('main');
+  if (mainEl) {
+    mainEl.classList.toggle('main-chat-mode', tabName === 'chat');
+    if (tabName !== 'chat') {
+      mainEl.scrollTop = 0;
+    }
+  }
+
   // Update URL hash history and clean away any query parameters
   if (window.history && window.history.replaceState) {
     const cleanPath = window.location.pathname.replace(/\/+$/, '') || '/';
