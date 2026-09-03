@@ -571,6 +571,42 @@ async function loadTournamentWorkspace(eventId) {
     const roster = ev.roster || [];
     if (rosterCountEl) rosterCountEl.textContent = roster.length;
 
+    // Render tournament lifecycle status badge and Start Event button
+    const isEnded = Boolean(ev.is_ended || ev.isEnded);
+    const isStarted = Boolean(ev.started || (ev.status === "active") || (ev.current_round && ev.current_round > 1));
+    const statusBadges = document.querySelectorAll("#manage-event-status-badge");
+    statusBadges.forEach(badge => {
+      badge.style.display = "inline-block";
+      if (isEnded) {
+        badge.className = "badge";
+        badge.style.background = "rgba(239, 68, 68, 0.15)";
+        badge.style.color = "#f87171";
+        badge.style.borderColor = "rgba(239, 68, 68, 0.35)";
+        badge.textContent = "🔴 CONCLUDED";
+      } else if (isStarted) {
+        badge.className = "badge badge-online";
+        badge.style.background = "";
+        badge.style.color = "";
+        badge.style.borderColor = "";
+        badge.textContent = `🟢 IN PROGRESS • ROUND ${ev.current_round || 1}`;
+      } else {
+        badge.className = "badge";
+        badge.style.background = "rgba(234, 179, 8, 0.15)";
+        badge.style.color = "#facc15";
+        badge.style.borderColor = "rgba(234, 179, 8, 0.35)";
+        badge.textContent = "🟡 REGISTRATION OPEN";
+      }
+    });
+
+    const startBtns = document.querySelectorAll("#manage-event-start-btn");
+    startBtns.forEach(btn => {
+      if (!isStarted && !isEnded) {
+        btn.style.display = "inline-flex";
+      } else {
+        btn.style.display = "none";
+      }
+    });
+
     // Set default timer
     studioState.timerSeconds = ev.defaultRoundLength || 9000;
     updateTimerDisplay();
@@ -668,6 +704,48 @@ function renderRosterSubtab() {
   }).join("");
 }
 
+async function startTournamentEvent() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const roster = (ev.roster || []).filter(p => !p.dropped);
+  if (roster.length < 2) {
+    alert("At least 2 active competitors are required to start the tournament.");
+    return;
+  }
+
+  if (!confirm(`🚀 Start tournament "${ev.name}"? This will officially open Round 1 and lock registration on OmniTactica and Best Coast Pairings.`)) {
+    return;
+  }
+
+  const startBtns = document.querySelectorAll("#manage-event-start-btn");
+  startBtns.forEach(btn => {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Starting...';
+  });
+
+  try {
+    const res = await window.api.startStudioEvent(ev.id);
+    if (res && res.success) {
+      studioState.activeTournament = res.event || { ...ev, started: true, status: "active", current_round: 1 };
+      await loadTournamentWorkspace(ev.id);
+      switchManageSubtab("pairings");
+      const bcpNote = res.bcp_started ? " Synced with Best Coast Pairings." : "";
+      alert(`🎉 Tournament "${ev.name}" started successfully! Round 1 is active.${bcpNote}`);
+    } else {
+      alert((res && (res.detail || res.message)) || "Failed to start event.");
+    }
+  } catch (err) {
+    console.error("Error starting event:", err);
+    alert(`Failed to start event: ${err.message || err}`);
+  } finally {
+    startBtns.forEach(btn => {
+      btn.disabled = false;
+      btn.innerHTML = '▶️ Start Event';
+    });
+  }
+}
+
 function renderPairingsSubtab() {
   const ev = studioState.activeTournament;
   if (!ev) return;
@@ -676,77 +754,166 @@ function renderPairingsSubtab() {
   const currentRound = studioState.currentRoundView || ev.current_round || 1;
 
   // Render Round Pills
-  const pillsContainer = document.getElementById("manage-round-pills");
-  if (pillsContainer) {
+  const pillsContainers = document.querySelectorAll("#manage-round-pills");
+  pillsContainers.forEach(container => {
     let html = '';
     for (let r = 1; r <= totalRounds; r++) {
       const active = (r === currentRound) ? 'btn-primary' : 'btn-outline';
       html += `<button class="btn ${active}" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;" onclick="selectRoundView(${r})">Round ${r}</button>`;
     }
-    pillsContainer.innerHTML = html;
-  }
+    container.innerHTML = html;
+  });
 
   // Render Matchups for current round
-  const pairingsContainer = document.getElementById("manage-pairings-list");
-  if (!pairingsContainer) return;
+  const pairingsContainers = document.querySelectorAll("#manage-pairings-list");
+  if (!pairingsContainers.length) return;
 
   const pairingsMap = ev.pairings || {};
   const roundPairings = pairingsMap[String(currentRound)] || [];
 
+  // Update pairing status badge in UI
+  const statusBadges = document.querySelectorAll("#manage-pairings-status-badge");
+  statusBadges.forEach(statusBadge => {
+    if (ev.is_published && ev.published_round === currentRound) {
+      statusBadge.className = "badge";
+      statusBadge.style.background = "rgba(56, 189, 248, 0.2)";
+      statusBadge.style.color = "#38bdf8";
+      statusBadge.style.borderColor = "rgba(56, 189, 248, 0.4)";
+      statusBadge.textContent = "📢 PUBLISHED LIVE";
+    } else if (ev.pairings_status === "applied" || ev.pairings_bcp_synced) {
+      statusBadge.className = "badge badge-online";
+      statusBadge.style.background = "";
+      statusBadge.style.color = "";
+      statusBadge.style.borderColor = "";
+      statusBadge.textContent = "🟢 APPLIED TO BCP";
+    } else if (roundPairings.length > 0) {
+      statusBadge.className = "badge";
+      statusBadge.style.background = "rgba(234, 179, 8, 0.15)";
+      statusBadge.style.color = "#facc15";
+      statusBadge.style.borderColor = "rgba(234, 179, 8, 0.35)";
+      statusBadge.textContent = "🟡 STAGED PAIRINGS (DRAFT)";
+    } else {
+      statusBadge.className = "badge";
+      statusBadge.style.background = "rgba(255, 255, 255, 0.05)";
+      statusBadge.style.color = "var(--text-muted)";
+      statusBadge.style.borderColor = "var(--border)";
+      statusBadge.textContent = "UNPAIRED";
+    }
+  });
+
+  // Update Apply to BCP button state/text
+  const applyBtns = document.querySelectorAll("#btn-apply-pairings-bcp");
+  applyBtns.forEach(btn => {
+    if (roundPairings.length === 0) {
+      btn.disabled = true;
+      btn.style.opacity = "0.5";
+    } else {
+      btn.disabled = false;
+      btn.style.opacity = "1";
+    }
+  });
+
   if (roundPairings.length === 0) {
-    pairingsContainer.innerHTML = `
-      <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3rem 1.5rem; text-align: center; color: var(--text-muted);">
-        No pairings generated for Round ${currentRound} yet. Click <strong>"🎲 Generate Swiss Pairings"</strong> to create table matchups.
-      </div>
-    `;
+    pairingsContainers.forEach(c => {
+      c.innerHTML = `
+        <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3rem 1.5rem; text-align: center; color: var(--text-muted);">
+          <div style="font-size: 1.1rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem;">⚔️ No Pairings Staged for Round ${currentRound}</div>
+          <div>Click <strong>"🎲 Generate Swiss Pairings"</strong> or <strong>"➕ Add Table"</strong> to dynamically construct table matchups on OmniTactica.</div>
+          <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">You can inspect win probabilities, swap competitors between tables, and then click <strong>"🚀 Apply Pairings to BCP"</strong>.</div>
+        </div>
+      `;
+    });
     return;
   }
 
-  pairingsContainer.innerHTML = roundPairings.map(match => {
+  const cardsHtml = roundPairings.map(match => {
     const table = match.table || 1;
-    const p1Name = match.p1_name || "Player 1";
-    const p1Fac = match.p1_faction || "";
-    const p1Score = match.p1_score || 0;
+    const p1Name = match.p1_name || match.p1Name || "Player 1";
+    const p1Fac = match.p1_faction || match.p1Faction || "";
+    const p1Team = match.p1_team || match.p1Team || "";
+    const p1Elo = match.p1_elo !== undefined ? match.p1_elo : (match.p1Elo || 1500);
+    const p1Prob = match.p1_win_prob !== undefined ? match.p1_win_prob : 50.0;
+    const p1Score = match.p1_score !== undefined ? match.p1_score : 0;
 
-    const p2Name = match.p2_name || (match.is_bye ? "BYE" : "Player 2");
-    const p2Fac = match.p2_faction || "";
-    const p2Score = match.p2_score || 0;
-    const isBye = !!match.is_bye;
+    const isBye = Boolean(match.is_bye || match.p2_name === "BYE" || !match.p2_id);
+    const p2Name = isBye ? "BYE" : (match.p2_name || match.p2Name || "Player 2");
+    const p2Fac = isBye ? "" : (match.p2_faction || match.p2Faction || "");
+    const p2Team = isBye ? "" : (match.p2_team || match.p2Team || "");
+    const p2Elo = match.p2_elo !== undefined ? match.p2_elo : (match.p2Elo || 1500);
+    const p2Prob = match.p2_win_prob !== undefined ? match.p2_win_prob : (100.0 - p1Prob);
+    const p2Score = match.p2_score !== undefined ? match.p2_score : 0;
+
+    const isRematch = Boolean(match.is_rematch);
+    const rematchRounds = Array.isArray(match.rematch_rounds) && match.rematch_rounds.length > 0 ? match.rematch_rounds.join(', ') : '';
+    const sameTeam = Boolean(match.same_team);
 
     return `
-      <div class="es-match-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem;">
+      <div class="es-match-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative;">
+        <!-- Card Header -->
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
-          <span style="font-weight: 700; font-family: var(--font-heading); color: #38bdf8;">TABLE ${table}</span>
-          ${isBye ? '<span class="badge badge-accent">BYE</span>' : '<span style="font-size: 0.75rem; color: var(--text-muted);">Swiss Match</span>'}
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <span style="font-weight: 700; font-family: var(--font-heading); color: #38bdf8;">TABLE ${table}</span>
+            ${isBye ? '<span class="badge badge-accent">BYE</span>' : '<span style="font-size: 0.72rem; color: var(--text-muted);">Swiss Match</span>'}
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <button class="btn btn-outline" style="font-size: 0.7rem; padding: 0.18rem 0.45rem;" onclick="toggleTableBye(${table})" title="Toggle BYE for this table">${isBye ? 'Set Match' : 'Set BYE'}</button>
+            <button class="btn btn-outline" style="font-size: 0.7rem; padding: 0.18rem 0.45rem; color: #ef4444;" onclick="removePairingTable(${table})" title="Remove Table">✕</button>
+          </div>
         </div>
 
         <!-- Competitor 1 -->
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-weight: 600; color: #fff;">${escapeHtml(p1Name)}</div>
-            <div style="font-size: 0.75rem; color: #38bdf8;">${escapeHtml(p1Fac)}</div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+          <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: #fff; font-size: 0.95rem;">${escapeHtml(p1Name)}</span>
+              <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p1Elo).toFixed(1)}</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.15rem;">${escapeHtml(p1Fac)}${p1Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p1Team)}</span>` : ''}</div>
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;">${p1Prob}% Win Prob</div>` : ''}
           </div>
-          <input type="number" id="score-p1-${table}" class="form-input" value="${p1Score}" min="0" max="100" style="width: 70px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <input type="number" id="score-p1-${table}" class="form-input" value="${p1Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
+            <button class="btn btn-outline" style="font-size: 0.72rem; padding: 0.28rem 0.5rem;" onclick="openSwapModal(${currentRound}, ${table}, 'p1', '${escapeHtml(p1Name)}')" title="Swap Player 1 with another table">⇄ Swap</button>
+          </div>
         </div>
 
-        <div style="text-align: center; color: var(--text-muted); font-size: 0.75rem; font-weight: 700;">VS</div>
+        <!-- VS Divider & Warnings -->
+        <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin: -0.2rem 0;">
+          <div style="height: 1px; flex: 1; background: var(--border);"></div>
+          <span style="color: var(--text-muted); font-size: 0.72rem; font-weight: 700;">VS</span>
+          ${isRematch ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 0.7rem;">⚠️ Rematch${rematchRounds ? ` (R${rematchRounds})` : ''}</span>` : ''}
+          ${sameTeam ? `<span class="badge" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); font-size: 0.7rem;">⚠️ Same Team</span>` : ''}
+          <div style="height: 1px; flex: 1; background: var(--border);"></div>
+        </div>
 
         <!-- Competitor 2 -->
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div>
-            <div style="font-weight: 600; color: ${isBye ? 'var(--text-muted)' : '#fff'};">${escapeHtml(p2Name)}</div>
-            <div style="font-size: 0.75rem; color: #38bdf8;">${escapeHtml(p2Fac)}</div>
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+          <div style="flex: 1;">
+            <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: ${isBye ? 'var(--text-muted)' : '#fff'}; font-size: 0.95rem;">${escapeHtml(p2Name)}</span>
+              ${!isBye ? `<span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p2Elo).toFixed(1)}</span>` : ''}
+            </div>
+            ${!isBye ? `<div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.15rem;">${escapeHtml(p2Fac)}${p2Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p2Team)}</span>` : ''}</div>` : ''}
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;">${p2Prob}% Win Prob</div>` : ''}
           </div>
-          <input type="number" id="score-p2-${table}" class="form-input" value="${p2Score}" min="0" max="100" style="width: 70px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
+          <div style="display: flex; align-items: center; gap: 0.4rem;">
+            <input type="number" id="score-p2-${table}" class="form-input" value="${p2Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
+            ${!isBye ? `<button class="btn btn-outline" style="font-size: 0.72rem; padding: 0.28rem 0.5rem;" onclick="openSwapModal(${currentRound}, ${table}, 'p2', '${escapeHtml(p2Name)}')" title="Swap Player 2 with another table">⇄ Swap</button>` : ''}
+          </div>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.25rem;">
-          <a href="/tracker?eventId=${encodeURIComponent(ev.id)}&round=${currentRound}&table=${table}" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: underline;">Open Score Tracker</a>
+        <!-- Card Footer Actions -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
+          <a href="/tracker?eventId=${encodeURIComponent(ev.id)}&round=${currentRound}&table=${table}" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: underline; font-weight: 600;">Open Game Tracker ↗</a>
           <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.65rem;" onclick="saveTableScore(${table})">💾 Save Score</button>
         </div>
       </div>
     `;
   }).join("");
+
+  pairingsContainers.forEach(c => {
+    c.innerHTML = cardsHtml;
+  });
 }
 
 function selectRoundView(roundNum) {
@@ -766,16 +933,16 @@ async function triggerGenerateSwissPairings() {
     return;
   }
 
-  if (!confirm(`Generate Swiss pairings for Round ${roundNum}?`)) return;
+  if (!confirm(`Generate Swiss pairings for Round ${roundNum}? Pairings will be staged locally on OmniTactica for inspection and player swapping before pushing to BCP.`)) return;
 
   try {
     const res = await window.api.generateStudioPairings(ev.id, { round: roundNum });
     if (res && res.success) {
       studioState.activeTournament = res.event;
       renderPairingsSubtab();
-      alert(`🎉 Generated Swiss pairings for Round ${roundNum}!`);
+      alert(`🎉 Generated Swiss pairings for Round ${roundNum} (Staged locally)! You can swap players or click 'Apply Pairings to BCP'.`);
     } else {
-      alert(res.message || "Failed to generate pairings.");
+      alert((res && (res.detail || res.message)) || "Failed to generate pairings.");
     }
   } catch (err) {
     console.error("Pairings generation error:", err);
@@ -813,6 +980,256 @@ async function saveTableScore(tableNum) {
   } catch (err) {
     console.error("Error saving score:", err);
     alert(`Failed to save score: ${err.message || err}`);
+  }
+}
+
+let currentSwapState = null;
+
+function openSwapModal(roundNum, tableNum, slot, playerName) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const modal = document.getElementById("modal-swap-players");
+  if (!modal) return;
+
+  currentSwapState = { round: roundNum, table1: tableNum, slot1: slot };
+
+  const infoEl = document.getElementById("swap-source-info");
+  if (infoEl) {
+    infoEl.innerHTML = `<strong>Table ${tableNum} (${slot.toUpperCase()}):</strong> ${escapeHtml(playerName)}`;
+  }
+
+  const selectEl = document.getElementById("swap-target-select");
+  if (selectEl) {
+    const pairingsMap = ev.pairings || {};
+    const roundPairings = pairingsMap[String(roundNum)] || [];
+
+    let options = '<option value="">-- Choose competitor to swap with --</option>';
+    roundPairings.forEach(m => {
+      const t = m.table;
+      if (t === tableNum && slot === 'p1') {
+        if (!m.is_bye && m.p2_name && m.p2_name !== 'BYE') {
+          options += `<option value="${t}|p2">Table ${t} (P2) - ${escapeHtml(m.p2_name)} (${escapeHtml(m.p2_faction || 'Faction')})</option>`;
+        }
+      } else if (t === tableNum && slot === 'p2') {
+        if (m.p1_name) {
+          options += `<option value="${t}|p1">Table ${t} (P1) - ${escapeHtml(m.p1_name)} (${escapeHtml(m.p1_faction || 'Faction')})</option>`;
+        }
+      } else {
+        if (m.p1_name) {
+          options += `<option value="${t}|p1">Table ${t} (P1) - ${escapeHtml(m.p1_name)} (${escapeHtml(m.p1_faction || 'Faction')})</option>`;
+        }
+        if (!m.is_bye && m.p2_name && m.p2_name !== 'BYE') {
+          options += `<option value="${t}|p2">Table ${t} (P2) - ${escapeHtml(m.p2_name)} (${escapeHtml(m.p2_faction || 'Faction')})</option>`;
+        }
+      }
+    });
+    selectEl.innerHTML = options;
+  }
+
+  modal.style.display = "flex";
+}
+
+function closeSwapModal() {
+  const modal = document.getElementById("modal-swap-players");
+  if (modal) modal.style.display = "none";
+  currentSwapState = null;
+}
+
+async function submitSwapPlayers() {
+  if (!currentSwapState) return;
+  const selectEl = document.getElementById("swap-target-select");
+  const targetVal = selectEl ? selectEl.value : "";
+  if (!targetVal) {
+    alert("Please select a competitor to swap with.");
+    return;
+  }
+
+  const [t2Str, s2] = targetVal.split("|");
+  const table2 = parseInt(t2Str, 10);
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const payload = {
+    round: currentSwapState.round,
+    table1: currentSwapState.table1,
+    slot1: currentSwapState.slot1,
+    table2: table2,
+    slot2: s2
+  };
+
+  try {
+    const res = await window.api.swapStudioPairings(ev.id, payload);
+    if (res && res.success) {
+      if (res.event) {
+        studioState.activeTournament = res.event;
+      } else if (res.pairings) {
+        ev.pairings = ev.pairings || {};
+        ev.pairings[String(payload.round)] = res.pairings;
+        ev.pairings_status = "staged";
+      }
+      closeSwapModal();
+      renderPairingsSubtab();
+    } else {
+      alert((res && (res.detail || res.message)) || "Failed to swap players.");
+    }
+  } catch (err) {
+    console.error("Swap error:", err);
+    alert(`Swap error: ${err.message || err}`);
+  }
+}
+
+async function applyPairingsToBcp() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+  const roundPairings = pairingsMap[String(currentRound)] || [];
+
+  if (roundPairings.length === 0) {
+    alert(`No pairings staged for Round ${currentRound}.`);
+    return;
+  }
+
+  if (!confirm(`🚀 Apply Round ${currentRound} pairings to Best Coast Pairings? This will push all ${roundPairings.length} table matchups to BCP and sync live game tracker rooms.`)) {
+    return;
+  }
+
+  const applyBtns = document.querySelectorAll("#btn-apply-pairings-bcp");
+  applyBtns.forEach(btn => {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Applying...';
+  });
+
+  try {
+    const res = await window.api.applyStudioPairingsToBcp(ev.id, { round: currentRound });
+    if (res && res.success) {
+      if (res.event) {
+        studioState.activeTournament = res.event;
+      } else {
+        ev.pairings_status = "applied";
+        ev.pairings_bcp_synced = true;
+      }
+      renderPairingsSubtab();
+      const bcpNote = res.bcp_applied ? " Applied to Best Coast Pairings." : (res.bcp_notice ? ` (Notice: ${res.bcp_notice})` : "");
+      alert(`✅ Round ${currentRound} pairings successfully staged and applied!${bcpNote}`);
+    } else {
+      alert((res && (res.detail || res.message)) || "Failed to apply pairings to BCP.");
+    }
+  } catch (err) {
+    console.error("Apply pairings error:", err);
+    alert(`Failed to apply pairings: ${err.message || err}`);
+  } finally {
+    applyBtns.forEach(btn => {
+      btn.disabled = false;
+      btn.innerHTML = '🚀 Apply Pairings to BCP';
+    });
+  }
+}
+
+async function addPairingTable() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+  const roundPairings = pairingsMap[String(currentRound)] || [];
+
+  const nextTable = roundPairings.length + 1;
+  const newMatch = {
+    table: nextTable,
+    p1_id: "",
+    p1_name: "Unassigned Player 1",
+    p1_faction: "Unassigned",
+    p1_team: "",
+    p1_elo: 1500,
+    p1_win_prob: 50.0,
+    p1_score: 0,
+    p2_id: "",
+    p2_name: "Unassigned Player 2",
+    p2_faction: "Unassigned",
+    p2_team: "",
+    p2_elo: 1500,
+    p2_win_prob: 50.0,
+    p2_score: 0,
+    is_done: false,
+    is_bye: false
+  };
+
+  roundPairings.push(newMatch);
+  pairingsMap[String(currentRound)] = roundPairings;
+  ev.pairings = pairingsMap;
+  ev.pairings_status = "staged";
+
+  try {
+    await window.api.saveStudioPairings(ev.id, { round: currentRound, pairings: roundPairings });
+    renderPairingsSubtab();
+  } catch (err) {
+    alert("Failed to add table: " + (err.message || err));
+  }
+}
+
+async function toggleTableBye(tableNum) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+  const roundPairings = pairingsMap[String(currentRound)] || [];
+  const match = roundPairings.find(m => m.table === tableNum);
+  if (!match) return;
+
+  if (match.is_bye) {
+    match.is_bye = false;
+    match.p2_id = "";
+    match.p2_name = "Player 2";
+    match.p2_faction = "";
+    match.p1_score = 0;
+    match.p2_score = 0;
+    match.is_done = false;
+  } else {
+    match.is_bye = true;
+    match.p2_id = null;
+    match.p2_name = "BYE";
+    match.p2_faction = "";
+    match.p1_score = 100;
+    match.p2_score = 0;
+    match.is_done = true;
+  }
+
+  ev.pairings_status = "staged";
+  try {
+    await window.api.saveStudioPairings(ev.id, { round: currentRound, pairings: roundPairings });
+    renderPairingsSubtab();
+  } catch (err) {
+    alert("Failed to update BYE: " + (err.message || err));
+  }
+}
+
+async function removePairingTable(tableNum) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  if (!confirm(`Remove Table ${tableNum}?`)) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+  let roundPairings = (pairingsMap[String(currentRound)] || []).filter(m => m.table !== tableNum);
+
+  roundPairings.forEach((m, idx) => {
+    m.table = idx + 1;
+  });
+
+  pairingsMap[String(currentRound)] = roundPairings;
+  ev.pairings = pairingsMap;
+  ev.pairings_status = "staged";
+
+  try {
+    await window.api.saveStudioPairings(ev.id, { round: currentRound, pairings: roundPairings });
+    renderPairingsSubtab();
+  } catch (err) {
+    alert("Failed to remove table: " + (err.message || err));
   }
 }
 
@@ -1176,29 +1593,42 @@ async function submitAddPlayer() {
     return;
   }
 
-  const newPlayer = {
-    id: `PL-${Date.now().toString(36).toUpperCase()}`,
+  const payload = {
     name: name,
     faction: fac,
     team: teamInput ? teamInput.value.trim() : "",
     email: emailInput ? emailInput.value.trim() : "",
-    checked_in: true,
-    dropped: false
+    checked_in: true
   };
 
-  ev.roster = ev.roster || [];
-  ev.roster.push(newPlayer);
-  ev.total_players = ev.roster.length;
-
   try {
-    await window.api.saveStudioRoster(ev.id, { roster: ev.roster });
-    closeAddPlayerModal();
-    if (nameInput) nameInput.value = "";
-    if (facInput) facInput.value = "";
-    if (teamInput) teamInput.value = "";
-    if (emailInput) emailInput.value = "";
-    renderRosterSubtab();
+    const res = await window.api.registerForTournament(ev.id, payload);
+    if (res && res.success) {
+      if (res.event) {
+        studioState.activeTournament = res.event;
+      } else if (res.player) {
+        ev.roster = ev.roster || [];
+        const existingIdx = ev.roster.findIndex(p => (p.id || p.player_id) === res.player.id || p.name === res.player.name);
+        if (existingIdx >= 0) {
+          ev.roster[existingIdx] = res.player;
+        } else {
+          ev.roster.push(res.player);
+        }
+        ev.total_players = ev.roster.length;
+      }
+      closeAddPlayerModal();
+      if (nameInput) nameInput.value = "";
+      if (facInput) facInput.value = "";
+      if (teamInput) teamInput.value = "";
+      if (emailInput) emailInput.value = "";
+      renderRosterSubtab();
+      const bcpNote = res.bcp_registered ? " Synced with Best Coast Pairings." : "";
+      alert(`Competitor "${name}" registered successfully!${bcpNote}`);
+    } else {
+      alert((res && (res.detail || res.message)) || "Failed to register player.");
+    }
   } catch (err) {
+    console.error("Add player error:", err);
     alert(`Failed to save player: ${err.message || err}`);
   }
 }
@@ -1413,6 +1843,14 @@ window.toggleTeamOptions = toggleTeamOptions;
 window.openCircuitsModal = openCircuitsModal;
 window.closeCircuitsModal = closeCircuitsModal;
 window.submitLinkCircuitFromModal = submitLinkCircuitFromModal;
+window.startTournamentEvent = startTournamentEvent;
+window.applyPairingsToBcp = applyPairingsToBcp;
+window.openSwapModal = openSwapModal;
+window.closeSwapModal = closeSwapModal;
+window.submitSwapPlayers = submitSwapPlayers;
+window.addPairingTable = addPairingTable;
+window.toggleTableBye = toggleTableBye;
+window.removePairingTable = removePairingTable;
 
 function toggleTeamOptions(context) {
   const typeEl = document.getElementById(`${context}-event-type`);

@@ -169,6 +169,41 @@ async function openEventModal(eventId, forceSync = false) {
     renderEventResultsRows();
     renderEventEloRows();
     renderEventPairingsRows();
+
+    // Update Tournament Registration Button state
+    const regBtn = document.getElementById('modal-event-register-btn');
+    if (regBtn) {
+      const isConcluded = Boolean(ev.concluded || ev.is_concluded || (ev.status && ev.status.toLowerCase() === 'concluded'));
+      const currentUser = (typeof authState !== 'undefined' && authState.user) ? authState.user : (window.currentUser || null);
+      const currentUserName = currentUser ? (currentUser.name || currentUser.full_name || currentUser.username || '').toLowerCase() : '';
+      const currentUserEmail = currentUser ? (currentUser.email || '').toLowerCase() : '';
+
+      const isRegistered = Boolean(
+        (ev.roster || []).some(p => (currentUserEmail && (p.email || '').toLowerCase() === currentUserEmail) || (currentUserName && (p.name || '').toLowerCase() === currentUserName)) ||
+        (ev.players || []).some(p => (currentUserEmail && (p.email || '').toLowerCase() === currentUserEmail) || (currentUserName && (p.player_name || p.name || '').toLowerCase() === currentUserName))
+      );
+
+      if (isConcluded) {
+        regBtn.style.display = 'none';
+      } else if (isRegistered) {
+        regBtn.style.display = 'inline-flex';
+        regBtn.className = 'btn btn-outline';
+        regBtn.style.background = 'rgba(16, 185, 129, 0.15)';
+        regBtn.style.color = '#10b981';
+        regBtn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+        regBtn.disabled = true;
+        regBtn.innerHTML = '<span>✓ Registered</span>';
+      } else {
+        regBtn.style.display = 'inline-flex';
+        regBtn.className = 'btn btn-primary';
+        regBtn.style.background = 'linear-gradient(135deg, #059669, #10b981)';
+        regBtn.style.color = '#fff';
+        regBtn.style.borderColor = '#10b981';
+        regBtn.disabled = false;
+        regBtn.innerHTML = '<span>⚡ Register</span>';
+        regBtn.onclick = () => openTournamentRegistrationModal(eventId, ev.name);
+      }
+    }
   } catch (err) {
     if (rbody) rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;
     if (ebody) ebody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading participant ratings: ${err.message}</td></tr>`;
@@ -462,3 +497,123 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
 
   window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
 }
+
+/* ==========================================================================
+   TOURNAMENT SELF-REGISTRATION MODAL
+   ========================================================================== */
+
+function openTournamentRegistrationModal(eventId, eventName) {
+  const modal = document.getElementById('modal-tournament-register');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('register-event-title');
+  if (titleEl) titleEl.textContent = eventName || 'Tournament Registration';
+
+  const form = document.getElementById('form-tournament-register');
+  if (form) form.reset();
+  if (form) form.dataset.eventId = eventId;
+
+  const msg = document.getElementById('reg-status-message');
+  if (msg) msg.style.display = 'none';
+
+  // Pre-fill user data if authenticated
+  const currentUser = (typeof authState !== 'undefined' && authState.user) ? authState.user : (window.currentUser || null);
+  if (currentUser) {
+    const nameInput = document.getElementById('reg-player-name');
+    const emailInput = document.getElementById('reg-player-email');
+    if (nameInput && !nameInput.value) nameInput.value = currentUser.name || currentUser.full_name || currentUser.username || '';
+    if (emailInput && !emailInput.value) emailInput.value = currentUser.email || '';
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeTournamentRegistrationModal() {
+  const modal = document.getElementById('modal-tournament-register');
+  if (modal) modal.style.display = 'none';
+}
+
+async function submitTournamentRegistration(e) {
+  if (e) e.preventDefault();
+  const form = document.getElementById('form-tournament-register');
+  const eventId = (form && form.dataset.eventId) || currentOpenEventId;
+  if (!eventId) return;
+
+  const name = document.getElementById('reg-player-name')?.value.trim();
+  const faction = document.getElementById('reg-player-faction')?.value.trim();
+  const detachment = document.getElementById('reg-player-detachment')?.value.trim() || '';
+  const team = document.getElementById('reg-player-team')?.value.trim() || '';
+  const email = document.getElementById('reg-player-email')?.value.trim() || '';
+  const armyList = document.getElementById('reg-player-armylist')?.value.trim() || '';
+  const btn = document.getElementById('btn-submit-registration');
+  const msg = document.getElementById('reg-status-message');
+
+  if (!name || !faction) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.style.background = 'rgba(239, 68, 68, 0.15)';
+      msg.style.color = '#ef4444';
+      msg.textContent = 'Please enter both your name and faction.';
+    }
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Registering...';
+  }
+
+  try {
+    const res = await window.api.registerForTournament(eventId, {
+      name,
+      faction,
+      detachment,
+      team,
+      email,
+      army_list: armyList,
+      checked_in: true
+    });
+
+    if (res && res.success) {
+      if (msg) {
+        msg.style.display = 'block';
+        msg.style.background = 'rgba(16, 185, 129, 0.15)';
+        msg.style.color = '#10b981';
+        const bcpNote = res.bcp_registered ? ' and synced to Best Coast Pairings' : '';
+        msg.textContent = `✅ Successfully registered for ${res.event?.name || 'the event'}${bcpNote}! Current Elo: ${res.player?.currentElo || 1500}`;
+      }
+      setTimeout(() => {
+        closeTournamentRegistrationModal();
+        openEventModal(eventId, true);
+      }, 1200);
+    } else {
+      if (msg) {
+        msg.style.display = 'block';
+        msg.style.background = 'rgba(239, 68, 68, 0.15)';
+        msg.style.color = '#ef4444';
+        msg.textContent = (res && (res.detail || res.message)) || 'Registration failed. Please try again.';
+      }
+    }
+  } catch (err) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.style.background = 'rgba(239, 68, 68, 0.15)';
+      msg.style.color = '#ef4444';
+      msg.textContent = 'Registration error: ' + (err.message || err);
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Complete Registration';
+    }
+  }
+}
+
+// Window bindings for tournament modal and registration
+window.openEventModal = openEventModal;
+window.switchEventModalTab = switchEventModalTab;
+window.refreshCurrentEventModal = refreshCurrentEventModal;
+window.launchTournamentTracker = launchTournamentTracker;
+window.openTournamentRegistrationModal = openTournamentRegistrationModal;
+window.closeTournamentRegistrationModal = closeTournamentRegistrationModal;
+window.submitTournamentRegistration = submitTournamentRegistration;

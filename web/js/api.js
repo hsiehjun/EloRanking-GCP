@@ -664,6 +664,53 @@ window.api = {
     });
   },
 
+  // Tournament Registration (Player self-register or TO add competitor)
+  async registerForTournament(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/register`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Start Event on OmniTactica and BCP
+  async startStudioEvent(eventId) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/start`, {
+      method: 'POST',
+      headers
+    });
+  },
+
+  // EventStudio: Swap Table Pairings dynamically before applying
+  async swapStudioPairings(eventId, payload) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/swap`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Apply Staged Pairings to BCP
+  async applyStudioPairingsToBcp(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/apply_bcp`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
   // EventStudio: Generate Swiss Pairings
   async generateStudioPairings(eventId, payload = {}) {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/generate`, {

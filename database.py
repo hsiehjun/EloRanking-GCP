@@ -180,6 +180,8 @@ class PostgresDatabase:
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS place_id VARCHAR(128);
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS started BOOLEAN DEFAULT FALSE;
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS pairings_status VARCHAR(32) DEFAULT 'draft';
                 CREATE INDEX IF NOT EXISTS idx_events_lat_lng ON events (latitude, longitude) WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
 
                 CREATE TABLE IF NOT EXISTS players (
@@ -1199,7 +1201,9 @@ class PostgresDatabase:
                 # 1. Event metadata
                 cursor.execute("""
                 SELECT id, name, event_date, end_date, city, state, country,
-                       total_players, num_rounds, current_round, is_ended, raw_json
+                       total_players, num_rounds, current_round, is_ended, raw_json,
+                       COALESCE(started, false) as started,
+                       COALESCE(pairings_status, 'draft') as pairings_status
                 FROM events
                 WHERE id = %s;
                 """, (event_id,))
@@ -2846,7 +2850,9 @@ class PostgresDatabase:
                        roster, pairings, raw_json, scraped_at,
                        COALESCE(event_type, 'singles') as event_type,
                        COALESCE(team_size, 1) as team_size,
-                       COALESCE(circuits, '[]'::jsonb) as circuits
+                       COALESCE(circuits, '[]'::jsonb) as circuits,
+                       COALESCE(started, false) as started,
+                       COALESCE(pairings_status, 'draft') as pairings_status
                 FROM events
                 WHERE id = %s;
                 """, (event_id,))
@@ -2965,6 +2971,8 @@ class PostgresDatabase:
         team_size = int(event_data.get("team_size") or event_data.get("teamSize") or default_ts)
         circuits = event_data.get("circuits") or []
         circuits_json = json.dumps(circuits if isinstance(circuits, list) else [], default=str)
+        started = bool(event_data.get("started", False))
+        pairings_status = str(event_data.get("pairings_status") or "draft")
         
         roster_json = json.dumps(event_data.get("roster") or [], default=str)
         pairings_json = json.dumps(event_data.get("pairings") or {}, default=str)
@@ -2978,13 +2986,15 @@ class PostgresDatabase:
                     tier, total_players, num_rounds, current_round, points, capacity,
                     mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
                     raw_json, scraped_at, event_type, team_size, circuits,
-                    venue_name, address, postal_code, latitude, longitude, place_id
+                    venue_name, address, postal_code, latitude, longitude, place_id,
+                    started, pairings_status
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s::jsonb, %s::jsonb,
                     %s::jsonb, NOW(), %s, %s, %s::jsonb,
-                    %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -3015,6 +3025,8 @@ class PostgresDatabase:
                     latitude = COALESCE(EXCLUDED.latitude, events.latitude),
                     longitude = COALESCE(EXCLUDED.longitude, events.longitude),
                     place_id = COALESCE(EXCLUDED.place_id, events.place_id),
+                    started = COALESCE(EXCLUDED.started, events.started),
+                    pairings_status = COALESCE(EXCLUDED.pairings_status, events.pairings_status),
                     scraped_at = NOW();
                 """, (
                     event_id, name, event_date, end_date, city, state, country, venue,
@@ -3024,7 +3036,8 @@ class PostgresDatabase:
                     venue_name, address, postal_code,
                     float(latitude) if latitude is not None else None,
                     float(longitude) if longitude is not None else None,
-                    place_id
+                    place_id,
+                    started, pairings_status
                 ))
             conn.commit()
 

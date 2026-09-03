@@ -1566,6 +1566,7 @@
                   <span id="manage-event-format-badge" class="badge" style="background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">SINGLES</span>
                   <span id="manage-event-circuit-badges" style="display: inline-flex; gap: 0.35rem;"></span>
                   <span id="manage-event-bcp-badge" class="badge badge-online">BCP SYNCED</span>
+                  <span id="manage-event-status-badge" class="badge" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3);">🟡 REGISTRATION OPEN</span>
                 </div>
                 <h2 id="manage-event-name" style="color: #fff; margin: 0 0 0.4rem; font-size: 1.4rem; font-family: var(--font-heading);">Tournament Name</h2>
                 <div id="manage-event-meta" style="color: var(--text-secondary); font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 1rem;">
@@ -1576,6 +1577,7 @@
               </div>
               <!-- Round Timer & External Link Actions -->
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button id="manage-event-start-btn" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; color: #fff; font-weight: 700;" onclick="startTournamentEvent()">▶️ Start Event</button>
                 <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.6rem;">
                   <span style="font-size: 0.75rem; color: var(--text-muted);">ROUND TIMER</span>
                   <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
@@ -1630,9 +1632,14 @@
           <!-- SUBTAB 2: Pairings & Scores -->
           <div id="manage-subtab-pairings" class="manage-subview" style="display: none;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem; flex-wrap: wrap; gap: 0.75rem;">
-              <div id="manage-round-pills" style="display: flex; gap: 0.35rem; align-items: center;"></div>
+              <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
+                <div id="manage-round-pills" style="display: flex; gap: 0.35rem; align-items: center;"></div>
+                <span id="manage-pairings-status-badge" class="badge" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); font-size: 0.72rem;">🟡 STAGED PAIRINGS (DRAFT)</span>
+              </div>
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <button class="btn btn-accent" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="triggerGenerateSwissPairings()">🎲 Generate Pairings</button>
+                <button class="btn btn-outline" id="btn-add-table" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="addPairingTable()">➕ Add Table</button>
+                <button class="btn" id="btn-apply-pairings-bcp" style="font-size: 0.8rem; padding: 0.42rem 0.95rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8;" onclick="applyPairingsToBcp()">🚀 Apply to BCP</button>
                 <button id="btn-publish-pairings" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="togglePublishPairings()">📢 Publish Pairings</button>
                 <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="finalizeCurrentRound()">🏁 Finalize Round & Advance</button>
                 <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.75rem; color: var(--text-muted);" onclick="resetCurrentRound()">🔄 Reset</button>
@@ -1715,6 +1722,85 @@
               <button class="btn btn-outline" onclick="closeAddPlayerModal()">Cancel</button>
               <button class="btn btn-primary" onclick="submitAddPlayer()">Add Player</button>
             </div>
+          </div>
+        </div>
+
+        <!-- MODAL: Swap Table Competitors -->
+        <div id="modal-swap-players" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 500px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <h3 style="color: #fff; margin: 0; font-size: 1.15rem;">⇄ Swap Competitor Pairing</h3>
+              <button class="modal-close" onclick="closeSwapModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+              <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.75rem 1rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.25rem;">Selected Competitor</div>
+                <div id="swap-source-info" style="font-size: 0.95rem; color: #fff;"></div>
+              </div>
+              <div>
+                <label class="form-label" style="margin-bottom: 0.4rem; display: block;">Swap With *</label>
+                <select id="swap-target-select" class="form-input" style="width: 100%; font-size: 0.9rem;">
+                  <option value="">-- Choose competitor to swap with --</option>
+                </select>
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.35rem;">
+                  OmniTactica will automatically recalculate Elo win probabilities, rematch warnings, and team conflicts for both affected tables.
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.5rem;">
+              <button class="btn btn-outline" onclick="closeSwapModal()">Cancel</button>
+              <button class="btn btn-primary" onclick="submitSwapPlayers()">Confirm Swap</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- MODAL: Tournament Registration -->
+        <div id="modal-tournament-register" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+              <div>
+                <h3 style="color: #fff; margin: 0; font-size: 1.2rem;">⚡ Tournament Registration</h3>
+                <div id="register-event-title" style="font-size: 0.82rem; color: #38bdf8; margin-top: 0.2rem;">Tournament Name</div>
+              </div>
+              <button class="modal-close" onclick="closeTournamentRegistrationModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
+            </div>
+            <form id="form-tournament-register" onsubmit="submitTournamentRegistration(event)">
+              <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+                <div>
+                  <label class="form-label">Full Name *</label>
+                  <input type="text" id="reg-player-name" class="form-input" placeholder="e.g. John Hsieh" required>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                  <div>
+                    <label class="form-label">Faction / Army *</label>
+                    <input type="text" id="reg-player-faction" class="form-input" placeholder="e.g. Necrons" required>
+                  </div>
+                  <div>
+                    <label class="form-label">Detachment</label>
+                    <input type="text" id="reg-player-detachment" class="form-input" placeholder="e.g. Hypercrypt Legion">
+                  </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                  <div>
+                    <label class="form-label">Team / Club</label>
+                    <input type="text" id="reg-player-team" class="form-input" placeholder="e.g. Team Zero Comp">
+                  </div>
+                  <div>
+                    <label class="form-label">Email (for confirmation)</label>
+                    <input type="email" id="reg-player-email" class="form-input" placeholder="competitor@example.com">
+                  </div>
+                </div>
+                <div>
+                  <label class="form-label">Army List (Text / Waha / Battlescribe / NewRecruit)</label>
+                  <textarea id="reg-player-armylist" class="form-input" rows="3" placeholder="Paste roster or list link here..."></textarea>
+                </div>
+                <div id="reg-status-message" style="display: none; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.8rem;"></div>
+              </div>
+              <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+                <button type="button" class="btn btn-outline" onclick="closeTournamentRegistrationModal()">Cancel</button>
+                <button type="submit" id="btn-submit-registration" class="btn btn-primary" style="background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981;">Complete Registration</button>
+              </div>
+            </form>
           </div>
         </div>
 
@@ -2054,6 +2140,9 @@
           <div id="modal-event-meta" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
+          <button id="modal-event-register-btn" style="display: none; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; cursor: pointer; align-items: center; gap: 4px; transition: all 0.2s;" title="Register for this tournament">
+            <span>⚡ Register</span>
+          </button>
           <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.28); color: #38bdf8; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;" onmouseover="this.style.background='rgba(56,189,248,0.18)'; this.style.borderColor='#38bdf8';" onmouseout="this.style.background='rgba(56,189,248,0.08)'; this.style.borderColor='rgba(56,189,248,0.28)';" title="Open this event on Best Coast Pairings">
             <span>BCP ↗</span>
           </a>

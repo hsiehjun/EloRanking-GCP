@@ -244,6 +244,28 @@ if FASTAPI_AVAILABLE:
         room_key: Optional[str] = None
         message_id: Optional[str] = None
 
+    class RegisterPlayerPayload(BaseModel):
+        name: Optional[str] = None
+        first_name: Optional[str] = None
+        last_name: Optional[str] = None
+        email: Optional[str] = None
+        faction: Optional[str] = None
+        detachment: Optional[str] = None
+        team: Optional[str] = None
+        army_list: Optional[str] = None
+        checked_in: Optional[bool] = True
+        bcp_token: Optional[str] = None
+
+    class SwapPairingPayload(BaseModel):
+        round: int = 1
+        table1: int
+        slot1: str = "p1"  # "p1" or "p2"
+        table2: int
+        slot2: str = "p2"  # "p1" or "p2"
+
+    class ApplyPairingsBcpPayload(BaseModel):
+        round: int = 1
+
     def execute_bcp_api_call(
         url: str,
         method: str = "GET",
@@ -1253,7 +1275,280 @@ if FASTAPI_AVAILABLE:
             "message": "Tournament deleted successfully."
         }
 
-    @app.post("/api/eventstudio/event/{event_id}/pairings", summary="Save round pairings and sync game rooms with BCP")
+    @app.post("/api/eventstudio/event/{event_id}/start", summary="Start tournament on OmniTactica and BCP")
+    async def api_eventstudio_start_event(event_id: str, request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            details = db.get_event_details(event_id)
+            if details:
+                ev = db.save_studio_event(details)
+            else:
+                raise HTTPException(status_code=404, detail="Tournament not found")
+
+        roster = [p for p in (ev.get("roster") or []) if not p.get("dropped")]
+        if len(roster) < 2:
+            raise HTTPException(status_code=400, detail="At least 2 active competitors are required to start the tournament")
+
+        ev["started"] = True
+        ev["is_ended"] = False
+        ev["status"] = "active"
+        if int(ev.get("current_round") or 0) < 1:
+            ev["current_round"] = 1
+
+        bcp_started = False
+        bcp_err = None
+        if not event_id.startswith("ES-"):
+            bcp_token = None
+            if user_id:
+                bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+            if not bcp_token and ev.get("organizer_id"):
+                bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
+
+            start_payload = {
+                "set": {
+                    "started": True,
+                    "status": "active",
+                    "activeRound": 1
+                },
+                "started": True,
+                "status": "active"
+            }
+
+            # 1. Primary: POST /v1/events/{id}
+            url1 = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
+            data, err = execute_bcp_api_call(url1, method="POST", json_data=start_payload, user_id=user_id, explicit_token=bcp_token)
+            if data is not None or not err:
+                bcp_started = True
+                logger.info(f"✅ Started event on BCP {event_id} via POST /v1/events/{event_id}")
+            else:
+                # 2. Fallback: PUT /v1/events/{id}
+                data2, err2 = execute_bcp_api_call(url1, method="PUT", json_data=start_payload, user_id=user_id, explicit_token=bcp_token)
+                if data2 is not None or not err2:
+                    bcp_started = True
+                    logger.info(f"✅ Started event on BCP {event_id} via PUT /v1/events/{event_id}")
+                else:
+                    # 3. Fallback: POST /v1/events/{id}/startEvent
+                    url3 = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/startEvent"
+                    data3, err3 = execute_bcp_api_call(url3, method="POST", json_data={"started": True}, user_id=user_id, explicit_token=bcp_token)
+                    if data3 is not None or not err3:
+                        bcp_started = True
+                        logger.info(f"✅ Started event on BCP {event_id} via /startEvent")
+                    else:
+                        bcp_err = err or err2 or err3
+
+        saved = db.save_studio_event(ev)
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "started": True,
+            "current_round": ev.get("current_round", 1),
+            "bcp_started": bcp_started,
+            "bcp_notice": bcp_err if not bcp_started and not event_id.startswith("ES-") else None,
+            "event": saved,
+            "message": "Tournament started successfully! Round 1 is active."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/register", summary="Register player for tournament on OmniTactica and BCP")
+    @app.post("/api/tournaments/{event_id}/register", summary="Self-register player for tournament")
+    @app.post("/api/event/{event_id}/register", summary="Register player for tournament")
+    async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayerPayload, request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            details = db.get_event_details(event_id)
+            if details:
+                ev = db.save_studio_event(details)
+            else:
+                try:
+                    import urllib.request, json
+                    bcp_url = f"{BCP_API_BASE}/events/{event_id}"
+                    req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
+                    with urllib.request.urlopen(req, timeout=8) as resp:
+                        if resp.status == 200:
+                            bcp_data = json.loads(resp.read().decode())
+                            ev = db.save_studio_event({
+                                "id": event_id,
+                                "name": bcp_data.get("name", "Tournament"),
+                                "event_date": bcp_data.get("eventDate") or bcp_data.get("startDate"),
+                                "city": bcp_data.get("city"),
+                                "state": bcp_data.get("state"),
+                                "country": bcp_data.get("country")
+                            })
+                except Exception as ex:
+                    logger.debug(f"Direct BCP fetch notice in register: {ex}")
+            if not ev:
+                raise HTTPException(status_code=404, detail="Tournament not found")
+
+        full_name = (payload.name or "").strip()
+        fn = (payload.first_name or "").strip()
+        ln = (payload.last_name or "").strip()
+        if not full_name and (fn or ln):
+            full_name = f"{fn} {ln}".strip()
+        elif full_name and not fn and not ln:
+            parts = full_name.split(" ", 1)
+            fn = parts[0]
+            ln = parts[1] if len(parts) > 1 else ""
+
+        if not full_name:
+            if user:
+                full_name = user.get("name") or user.get("full_name") or user.get("username") or "Competitor"
+                parts = full_name.split(" ", 1)
+                fn = parts[0]
+                ln = parts[1] if len(parts) > 1 else ""
+            else:
+                raise HTTPException(status_code=400, detail="Player name is required")
+
+        email = (payload.email or (user.get("email") if user else "") or "").strip()
+        faction = (payload.faction or "Unassigned").strip()
+        detachment = (payload.detachment or "").strip()
+        team = (payload.team or "").strip()
+        army_list = (payload.army_list or "").strip()
+        checked_in = True if payload.checked_in is None else bool(payload.checked_in)
+
+        # Generate or resolve player ID
+        player_id = None
+        if user:
+            player_id = user.get("player_id") or user.get("bcp_user_id")
+
+        # Look up Elo rating in DB
+        player_elo = 1500.0
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                if player_id:
+                    cur.execute("SELECT current_elo, player_name FROM player_ratings WHERE player_id = %s LIMIT 1;", (player_id,))
+                    p_row = cur.fetchone()
+                    if p_row:
+                        player_elo = float(p_row[0] or 1500.0)
+                if player_elo == 1500.0 and full_name:
+                    cur.execute("SELECT player_id, current_elo FROM player_ratings WHERE LOWER(player_name) = LOWER(%s) LIMIT 1;", (full_name,))
+                    p_row = cur.fetchone()
+                    if p_row:
+                        if not player_id and p_row[0]:
+                            player_id = str(p_row[0])
+                        player_elo = float(p_row[1] or 1500.0)
+
+        if not player_id:
+            player_id = f"PL-{secrets.token_hex(4).upper()}"
+
+        # Reflect registration on Best Coast Pairings API
+        bcp_registered = False
+        bcp_err = None
+        if not event_id.startswith("ES-"):
+            bcp_token = payload.bcp_token
+            if not bcp_token and user_id:
+                bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+            if not bcp_token and ev.get("organizer_id"):
+                bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
+
+            bcp_payload = {
+                "firstName": fn,
+                "lastName": ln,
+                "email": email,
+                "army": faction,
+                "faction": faction,
+                "detachment": detachment,
+                "team": team,
+                "checkedIn": checked_in,
+                "armyList": army_list
+            }
+
+            p_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/players"
+            data, err = execute_bcp_api_call(p_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=bcp_token)
+            if data is not None or not err:
+                bcp_registered = True
+                logger.info(f"✅ Registered {full_name} to BCP event {event_id} via /players")
+            else:
+                bcp_err = err
+                reg_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/register"
+                data2, err2 = execute_bcp_api_call(reg_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=bcp_token)
+                if data2 is not None or not err2:
+                    bcp_registered = True
+                    logger.info(f"✅ Registered {full_name} to BCP event {event_id} via /register")
+                else:
+                    u_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/users"
+                    data3, err3 = execute_bcp_api_call(u_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=bcp_token)
+                    if data3 is not None or not err3:
+                        bcp_registered = True
+                        logger.info(f"✅ Registered {full_name} to BCP event {event_id} via /users")
+
+        # Update OmniTactica roster
+        roster = list(ev.get("roster") or [])
+        existing_idx = next(
+            (i for i, p in enumerate(roster) if str(p.get("id") or "") == player_id or (p.get("name") or "").strip().lower() == full_name.lower()),
+            -1
+        )
+
+        player_record = {
+            "id": player_id,
+            "name": full_name,
+            "first_name": fn,
+            "last_name": ln,
+            "email": email,
+            "faction": faction,
+            "detachment": detachment,
+            "team": team,
+            "checked_in": checked_in,
+            "checkedIn": checked_in,
+            "dropped": False,
+            "currentElo": round(player_elo, 1),
+            "elo": round(player_elo, 1),
+            "listSubmitted": bool(army_list or detachment),
+            "army_list": army_list
+        }
+
+        if existing_idx >= 0:
+            roster[existing_idx].update(player_record)
+        else:
+            roster.append(player_record)
+
+        ev["roster"] = roster
+        ev["total_players"] = len(roster)
+        saved = db.save_studio_event(ev)
+
+        try:
+            db.upsert_event_participant(
+                event_id=event_id,
+                player_id=player_id,
+                first_name=fn,
+                last_name=ln,
+                full_name=full_name,
+                faction=faction,
+                team=team,
+                dropped=False,
+                checked_in=checked_in
+            )
+        except Exception as pe:
+            logger.warning(f"Error upserting participant: {pe}")
+
+        if hasattr(api_events_recommended, "_roster_cache") and event_id in api_events_recommended._roster_cache:
+            del api_events_recommended._roster_cache[event_id]
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "player": player_record,
+            "total_players": len(roster),
+            "bcp_synced": bcp_registered,
+            "bcp_notice": bcp_err if not bcp_registered and not event_id.startswith("ES-") else None,
+            "event": saved,
+            "message": f"Successfully registered {full_name} for tournament."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/pairings", summary="Save round pairings and sync game rooms")
     async def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], request: Request):
         db = get_database()
         auth_mgr = get_auth_manager()
@@ -1261,7 +1556,6 @@ if FASTAPI_AVAILABLE:
         session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
         user = auth_mgr.get_session(session_token) if session_token else None
         user_id = user["id"] if user else None
-        bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
 
         round_num = str(payload.get("round") or payload.get("round_num") or 1)
         pairings_list = payload.get("pairings") or []
@@ -1271,9 +1565,40 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=404, detail="Event not found")
 
         pairings_map = ev.get("pairings") or {}
+
+        # Enrich pairings with Elo win probability and rematch warnings if missing
+        roster_map = {str(p.get("id") or p.get("name")): p for p in (ev.get("roster") or [])}
+        for p in pairings_list:
+            p1_id = str(p.get("p1_id") or p.get("p1") or "")
+            p2_id = str(p.get("p2_id") or p.get("p2") or "")
+            p1_rec = roster_map.get(p1_id, {})
+            p2_rec = roster_map.get(p2_id, {})
+
+            p1_elo = float(p.get("p1_elo") or p1_rec.get("currentElo") or p1_rec.get("elo") or 1500.0)
+            p2_elo = float(p.get("p2_elo") or p2_rec.get("currentElo") or p2_rec.get("elo") or 1500.0)
+            p["p1_elo"] = round(p1_elo, 1)
+            p["p2_elo"] = round(p2_elo, 1)
+
+            if not p.get("p1_win_prob"):
+                p["p1_win_prob"] = round(1.0 / (1.0 + 10.0 ** ((p2_elo - p1_elo) / 400.0)) * 100.0, 1)
+                p["p2_win_prob"] = round(100.0 - p["p1_win_prob"], 1)
+
+            if "is_rematch" not in p and p2_id:
+                rematch_r = []
+                for prev_r, p_prev in pairings_map.items():
+                    if prev_r != round_num:
+                        for pm in (p_prev or []):
+                            ids = {str(pm.get("p1_id") or pm.get("p1") or ""), str(pm.get("p2_id") or pm.get("p2") or "")}
+                            if p1_id in ids and p2_id in ids:
+                                try: rematch_r.append(int(prev_r))
+                                except Exception: pass
+                p["is_rematch"] = len(rematch_r) > 0
+                p["rematch_rounds"] = sorted(rematch_r)
+
         pairings_map[round_num] = pairings_list
         ev["pairings"] = pairings_map
         ev["current_round"] = int(round_num)
+        ev["pairings_status"] = "staged"
 
         # Pre-seed deterministic tracker rooms for each table
         for p in pairings_list:
@@ -1283,7 +1608,7 @@ if FASTAPI_AVAILABLE:
             p2_name = p.get("p2_name") or p.get("p2Name") or "Player 2"
             p1_fac = p.get("p1_faction") or p.get("p1Faction") or ""
             p2_fac = p.get("p2_faction") or p.get("p2Faction") or ""
-            
+
             if mid not in TRACKER_ROOMS:
                 TRACKER_ROOMS[mid] = {
                     "match_id": mid,
@@ -1308,28 +1633,18 @@ if FASTAPI_AVAILABLE:
                     }
                 }
 
-        saved = db.save_studio_event(ev)
-
-        # Push to BCP
+        # If explicit apply_bcp requested, push to BCP
         bcp_pushed = False
-        if bcp_token and not event_id.startswith("ES-"):
-            try:
-                import urllib.request, json
-                bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/rounds/{round_num}/pairings"
-                req = urllib.request.Request(
-                    bcp_url,
-                    data=json.dumps({"pairings": pairings_list}).encode("utf-8"),
-                    headers={
-                        "Authorization": f"Bearer {bcp_token}",
-                        "Content-Type": "application/json"
-                    },
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    if resp.status in (200, 201):
-                        bcp_pushed = True
-            except Exception as e:
-                logger.debug(f"BCP pairings push notice: {e}")
+        if payload.get("apply_bcp") and not event_id.startswith("ES-"):
+            bcp_token = payload.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/rounds/{round_num}/pairings"
+            data, err = execute_bcp_api_call(bcp_url, method="POST", json_data={"pairings": pairings_list}, user_id=user_id, explicit_token=bcp_token)
+            if data is not None or not err:
+                bcp_pushed = True
+                ev["pairings_status"] = "applied"
+                ev["pairings_bcp_synced"] = True
+
+        saved = db.save_studio_event(ev)
 
         return {
             "success": True,
@@ -1337,6 +1652,7 @@ if FASTAPI_AVAILABLE:
             "round": round_num,
             "pairings_count": len(pairings_list),
             "bcp_pushed": bcp_pushed,
+            "pairings_status": ev.get("pairings_status", "staged"),
             "event": saved
         }
 
@@ -1358,7 +1674,7 @@ if FASTAPI_AVAILABLE:
             "event": saved
         }
 
-    @app.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round")
+    @app.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round (staged locally)")
     async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
         db = get_database()
         ev = db.get_studio_event(event_id)
@@ -1371,7 +1687,7 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=400, detail="At least 2 active players required in roster to generate pairings")
 
         pairings_map = ev.get("pairings") or {}
-        
+
         # Calculate historical records and past opponents
         records = {}
         past_opponents = {}
@@ -1440,7 +1756,7 @@ if FASTAPI_AVAILABLE:
                 -records.get(str(p.get("id") or p.get("player_id") or p.get("name")), {}).get("points", 0),
                 -records.get(str(p.get("id") or p.get("player_id") or p.get("name")), {}).get("path_to_victory", 0),
                 -records.get(str(p.get("id") or p.get("player_id") or p.get("name")), {}).get("battle_points", 0),
-                -float(p.get("elo") or p.get("current_elo") or 1500)
+                -float(p.get("elo") or p.get("current_elo") or p.get("currentElo") or 1500)
             )
         )
 
@@ -1456,10 +1772,10 @@ if FASTAPI_AVAILABLE:
             if not bye_player and sorted_players:
                 bye_player = sorted_players.pop()
 
-        # Swiss pairing algorithm (greedy with rematch avoidance)
+        # Swiss pairing algorithm (greedy with rematch avoidance and team conflict avoidance)
         pairs = []
         unpaired = list(sorted_players)
-        
+
         while unpaired:
             p1 = unpaired.pop(0)
             p1_id = str(p1.get("id") or p1.get("player_id") or p1.get("name"))
@@ -1480,40 +1796,80 @@ if FASTAPI_AVAILABLE:
             p2 = unpaired.pop(best_idx)
             pairs.append((p1, p2))
 
-        # Format pairings list
+        # Format pairings list with Elo win probabilities and rematch warnings
         generated_pairings = []
         table_num = int(ev.get("startingTable") or 1)
         for p1, p2 in pairs:
+            p1_id = str(p1.get("id") or p1.get("player_id") or p1.get("name"))
+            p2_id = str(p2.get("id") or p2.get("player_id") or p2.get("name"))
+            p1_elo = float(p1.get("elo") or p1.get("current_elo") or p1.get("currentElo") or 1500.0)
+            p2_elo = float(p2.get("elo") or p2.get("current_elo") or p2.get("currentElo") or 1500.0)
+            p1_team = (p1.get("team") or p1.get("club") or "").strip()
+            p2_team = (p2.get("team") or p2.get("club") or "").strip()
+
+            p1_prob = round(1.0 / (1.0 + 10.0 ** ((p2_elo - p1_elo) / 400.0)) * 100.0, 1)
+            p2_prob = round(100.0 - p1_prob, 1)
+            is_rematch = p2_id in past_opponents.get(p1_id, set())
+            same_team = bool(p1_team and p2_team and p1_team.lower() == p2_team.lower())
+
+            rematch_r = []
+            for prev_r, p_list in pairings_map.items():
+                if int(prev_r) < target_round:
+                    for pm in (p_list or []):
+                        ids = {str(pm.get("p1_id") or ""), str(pm.get("p2_id") or "")}
+                        if p1_id in ids and p2_id in ids:
+                            try: rematch_r.append(int(prev_r))
+                            except Exception: pass
+
             generated_pairings.append({
                 "table": table_num,
-                "p1_id": str(p1.get("id") or p1.get("player_id") or p1.get("name")),
+                "p1_id": p1_id,
                 "p1_name": p1.get("name") or "Player 1",
                 "p1_faction": p1.get("faction") or "Unknown Faction",
+                "p1_team": p1_team,
+                "p1_elo": round(p1_elo, 1),
+                "p1_win_prob": p1_prob,
                 "p1_army_list": p1.get("army_list") or "",
                 "p1_score": 0,
-                "p2_id": str(p2.get("id") or p2.get("player_id") or p2.get("name")),
+                "p2_id": p2_id,
                 "p2_name": p2.get("name") or "Player 2",
                 "p2_faction": p2.get("faction") or "Unknown Faction",
+                "p2_team": p2_team,
+                "p2_elo": round(p2_elo, 1),
+                "p2_win_prob": p2_prob,
                 "p2_army_list": p2.get("army_list") or "",
                 "p2_score": 0,
+                "is_rematch": is_rematch,
+                "rematch_rounds": sorted(rematch_r),
+                "same_team": same_team,
                 "is_done": False,
                 "is_bye": False
             })
             table_num += 1
 
         if bye_player:
+            b_elo = float(bye_player.get("elo") or bye_player.get("current_elo") or bye_player.get("currentElo") or 1500.0)
             generated_pairings.append({
                 "table": table_num,
                 "p1_id": str(bye_player.get("id") or bye_player.get("player_id") or bye_player.get("name")),
                 "p1_name": bye_player.get("name") or "Player",
                 "p1_faction": bye_player.get("faction") or "Unknown Faction",
+                "p1_team": bye_player.get("team") or "",
+                "p1_elo": round(b_elo, 1),
+                "p1_win_prob": 100.0,
                 "p1_army_list": bye_player.get("army_list") or "",
                 "p1_score": 100,
                 "p2_id": None,
                 "p2_name": "BYE",
                 "p2_faction": "",
+                "p2_team": "",
+                "p2_elo": 0.0,
+                "p2_win_prob": 0.0,
                 "p2_army_list": "",
                 "p2_score": 0,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": False,
                 "is_done": True,
                 "is_bye": True
             })
@@ -1521,28 +1877,175 @@ if FASTAPI_AVAILABLE:
         pairings_map[str(target_round)] = generated_pairings
         ev["pairings"] = pairings_map
         ev["current_round"] = target_round
+        ev["pairings_status"] = "staged"
         saved = db.save_studio_event(ev)
-
-        # Sync generate pairings to BCP if authenticated
-        auth_mgr = get_auth_manager()
-        auth_header = request.headers.get("Authorization", "")
-        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-        user = auth_mgr.get_session(session_token) if session_token else None
-        user_id = user["id"] if user else None
-        bcp_generated = False
-        if user_id and not event_id.startswith("ES-"):
-            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/generatePairings"
-            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": target_round}, user_id=user_id)
-            if resp_data is not None or not err_msg:
-                bcp_generated = True
-                logger.info(f"✅ Generated Round {target_round} pairings on BCP for {event_id}")
 
         return {
             "success": True,
             "round": target_round,
             "pairings": generated_pairings,
-            "bcp_generated": bcp_generated,
+            "pairings_status": "staged",
+            "bcp_generated": False,
+            "event": saved,
+            "message": f"Generated Round {target_round} Swiss pairings (staged locally). TO can inspect, swap players, and apply to BCP."
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/pairings/swap", summary="Dynamically swap two competitors between tables before applying to BCP")
+    async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, request: Request):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        r_str = str(payload.round)
+        pairings_map = ev.get("pairings") or {}
+        round_pairings = list(pairings_map.get(r_str) or [])
+        if not round_pairings:
+            raise HTTPException(status_code=400, detail=f"No pairings found for Round {payload.round}")
+
+        m1 = next((m for m in round_pairings if m.get("table") == payload.table1), None)
+        m2 = next((m for m in round_pairings if m.get("table") == payload.table2), None)
+        if not m1 or not m2:
+            raise HTTPException(status_code=404, detail="One or both tables not found in round pairings")
+
+        s1 = payload.slot1.lower()
+        s2 = payload.slot2.lower()
+        if s1 not in ("p1", "p2") or s2 not in ("p1", "p2"):
+            raise HTTPException(status_code=400, detail="Invalid slot: must be 'p1' or 'p2'")
+
+        fields = ["id", "name", "faction", "team", "elo", "army_list"]
+        for f in fields:
+            k1 = f"{s1}_{f}" if f != "army_list" else f"{s1}_army_list"
+            k2 = f"{s2}_{f}" if f != "army_list" else f"{s2}_army_list"
+            val1 = m1.get(k1)
+            val2 = m2.get(k2)
+            m1[k1] = val2
+            m2[k2] = val1
+
+        # Recalculate win probabilities and warnings for both modified tables
+        for m in (m1, m2):
+            e1 = float(m.get("p1_elo") or 1500.0)
+            e2 = float(m.get("p2_elo") or 1500.0)
+            m["p1_win_prob"] = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
+            m["p2_win_prob"] = round(100.0 - m["p1_win_prob"], 1)
+
+            t1 = (m.get("p1_team") or "").strip().lower()
+            t2 = (m.get("p2_team") or "").strip().lower()
+            m["same_team"] = bool(t1 and t2 and t1 == t2)
+
+            pid1 = str(m.get("p1_id") or "")
+            pid2 = str(m.get("p2_id") or "")
+            rematch_r = []
+            for prev_r, p_list in pairings_map.items():
+                if prev_r != r_str:
+                    for pm in (p_list or []):
+                        ids = {str(pm.get("p1_id") or ""), str(pm.get("p2_id") or "")}
+                        if pid1 in ids and pid2 in ids:
+                            try: rematch_r.append(int(prev_r))
+                            except Exception: pass
+            m["is_rematch"] = len(rematch_r) > 0
+            m["rematch_rounds"] = sorted(rematch_r)
+
+        ev["pairings"][r_str] = round_pairings
+        ev["pairings_status"] = "staged"
+        saved = db.save_studio_event(ev)
+
+        return {
+            "success": True,
+            "round": payload.round,
+            "pairings": round_pairings,
+            "pairings_status": "staged",
+            "message": f"Successfully swapped Table {payload.table1} ({payload.slot1.upper()}) and Table {payload.table2} ({payload.slot2.upper()}).",
             "event": saved
+        }
+
+    @app.post("/api/eventstudio/event/{event_id}/pairings/apply_bcp", summary="Apply staged tournament pairings to Best Coast Pairings")
+    async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
+        db = get_database()
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        user = auth_mgr.get_session(session_token) if session_token else None
+        user_id = user["id"] if user else None
+
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+        round_num = str(payload.round)
+        pairings_map = ev.get("pairings") or {}
+        pairings_list = pairings_map.get(round_num) or []
+        if not pairings_list:
+            raise HTTPException(status_code=400, detail=f"No pairings found for Round {round_num}")
+
+        # Pre-seed deterministic tracker rooms for each table
+        for p in pairings_list:
+            t_num = p.get("table") or 1
+            mid = f"BCP-{event_id}-R{round_num}-T{t_num}".upper()
+            p1_name = p.get("p1_name") or "Player 1"
+            p2_name = p.get("p2_name") or "Player 2"
+            p1_fac = p.get("p1_faction") or ""
+            p2_fac = p.get("p2_faction") or ""
+            if mid not in TRACKER_ROOMS:
+                TRACKER_ROOMS[mid] = {
+                    "match_id": mid,
+                    "user_id_p1": None,
+                    "user_id_p2": None,
+                    "referee_ids": [user_id] if user_id else [],
+                    "version": 1,
+                    "state": {
+                        "game": {
+                            "eventId": event_id,
+                            "roundNum": int(round_num),
+                            "tableNum": int(t_num),
+                            "p1Name": p1_name,
+                            "p2Name": p2_name,
+                            "p1Faction": p1_fac,
+                            "p2Faction": p2_fac
+                        },
+                        "p1": {"rounds": [{"primaryScore": 0, "secondaryScore": 0}], "battleReady": True},
+                        "p2": {"rounds": [{"primaryScore": 0, "secondaryScore": 0}], "battleReady": True},
+                        "round": 1,
+                        "started": False
+                    }
+                }
+
+        # Push to BCP
+        bcp_pushed = False
+        bcp_err = None
+        if not event_id.startswith("ES-"):
+            bcp_token = None
+            if user_id:
+                bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+            if not bcp_token and ev.get("organizer_id"):
+                bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
+
+            bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/rounds/{round_num}/pairings"
+            data, err = execute_bcp_api_call(bcp_url, method="POST", json_data={"pairings": pairings_list}, user_id=user_id, explicit_token=bcp_token)
+            if data is not None or not err:
+                bcp_pushed = True
+                logger.info(f"✅ Pushed Round {round_num} pairings to BCP for {event_id}")
+            else:
+                bcp_err = err
+                bcp_url2 = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/pairings"
+                data2, err2 = execute_bcp_api_call(bcp_url2, method="POST", json_data={"round": int(round_num), "pairings": pairings_list}, user_id=user_id, explicit_token=bcp_token)
+                if data2 is not None or not err2:
+                    bcp_pushed = True
+                    logger.info(f"✅ Pushed Round {round_num} pairings to BCP fallback for {event_id}")
+
+        ev["pairings_status"] = "applied"
+        ev["pairings_bcp_synced"] = bcp_pushed
+        saved = db.save_studio_event(ev)
+
+        return {
+            "success": True,
+            "round": int(round_num),
+            "pairings_count": len(pairings_list),
+            "bcp_applied": bcp_pushed,
+            "bcp_notice": bcp_err if not bcp_pushed and not event_id.startswith("ES-") else None,
+            "pairings_status": "applied",
+            "event": saved,
+            "message": f"Round {round_num} pairings successfully applied to Best Coast Pairings!"
         }
 
     @app.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
