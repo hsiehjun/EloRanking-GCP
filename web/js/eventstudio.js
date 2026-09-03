@@ -2618,8 +2618,11 @@ async function loadGoogleMapsSdk() {
       console.info("Google Maps API key not yet set in environment.");
       return;
     }
+    if (document.querySelector('script[src*="maps.googleapis.com"]')) {
+      return;
+    }
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&callback=initGooglePlaces`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&callback=initGooglePlaces`;
     script.async = true;
     script.defer = true;
     document.head.appendChild(script);

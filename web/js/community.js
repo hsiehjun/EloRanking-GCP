@@ -1472,6 +1472,29 @@ async function loadLocalGameStores(forceRefresh = false) {
   if (communityState.storesLoading && !forceRefresh) return;
   communityState.storesLoading = true;
 
+  const lat = communityState.lat || 32.7157;
+  const lng = communityState.lng || -117.1611;
+  const radius = communityState.radiusMiles || 50;
+  const locName = communityState.locationName || 'San Diego, CA';
+  const query = (communityState.storesSearch || '').trim().toLowerCase();
+  const cacheKey = `comm_stores_${Math.round(lat*100)/100}_${Math.round(lng*100)/100}_${radius}_${query}`;
+
+  // Instant local session cache hit
+  if (!forceRefresh && (!communityState.stores || communityState.stores.length === 0)) {
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          communityState.stores = parsed;
+          updateStoresBadgesAndCounts();
+          renderStoresGrid();
+          initStoresGoogleMap(parsed);
+        }
+      }
+    } catch (e) {}
+  }
+
   const grid = document.getElementById('comm-stores-grid');
   if (grid && (!communityState.stores || communityState.stores.length === 0 || forceRefresh)) {
     grid.innerHTML = `
@@ -1483,38 +1506,35 @@ async function loadLocalGameStores(forceRefresh = false) {
   }
 
   try {
-    const lat = communityState.lat || 32.7157;
-    const lng = communityState.lng || -117.1611;
-    const radius = communityState.radiusMiles || 50;
-    const locName = communityState.locationName || 'San Diego, CA';
-
-    // 1. Fetch from backend API
+    // 1. Fetch from backend API (fast indexed spatial bounding box)
     let backendStores = [];
     if (typeof window.api?.getCommunityStores === 'function') {
       try {
         const res = await window.api.getCommunityStores(lat, lng, radius, communityState.storesSearch, locName);
         if (res && res.success && Array.isArray(res.stores)) {
           backendStores = res.stores;
+          // Immediately render backend stores without waiting for client search
+          communityState.stores = backendStores;
+          updateStoresBadgesAndCounts();
+          renderStoresGrid();
+          initStoresGoogleMap(backendStores);
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify(backendStores));
+          } catch (e) {}
         }
       } catch (e) {
         console.warn("Backend getCommunityStores notice:", e);
       }
     }
 
-    // 2. Query client PlacesService if Google Maps JS SDK is active
-    let clientPlaces = [];
-    try {
-      clientPlaces = await searchGooglePlacesClient(lat, lng, radius, communityState.storesSearch);
-    } catch (e) {
-      console.warn("Client Places search notice:", e);
-    }
+    // 2. Asynchronously enrich with client PlacesService in background (non-blocking)
+    searchGooglePlacesClient(lat, lng, radius, communityState.storesSearch).then(clientPlaces => {
+      if (!Array.isArray(clientPlaces) || clientPlaces.length === 0) return;
+      const current = [...(communityState.stores || [])];
+      const seenPlaceIds = new Set(current.map(s => s.place_id).filter(Boolean));
+      const seenNames = new Set(current.map(s => (s.name || '').toLowerCase().replace(/['"]/g, '').trim()));
+      let hasChanges = false;
 
-    // 3. Merge results
-    const merged = [...backendStores];
-    const seenPlaceIds = new Set(backendStores.map(s => s.place_id).filter(Boolean));
-    const seenNames = new Set(backendStores.map(s => (s.name || '').toLowerCase().replace(/['"]/g, '').trim()));
-
-    if (Array.isArray(clientPlaces) && clientPlaces.length > 0) {
       for (const place of clientPlaces) {
         const pid = place.place_id;
         const pName = place.name || 'Game Store';
@@ -1522,40 +1542,35 @@ async function loadLocalGameStores(forceRefresh = false) {
         const normName = pName.toLowerCase().replace(/['"]/g, '').trim();
         const pLat = place.geometry?.location ? (typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat) : null;
         const pLng = place.geometry?.location ? (typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng) : null;
-
         if (pLat == null || pLng == null) continue;
-
         const dist = calcHaversineDistanceMiles(lat, lng, pLat, pLng);
         if (dist > (radius * 1.25)) continue;
 
-        // Check if matches an existing store
         let matched = null;
         if (pid && seenPlaceIds.has(pid)) {
-          matched = merged.find(s => s.place_id === pid);
+          matched = current.find(s => s.place_id === pid);
         }
         if (!matched && seenNames.has(normName)) {
-          matched = merged.find(s => (s.name || '').toLowerCase().replace(/['"]/g, '').trim() === normName);
+          matched = current.find(s => (s.name || '').toLowerCase().replace(/['"]/g, '').trim() === normName);
         }
         if (!matched) {
-          matched = merged.find(s => s.latitude && s.longitude && Math.abs(s.latitude - pLat) < 0.003 && Math.abs(s.longitude - pLng) < 0.003);
+          matched = current.find(s => s.latitude && s.longitude && Math.abs(s.latitude - pLat) < 0.003 && Math.abs(s.longitude - pLng) < 0.003);
         }
 
         const openNow = place.opening_hours ? (typeof place.opening_hours.isOpen === 'function' ? place.opening_hours.isOpen() : place.opening_hours.open_now) : null;
 
         if (matched) {
-          if (!matched.place_id && pid) matched.place_id = pid;
-          if (place.formatted_address && (!matched.address || matched.address.length < place.formatted_address.length)) {
-            matched.address = place.formatted_address;
-          }
-          if (place.rating) matched.rating = place.rating;
-          if (place.user_ratings_total) matched.user_ratings_total = place.user_ratings_total;
-          if (openNow !== undefined && openNow !== null) matched.open_now = openNow;
+          if (!matched.place_id && pid) { matched.place_id = pid; hasChanges = true; }
+          if (place.rating && !matched.rating) { matched.rating = place.rating; hasChanges = true; }
+          if (place.user_ratings_total && !matched.user_ratings_total) { matched.user_ratings_total = place.user_ratings_total; hasChanges = true; }
+          if (openNow !== undefined && openNow !== null && matched.open_now == null) { matched.open_now = openNow; hasChanges = true; }
         } else {
+          hasChanges = true;
           const isOfficial = Boolean(normName.includes('warhammer') || normName.includes('games workshop'));
           seenNames.add(normName);
           if (pid) seenPlaceIds.add(pid);
-          merged.push({
-            id: pid || `client_${merged.length}`,
+          current.push({
+            id: pid || `client_${current.length}`,
             place_id: pid,
             name: pName,
             address: place.formatted_address || place.vicinity || '',
@@ -1572,18 +1587,20 @@ async function loadLocalGameStores(forceRefresh = false) {
           });
         }
       }
-    }
 
-    // Sort by proximity
-    merged.sort((a, b) => (a.distance_miles ?? 9999) - (b.distance_miles ?? 9999));
-    communityState.stores = merged;
-
-    // Update filter counts and subtab badge
-    updateStoresBadgesAndCounts();
-
-    // Render cards and map
-    renderStoresGrid();
-    initStoresGoogleMap(merged);
+      if (hasChanges) {
+        current.sort((a, b) => (a.distance_miles ?? 9999) - (b.distance_miles ?? 9999));
+        communityState.stores = current;
+        updateStoresBadgesAndCounts();
+        renderStoresGrid();
+        initStoresGoogleMap(current);
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(current));
+        } catch (e) {}
+      }
+    }).catch(e => {
+      console.warn("Client Places async enrichment notice:", e);
+    });
 
   } catch (err) {
     console.error("Error loading local game stores:", err);

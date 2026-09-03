@@ -253,6 +253,19 @@ class PostgresDatabase:
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS started BOOLEAN DEFAULT FALSE;
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS pairings_status VARCHAR(32) DEFAULT 'draft';
                 CREATE INDEX IF NOT EXISTS idx_events_lat_lng ON events (latitude, longitude) WHERE latitude IS NOT NULL AND longitude IS NOT NULL;
+                UPDATE events
+                SET latitude = (raw_json->'coordinate'->>1)::double precision,
+                    longitude = (raw_json->'coordinate'->>0)::double precision
+                WHERE latitude IS NULL 
+                  AND jsonb_typeof(raw_json->'coordinate') = 'array' 
+                  AND jsonb_array_length(raw_json->'coordinate') = 2;
+
+                UPDATE events
+                SET latitude = (raw_json->'location'->'coordinate'->>1)::double precision,
+                    longitude = (raw_json->'location'->'coordinate'->>0)::double precision
+                WHERE latitude IS NULL 
+                  AND jsonb_typeof(raw_json->'location'->'coordinate') = 'array' 
+                  AND jsonb_array_length(raw_json->'location'->'coordinate') = 2;
 
                 CREATE TABLE IF NOT EXISTS players (
                     id VARCHAR(64) PRIMARY KEY,
@@ -5753,13 +5766,13 @@ class PostgresDatabase:
 
         clean_query = (query or "").strip()
         cache_key = (
-            "v2",
+            "v3",
             round(user_lat, 2),
             round(user_lng, 2),
             int(round(radius_miles)),
             clean_query.lower()
         )
-        cached = PostgresDatabase.get_cached(PostgresDatabase._stores_cache_dict, cache_key, ttl=300)
+        cached = PostgresDatabase.get_cached(PostgresDatabase._stores_cache_dict, cache_key, ttl=1800)
         if cached is not None:
             return cached
 
@@ -5853,8 +5866,16 @@ class PostgresDatabase:
             except Exception as e:
                 logger.warning(f"Google Places TextSearch query notice: {e}")
 
-        # 2. Query verified Warhammer tournament venues from PostgreSQL database
+        # 2. Query verified Warhammer tournament venues from PostgreSQL database (using fast spatial bounding box)
         try:
+            lat_delta = (radius_miles * 1.25) / 69.0
+            cos_lat = max(0.2, math.cos(math.radians(user_lat)))
+            lng_delta = (radius_miles * 1.25) / (69.0 * cos_lat)
+            min_lat = user_lat - lat_delta
+            max_lat = user_lat + lat_delta
+            min_lng = user_lng - lng_delta
+            max_lng = user_lng + lng_delta
+
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                     cursor.execute("""
@@ -5863,34 +5884,14 @@ class PostgresDatabase:
                                 COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue_name,
                                 e.city, e.state, e.country,
                                 COALESCE(e.raw_json->>'address', e.raw_json->'location'->>'address', '') as address,
-                                COALESCE(
-                                    e.latitude,
-                                    CASE 
-                                        WHEN jsonb_typeof(e.raw_json->'coordinate') = 'array' 
-                                             AND jsonb_array_length(e.raw_json->'coordinate') = 2 
-                                        THEN (e.raw_json->'coordinate'->>1)::double precision 
-                                        WHEN jsonb_typeof(e.raw_json->'location'->'coordinate') = 'array'
-                                             AND jsonb_array_length(e.raw_json->'location'->'coordinate') = 2
-                                        THEN (e.raw_json->'location'->'coordinate'->>1)::double precision
-                                        ELSE NULL 
-                                    END
-                                ) as lat,
-                                COALESCE(
-                                    e.longitude,
-                                    CASE 
-                                        WHEN jsonb_typeof(e.raw_json->'coordinate') = 'array' 
-                                             AND jsonb_array_length(e.raw_json->'coordinate') = 2 
-                                        THEN (e.raw_json->'coordinate'->>0)::double precision 
-                                        WHEN jsonb_typeof(e.raw_json->'location'->'coordinate') = 'array'
-                                             AND jsonb_array_length(e.raw_json->'location'->'coordinate') = 2
-                                        THEN (e.raw_json->'location'->'coordinate'->>0)::double precision
-                                        ELSE NULL 
-                                    END
-                                ) as lng,
+                                e.latitude as lat,
+                                e.longitude as lng,
                                 COUNT(*) as tournament_count,
                                 MAX(e.event_date) as last_tournament_date
                             FROM events e
-                            WHERE (e.venue IS NOT NULL OR e.venue_name IS NOT NULL OR e.raw_json->>'locationName' IS NOT NULL)
+                            WHERE e.latitude BETWEEN %s AND %s
+                              AND e.longitude BETWEEN %s AND %s
+                              AND (e.venue IS NOT NULL OR e.venue_name IS NOT NULL OR e.raw_json->>'locationName' IS NOT NULL)
                             GROUP BY 1, 2, 3, 4, 5, 6, 7
                         ),
                         venues_dist AS (
@@ -5912,7 +5913,7 @@ class PostgresDatabase:
                         WHERE distance_miles <= %s
                         ORDER BY distance_miles ASC, tournament_count DESC
                         LIMIT 40;
-                    """, (user_lat, user_lng, user_lat, radius_miles))
+                    """, (min_lat, max_lat, min_lng, max_lng, user_lat, user_lng, user_lat, radius_miles))
                     db_venues = cursor.fetchall()
                     for v in db_venues:
                         v_name = (v.get("venue_name") or "").strip()
