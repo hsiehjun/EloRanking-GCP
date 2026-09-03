@@ -5,8 +5,44 @@ import logging
 import math
 import os
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, List, Optional, Tuple, Set, Union
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+try:
+    from google3.experimental.users.hsiehjun.EloRanking.config import (
+        BCP_API_BASE,
+        DEFAULT_HEADERS,
+        DEFAULT_GAME_SYSTEM_ID,
+    )
+except ImportError:
+    try:
+        from experimental.users.hsiehjun.EloRanking.config import (
+            BCP_API_BASE,
+            DEFAULT_HEADERS,
+            DEFAULT_GAME_SYSTEM_ID,
+        )
+    except ImportError:
+        try:
+            from config import (
+                BCP_API_BASE,
+                DEFAULT_HEADERS,
+                DEFAULT_GAME_SYSTEM_ID,
+            )
+        except ImportError:
+            BCP_API_BASE = "https://newprod-api.bestcoastpairings.com/v1"
+            DEFAULT_HEADERS = {
+                "client-id": "web-app",
+                "env": "bcp",
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                "Accept": "*/*",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Origin": "https://www.bestcoastpairings.com",
+                "Referer": "https://www.bestcoastpairings.com/",
+            }
+            DEFAULT_GAME_SYSTEM_ID = "WGMSzfKFYA"
 
 try:
     import psycopg2
@@ -32,6 +68,7 @@ class PostgresDatabase:
     _teams_cache_dict = {}
     _team_roster_cache_dict = {}
     _community_overview_cache_dict = {}
+    _bcp_upcoming_cache_dict = {}
     CACHE_TTL_SECONDS = 600
 
     @classmethod
@@ -58,6 +95,7 @@ class PostgresDatabase:
         cls._teams_cache_dict.clear()
         cls._team_roster_cache_dict.clear()
         cls._community_overview_cache_dict.clear()
+        cls._bcp_upcoming_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -4591,6 +4629,187 @@ class PostgresDatabase:
         """Returns standard regional hubs for community selection."""
         return self.COMMUNITY_REGIONS
 
+    def fetch_bcp_upcoming_events(
+        self,
+        user_lat: float,
+        user_lng: float,
+        radius_miles: float = 100.0,
+        days_ahead: int = 92
+    ) -> List[Dict[str, Any]]:
+        """
+        Queries live upcoming Warhammer 40k events directly from the Best Coast Pairings (BCP) API
+        for the specified GPS coordinates and radius, looking ahead up to days_ahead (default 92 days / ~3 months),
+        starting from yesterday (to capture ongoing multi-day weekend tournaments).
+        """
+        if user_lat is None or user_lng is None:
+            return []
+
+        effective_radius = max(5, int(round(radius_miles)))
+        cache_key = (
+            round(user_lat, 2),
+            round(user_lng, 2),
+            effective_radius,
+            days_ahead
+        )
+        cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, ttl=180)
+        if cached is not None:
+            return list(cached)
+
+        now_utc = datetime.now(timezone.utc)
+        # Start from yesterday (24h back) to capture ongoing multi-day weekend events
+        start_iso = (now_utc - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00.000Z")
+        end_iso = (now_utc + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z")
+
+        params = {
+            "limit": 50,
+            "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+            "startDate": start_iso,
+            "endDate": end_iso,
+            "excludeOnline": "true",
+            "sortKey": "eventDate",
+            "sortAscending": "true",
+            "location": json.dumps({
+                "distance": effective_radius,
+                "distanceType": "miles",
+                "center": {
+                    "lat": str(user_lat),
+                    "long": str(user_lng)
+                }
+            })
+        }
+
+        headers = DEFAULT_HEADERS.copy()
+        raw_events = []
+        next_key = None
+
+        for _ in range(4):  # Up to 200 events across 4 pages
+            if next_key:
+                params["nextKey"] = next_key
+            url = f"{BCP_API_BASE}/events?{urllib.parse.urlencode(params)}"
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=4.5) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    evs = data.get("data", [])
+                    if not evs:
+                        break
+                    raw_events.extend(evs)
+                    next_key = data.get("nextKey")
+                    if not next_key:
+                        break
+            except Exception as e:
+                logger.warning(f"Live BCP upcoming events query notice for ({user_lat}, {user_lng}): {e}")
+                break
+
+        normalized_events = []
+        seen_ids = set()
+
+        for ev in raw_events:
+            eid = str(ev.get("id") or ev.get("objectId") or "")
+            if not eid or eid in seen_ids:
+                continue
+            seen_ids.add(eid)
+
+            loc_obj = ev.get("location") if isinstance(ev.get("location"), dict) else {}
+            venue = (
+                ev.get("venue") or ev.get("venue_name") or
+                loc_obj.get("name") or loc_obj.get("venue") or ""
+            )
+            city = ev.get("city") or loc_obj.get("city") or ""
+            state = ev.get("state") or loc_obj.get("state") or ""
+            country = ev.get("country") or loc_obj.get("country") or ""
+
+            # Coordinates parsing: BCP GeoJSON format is [longitude, latitude]
+            ev_lat, ev_lng = None, None
+            coord = ev.get("coordinate")
+            if not coord and isinstance(loc_obj.get("coordinate"), list):
+                coord = loc_obj.get("coordinate")
+
+            if isinstance(coord, list) and len(coord) >= 2:
+                try:
+                    ev_lng = float(coord[0])
+                    ev_lat = float(coord[1])
+                except (ValueError, TypeError):
+                    ev_lat, ev_lng = None, None
+            elif ev.get("latitude") is not None and ev.get("longitude") is not None:
+                try:
+                    ev_lat = float(ev["latitude"])
+                    ev_lng = float(ev["longitude"])
+                except (ValueError, TypeError):
+                    ev_lat, ev_lng = None, None
+            elif loc_obj.get("latitude") is not None and loc_obj.get("longitude") is not None:
+                try:
+                    ev_lat = float(loc_obj["latitude"])
+                    ev_lng = float(loc_obj["longitude"])
+                except (ValueError, TypeError):
+                    ev_lat, ev_lng = None, None
+
+            # Haversine distance calculation in miles
+            dist_miles = None
+            if ev_lat is not None and ev_lng is not None and not (ev_lat == 0.0 and ev_lng == 0.0):
+                try:
+                    R = 3959.0
+                    dlat = math.radians(ev_lat - user_lat)
+                    dlng = math.radians(ev_lng - user_lng)
+                    a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(ev_lat)) * math.sin(dlng / 2.0) ** 2
+                    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+                    dist_miles = round(R * c, 1)
+                except Exception:
+                    dist_miles = None
+
+            # Safety filter: if coordinates exist and calculated distance exceeds radius * 1.25, exclude it
+            if dist_miles is not None and dist_miles > (effective_radius * 1.25):
+                continue
+
+            event_date = ev.get("eventDate") or ev.get("event_date")
+            end_date = ev.get("endDate") or ev.get("end_date")
+            if hasattr(event_date, "isoformat"):
+                event_date = event_date.isoformat()
+            if hasattr(end_date, "isoformat"):
+                end_date = end_date.isoformat()
+
+            total_players = 0
+            try:
+                total_players = int(ev.get("totalPlayers") or ev.get("total_players") or ev.get("enrolled_count") or 0)
+            except (ValueError, TypeError):
+                total_players = 0
+
+            num_rounds = 0
+            try:
+                num_rounds = int(ev.get("numberOfRounds") or ev.get("num_rounds") or 0)
+            except (ValueError, TypeError):
+                num_rounds = 0
+
+            current_round = 0
+            try:
+                current_round = int(ev.get("currentRound") or ev.get("current_round") or 0)
+            except (ValueError, TypeError):
+                current_round = 0
+
+            is_ended = bool(ev.get("isEnded") or ev.get("is_ended") or False)
+            circuits = ev.get("circuits") or []
+
+            normalized_events.append({
+                "id": eid,
+                "name": ev.get("name") or "Tournament",
+                "event_date": event_date,
+                "end_date": end_date,
+                "city": city,
+                "state": state,
+                "country": country,
+                "venue": venue,
+                "total_players": total_players,
+                "num_rounds": num_rounds,
+                "current_round": current_round,
+                "is_ended": is_ended,
+                "circuits": circuits,
+                "distance_miles": dist_miles,
+                "event_group": "upcoming"
+            })
+
+        PostgresDatabase.set_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, normalized_events)
+        return normalized_events
+
     def get_community_overview(
         self,
         lat: Optional[float] = None,
@@ -4863,8 +5082,9 @@ class PostgresDatabase:
                         FROM events_dist
                         WHERE distance_miles <= %s
                           AND event_date >= CURRENT_DATE - INTERVAL '1 day'
+                          AND event_date <= CURRENT_DATE + (INTERVAL '1 day' * 92)
                         ORDER BY event_date ASC, distance_miles ASC
-                        LIMIT 25
+                        LIMIT 30
                     )
                     UNION ALL
                     (
@@ -4889,8 +5109,62 @@ class PostgresDatabase:
                     )
                 )
                 all_event_rows = cursor.fetchall()
-                events_upcoming = [dict(r) for r in all_event_rows if r.get("event_group") == "upcoming"]
+                events_upcoming_db = [dict(r) for r in all_event_rows if r.get("event_group") == "upcoming"]
                 events_recent = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
+
+                # Fetch live upcoming tournaments from BCP API (3 months / 92 days ahead)
+                bcp_upcoming = []
+                try:
+                    bcp_upcoming = self.fetch_bcp_upcoming_events(
+                        user_lat=user_lat,
+                        user_lng=user_lng,
+                        radius_miles=radius_miles,
+                        days_ahead=92
+                    )
+                except Exception as e:
+                    logger.warning(f"Notice fetching live BCP upcoming tournaments: {e}")
+
+                # Merge BCP upcoming with DB upcoming events, deduplicating by event ID
+                seen_upcoming_ids = set()
+                merged_upcoming = []
+                db_upcoming_map = {e["id"]: e for e in events_upcoming_db if e.get("id")}
+
+                for b_ev in bcp_upcoming:
+                    eid = b_ev.get("id")
+                    if not eid or eid in seen_upcoming_ids:
+                        continue
+                    seen_upcoming_ids.add(eid)
+
+                    if eid in db_upcoming_map:
+                        db_ev = db_upcoming_map[eid]
+                        combined = dict(db_ev)
+                        if b_ev.get("total_players") and b_ev["total_players"] > (combined.get("total_players") or 0):
+                            combined["total_players"] = b_ev["total_players"]
+                        if b_ev.get("current_round"):
+                            combined["current_round"] = b_ev["current_round"]
+                        if b_ev.get("is_ended"):
+                            combined["is_ended"] = b_ev["is_ended"]
+                        if combined.get("distance_miles") is None and b_ev.get("distance_miles") is not None:
+                            combined["distance_miles"] = b_ev["distance_miles"]
+                        merged_upcoming.append(combined)
+                    else:
+                        merged_upcoming.append(b_ev)
+
+                for db_ev in events_upcoming_db:
+                    eid = db_ev.get("id")
+                    if eid and eid not in seen_upcoming_ids:
+                        seen_upcoming_ids.add(eid)
+                        merged_upcoming.append(db_ev)
+
+                def upcoming_sort_key(ev):
+                    d_raw = ev.get("event_date") or "9999-12-31"
+                    d_str = d_raw.isoformat() if hasattr(d_raw, "isoformat") else str(d_raw)
+                    dist = ev.get("distance_miles")
+                    dist_val = float(dist) if dist is not None else 999999.0
+                    return (d_str, dist_val)
+
+                merged_upcoming.sort(key=upcoming_sort_key)
+                events_upcoming = merged_upcoming[:35]
 
                 # Collect event IDs for field stats and player discovery
                 all_event_ids = [e["id"] for e in (events_upcoming + events_recent)]
