@@ -238,6 +238,7 @@ if FASTAPI_AVAILABLE:
 
     class MatchRespondPayload(BaseModel):
         action: str  # "accept", "decline", "block"
+        message: Optional[str] = None
 
     class ChatMessagePayload(BaseModel):
         message: str
@@ -1016,7 +1017,7 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=401, detail="Authentication required")
 
         db = get_database()
-        res = db.respond_match_request(request_id, user["id"], payload.action)
+        res = db.respond_match_request(request_id, user["id"], payload.action, getattr(payload, "message", None))
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to update match request"))
         return res
@@ -4581,8 +4582,36 @@ if FASTAPI_AVAILABLE:
 
     # API: Player Profile & Historical Win Path
     @app.get("/api/player/{player_id}", summary="Get player profile, win path, and Elo trajectory")
-    async def api_player_profile(player_id: str):
-        return get_elo_engine().get_player_win_path(player_id.strip())
+    async def api_player_profile(player_id: str, request: Request):
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        current_user = auth_mgr.get_session(session_token) if session_token else None
+
+        pid = player_id.strip()
+        data = get_elo_engine().get_player_win_path(pid)
+
+        # Check if this player is registered on OmniTactica
+        db = get_database()
+        user_row = db.get_user_for_player(pid, data.get("player_name"))
+        if user_row:
+            data["has_account"] = True
+            data["account_user_id"] = user_row["id"]
+            data["can_chat"] = True
+            data["is_self"] = bool(current_user and current_user["id"] == user_row["id"])
+            if current_user and not data["is_self"]:
+                req = db.get_existing_match_request(current_user["id"], user_row["id"])
+                if req:
+                    data["existing_request_id"] = req["id"]
+                    data["existing_request_status"] = req["status"]
+                    data["existing_request_sender_id"] = req["sender_id"]
+        else:
+            data["has_account"] = False
+            data["account_user_id"] = None
+            data["can_chat"] = False
+            data["is_self"] = False
+
+        return data
 
     # API: Tournaments List
     @app.get("/api/events", summary="List tournaments with date and status filters (paginated)")

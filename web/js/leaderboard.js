@@ -100,12 +100,21 @@ function renderLeaderboardRows() {
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const winRate = p.win_rate !== undefined ? p.win_rate : (p.matches_played > 0 ? ((p.wins / p.matches_played) * 100).toFixed(1) : 0);
     const teamHtml = p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); filterByTeam('${escapeHtml(p.team)}')">🛡️ ${escapeHtml(p.team)}</span>` : '';
+    const isSelf = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === p.player_id || currentUser.id === p.account_user_id));
+    const chatPill = (p.has_account && !isSelf) ? `
+      <button type="button" class="btn-chat-pill" title="Send Chat Request" onclick="event.stopPropagation(); handlePlayerChatClick('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name || '')}', '${p.account_user_id || ''}')">
+        💬 Chat
+      </button>
+    ` : '';
 
     tr.innerHTML = `
       <td class="rank-cell ${rankClass}">#${rank}</td>
       <td>
         <div class="player-name-cell">
-          <span class="player-link">${escapeHtml(p.player_name || 'Unknown')}</span>
+          <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+            <span class="player-link">${escapeHtml(p.player_name || 'Unknown')}</span>
+            ${chatPill}
+          </div>
           ${teamHtml}
         </div>
       </td>
@@ -218,3 +227,18 @@ function renderLeaderboardTeamsRows() {
     tbody.appendChild(tr);
   });
 }
+
+function handlePlayerChatClick(playerId, playerName, accountUserId) {
+  const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
+  if (!token) {
+    alert('Please log in or create an account to send chat requests.');
+    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
+    return;
+  }
+  if (typeof openSendChatRequestModal === 'function') {
+    openSendChatRequestModal(playerId, playerName, accountUserId);
+  } else if (typeof openProposeMatchModal === 'function') {
+    openProposeMatchModal(accountUserId || playerId, playerName);
+  }
+}
+window.handlePlayerChatClick = handlePlayerChatClick;

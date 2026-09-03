@@ -1240,13 +1240,23 @@ function renderCommunityLeaderboard() {
       const peak = row.peak_elo ? Math.round(Number(row.peak_elo)) : elo;
       const winRate = row.win_rate != null ? `${Number(row.win_rate).toFixed(1)}%` : '-';
 
+      const isSelf = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === row.player_id || currentUser.id === row.account_user_id));
+      const chatPill = (row.has_account && !isSelf) ? `
+        <button type="button" class="btn-chat-pill" title="Send Chat Request" onclick="event.stopPropagation(); handlePlayerChatClick('${escapeHtml(row.player_id)}', '${escapeHtml(row.player_name || '')}', '${row.account_user_id || ''}')">
+          💬 Chat
+        </button>
+      ` : '';
+
       html += `
         <tr onclick="openPlayerModal('${escapeHtml(row.player_id)}')" style="cursor: pointer;">
           <td style="text-align: center; font-weight: 800; font-family: monospace; color: ${rank <= 3 ? '#f59e0b' : '#94a3b8'};">
             ${rankDisplay}
           </td>
           <td>
-            <div style="font-weight: 700; color: #fff;">${escapeHtml(row.player_name || 'Competitor')}</div>
+            <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+              <div style="font-weight: 700; color: #fff;">${escapeHtml(row.player_name || 'Competitor')}</div>
+              ${chatPill}
+            </div>
             ${row.has_shared_events ? `<span style="font-size: 0.68rem; color: #10b981; font-weight: 700;">★ Shared Tournament Competitor</span>` : ''}
           </td>
           <td style="font-weight: 800; color: #38bdf8; font-family: monospace;">

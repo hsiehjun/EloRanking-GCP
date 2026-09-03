@@ -890,11 +890,11 @@ window.api = {
   },
 
   // OmniConnect: Respond to Request
-  async respondConnectRequest(requestId, action) {
+  async respondConnectRequest(requestId, action, message = '') {
     return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
-      body: JSON.stringify({ action: action })
+      body: JSON.stringify({ action: action, message: message })
     });
   },
 

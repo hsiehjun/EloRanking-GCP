@@ -82,10 +82,89 @@ async function openPlayerModal(playerId) {
   const tbody = document.getElementById('modal-matches-body');
   if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading match history...</div></td></tr>';
 
+  const chatContainer = document.getElementById('modal-player-chat-container');
+  if (chatContainer) chatContainer.innerHTML = '';
+
   try {
     const data = await window.api.getPlayerProfile(playerId);
     const p = data.player || data || {};
     document.getElementById('modal-player-name').innerText = p.player_name || p.full_name || 'Player Profile';
+
+    // OmniTactica Registered User & Chat Request Handler
+    if (chatContainer) {
+      chatContainer.innerHTML = '';
+      const playerName = p.player_name || p.full_name || 'Player';
+      const playerPid = p.player_id || playerId;
+      const currentUserVal = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+
+      if (data.is_self) {
+        chatContainer.innerHTML = `
+          <span class="oc-badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.78rem; padding: 0.35rem 0.65rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 0.3rem;">
+            👤 You
+          </span>
+        `;
+      } else if (!data.has_account) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline';
+        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.65rem; border-color: rgba(239, 68, 68, 0.35); color: #f87171; background: rgba(239, 68, 68, 0.08); display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: 6px;';
+        btn.title = `${playerName} has not registered an OmniTactica account yet. Direct chat requests are only available between registered OmniTactica players.`;
+        btn.innerHTML = `🔒 Not on OmniTactica`;
+        btn.onclick = () => showUnregisteredPlayerAlert(playerName);
+        chatContainer.appendChild(btn);
+      } else if (data.existing_request_status === 'accepted') {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary';
+        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; background: #0284c7; border-color: #0284c7; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
+        btn.innerHTML = `💬 Open Chat`;
+        btn.onclick = () => {
+          closeModal('player-modal');
+          if (typeof openChatWithRequest === 'function') {
+            openChatWithRequest(data.existing_request_id);
+          } else if (typeof switchTab === 'function') {
+            switchTab('chat');
+          }
+        };
+        chatContainer.appendChild(btn);
+      } else if (data.existing_request_status === 'pending') {
+        const isSender = data.existing_request_sender_id === currentUserVal?.id;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-outline';
+        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; border-color: #f59e0b; color: #fbbf24; background: rgba(245, 158, 11, 0.12); display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600; cursor: pointer; border-radius: 6px;';
+        btn.innerHTML = isSender ? `⏳ Request Pending` : `🔔 Chat Request Received`;
+        btn.title = isSender ? 'Your chat request is pending their response' : 'They sent you a chat request! Click to view in Messages';
+        btn.onclick = () => {
+          closeModal('player-modal');
+          if (typeof switchTab === 'function') {
+            switchTab('chat');
+          }
+        };
+        chatContainer.appendChild(btn);
+      } else {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-primary';
+        btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
+        btn.innerHTML = `💬 Send Chat Request`;
+        btn.title = `Send a direct chat and match request to ${playerName}`;
+        btn.onclick = () => {
+          const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
+          if (!token) {
+            alert('Please log in or create an account to send chat requests to players.');
+            window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
+            return;
+          }
+          if (typeof openSendChatRequestModal === 'function') {
+            openSendChatRequestModal(playerPid, playerName, data.account_user_id);
+          } else if (typeof openProposeMatchModal === 'function') {
+            openProposeMatchModal(playerPid, playerName);
+          }
+        };
+        chatContainer.appendChild(btn);
+      }
+    }
 
     const teamDiv = document.getElementById('modal-player-team');
     if (teamDiv) {
@@ -882,5 +961,11 @@ async function handleSubmitFeedback() {
 
 window.openFeedbackModal = openFeedbackModal;
 window.closeFeedbackModal = closeFeedbackModal;
+
+function showUnregisteredPlayerAlert(playerName) {
+  const name = playerName || 'This player';
+  alert(`ℹ️ Chat Unavailable\n\n${name} appears in tournament match records, but has not yet registered an account on OmniTactica.\n\nDirect chat and match requests are only available between registered OmniTactica users. Once they create an account or link their BCP profile, you will be able to send chat requests.`);
+}
+window.showUnregisteredPlayerAlert = showUnregisteredPlayerAlert;
 window.handleSubmitFeedback = handleSubmitFeedback;
 window.setFeedbackType = setFeedbackType;

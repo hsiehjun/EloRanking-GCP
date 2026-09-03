@@ -1258,9 +1258,16 @@ class PostgresDatabase:
                         ROUND((SUM(fpm.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
                         %s as top_faction,
                         COALESCE(MAX(r.team), '') as team,
-                        MAX(fpm.m_date) as last_active_date
+                        MAX(fpm.m_date) as last_active_date,
+                        CASE WHEN MAX(u.id) IS NOT NULL THEN TRUE ELSE FALSE END as has_account,
+                        MAX(u.id) as account_user_id
                     FROM faction_player_matches fpm
                     LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
+                    LEFT JOIN users u ON (
+                        (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = fpm.p_id)
+                        OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = fpm.p_id)
+                        OR u.id = fpm.p_id
+                    )
                     WHERE 1=1
                     """
                     params = [f"%{faction}%", f"%{faction}%", faction]
@@ -1285,24 +1292,31 @@ class PostgresDatabase:
                     return res
 
                 # Global player ratings directory
-                where_clauses = ["matches_played >= %s"]
+                where_clauses = ["r.matches_played >= %s"]
                 params = [min_matches]
                 if query:
-                    where_clauses.append("(player_name ILIKE %s OR player_id = %s)")
+                    where_clauses.append("(r.player_name ILIKE %s OR r.player_id = %s)")
                     params.extend([f"%{query}%", query])
 
                 where_sql = "WHERE " + " AND ".join(where_clauses)
                 
-                cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings {where_sql};", params)
+                cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
                 total_count = cursor.fetchone()["total_count"] or 0
 
                 sql = f"""
-                SELECT player_id, player_name, current_elo, peak_elo,
-                       matches_played, wins, losses, draws, win_rate,
-                       top_faction, team, last_active_date
-                FROM player_ratings
+                SELECT r.player_id, r.player_name, r.current_elo, r.peak_elo,
+                       r.matches_played, r.wins, r.losses, r.draws, r.win_rate,
+                       r.top_faction, r.team, r.last_active_date,
+                       CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account,
+                       u.id as account_user_id
+                FROM player_ratings r
+                LEFT JOIN users u ON (
+                    (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = r.player_id)
+                    OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = r.player_id)
+                    OR u.id = r.player_id
+                )
                 {where_sql}
-                ORDER BY {col} {dir_str} NULLS LAST
+                ORDER BY r.{col} {dir_str} NULLS LAST
                 LIMIT %s OFFSET %s;
                 """
                 params.extend([page_size, offset])
@@ -4335,6 +4349,58 @@ class PostgresDatabase:
                     results.append(r)
         return results
 
+    def get_user_for_player(self, player_id: str, player_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Finds if a player is registered as an OmniTactica user."""
+        if not player_id and not player_name:
+            return None
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                # 1. Match by player_id, bcp_user_id, or user id
+                cursor.execute("""
+                    SELECT id, display_name, email, role, player_id, bcp_user_id, created_at
+                    FROM users
+                    WHERE (player_id IS NOT NULL AND player_id != '' AND player_id = %s)
+                       OR (bcp_user_id IS NOT NULL AND bcp_user_id != '' AND bcp_user_id = %s)
+                       OR id = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1;
+                """, (player_id, player_id, player_id))
+                user = cursor.fetchone()
+                if user:
+                    return dict(user)
+
+                # 2. Fallback match by exact player name (case-insensitive) if provided
+                if player_name and player_name.strip():
+                    name_clean = player_name.strip()
+                    cursor.execute("""
+                        SELECT id, display_name, email, role, player_id, bcp_user_id, created_at
+                        FROM users
+                        WHERE LOWER(display_name) = LOWER(%s)
+                        ORDER BY updated_at DESC
+                        LIMIT 1;
+                    """, (name_clean,))
+                    user = cursor.fetchone()
+                    if user:
+                        return dict(user)
+        return None
+
+    def get_existing_match_request(self, user1_id: str, user2_id: str) -> Optional[Dict[str, Any]]:
+        """Gets active or pending match request between two users."""
+        if not user1_id or not user2_id:
+            return None
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                cursor.execute("""
+                    SELECT id, status, sender_id, receiver_id, proposed_venue, proposed_points, proposed_date, note, created_at, updated_at
+                    FROM match_requests
+                    WHERE ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
+                      AND status IN ('pending', 'accepted')
+                    ORDER BY updated_at DESC
+                    LIMIT 1;
+                """, (user1_id, user2_id, user2_id, user1_id))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+
     def create_match_request(
         self,
         sender_id: str,
@@ -4345,38 +4411,73 @@ class PostgresDatabase:
         note: str = ""
     ) -> Dict[str, Any]:
         """Creates a pending sparring match request between players."""
-        if not sender_id or not receiver_id or sender_id == receiver_id:
+        if not sender_id or not receiver_id:
             return {"success": False, "error": "Invalid participants"}
 
-        import uuid
-        req_id = f"mrq_{uuid.uuid4().hex[:16]}"
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+                # 1. Resolve receiver_id to a valid users.id
+                cursor.execute("""
+                    SELECT id FROM users
+                    WHERE id = %s
+                       OR (player_id IS NOT NULL AND player_id != '' AND player_id = %s)
+                       OR (bcp_user_id IS NOT NULL AND bcp_user_id != '' AND bcp_user_id = %s)
+                    LIMIT 1;
+                """, (receiver_id, receiver_id, receiver_id))
+                user_match = cursor.fetchone()
+
+                if not user_match:
+                    # Fallback check display_name
+                    cursor.execute("""
+                        SELECT id FROM users WHERE LOWER(display_name) = LOWER(%s) LIMIT 1;
+                    """, (receiver_id,))
+                    user_match = cursor.fetchone()
+
+                if not user_match:
+                    return {
+                        "success": False,
+                        "error": "This player is not registered on OmniTactica. Chat requests can only be sent to registered OmniTactica users."
+                    }
+
+                resolved_receiver_id = user_match["id"]
+                if sender_id == resolved_receiver_id:
+                    return {"success": False, "error": "Cannot send a chat request to yourself"}
+
+                # Check existing request
                 cursor.execute("""
                     SELECT id, status FROM match_requests
                     WHERE ((sender_id = %s AND receiver_id = %s) OR (sender_id = %s AND receiver_id = %s))
                       AND status IN ('pending', 'accepted');
-                """, (sender_id, receiver_id, receiver_id, sender_id))
+                """, (sender_id, resolved_receiver_id, resolved_receiver_id, sender_id))
                 existing = cursor.fetchone()
                 if existing:
+                    if existing["status"] == "accepted":
+                        return {
+                            "success": True,
+                            "already_connected": True,
+                            "request_id": existing["id"],
+                            "status": "accepted"
+                        }
                     return {
                         "success": False,
-                        "error": f"A match request already exists with status: {existing['status']}",
+                        "error": "A chat request is already pending with this player",
                         "request_id": existing["id"],
                         "status": existing["status"]
                     }
 
+                import uuid
+                req_id = f"mrq_{uuid.uuid4().hex[:16]}"
                 cursor.execute("""
                     INSERT INTO match_requests (
                         id, sender_id, receiver_id, status, proposed_venue,
                         proposed_points, proposed_date, note, created_at, updated_at
                     ) VALUES (%s, %s, %s, 'pending', %s, %s, %s, %s, NOW(), NOW())
                     RETURNING id;
-                """, (req_id, sender_id, receiver_id, proposed_venue, proposed_points, proposed_date, note))
+                """, (req_id, sender_id, resolved_receiver_id, proposed_venue or "", proposed_points or 2000, proposed_date or "", note or ""))
                 conn.commit()
                 return {"success": True, "request_id": req_id}
 
-    def respond_match_request(self, request_id: str, user_id: str, action: str) -> Dict[str, Any]:
+    def respond_match_request(self, request_id: str, user_id: str, action: str, reply_message: Optional[str] = None) -> Dict[str, Any]:
         """Accepts, declines, or blocks a match request."""
         action = action.lower().strip()
         if action not in ("accept", "decline", "block"):
@@ -4401,6 +4502,25 @@ class PostgresDatabase:
                     SET status = %s, updated_at = NOW()
                     WHERE id = %s;
                 """, (new_status, request_id))
+
+                if action == "accept":
+                    import uuid
+                    # 1. Insert original note into chat if present
+                    if req.get("note") and req["note"].strip():
+                        cursor.execute("SELECT id FROM match_chat_messages WHERE request_id = %s LIMIT 1;", (request_id,))
+                        if not cursor.fetchone():
+                            cursor.execute("""
+                                INSERT INTO match_chat_messages (id, request_id, sender_id, message_text, created_at)
+                                VALUES (%s, %s, %s, %s, %s);
+                            """, (f"msg_{uuid.uuid4().hex[:16]}", request_id, req["sender_id"], req["note"].strip(), req["created_at"]))
+
+                    # 2. Insert recipient's reply message if provided
+                    if reply_message and reply_message.strip():
+                        cursor.execute("""
+                            INSERT INTO match_chat_messages (id, request_id, sender_id, message_text, created_at)
+                            VALUES (%s, %s, %s, %s, NOW());
+                        """, (f"msg_{uuid.uuid4().hex[:16]}", request_id, user_id, reply_message.strip()))
+
                 conn.commit()
                 return {"success": True, "status": new_status}
 
@@ -4432,10 +4552,16 @@ class PostgresDatabase:
                         rpr.top_faction as receiver_faction,
                         (SELECT COUNT(*) FROM match_chat_messages mcm 
                          WHERE mcm.request_id = mr.id AND mcm.sender_id != %s AND mcm.read_at IS NULL) as unread_count,
-                        (SELECT message_text FROM match_chat_messages mcm 
-                         WHERE mcm.request_id = mr.id ORDER BY mcm.created_at DESC LIMIT 1) as last_message,
-                        (SELECT created_at FROM match_chat_messages mcm 
-                         WHERE mcm.request_id = mr.id ORDER BY mcm.created_at DESC LIMIT 1) as last_message_time
+                        COALESCE(
+                            (SELECT message_text FROM match_chat_messages mcm 
+                             WHERE mcm.request_id = mr.id ORDER BY mcm.created_at DESC LIMIT 1),
+                            mr.note
+                        ) as last_message,
+                        COALESCE(
+                            (SELECT created_at FROM match_chat_messages mcm 
+                             WHERE mcm.request_id = mr.id ORDER BY mcm.created_at DESC LIMIT 1),
+                            mr.created_at
+                        ) as last_message_time
                     FROM match_requests mr
                     JOIN users su ON mr.sender_id = su.id
                     JOIN users ru ON mr.receiver_id = ru.id

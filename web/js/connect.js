@@ -935,29 +935,38 @@ async function loadUserRequests() {
     const pendingSection = document.getElementById('chat-pending-section');
     const pendingList = document.getElementById('chat-pending-list');
     const pendingCount = document.getElementById('pending-count');
+    const sentSection = document.getElementById('chat-sent-section');
+    const sentList = document.getElementById('chat-sent-list');
+    const sentCount = document.getElementById('sent-count');
     const convoList = document.getElementById('chat-conversations-list');
 
     const incomingPending = requests.filter(r => r.status === 'pending' && r.receiver_id === myId);
+    const outgoingPending = requests.filter(r => r.status === 'pending' && r.sender_id === myId);
     const acceptedConvos = requests.filter(r => r.status === 'accepted');
 
+    // 1. Render Incoming Pending Requests
     if (pendingSection && pendingList && pendingCount) {
       if (incomingPending.length > 0) {
         pendingCount.textContent = incomingPending.length;
         pendingList.innerHTML = incomingPending.map(req => `
-          <div class="oc-pending-card">
+          <div class="oc-pending-card" style="cursor: pointer;" onclick="selectPendingRequest('${req.id}')">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.sender_name)}</span>
               <span class="oc-badge">${Math.round(req.sender_elo || 1500)} Elo</span>
             </div>
-            <div style="font-size: 0.74rem; color: #94a3b8; margin-bottom: 6px;">
-              🏪 ${escapeHtml(req.proposed_venue || 'Local Store')} • ${req.proposed_points || 2000} pts
-            </div>
-            ${req.note ? `<div style="font-size: 0.74rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px;">"${escapeHtml(req.note)}"</div>` : ''}
-            <div style="display: flex; gap: 0.5rem;">
-              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; min-height: 38px; padding: 0.4rem; font-size: 0.76rem; font-weight: 700;">
-                ✓ Accept & Chat
+            ${req.proposed_venue ? `
+            <div style="font-size: 0.74rem; color: #94a3b8; margin-bottom: 5px;">
+              🏪 ${escapeHtml(req.proposed_venue)} • ${req.proposed_points || 2000} pts
+            </div>` : ''}
+            ${req.note ? `<div style="font-size: 0.75rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px; line-height: 1.35; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 4px; border-left: 2px solid #38bdf8;">"${escapeHtml(req.note)}"</div>` : ''}
+            <div style="display: flex; gap: 0.35rem; margin-top: 4px;" onclick="event.stopPropagation()">
+              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; min-height: 32px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700;" title="Accept chat request">
+                ✓ Accept
               </button>
-              <button onclick="respondToRequest('${req.id}', 'decline')" class="btn btn-outline" style="min-height: 38px; min-width: 44px; padding: 0.4rem 0.7rem; font-size: 0.76rem;" title="Decline">
+              <button onclick="handleQuickRespondPrompt('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="flex: 1; min-height: 32px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700; border-color: #38bdf8; color: #38bdf8;" title="Respond with message">
+                💬 Respond
+              </button>
+              <button onclick="handleDeclineRequest('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="min-height: 32px; padding: 0.35rem 0.55rem; font-size: 0.74rem; border-color: rgba(239,68,68,0.4); color: #f87171;" title="Decline request">
                 ✕
               </button>
             </div>
@@ -969,11 +978,33 @@ async function loadUserRequests() {
       }
     }
 
+    // 2. Render Outgoing Pending Requests
+    if (sentSection && sentList && sentCount) {
+      if (outgoingPending.length > 0) {
+        sentCount.textContent = outgoingPending.length;
+        sentList.innerHTML = outgoingPending.map(req => `
+          <div class="oc-pending-card" style="border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+              <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.receiver_name)}</span>
+              <span class="oc-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">${Math.round(req.receiver_elo || 1500)} Elo</span>
+            </div>
+            ${req.note ? `<div style="font-size: 0.74rem; color: #94a3b8; font-style: italic; margin-bottom: 5px; line-height: 1.35;">"${escapeHtml(req.note)}"</div>` : ''}
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: #f59e0b; font-weight: 600;">
+              <span>⏳ Waiting for response...</span>
+            </div>
+          </div>
+        `).join('');
+        sentSection.style.display = 'block';
+      } else {
+        sentSection.style.display = 'none';
+      }
+    }
+
     if (convoList) {
       if (acceptedConvos.length === 0) {
         convoList.innerHTML = `
           <div style="text-align: center; padding: 2.5rem 1rem; color: #64748b; font-size: 0.82rem;">
-            No active chats.<br>Propose a match from the radar tab or accept a pending request!
+            No active chats.<br>Send a chat request to any OmniTactica player or accept a pending request!
           </div>
         `;
       } else {
@@ -1013,20 +1044,145 @@ async function loadUserRequests() {
   }
 }
 
-async function respondToRequest(requestId, action) {
+function selectPendingRequest(requestId) {
+  const req = connectState.requestsList.find(r => r.id === requestId);
+  if (!req) return;
+
+  connectState.activeRequestId = requestId;
+
+  const layout = document.querySelector('.oc-chat-layout');
+  if (layout) {
+    layout.classList.add('is-viewing-chat');
+  }
+
+  const header = document.getElementById('chat-active-header');
+  const inputForm = document.getElementById('chat-input-form');
+  const msgContainer = document.getElementById('chat-messages-container');
+
+  if (header) {
+    header.style.display = 'flex';
+    const nameEl = document.getElementById('chat-active-name');
+    const eloEl = document.getElementById('chat-active-elo');
+    const subEl = document.getElementById('chat-active-sub');
+    const avatarEl = document.getElementById('chat-active-avatar');
+    if (nameEl) nameEl.textContent = req.sender_name || 'Player';
+    if (eloEl) eloEl.textContent = `${Math.round(req.sender_elo || 1500)} Elo`;
+    if (avatarEl) avatarEl.textContent = (req.sender_name || 'P').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    if (subEl) subEl.textContent = `Pending Chat Request`;
+  }
+
+  // Hide standard message input for pending request review
+  if (inputForm) inputForm.style.display = 'none';
+
+  if (msgContainer) {
+    msgContainer.innerHTML = `
+      <div style="max-width: 520px; margin: 2rem auto; width: 100%; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
+        <div style="text-align: center; margin-bottom: 1.25rem;">
+          <div style="font-size: 2.5rem; margin-bottom: 0.35rem;">💬</div>
+          <h3 style="font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Incoming Chat Request</h3>
+          <p style="font-size: 0.8rem; color: #94a3b8; margin: 0;">
+            <strong style="color: #38bdf8;">${escapeHtml(req.sender_name)}</strong> (${Math.round(req.sender_elo || 1500)} Elo) wants to connect on OmniTactica.
+          </p>
+        </div>
+
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+          <div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.4rem; letter-spacing: 0.05em;">Message</div>
+          <div style="font-size: 0.92rem; color: #f8fafc; font-style: italic; line-height: 1.45;">
+            "${escapeHtml(req.note || 'Hey! Would love to connect and play some games!')}"
+          </div>
+          ${req.proposed_venue ? `
+            <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.78rem; color: #cbd5e1; display: flex; flex-direction: column; gap: 0.3rem;">
+              <div>📍 Proposed Venue: <strong style="color: #38bdf8;">${escapeHtml(req.proposed_venue)}</strong></div>
+              <div>⚔️ Points: <strong style="color: #fff;">${req.proposed_points || 2000} pts</strong>${req.proposed_date ? ` • 📅 Date: <strong style="color: #fff;">${escapeHtml(req.proposed_date)}</strong>` : ''}</div>
+            </div>
+          ` : ''}
+        </div>
+
+        <!-- Inline Response Box -->
+        <div id="pending-respond-box" style="display: none; margin-bottom: 1.25rem;">
+          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.35rem;">Your Reply to ${escapeHtml(req.sender_name)}:</label>
+          <textarea id="pending-reply-input" class="search-input" style="width: 100%; min-height: 75px; box-sizing: border-box; resize: vertical;" placeholder="Type your response..."></textarea>
+          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+            <button onclick="document.getElementById('pending-respond-box').style.display = 'none'" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.78rem;">Cancel</button>
+            <button onclick="submitPendingResponse('${req.id}')" class="btn btn-primary" style="padding: 0.4rem 1rem; font-size: 0.78rem; font-weight: 700;">Send Reply & Accept</button>
+          </div>
+        </div>
+
+        <!-- Main Action Buttons -->
+        <div id="pending-actions-bar" style="display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
+          <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.84rem;">
+            ✓ Accept
+          </button>
+          <button onclick="document.getElementById('pending-respond-box').style.display = 'block'; document.getElementById('pending-reply-input').focus();" class="btn btn-outline" style="flex: 1; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.84rem; border-color: #38bdf8; color: #38bdf8;">
+            💬 Respond
+          </button>
+          <button onclick="handleDeclineRequest('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="padding: 0.6rem 0.9rem; font-size: 0.84rem; border-color: rgba(239,68,68,0.4); color: #f87171;">
+            ✕ Decline
+          </button>
+        </div>
+      </div>
+    `;
+  }
+}
+window.selectPendingRequest = selectPendingRequest;
+
+function submitPendingResponse(requestId) {
+  const input = document.getElementById('pending-reply-input');
+  const message = input ? input.value.trim() : '';
+  respondToRequest(requestId, 'accept', message);
+}
+window.submitPendingResponse = submitPendingResponse;
+
+function handleQuickRespondPrompt(requestId, senderName) {
+  const reply = prompt(`Reply to ${senderName} to accept and start chatting:`);
+  if (reply !== null && reply.trim()) {
+    respondToRequest(requestId, 'accept', reply.trim());
+  } else if (reply !== null) {
+    respondToRequest(requestId, 'accept');
+  }
+}
+window.handleQuickRespondPrompt = handleQuickRespondPrompt;
+
+function handleDeclineRequest(requestId, senderName) {
+  if (confirm(`Decline chat request from ${senderName || 'this player'}?`)) {
+    respondToRequest(requestId, 'decline');
+  }
+}
+window.handleDeclineRequest = handleDeclineRequest;
+
+async function respondToRequest(requestId, action, message = '') {
   try {
-    const res = await window.api.respondConnectRequest(requestId, action);
+    const res = await window.api.respondConnectRequest(requestId, action, message);
     if (res && res.success) {
       if (action === 'accept') {
         connectState.activeRequestId = requestId;
+        await loadUserRequests();
+        selectConversation(requestId);
+      } else {
+        connectState.activeRequestId = null;
+        await loadUserRequests();
+        const header = document.getElementById('chat-active-header');
+        const inputForm = document.getElementById('chat-input-form');
+        const msgContainer = document.getElementById('chat-messages-container');
+        if (header) header.style.display = 'none';
+        if (inputForm) inputForm.style.display = 'none';
+        if (msgContainer) msgContainer.innerHTML = `
+          <div style="text-align: center; margin: auto; color: #64748b;">
+            <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">💬</div>
+            <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">Request declined</p>
+            <p style="margin: 4px 0 0; font-size: 0.78rem;">Select a conversation from the sidebar.</p>
+          </div>
+        `;
       }
-      loadUserRequests();
       updateUnreadCountBadge();
+    } else {
+      alert(res?.error || 'Failed to update request');
     }
   } catch (err) {
     alert('Error responding to request: ' + err.message);
   }
 }
+window.respondToRequest = respondToRequest;
 
 /* --------------------------------------------------------------------------
    REAL-TIME CLOUD FIRESTORE INTEGRATION FOR OMNICONNECT CHATS
@@ -1611,8 +1767,13 @@ function attachProposeVenueAutocomplete() {
 window.attachProposeVenueAutocomplete = attachProposeVenueAutocomplete;
 
 /* --------------------------------------------------------------------------
-   PROPOSE MATCH MODAL
+   SEND CHAT REQUEST & PROPOSE MATCH MODAL
    -------------------------------------------------------------------------- */
+function openSendChatRequestModal(playerId, playerName, accountUserId, defaultVenue) {
+  openProposeMatchModal(accountUserId || playerId, playerName, defaultVenue);
+}
+window.openSendChatRequestModal = openSendChatRequestModal;
+
 function openProposeMatchModal(playerId, playerName, defaultVenue) {
   const modal = document.getElementById('propose-match-modal');
   if (!modal) return;
@@ -1621,10 +1782,12 @@ function openProposeMatchModal(playerId, playerName, defaultVenue) {
   const nameEl = document.getElementById('propose-target-name');
   const venueEl = document.getElementById('propose-venue');
   const badge = document.getElementById('propose-loc-badge');
+  const noteEl = document.getElementById('propose-note');
 
   if (idEl) idEl.value = playerId;
   if (nameEl) nameEl.textContent = playerName;
   if (venueEl) venueEl.value = defaultVenue || (connectState.userProfile?.home_venue_name || '');
+  if (noteEl) noteEl.value = '';
   if (badge) {
     badge.textContent = 'Google Places';
     badge.style.background = 'rgba(56,189,248,0.18)';
@@ -1634,11 +1797,15 @@ function openProposeMatchModal(playerId, playerName, defaultVenue) {
   modal.style.display = 'flex';
   setTimeout(attachProposeVenueAutocomplete, 100);
 }
+window.openProposeMatchModal = openProposeMatchModal;
 
 function closeProposeMatchModal() {
   const modal = document.getElementById('propose-match-modal');
   if (modal) modal.style.display = 'none';
+  const noteEl = document.getElementById('propose-note');
+  if (noteEl) noteEl.value = '';
 }
+window.closeProposeMatchModal = closeProposeMatchModal;
 
 async function handleSubmitMatchProposal(e) {
   e.preventDefault();
@@ -1664,22 +1831,40 @@ async function handleSubmitMatchProposal(e) {
   try {
     const res = await window.api.createConnectRequest(receiverId, venue, points, date, note);
     if (res && res.success) {
-      alert('⚔️ Sparring request sent! When the opponent accepts, you can chat directly.');
-      closeProposeMatchModal();
-      loadNearbyPlayers();
-      updateUnreadCountBadge();
+      if (res.already_connected) {
+        alert('You are already connected with this player! Opening conversation in Messages...');
+        closeProposeMatchModal();
+        if (typeof closeModal === 'function') closeModal('player-modal');
+        if (res.request_id && typeof openChatWithRequest === 'function') {
+          openChatWithRequest(res.request_id);
+        } else if (typeof switchTab === 'function') {
+          switchTab('chat');
+        }
+      } else {
+        alert('💬 Chat request sent! When they accept or respond, your conversation will open in Messages.');
+        closeProposeMatchModal();
+        if (typeof closeModal === 'function') closeModal('player-modal');
+        if (typeof loadUserRequests === 'function') {
+          loadUserRequests();
+        }
+        if (typeof loadNearbyPlayers === 'function') {
+          loadNearbyPlayers();
+        }
+        updateUnreadCountBadge();
+      }
     } else {
-      alert(res?.error || 'Failed to send request');
+      alert(res?.error || 'Failed to send chat request');
     }
   } catch (err) {
     alert('Error: ' + err.message);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = '⚔️ Send Sparring Request';
+      btn.textContent = '💬 Send Chat Request';
     }
   }
 }
+window.handleSubmitMatchProposal = handleSubmitMatchProposal;
 
 function escapeHtml(str) {
   if (!str) return '';
