@@ -88,9 +88,8 @@ function renderTopBarOptions(profile) {
   }
 
   if (locText) {
-    const venue = profile.home_venue_name || `${profile.city || 'San Diego'}, ${profile.state || 'CA'}`;
-    const radius = profile.radius_miles || 30;
-    locText.textContent = `${venue} (${radius} mi)`;
+    const venue = profile.home_venue_name || (profile.city ? `${profile.city}${profile.state ? ', ' + profile.state : ''}` : 'San Diego, CA');
+    locText.textContent = venue;
   }
 }
 
@@ -230,7 +229,9 @@ async function shareCurrentLocation(inModalOnly = false) {
 
       // If called from the top bar (not purely modal editing), auto-save and refresh!
       if (!isModalOpen || !inModalOnly) {
-        const radius = connectState.userProfile?.radius_miles || 30;
+        const radius = (typeof communityState !== 'undefined' && communityState.radiusMiles)
+          ? communityState.radiusMiles
+          : (connectState.userProfile?.radius_miles || 30);
         const payload = {
           ...(connectState.userProfile || {}),
           is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
@@ -243,18 +244,18 @@ async function shareCurrentLocation(inModalOnly = false) {
           radius_miles: radius
         };
 
+        // Optimistic UI updates
+        connectState.userProfile = { ...(connectState.userProfile || {}), ...payload };
+        renderTopBarOptions(connectState.userProfile);
+        closeEditLocationModal();
+        if (connectState.activeSubtab === 'players') loadNearbyPlayers();
+        if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
+        if (typeof updateCommunityLocation === 'function') {
+          updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
+        }
+
         try {
-          const res = await window.api.saveConnectProfile(payload);
-          if (res && res.success) {
-            connectState.userProfile = { ...connectState.userProfile, ...payload };
-            renderTopBarOptions(connectState.userProfile);
-            closeEditLocationModal();
-            if (connectState.activeSubtab === 'players') loadNearbyPlayers();
-            if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
-            if (typeof updateCommunityLocation === 'function') {
-              updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
-            }
-          }
+          await window.api.saveConnectProfile(payload);
         } catch (err) {
           console.error("Auto-save GPS notice:", err);
         }
@@ -338,37 +339,47 @@ async function handleSaveLocation(e) {
     ? communityState.radiusMiles
     : (rad ? parseInt(rad.value, 10) : 100);
 
+  const targetVenue = venue ? venue.value.trim() : '';
+  const targetCity = city ? city.value.trim() : 'San Diego';
+  const targetState = state ? state.value.trim() : 'CA';
+  const targetCountry = country ? country.value.trim() : 'United States';
+  const targetLat = lat && lat.value ? parseFloat(lat.value) : 32.7157;
+  const targetLng = lng && lng.value ? parseFloat(lng.value) : -117.1611;
+  const chosenLocName = targetVenue || (targetCity ? `${targetCity}${targetState ? ', ' + targetState : ''}` : 'San Diego, CA');
+
   const payload = {
     ...(connectState.userProfile || {}),
     is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
-    home_venue_name: venue ? venue.value.trim() : '',
+    home_venue_name: targetVenue,
     address: addr ? addr.value.trim() : '',
-    city: city ? city.value.trim() : 'San Diego',
-    state: state ? state.value.trim() : 'CA',
-    country: country ? country.value.trim() : 'United States',
-    latitude: lat && lat.value ? parseFloat(lat.value) : 32.7157,
-    longitude: lng && lng.value ? parseFloat(lng.value) : -117.1611,
+    city: targetCity,
+    state: targetState,
+    country: targetCountry,
+    latitude: targetLat,
+    longitude: targetLng,
     radius_miles: unifiedRadius,
     preferred_points: pts ? parseInt(pts.value, 10) : 2000,
     play_style: style ? style.value : 'Competitive'
   };
 
+  // Optimistic UI updates - close modal and update location/header immediately (0ms delay)
+  connectState.userProfile = { ...(connectState.userProfile || {}), ...payload };
+  renderTopBarOptions(connectState.userProfile);
+  closeEditLocationModal();
+
+  if (typeof updateCommunityLocation === 'function') {
+    updateCommunityLocation(payload.latitude, payload.longitude, chosenLocName, payload.radius_miles);
+  }
+  if (connectState.activeSubtab === 'players') loadNearbyPlayers();
+  if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
+
   try {
     const res = await window.api.saveConnectProfile(payload);
-    if (res && res.success) {
-      connectState.userProfile = { ...connectState.userProfile, ...payload };
-      renderTopBarOptions(connectState.userProfile);
-      closeEditLocationModal();
-      if (connectState.activeSubtab === 'players') loadNearbyPlayers();
-      if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
-      if (typeof updateCommunityLocation === 'function') {
-        updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
-      }
-    } else {
-      alert('Failed to save location: ' + (res?.error || 'Unknown error'));
+    if (!res || !res.success) {
+      console.warn('saveConnectProfile background notice:', res?.error);
     }
   } catch (err) {
-    alert('Error: ' + err.message);
+    console.warn('saveConnectProfile error:', err);
   }
 }
 

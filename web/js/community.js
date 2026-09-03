@@ -89,6 +89,12 @@ async function initCommunityHub(targetSubtab = null) {
   const subtab = targetSubtab || communityState.activeSubtab || 'radar';
   switchCommunitySubtab(subtab);
 
+  // Optimistically render header immediately before awaiting data fetch
+  renderCommunityHeader({
+    radius_miles: communityState.radiusMiles,
+    location_name: communityState.locationName
+  });
+
   await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
 }
 
@@ -163,26 +169,30 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     radSelect.value = String(communityState.radiusMiles);
   }
 
-  // Show loading indicator in target subviews if overview is not yet cached
-  if (!communityState.overview) {
-    const tourneyView = document.getElementById('comm-tournaments-content');
-    if (tourneyView) {
-      tourneyView.innerHTML = `
-        <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-          <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles...</div>
-        </div>
-      `;
-    }
-    const sceneView = document.getElementById('comm-scene-content');
-    if (sceneView) {
-      sceneView.innerHTML = `
-        <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-          <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles...</div>
-        </div>
-      `;
-    }
+  // Optimistically update header immediately (0ms delay)
+  renderCommunityHeader({
+    radius_miles: communityState.radiusMiles,
+    location_name: communityState.locationName
+  });
+
+  // Show responsive loading indicators in target subviews
+  const tourneyView = document.getElementById('comm-tournaments-content');
+  if (tourneyView) {
+    tourneyView.innerHTML = `
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles...</div>
+      </div>
+    `;
+  }
+  const sceneView = document.getElementById('comm-scene-content');
+  if (sceneView) {
+    sceneView.innerHTML = `
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles...</div>
+      </div>
+    `;
   }
 
   try {
@@ -270,7 +280,11 @@ function changeCommunityRadius(radius) {
   const modalRadius = document.getElementById('modal-lfg-radius');
   if (modalRadius) modalRadius.value = String(r);
   const filterRadius = document.getElementById('filter-radius');
-  if (filterRadius) filterRadius.value = String(r);
+  // Optimistically update header immediately (0ms delay)
+  renderCommunityHeader({
+    radius_miles: r,
+    location_name: communityState.locationName
+  });
 
   loadCommunityHub(communityState.lat, communityState.lng, r, communityState.locationName);
 
@@ -360,6 +374,12 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
   localStorage.setItem('comm_lng', String(lng));
   if (locationName) localStorage.setItem('comm_loc_name', locationName);
   if (radius) localStorage.setItem('comm_radius', String(communityState.radiusMiles));
+
+  // Optimistically update header immediately (0ms delay)
+  renderCommunityHeader({
+    radius_miles: communityState.radiusMiles,
+    location_name: communityState.locationName
+  });
 
   loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
 }
