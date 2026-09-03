@@ -712,7 +712,7 @@ function renderCommunityCompetitors() {
 
   if (competitors.length === 0) {
     html += `
-      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border);">
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border); margin-bottom: 3.5rem;">
         <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔍</div>
         <h4 style="color: #fff; margin-bottom: 0.4rem;">No Competitors Found within ${rad} Miles</h4>
         <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
@@ -725,7 +725,7 @@ function renderCommunityCompetitors() {
       </div>
     `;
   } else {
-    html += `<div class="comm-competitors-grid">`;
+    html += `<div class="comm-competitors-grid" style="margin-bottom: 3.5rem;">`;
     competitors.forEach(c => {
       html += renderCompetitorCard(c);
     });
@@ -794,19 +794,19 @@ function renderCompetitorCard(c) {
   let actionButton = '';
   if (c.is_self) {
     actionButton = `
-      <button class="btn btn-outline" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; opacity: 0.6; cursor: default;" disabled>
+      <button class="btn btn-outline" style="width: 100%; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; opacity: 0.6; cursor: default;" disabled>
         👤 You
       </button>
     `;
   } else if (c.can_chat) {
     actionButton = `
-      <button class="btn btn-primary" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; font-weight: 700;" onclick="challengeCompetitor('${escapeHtml(c.player_id)}', '${escapeHtml(name)}')">
+      <button class="btn btn-primary" style="width: 100%; font-size: 0.78rem; padding: 0.48rem 0.75rem; justify-content: center; font-weight: 700;" onclick="challengeCompetitor('${escapeHtml(c.player_id)}', '${escapeHtml(name)}')">
         💬 Challenge / Chat
       </button>
     `;
   } else {
     actionButton = `
-      <button class="btn btn-outline" style="flex: 1; font-size: 0.76rem; padding: 0.42rem 0.65rem; justify-content: center; color: #94a3b8; border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.02);" onclick="showUnregisteredCompetitorAlert('${escapeHtml(name)}')">
+      <button class="btn btn-outline" style="width: 100%; font-size: 0.78rem; padding: 0.48rem 0.75rem; justify-content: center; color: #94a3b8; border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.02);" onclick="showUnregisteredCompetitorAlert('${escapeHtml(name)}')">
         🔒 Chat (Unregistered)
       </button>
     `;
@@ -814,44 +814,39 @@ function renderCompetitorCard(c) {
 
   return `
     <div class="comm-competitor-card">
-      <div style="display: flex; gap: 12px; align-items: flex-start;">
-        <div class="comm-player-avatar" onclick="openPlayerModal('${escapeHtml(c.player_id)}')">
+      <div style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 0.7rem;">
+        <div class="comm-player-avatar" onclick="openPlayerModal('${escapeHtml(c.player_id)}')" title="View profile for ${escapeHtml(name)}">
           ${escapeHtml(initials)}
         </div>
         <div style="flex: 1; min-width: 0;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 6px;">
-            <div style="font-weight: 800; font-size: 0.98rem; color: #fff; cursor: pointer; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" onclick="openPlayerModal('${escapeHtml(c.player_id)}')">
-              ${escapeHtml(name)}
-            </div>
-            <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-              <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.7rem; font-weight: 700;">
-                ${elo} Elo
-              </span>
-              ${eloDeltaBadge}
-            </div>
+          <div style="font-weight: 800; font-size: 1.02rem; color: #fff; line-height: 1.3; cursor: pointer; word-break: break-word;" onclick="openPlayerModal('${escapeHtml(c.player_id)}')" title="Click to view profile">
+            ${escapeHtml(name)}
           </div>
-          <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 2px;">
-            ${escapeHtml(faction)} ${c.team ? `&bull; <strong style="color: #cbd5e1;">${escapeHtml(c.team)}</strong>` : ''}
-          </div>
-          <div style="margin-top: 5px;">
+          <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
+            <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.72rem; font-weight: 800; padding: 2px 7px;">
+              ${elo} Elo
+            </span>
+            ${eloDeltaBadge}
             ${accountBadge}
           </div>
         </div>
       </div>
 
-      <div style="margin: 0.75rem 0; display: flex; flex-direction: column; gap: 6px;">
+      <div style="font-size: 0.78rem; color: #94a3b8; line-height: 1.4; margin-bottom: 0.8rem; word-break: break-word;">
+        <span>${escapeHtml(faction)}</span>
+        ${c.team ? `<span style="color: #64748b;"> &bull; </span><strong style="color: #cbd5e1;">${escapeHtml(c.team)}</strong>` : ''}
+      </div>
+
+      <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 0.85rem; display: flex; flex-direction: column; gap: 6px;">
         ${sharedBadge}
-        <div style="font-size: 0.74rem; color: #64748b; display: flex; justify-content: space-between;">
+        <div style="font-size: 0.74rem; color: #64748b; display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
           <span>Peak: <strong style="color: #cbd5e1;">${peak} Elo</strong></span>
           <span>Win Rate: <strong style="color: #10b981;">${winRate}%</strong></span>
         </div>
       </div>
 
-      <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+      <div style="margin-top: auto;">
         ${actionButton}
-        <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.75rem; color: #cbd5e1;" onclick="openPlayerModal('${escapeHtml(c.player_id)}')">
-          Profile
-        </button>
       </div>
     </div>
   `;
@@ -942,7 +937,7 @@ function renderCommunityTeamsLeaderboard() {
       </div>
     </div>
 
-    <div class="table-container" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;">
+    <div class="table-container comm-table-container">
       <table id="comm-teams-leaderboard-table" class="data-table">
         <thead>
           <tr>
@@ -1050,7 +1045,7 @@ function renderCommunityLeaderboard() {
       </div>
     </div>
 
-    <div class="table-container" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;">
+    <div class="table-container comm-table-container">
       <table id="comm-leaderboard-table" class="data-table">
         <thead>
           <tr>

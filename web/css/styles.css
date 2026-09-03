@@ -1016,6 +1016,75 @@ input, select, textarea {
   #faction-meta-table td:nth-child(6)::before { content: "Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #faction-meta-table td:nth-child(7)::before { content: "Avg Battle Pts"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
+  /* Community Scene Mobile Layout */
+  .comm-table-container {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin-bottom: 3rem !important;
+    overflow-x: hidden !important;
+    max-height: none !important;
+    padding: 0 !important;
+  }
+
+  .comm-competitors-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.85rem !important;
+    margin-bottom: 3rem !important;
+  }
+
+  .comm-competitor-card {
+    padding: 1rem !important;
+  }
+
+  .comm-scene-toggles-bar {
+    width: 100% !important;
+    display: flex !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch;
+    padding: 3px !important;
+    scrollbar-width: none !important;
+  }
+  .comm-scene-toggles-bar::-webkit-scrollbar {
+    display: none !important;
+  }
+  .comm-scene-toggles-bar .comm-toggle-btn {
+    flex-shrink: 0 !important;
+    font-size: 0.74rem !important;
+    padding: 0.4rem 0.65rem !important;
+  }
+
+  /* Empty state styling within cards on mobile */
+  .table-container td.empty-state {
+    display: block !important;
+    text-align: center !important;
+    width: 100% !important;
+    padding: 2.5rem 1rem !important;
+  }
+  .table-container td.empty-state::before {
+    display: none !important;
+  }
+
+  /* Local Team Leaderboard Mobile Card */
+  #comm-teams-leaderboard-table td:nth-child(1)::before { content: "Rank"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-teams-leaderboard-table td:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.3rem !important; font-size: 0.95rem !important; font-weight: 700 !important; }
+  #comm-teams-leaderboard-table td:nth-child(3)::before { content: "Local Roster"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-teams-leaderboard-table td:nth-child(4)::before { content: "Top Ace"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-teams-leaderboard-table td:nth-child(5)::before { content: "Team Avg Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-teams-leaderboard-table td:nth-child(6)::before { content: "Regional Events"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-teams-leaderboard-table td:nth-child(7)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Local Player Standings Mobile Card */
+  #comm-leaderboard-table td:nth-child(1)::before { content: "Rank"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.08) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.3rem !important; font-size: 0.95rem !important; font-weight: 700 !important; }
+  #comm-leaderboard-table td:nth-child(3)::before { content: "Current Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(4)::before { content: "Peak Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(5)::before { content: "Primary Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(6)::before { content: "Team / Club"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(7)::before { content: "Local Events"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #comm-leaderboard-table td:nth-child(8)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
   /* Pagination Bar Mobile Stacking */
   .pagination-bar {
     display: flex !important;
@@ -3219,8 +3288,9 @@ input, select, textarea {
 
 .comm-competitors-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: 1.15rem;
+  margin-bottom: 3.5rem;
 }
 
 .comm-competitor-card {
@@ -3237,6 +3307,52 @@ input, select, textarea {
   border-color: rgba(56, 189, 248, 0.35);
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* Community Scene Tables */
+.comm-table-container {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  max-height: none !important;
+  min-height: auto !important;
+  overflow-x: auto !important;
+  overflow-y: visible !important;
+  margin-bottom: 3.5rem !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25) !important;
+}
+
+#comm-teams-leaderboard-table,
+#comm-leaderboard-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+#comm-teams-leaderboard-table th,
+#comm-leaderboard-table th {
+  padding: 0.75rem 0.9rem;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: #0f172a;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+#comm-teams-leaderboard-table td,
+#comm-leaderboard-table td {
+  padding: 0.85rem 0.9rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  font-size: 0.88rem;
+  vertical-align: middle;
+}
+
+#comm-teams-leaderboard-table tbody tr:hover,
+#comm-leaderboard-table tbody tr:hover {
+  background: rgba(56, 189, 248, 0.04);
 }
 
 .comm-player-avatar {
@@ -3414,6 +3530,16 @@ input, select, textarea {
   background: #0284c7;
   color: #fff;
   box-shadow: 0 0 10px rgba(2, 132, 199, 0.35);
+}
+
+.comm-scene-toggles-bar {
+  display: inline-flex;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+  max-width: 100%;
 }
 
 
