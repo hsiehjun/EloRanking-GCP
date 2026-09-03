@@ -5840,6 +5840,23 @@ if FASTAPI_AVAILABLE:
             current_player_id=player_id
         )
 
+    @app.get("/api/community/stores", summary="Find local game stores and clubs for Warhammer 40k")
+    async def api_community_stores(
+        lat: Optional[float] = Query(None),
+        lng: Optional[float] = Query(None),
+        radius_miles: float = Query(50.0),
+        query: Optional[str] = Query(None),
+        location_name: Optional[str] = Query(None)
+    ):
+        db = get_database()
+        return db.get_local_game_stores(
+            lat=lat,
+            lng=lng,
+            radius_miles=radius_miles,
+            query=query,
+            location_name=location_name
+        )
+
     @app.get("/api/community/chat/messages", summary="Get Regional Community Chat Messages")
     async def api_community_chat_messages(
         region: str = Query("socal"),

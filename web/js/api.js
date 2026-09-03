@@ -968,6 +968,20 @@ window.api = {
     });
   },
 
+  // Community Hub: Local Game Stores for Warhammer 40k
+  async getCommunityStores(lat = null, lng = null, radiusMiles = 50, query = '', locationName = '') {
+    const params = new URLSearchParams();
+    if (radiusMiles != null) params.set('radius_miles', radiusMiles);
+    if (lat != null && lng != null) {
+      params.set('lat', lat);
+      params.set('lng', lng);
+    }
+    if (query) params.set('query', query);
+    if (locationName) params.set('location_name', locationName);
+
+    return this._fetchJson(`/api/community/stores?${params.toString()}`);
+  },
+
   // Community Hub: Chat Messages
   async getCommunityChatMessages(region = 'socal', limit = 50) {
     return this._fetchJson(`/api/community/chat/messages?region=${encodeURIComponent(region || 'socal')}&limit=${limit}`);

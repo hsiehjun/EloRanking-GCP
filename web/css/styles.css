@@ -3511,4 +3511,155 @@ input, select, textarea {
   max-width: 100%;
 }
 
+/* ==========================================================================
+   COMMUNITY HUB: LOCAL GAME STORES & TABLETOP CLUBS
+   ========================================================================== */
+
+.comm-stores-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 1.15rem;
+  margin-bottom: 2.5rem;
+}
+
+.comm-store-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+}
+
+.comm-store-card:hover {
+  border-color: rgba(56, 189, 248, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.comm-store-card.official-gw {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.05) 0%, var(--bg-card) 100%);
+}
+
+.comm-store-card.official-gw:hover {
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
+.comm-store-card.tournament-venue {
+  border-color: rgba(234, 179, 8, 0.35);
+  background: linear-gradient(180deg, rgba(234, 179, 8, 0.05) 0%, var(--bg-card) 100%);
+}
+
+.comm-store-card.tournament-venue:hover {
+  border-color: rgba(234, 179, 8, 0.6);
+}
+
+.comm-store-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+.comm-store-badge-official {
+  background: rgba(220, 38, 38, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(220, 38, 38, 0.35);
+}
+
+.comm-store-badge-tournament {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.comm-store-badge-open {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.comm-store-badge-closed {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.comm-store-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  align-items: center;
+}
+
+.comm-store-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+.comm-store-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+.comm-store-btn-primary {
+  background: #0284c7;
+  color: #fff;
+  border-color: #0284c7;
+}
+
+.comm-store-btn-primary:hover {
+  background: #0369a1;
+  color: #fff;
+}
+
+/* View Mode Variations */
+.comm-stores-view-map #comm-stores-map {
+  height: 620px !important;
+}
+
+.comm-stores-view-map #comm-stores-content {
+  display: none !important;
+}
+
+.comm-stores-view-cards #comm-stores-map-wrapper {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .comm-stores-grid {
+    grid-template-columns: 1fr;
+  }
+  #comm-stores-map {
+    height: 280px !important;
+  }
+  .comm-stores-view-map #comm-stores-map {
+    height: 460px !important;
+  }
+}
+
+
 

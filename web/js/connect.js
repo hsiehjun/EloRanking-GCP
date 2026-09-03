@@ -1472,6 +1472,9 @@ function attachAllPlacesAutocompletes() {
   if (typeof attachSettingsPlacesAutocomplete === 'function') {
     attachSettingsPlacesAutocomplete();
   }
+  if (typeof onGoogleMapsScriptLoaded === 'function') {
+    onGoogleMapsScriptLoaded();
+  }
 }
 window.attachAllPlacesAutocompletes = attachAllPlacesAutocompletes;
 

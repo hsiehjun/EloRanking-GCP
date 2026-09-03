@@ -8,10 +8,19 @@ const communityState = {
   lng: null,
   radiusMiles: 100,
   locationName: 'San Diego, CA',
-  activeSubtab: 'radar', // 'radar', 'tournaments', 'scene', 'chat'
+  activeSubtab: 'radar', // 'radar', 'tournaments', 'stores', 'scene', 'chat'
   sceneView: 'leaderboard', // 'leaderboard', 'competitors'
   chatMode: 'regional', // 'regional', 'direct'
   eventsFilter: 'all', // 'all', 'upcoming', 'recent'
+  tournamentsVenueFilter: null,
+  stores: [],
+  storesFilter: 'all', // 'all', 'tournaments', 'official', 'top_rated', 'open_now'
+  storesSearch: '',
+  storesViewMode: 'both', // 'both', 'cards', 'map'
+  storesMap: null,
+  storesMarkers: [],
+  storesInfoWindow: null,
+  storesLoading: false,
   overview: null,
   isLoading: false,
   chatMessages: [],
@@ -203,6 +212,15 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
       </div>
     `;
   }
+  const storesGrid = document.getElementById('comm-stores-grid');
+  if (storesGrid && communityState.activeSubtab === 'stores') {
+    storesGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Local Warhammer 40k Game Stores within ${communityState.radiusMiles} Miles...</div>
+      </div>
+    `;
+  }
 
   try {
     const data = await API.getCommunityOverview(
@@ -317,6 +335,9 @@ function changeCommunityRadius(radius) {
 
   if (communityState.activeSubtab === 'radar' && typeof loadNearbyPlayers === 'function') {
     loadNearbyPlayers();
+  }
+  if (communityState.activeSubtab === 'stores' && typeof loadLocalGameStores === 'function') {
+    loadLocalGameStores(true);
   }
 }
 
@@ -465,6 +486,10 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
   });
 
   loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
+
+  if (communityState.activeSubtab === 'stores' && typeof loadLocalGameStores === 'function') {
+    loadLocalGameStores(true);
+  }
 }
 
 /**
@@ -486,6 +511,7 @@ function switchCommunitySubtab(subtabName) {
   // Normalize alias names
   if (subtabName === 'players' || subtabName === 'sparring') subtabName = 'radar';
   if (subtabName === 'events') subtabName = 'tournaments';
+  if (subtabName === 'stores' || subtabName === 'shops') subtabName = 'stores';
   if (subtabName === 'competitors') {
     subtabName = 'scene';
     communityState.sceneView = 'competitors';
@@ -507,7 +533,7 @@ function switchCommunitySubtab(subtabName) {
   });
 
   // Toggle subviews
-  const subviews = ['radar', 'tournaments', 'scene', 'chat'];
+  const subviews = ['radar', 'tournaments', 'stores', 'scene', 'chat'];
   subviews.forEach(s => {
     const el = document.getElementById(`comm-subview-${s}`);
     if (el) el.style.display = (s === subtabName) ? 'block' : 'none';
@@ -530,6 +556,8 @@ function renderCurrentSubtab() {
     if (typeof loadNearbyPlayers === 'function') loadNearbyPlayers();
   } else if (communityState.activeSubtab === 'tournaments') {
     renderCommunityEvents();
+  } else if (communityState.activeSubtab === 'stores') {
+    loadLocalGameStores();
   } else if (communityState.activeSubtab === 'scene') {
     renderCurrentSceneView();
   } else if (communityState.activeSubtab === 'chat') {
@@ -570,6 +598,29 @@ function renderCommunityEvents() {
   let displayedUpcoming = upcoming;
   let displayedRecent = recent;
 
+  let venueFilterBanner = '';
+  if (communityState.tournamentsVenueFilter) {
+    const vf = communityState.tournamentsVenueFilter.toLowerCase();
+    displayedUpcoming = displayedUpcoming.filter(ev => {
+      const vName = `${ev.venue || ''} ${ev.venue_name || ''} ${ev.city || ''} ${ev.location || ''} ${ev.name || ''}`.toLowerCase();
+      return vName.includes(vf) || vf.includes(vName);
+    });
+    displayedRecent = displayedRecent.filter(ev => {
+      const vName = `${ev.venue || ''} ${ev.venue_name || ''} ${ev.city || ''} ${ev.location || ''} ${ev.name || ''}`.toLowerCase();
+      return vName.includes(vf) || vf.includes(vName);
+    });
+
+    venueFilterBanner = `
+      <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.85rem; color: #e0f2fe; display: flex; align-items: center; gap: 8px;">
+          <span>🏪</span>
+          <span>Showing tournaments hosted at: <strong>${escapeHtml(communityState.tournamentsVenueFilter)}</strong> (${displayedUpcoming.length} upcoming, ${displayedRecent.length} recent)</span>
+        </div>
+        <button onclick="clearTournamentsVenueFilter()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: #38bdf8;">✕ Clear Venue Filter</button>
+      </div>
+    `;
+  }
+
   if (communityState.eventsFilter === 'upcoming') {
     displayedRecent = [];
   } else if (communityState.eventsFilter === 'recent') {
@@ -605,6 +656,7 @@ function renderCommunityEvents() {
         </button>
       </div>
     </div>
+    ${venueFilterBanner}
   `;
 
   // 1. Upcoming & Ongoing Section
@@ -1246,6 +1298,757 @@ function setCommunityChatMode(mode) {
   // Retained as safe no-op for backward compatibility
 }
 
+/* ==========================================================================
+   SUBTAB: LOCAL GAME STORES & TABLETOP CLUBS
+   ========================================================================== */
+
+const GOOGLE_MAPS_DARK_STYLE = [
+  { elementType: "geometry", stylers: [{ color: "#0f172a" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#0f172a" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#94a3b8" }] },
+  {
+    featureType: "administrative.locality",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#38bdf8" }]
+  },
+  {
+    featureType: "poi",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#94a3b8" }]
+  },
+  {
+    featureType: "poi.park",
+    elementType: "geometry",
+    stylers: [{ color: "#1e293b" }]
+  },
+  {
+    featureType: "poi.park",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#64748b" }]
+  },
+  {
+    featureType: "road",
+    elementType: "geometry",
+    stylers: [{ color: "#1e293b" }]
+  },
+  {
+    featureType: "road",
+    elementType: "geometry.stroke",
+    stylers: [{ color: "#334155" }]
+  },
+  {
+    featureType: "road",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#94a3b8" }]
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry",
+    stylers: [{ color: "#334155" }]
+  },
+  {
+    featureType: "road.highway",
+    elementType: "geometry.stroke",
+    stylers: [{ color: "#1e293b" }]
+  },
+  {
+    featureType: "road.highway",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#cbd5e1" }]
+  },
+  {
+    featureType: "transit",
+    elementType: "geometry",
+    stylers: [{ color: "#1e293b" }]
+  },
+  {
+    featureType: "transit.station",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#94a3b8" }]
+  },
+  {
+    featureType: "water",
+    elementType: "geometry",
+    stylers: [{ color: "#070b14" }]
+  },
+  {
+    featureType: "water",
+    elementType: "labels.text.fill",
+    stylers: [{ color: "#38bdf8" }]
+  },
+  {
+    featureType: "water",
+    elementType: "labels.text.stroke",
+    stylers: [{ color: "#070b14" }]
+  }
+];
+
+function calcHaversineDistanceMiles(lat1, lon1, lat2, lon2) {
+  const R = 3959; // Earth radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c * 10) / 10;
+}
+
+/**
+ * Searches client-side PlacesService if Google Maps JavaScript SDK is loaded
+ */
+function searchGooglePlacesClient(lat, lng, radiusMiles, query) {
+  return new Promise((resolve) => {
+    if (typeof google === 'undefined' || !google.maps || !google.maps.places || !google.maps.places.PlacesService) {
+      return resolve([]);
+    }
+    try {
+      const dummyEl = document.createElement('div');
+      const service = new google.maps.places.PlacesService(communityState.storesMap || dummyEl);
+      const request = {
+        location: new google.maps.LatLng(lat, lng),
+        radius: Math.min(50000, radiusMiles * 1609.34),
+        query: query ? `${query} game store` : 'Warhammer 40k game store'
+      };
+      service.textSearch(request, (results, status) => {
+        if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+          resolve(results);
+        } else {
+          resolve([]);
+        }
+      });
+    } catch (e) {
+      console.warn("Client PlacesService textSearch notice:", e);
+      resolve([]);
+    }
+  });
+}
+
+/**
+ * Loads local game stores from backend API and client PlacesService
+ */
+async function loadLocalGameStores(forceRefresh = false) {
+  if (communityState.storesLoading && !forceRefresh) return;
+  communityState.storesLoading = true;
+
+  const grid = document.getElementById('comm-stores-grid');
+  if (grid && (!communityState.stores || communityState.stores.length === 0 || forceRefresh)) {
+    grid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Local Warhammer 40k Game Stores within ${communityState.radiusMiles} Miles...</div>
+      </div>
+    `;
+  }
+
+  try {
+    const lat = communityState.lat || 32.7157;
+    const lng = communityState.lng || -117.1611;
+    const radius = communityState.radiusMiles || 100;
+    const locName = communityState.locationName || 'San Diego, CA';
+
+    // 1. Fetch from backend API
+    let backendStores = [];
+    if (typeof window.api?.getCommunityStores === 'function') {
+      try {
+        const res = await window.api.getCommunityStores(lat, lng, radius, communityState.storesSearch, locName);
+        if (res && res.success && Array.isArray(res.stores)) {
+          backendStores = res.stores;
+        }
+      } catch (e) {
+        console.warn("Backend getCommunityStores notice:", e);
+      }
+    }
+
+    // 2. Query client PlacesService if Google Maps JS SDK is active
+    let clientPlaces = [];
+    try {
+      clientPlaces = await searchGooglePlacesClient(lat, lng, radius, communityState.storesSearch);
+    } catch (e) {
+      console.warn("Client Places search notice:", e);
+    }
+
+    // 3. Merge results
+    const merged = [...backendStores];
+    const seenPlaceIds = new Set(backendStores.map(s => s.place_id).filter(Boolean));
+    const seenNames = new Set(backendStores.map(s => (s.name || '').toLowerCase().replace(/['"]/g, '').trim()));
+
+    if (Array.isArray(clientPlaces) && clientPlaces.length > 0) {
+      for (const place of clientPlaces) {
+        const pid = place.place_id;
+        const pName = place.name || 'Game Store';
+        const normName = pName.toLowerCase().replace(/['"]/g, '').trim();
+        const pLat = place.geometry?.location ? (typeof place.geometry.location.lat === 'function' ? place.geometry.location.lat() : place.geometry.location.lat) : null;
+        const pLng = place.geometry?.location ? (typeof place.geometry.location.lng === 'function' ? place.geometry.location.lng() : place.geometry.location.lng) : null;
+
+        if (pLat == null || pLng == null) continue;
+
+        const dist = calcHaversineDistanceMiles(lat, lng, pLat, pLng);
+        if (dist > (radius * 1.25)) continue;
+
+        // Check if matches an existing store
+        let matched = null;
+        if (pid && seenPlaceIds.has(pid)) {
+          matched = merged.find(s => s.place_id === pid);
+        }
+        if (!matched && seenNames.has(normName)) {
+          matched = merged.find(s => (s.name || '').toLowerCase().replace(/['"]/g, '').trim() === normName);
+        }
+        if (!matched) {
+          matched = merged.find(s => s.latitude && s.longitude && Math.abs(s.latitude - pLat) < 0.003 && Math.abs(s.longitude - pLng) < 0.003);
+        }
+
+        const openNow = place.opening_hours ? (typeof place.opening_hours.isOpen === 'function' ? place.opening_hours.isOpen() : place.opening_hours.open_now) : null;
+
+        if (matched) {
+          if (!matched.place_id && pid) matched.place_id = pid;
+          if (place.formatted_address && (!matched.address || matched.address.length < place.formatted_address.length)) {
+            matched.address = place.formatted_address;
+          }
+          if (place.rating) matched.rating = place.rating;
+          if (place.user_ratings_total) matched.user_ratings_total = place.user_ratings_total;
+          if (openNow !== undefined && openNow !== null) matched.open_now = openNow;
+        } else {
+          const isOfficial = Boolean(normName.includes('warhammer') || normName.includes('games workshop'));
+          seenNames.add(normName);
+          if (pid) seenPlaceIds.add(pid);
+          merged.push({
+            id: pid || `client_${merged.length}`,
+            place_id: pid,
+            name: pName,
+            address: place.formatted_address || place.vicinity || '',
+            latitude: pLat,
+            longitude: pLng,
+            distance_miles: dist,
+            rating: place.rating || null,
+            user_ratings_total: place.user_ratings_total || 0,
+            open_now: openNow,
+            is_official_warhammer: isOfficial,
+            is_tournament_venue: false,
+            tournament_count: 0,
+            source: 'client_google_places'
+          });
+        }
+      }
+    }
+
+    // Sort by proximity
+    merged.sort((a, b) => (a.distance_miles ?? 9999) - (b.distance_miles ?? 9999));
+    communityState.stores = merged;
+
+    // Update filter counts and subtab badge
+    updateStoresBadgesAndCounts();
+
+    // Render cards and map
+    renderStoresGrid();
+    initStoresGoogleMap(merged);
+
+  } catch (err) {
+    console.error("Error loading local game stores:", err);
+    if (grid) {
+      grid.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Discover Game Stores</h4>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+            ${escapeHtml(err.message || 'An error occurred while finding tabletop stores.')}
+          </p>
+          <button class="btn btn-primary" onclick="loadLocalGameStores(true)">🔄 Retry</button>
+        </div>
+      `;
+    }
+  } finally {
+    communityState.storesLoading = false;
+  }
+}
+
+function updateStoresBadgesAndCounts() {
+  const stores = communityState.stores || [];
+  const total = stores.length;
+  const tournamentsCount = stores.filter(s => s.is_tournament_venue).length;
+  const officialCount = stores.filter(s => s.is_official_warhammer).length;
+  const topCount = stores.filter(s => s.rating && s.rating >= 4.5).length;
+
+  const countBadge = document.getElementById('badge-stores-count');
+  if (countBadge) {
+    countBadge.textContent = total;
+    countBadge.style.display = total > 0 ? 'inline-block' : 'none';
+  }
+
+  const elAll = document.getElementById('count-stores-all');
+  if (elAll) elAll.textContent = total;
+
+  const elTourneys = document.getElementById('count-stores-tournaments');
+  if (elTourneys) elTourneys.textContent = tournamentsCount;
+
+  const elOfficial = document.getElementById('count-stores-official');
+  if (elOfficial) elOfficial.textContent = officialCount;
+
+  const elTop = document.getElementById('count-stores-top');
+  if (elTop) elTop.textContent = topCount;
+}
+
+function renderStoresGrid() {
+  const grid = document.getElementById('comm-stores-grid');
+  if (!grid) return;
+
+  const stores = communityState.stores || [];
+  const filter = communityState.storesFilter || 'all';
+  const query = (communityState.storesSearch || '').trim().toLowerCase();
+
+  let filtered = stores.filter(store => {
+    // 1. Category Filter
+    if (filter === 'tournaments' && !store.is_tournament_venue) return false;
+    if (filter === 'official' && !store.is_official_warhammer) return false;
+    if (filter === 'top_rated' && (!store.rating || store.rating < 4.5)) return false;
+    if (filter === 'open_now' && store.open_now !== true) return false;
+
+    // 2. Keyword Search
+    if (query) {
+      const matchName = (store.name || '').toLowerCase().includes(query);
+      const matchAddr = (store.address || '').toLowerCase().includes(query);
+      const matchCity = (store.city || '').toLowerCase().includes(query);
+      if (!matchName && !matchAddr && !matchCity) return false;
+    }
+
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    grid.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 3rem 1.5rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border);">
+        <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🏪</div>
+        <h4 style="color: #fff; margin-bottom: 0.4rem;">No Stores Found</h4>
+        <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 460px; margin: 0 auto 1.25rem;">
+          ${query ? `No game stores match "${escapeHtml(query)}" with the active filter.` : `No stores found within ${communityState.radiusMiles} miles matching this filter.`}
+        </p>
+        <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+          ${(filter !== 'all' || query) ? `
+            <button class="btn btn-primary" style="font-size: 0.78rem;" onclick="resetStoresFilters()">Clear Filters &amp; Search</button>
+          ` : ''}
+          <button class="btn btn-outline" style="font-size: 0.78rem;" onclick="changeCommunityRadius(${Math.min(250, Math.round(communityState.radiusMiles * 2))})">
+            Expand Radius to ${Math.min(250, Math.round(communityState.radiusMiles * 2))} Miles
+          </button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  filtered.forEach(store => {
+    html += renderStoreCard(store);
+  });
+  grid.innerHTML = html;
+}
+
+function renderStoreCard(store) {
+  const isOfficial = store.is_official_warhammer;
+  const isTourney = store.is_tournament_venue;
+  const dist = store.distance_miles != null ? store.distance_miles.toFixed(1) : '?';
+
+  return `
+    <div class="comm-store-card ${isOfficial ? 'official-gw' : ''} ${isTourney ? 'tournament-venue' : ''}" id="store-card-${escapeHtml(store.id)}">
+      <!-- Top Badges & Distance -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.65rem;">
+        <div style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+          ${isOfficial ? `
+            <span class="comm-store-badge comm-store-badge-official" title="Official Games Workshop / Warhammer Store">
+              🛡️ Official Warhammer
+            </span>
+          ` : ''}
+          ${isTourney ? `
+            <span class="comm-store-badge comm-store-badge-tournament" title="Verified tournament venue with ${store.tournament_count} hosted tournaments">
+              🏆 Tournament Venue (${store.tournament_count})
+            </span>
+          ` : ''}
+          ${store.open_now === true ? `
+            <span class="comm-store-badge comm-store-badge-open">🟢 Open Now</span>
+          ` : (store.open_now === false ? `
+            <span class="comm-store-badge comm-store-badge-closed">🔴 Closed</span>
+          ` : '')}
+        </div>
+
+        <span class="badge" style="background: rgba(56, 189, 248, 0.1); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.25); font-size: 0.72rem; font-weight: 700; white-space: nowrap;">
+          🚗 ${dist} mi
+        </span>
+      </div>
+
+      <!-- Store Name -->
+      <h4 style="font-size: 1.08rem; font-weight: 800; color: #fff; margin: 0 0 0.35rem; line-height: 1.35;">
+        ${escapeHtml(store.name)}
+      </h4>
+
+      <!-- Address -->
+      <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.75rem; display: flex; align-items: flex-start; gap: 6px; line-height: 1.4;">
+        <span style="font-size: 0.9rem; flex-shrink: 0;">📍</span>
+        <span style="word-break: break-word;">${escapeHtml(store.address || 'Address unavailable')}</span>
+      </div>
+
+      <!-- Ratings & Tournament Box -->
+      <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 5px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
+          <span style="color: #94a3b8;">Google Rating:</span>
+          <span style="font-weight: 700; color: #facc15;">
+            ${store.rating ? `⭐ ${store.rating.toFixed(1)} <span style="color: #64748b; font-weight: 500; font-size: 0.75rem;">(${store.user_ratings_total || 0} reviews)</span>` : '<span style="color: #64748b;">Not rated</span>'}
+          </span>
+        </div>
+
+        ${isTourney ? `
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+            <span style="color: #94a3b8;">Tournaments Hosted:</span>
+            <span style="font-weight: 700; color: #38bdf8;">${store.tournament_count} verified events</span>
+          </div>
+          ${store.last_tournament_date ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b;">
+              <span>Last Event:</span>
+              <span>${escapeHtml(store.last_tournament_date.substring(0, 10))}</span>
+            </div>
+          ` : ''}
+        ` : `
+          <div style="font-size: 0.75rem; color: #64748b;">
+            Hobby center with Warhammer 40k miniatures &amp; tabletop supplies
+          </div>
+        `}
+      </div>
+
+      <!-- Actions -->
+      <div class="comm-store-actions">
+        <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(store.address || store.name)}&destination_place_id=${encodeURIComponent(store.place_id || '')}" target="_blank" rel="noopener noreferrer" class="comm-store-btn comm-store-btn-primary" title="Open Google Maps Driving / Transit Directions">
+          <span>🧭</span> <span>Directions</span>
+        </a>
+
+        ${(store.latitude && store.longitude) ? `
+          <button onclick="focusStoreOnMap(${store.latitude}, ${store.longitude}, '${escapeHtml(store.id)}')" class="comm-store-btn" title="Center on Map">
+            <span>🗺️</span> <span>View on Map</span>
+          </button>
+        ` : ''}
+
+        ${isTourney ? `
+          <button onclick="filterTournamentsByVenue('${escapeHtml(store.name)}')" class="comm-store-btn" title="View tournaments at this venue">
+            <span>⚔️</span> <span>Tournaments</span>
+          </button>
+        ` : ''}
+
+        <button onclick="setStoreAsMatchmakingLocation('${escapeHtml(store.id)}')" class="comm-store-btn" style="margin-left: auto; color: #38bdf8;" title="Set this store as your primary matchmaking location in OmniConnect">
+          <span>📍</span> <span>Set Location</span>
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Initializes and updates the interactive Google Map with custom markers
+ */
+function initStoresGoogleMap(stores = null) {
+  const mapContainer = document.getElementById('comm-stores-map');
+  const fallbackContainer = document.getElementById('comm-stores-map-fallback');
+  if (!mapContainer) return;
+
+  const lat = communityState.lat || 32.7157;
+  const lng = communityState.lng || -117.1611;
+
+  // Update fallback link with current coordinates
+  const extLink = document.getElementById('link-external-google-maps');
+  if (extLink) {
+    extLink.href = `https://www.google.com/maps/search/Warhammer+40k+game+store/@${lat},${lng},12z`;
+  }
+
+  // Check if Google Maps JS SDK is available
+  if (typeof google === 'undefined' || !google.maps || !google.maps.Map) {
+    if (fallbackContainer) fallbackContainer.style.display = 'block';
+    mapContainer.style.display = 'none';
+    return;
+  }
+
+  if (fallbackContainer) fallbackContainer.style.display = 'none';
+  mapContainer.style.display = 'block';
+
+  // Instantiate map if not already done
+  if (!communityState.storesMap) {
+    communityState.storesMap = new google.maps.Map(mapContainer, {
+      center: { lat, lng },
+      zoom: 11,
+      styles: GOOGLE_MAPS_DARK_STYLE,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: true,
+      zoomControl: true
+    });
+    communityState.storesInfoWindow = new google.maps.InfoWindow();
+  } else {
+    communityState.storesMap.setCenter({ lat, lng });
+  }
+
+  // Clear existing markers
+  if (communityState.storesMarkers) {
+    communityState.storesMarkers.forEach(m => m.setMap(null));
+  }
+  communityState.storesMarkers = [];
+
+  // Add User Location Pin
+  const userMarker = new google.maps.Marker({
+    position: { lat, lng },
+    map: communityState.storesMap,
+    title: `📍 ${communityState.locationName || 'Your Location'}`,
+    icon: {
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 8,
+      fillColor: '#38bdf8',
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 2.5
+    },
+    zIndex: 9999
+  });
+  communityState.storesMarkers.push(userMarker);
+
+  const storeList = stores || communityState.stores || [];
+  const bounds = new google.maps.LatLngBounds();
+  bounds.extend({ lat, lng });
+
+  let validMarkersCount = 0;
+  storeList.forEach(store => {
+    if (store.latitude == null || store.longitude == null) return;
+    const pos = { lat: parseFloat(store.latitude), lng: parseFloat(store.longitude) };
+    bounds.extend(pos);
+    validMarkersCount++;
+
+    const isOfficial = store.is_official_warhammer;
+    const isTourney = store.is_tournament_venue;
+    const pinColor = isOfficial ? '#ef4444' : (isTourney ? '#f59e0b' : '#38bdf8');
+
+    const marker = new google.maps.Marker({
+      position: pos,
+      map: communityState.storesMap,
+      title: store.name,
+      icon: {
+        path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+        fillColor: pinColor,
+        fillOpacity: 1,
+        strokeColor: '#ffffff',
+        strokeWeight: 1.5,
+        scale: 1.4,
+        anchor: new google.maps.Point(12, 22)
+      },
+      zIndex: isOfficial ? 500 : (isTourney ? 400 : 300)
+    });
+
+    marker.addListener('click', () => {
+      const infoContent = `
+        <div style="color: #0f172a; padding: 6px; max-width: 250px; font-family: system-ui, -apple-system, sans-serif;">
+          <div style="font-weight: 800; font-size: 14px; margin-bottom: 4px; color: #0f172a; line-height: 1.3;">
+            ${escapeHtml(store.name)}
+          </div>
+          ${isOfficial ? '<div style="display:inline-block; font-size:10px; font-weight:700; color:#ef4444; background:#fee2e2; padding:1px 6px; border-radius:4px; margin-bottom:4px;">🛡️ OFFICIAL WARHAMMER</div>' : ''}
+          ${isTourney ? `<div style="display:inline-block; font-size:10px; font-weight:700; color:#b45309; background:#fef3c7; padding:1px 6px; border-radius:4px; margin-bottom:4px; margin-left:3px;">🏆 ${store.tournament_count} EVENTS</div>` : ''}
+          <div style="font-size: 11px; color: #475569; margin-bottom: 6px;">${escapeHtml(store.address || '')}</div>
+          <div style="display: flex; gap: 8px; align-items: center; font-size: 11px; color: #334155; margin-bottom: 8px;">
+            <span>🚗 <strong>${store.distance_miles != null ? store.distance_miles.toFixed(1) : '?'} mi</strong></span>
+            ${store.rating ? `<span>⭐ <strong>${store.rating.toFixed(1)}</strong> (${store.user_ratings_total || 0})</span>` : ''}
+          </div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <a href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(store.address || store.name)}&destination_place_id=${encodeURIComponent(store.place_id || '')}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 700; padding: 4px 10px; background: #0284c7; color: #ffffff; border-radius: 4px; text-decoration: none; display: inline-block;">
+              🧭 Directions
+            </a>
+            <button onclick="setStoreAsMatchmakingLocation('${escapeHtml(store.id)}')" style="font-size: 11px; font-weight: 700; padding: 4px 8px; background: #f1f5f9; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;">
+              📍 Set Location
+            </button>
+          </div>
+        </div>
+      `;
+      communityState.storesInfoWindow.setContent(infoContent);
+      communityState.storesInfoWindow.open(communityState.storesMap, marker);
+    });
+
+    communityState.storesMarkers.push(marker);
+  });
+
+  if (validMarkersCount > 0 && communityState.storesMap) {
+    communityState.storesMap.fitBounds(bounds);
+    const listener = google.maps.event.addListener(communityState.storesMap, "idle", () => {
+      if (communityState.storesMap.getZoom() > 14) {
+        communityState.storesMap.setZoom(14);
+      }
+      google.maps.event.removeListener(listener);
+    });
+  }
+}
+
+/**
+ * Focuses map on a specific store
+ */
+function focusStoreOnMap(lat, lng, storeId) {
+  if (communityState.storesViewMode === 'cards') {
+    setStoresViewMode('both');
+  }
+
+  if (communityState.storesMap) {
+    communityState.storesMap.setCenter({ lat: parseFloat(lat), lng: parseFloat(lng) });
+    communityState.storesMap.setZoom(15);
+
+    const marker = communityState.storesMarkers.find(m => {
+      const pos = m.getPosition();
+      return pos && Math.abs(pos.lat() - parseFloat(lat)) < 0.0001 && Math.abs(pos.lng() - parseFloat(lng)) < 0.0001;
+    });
+    if (marker && typeof google !== 'undefined') {
+      google.maps.event.trigger(marker, 'click');
+    }
+  }
+
+  const mapWrapper = document.getElementById('comm-stores-map-wrapper');
+  if (mapWrapper) {
+    mapWrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+/**
+ * Filter chip selection for Game Stores
+ */
+function setStoresFilter(filter) {
+  communityState.storesFilter = filter;
+  document.querySelectorAll('.comm-store-filters .comm-filter-chip').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+  });
+  renderStoresGrid();
+}
+
+/**
+ * Handles store search input with quick filtering
+ */
+let storesSearchTimer = null;
+function handleStoresSearchInput(val) {
+  communityState.storesSearch = val;
+  const clearBtn = document.getElementById('stores-search-clear');
+  if (clearBtn) {
+    clearBtn.style.display = val ? 'block' : 'none';
+  }
+
+  clearTimeout(storesSearchTimer);
+  storesSearchTimer = setTimeout(() => {
+    renderStoresGrid();
+  }, 180);
+}
+
+function clearStoresSearch() {
+  const input = document.getElementById('stores-search-input');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('stores-search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  communityState.storesSearch = '';
+  renderStoresGrid();
+}
+
+function resetStoresFilters() {
+  clearStoresSearch();
+  setStoresFilter('all');
+}
+
+/**
+ * Toggle view modes: 'both', 'cards', 'map'
+ */
+function setStoresViewMode(mode) {
+  communityState.storesViewMode = mode;
+
+  const btnBoth = document.getElementById('btn-stores-view-both');
+  const btnCards = document.getElementById('btn-stores-view-cards');
+  const btnMap = document.getElementById('btn-stores-view-map');
+
+  if (btnBoth) btnBoth.classList.toggle('active', mode === 'both');
+  if (btnCards) btnCards.classList.toggle('active', mode === 'cards');
+  if (btnMap) btnMap.classList.toggle('active', mode === 'map');
+
+  const subview = document.getElementById('comm-subview-stores');
+  if (subview) {
+    subview.classList.remove('comm-stores-view-both', 'comm-stores-view-cards', 'comm-stores-view-map');
+    subview.classList.add(`comm-stores-view-${mode}`);
+  }
+
+  if ((mode === 'both' || mode === 'map') && communityState.storesMap && typeof google !== 'undefined') {
+    setTimeout(() => {
+      google.maps.event.trigger(communityState.storesMap, 'resize');
+    }, 50);
+  }
+}
+
+/**
+ * 1-click set store as user's home matchmaking venue
+ */
+async function setStoreAsMatchmakingLocation(storeId) {
+  const store = (communityState.stores || []).find(s => String(s.id) === String(storeId) || String(s.place_id) === String(storeId));
+  if (!store) return;
+
+  const storeName = store.name;
+  const storeLat = store.latitude;
+  const storeLng = store.longitude;
+  const storeAddr = store.address;
+
+  // 1. Update Community Hub location state & local storage
+  updateCommunityLocation(storeLat, storeLng, storeName, communityState.radiusMiles);
+
+  // 2. If logged in, update LFG profile
+  if (typeof window.api?.updateConnectProfile === 'function') {
+    try {
+      const existingProfile = (typeof connectState !== 'undefined' && connectState.userProfile) ? connectState.userProfile : {};
+      const payload = {
+        ...existingProfile,
+        is_active: existingProfile.is_active !== undefined ? existingProfile.is_active : true,
+        home_venue_name: storeName,
+        address: storeAddr || existingProfile.address || '',
+        latitude: storeLat,
+        longitude: storeLng,
+        radius_miles: communityState.radiusMiles,
+        preferred_points: existingProfile.preferred_points || 2000,
+        play_style: existingProfile.play_style || 'Competitive'
+      };
+      if (typeof connectState !== 'undefined') {
+        connectState.userProfile = payload;
+      }
+      if (typeof renderTopBarOptions === 'function') {
+        renderTopBarOptions(payload);
+      }
+      await window.api.updateConnectProfile(payload);
+    } catch (e) {
+      console.warn("Notice updating profile with store location:", e);
+    }
+  }
+
+  // Visual feedback
+  if (typeof showToast === 'function') {
+    showToast(`📍 Set home matchmaking venue to ${storeName}!`);
+  } else {
+    alert(`📍 Matchmaking location updated to: ${storeName}`);
+  }
+}
+
+/**
+ * Filters tournaments tab by specific venue
+ */
+function filterTournamentsByVenue(venueName) {
+  communityState.tournamentsVenueFilter = venueName;
+  switchCommunitySubtab('tournaments');
+  const container = document.getElementById('comm-tournaments-content');
+  if (container) {
+    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function clearTournamentsVenueFilter() {
+  communityState.tournamentsVenueFilter = null;
+  renderCommunityEvents();
+}
+
+/**
+ * Hook triggered when Google Maps script completes loading
+ */
+function onGoogleMapsScriptLoaded() {
+  if (communityState.activeSubtab === 'stores') {
+    initStoresGoogleMap(communityState.stores);
+  }
+}
+
 // Attach global helpers for window scope
 window.initCommunityHub = initCommunityHub;
 window.loadCommunityHub = loadCommunityHub;
@@ -1261,6 +2064,21 @@ window.setCommunitySceneView = setCommunitySceneView;
 window.renderCommunityTeamsLeaderboard = renderCommunityTeamsLeaderboard;
 window.renderCommunityChat = renderCommunityChat;
 window.setCommunityChatMode = setCommunityChatMode;
+
+// Stores subtab helpers
+window.loadLocalGameStores = loadLocalGameStores;
+window.renderStoresGrid = renderStoresGrid;
+window.initStoresGoogleMap = initStoresGoogleMap;
+window.focusStoreOnMap = focusStoreOnMap;
+window.setStoresFilter = setStoresFilter;
+window.handleStoresSearchInput = handleStoresSearchInput;
+window.clearStoresSearch = clearStoresSearch;
+window.resetStoresFilters = resetStoresFilters;
+window.setStoresViewMode = setStoresViewMode;
+window.setStoreAsMatchmakingLocation = setStoreAsMatchmakingLocation;
+window.filterTournamentsByVenue = filterTournamentsByVenue;
+window.clearTournamentsVenueFilter = clearTournamentsVenueFilter;
+window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;
 
 // Backwards compatibility aliases
 window.changeCommunityRegion = (region) => {

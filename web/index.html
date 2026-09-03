@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=67.0">
+  <link rel="stylesheet" href="/css/styles.css?v=68.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
 
   <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
@@ -941,6 +941,10 @@
           <button class="comm-subtab-btn" id="comm-subtab-btn-tournaments" data-subtab="tournaments" onclick="switchCommunitySubtab('tournaments')">
             <span>🏆</span> <span>Local Tournaments</span>
           </button>
+          <button class="comm-subtab-btn" id="comm-subtab-btn-stores" data-subtab="stores" onclick="switchCommunitySubtab('stores')">
+            <span>🏪</span> <span>Game Stores</span>
+            <span id="badge-stores-count" class="oc-badge" style="margin-left: 5px; display: none;">0</span>
+          </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-scene" data-subtab="scene" onclick="switchCommunitySubtab('scene')">
             <span>👑</span> <span>Local Leaderboard &amp; Competitors</span>
           </button>
@@ -980,6 +984,78 @@
         <!-- SUBVIEW 2: REGIONAL TOURNAMENTS -->
         <div id="comm-subview-tournaments" class="comm-subview" style="display: none;">
           <div id="comm-tournaments-content"></div>
+        </div>
+
+        <!-- SUBVIEW: LOCAL GAME STORES & CLUBS -->
+        <div id="comm-subview-stores" class="comm-subview" style="display: none;">
+          <div class="comm-stores-header-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
+              <div>
+                <h3 style="font-size: 1.18rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
+                  <span>🏪 Local Warhammer 40k Game Stores &amp; Tabletop Clubs</span>
+                </h3>
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 3px;">
+                  Hobby shops, official Warhammer locations, and gaming clubs with open tables within your area
+                </div>
+              </div>
+
+              <!-- View Mode Buttons & Refresh -->
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <div class="comm-scene-toggles-bar" style="display: inline-flex; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 3px;">
+                  <button id="btn-stores-view-both" class="comm-toggle-btn active" onclick="setStoresViewMode('both')" title="Map &amp; Cards Split View">
+                    🗺️ Split View
+                  </button>
+                  <button id="btn-stores-view-cards" class="comm-toggle-btn" onclick="setStoresViewMode('cards')" title="Cards List Only">
+                    📋 Cards Only
+                  </button>
+                  <button id="btn-stores-view-map" class="comm-toggle-btn" onclick="setStoresViewMode('map')" title="Full Map View">
+                    🗺️ Full Map
+                  </button>
+                </div>
+
+                <button onclick="loadLocalGameStores(true)" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 4px;">
+                  🔄 Refresh Stores
+                </button>
+              </div>
+            </div>
+
+            <!-- Search & Filter Controls -->
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
+              <div style="position: relative; flex: 1; min-width: 240px;">
+                <input type="text" id="stores-search-input" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 36px; padding-right: 32px; font-size: 0.82rem;" placeholder="Search stores by name, city, or address..." oninput="handleStoresSearchInput(this.value)">
+                <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 14px; opacity: 0.7; pointer-events: none;">🔍</span>
+                <button id="stores-search-clear" onclick="clearStoresSearch()" style="display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #94a3b8; font-size: 14px; cursor: pointer;">✕</button>
+              </div>
+
+              <div class="comm-store-filters" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                <button class="comm-filter-chip active" id="filter-chip-store-all" data-filter="all" onclick="setStoresFilter('all')">All (<span id="count-stores-all">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-tournaments" data-filter="tournaments" onclick="setStoresFilter('tournaments')">🏆 Tournament Venues (<span id="count-stores-tournaments">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-official" data-filter="official" onclick="setStoresFilter('official')">🛡️ Official GW (<span id="count-stores-official">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-top" data-filter="top_rated" onclick="setStoresFilter('top_rated')">⭐ 4.5+ Rating (<span id="count-stores-top">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-open" data-filter="open_now" onclick="setStoresFilter('open_now')">🟢 Open Now</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Google Map Container -->
+          <div id="comm-stores-map-wrapper" style="margin-bottom: 1.25rem; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); background: #070b14; position: relative;">
+            <div id="comm-stores-map" style="width: 100%; height: 380px;"></div>
+            <div id="comm-stores-map-fallback" style="display: none; padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); background: var(--bg-card);">
+              <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🗺️</div>
+              <h4 style="color: #fff; margin-bottom: 0.35rem;">Interactive Map</h4>
+              <p style="font-size: 0.84rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1rem;">
+                Browse the verified stores and venues below, or click any store's <strong>"Directions"</strong> button to open directly in Google Maps.
+              </p>
+              <a id="link-external-google-maps" href="https://www.google.com/maps/search/Warhammer+40k+game+store/" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.82rem; padding: 0.5rem 1rem;">
+                <span>🌐</span> <span>Search Warhammer on Google Maps</span>
+              </a>
+            </div>
+          </div>
+
+          <!-- Stores Cards Content -->
+          <div id="comm-stores-content">
+            <div id="comm-stores-grid" class="comm-stores-grid"></div>
+          </div>
         </div>
 
         <!-- SUBVIEW 3: SCENE LEADERBOARD & COMPETITORS -->
@@ -2697,7 +2773,7 @@
 
   <!-- Modular Scripts -->
   <script src="/js/utils.js?v=65.0"></script>
-  <script src="/js/api.js?v=74.0"></script>
+  <script src="/js/api.js?v=75.0"></script>
   <script src="/js/leaderboard.js?v=65.0"></script>
   <script src="/js/teams.js?v=64.0"></script>
   <script src="/js/players.js?v=64.0"></script>
@@ -2708,8 +2784,8 @@
   <script src="/js/auth.js?v=72.0"></script>
   <script src="/js/my_hub.js?v=71.0"></script>
   <script src="/js/eventstudio.js?v=73.0"></script>
-  <script src="/js/connect.js?v=3.3"></script>
-  <script src="/js/community.js?v=1.2"></script>
+  <script src="/js/connect.js?v=3.4"></script>
+  <script src="/js/community.js?v=1.3"></script>
   <script src="/js/app.js?v=72.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
