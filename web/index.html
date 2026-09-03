@@ -880,63 +880,55 @@
             </div>
           </div>
 
-          <!-- Right: Regional Scene Selector & Quick Pills -->
+          <!-- Right: Search Radius & Location Controls -->
           <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
             <div style="display: flex; align-items: center; gap: 0.4rem;">
-              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Scene:</span>
-              <select id="comm-region-select" class="form-input" style="font-size: 0.85rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.85rem; cursor: pointer;" onchange="changeCommunityRegion(this.value)">
-                <option value="socal">🌴 SoCal Scene — Southern California</option>
-                <option value="norcal">🌉 NorCal Scene — Northern California / Bay Area</option>
-                <option value="texas">⭐ Lone Star Scene — Texas Metro</option>
-                <option value="pnw">🌲 PNW Scene — Pacific Northwest</option>
-                <option value="midwest">🏙️ Midwest Scene — Chicago & Great Lakes</option>
-                <option value="northeast">🗽 Northeast Scene — NY, Philly, Boston & DC</option>
-                <option value="southeast">☀️ Southeast Scene — FL, GA, Carolinas</option>
-                <option value="mountain">🏔️ Mountain Scene — Denver, Phoenix, Utah</option>
-                <option value="uk">🏰 UK Scene — London & United Kingdom</option>
-                <option value="all">🌍 Global Circuit — All Regions</option>
+              <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Radius:</span>
+              <select id="comm-radius-select" class="form-input" style="font-size: 0.85rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.85rem; cursor: pointer;" onchange="changeCommunityRadius(this.value)">
+                <option value="25">Within 25 Miles</option>
+                <option value="50">Within 50 Miles</option>
+                <option value="100" selected>Within 100 Miles (Default)</option>
+                <option value="250">Within 250 Miles</option>
+                <option value="500">Within 500 Miles</option>
               </select>
             </div>
 
-            <button id="comm-btn-detect-gps" class="btn" style="font-size: 0.78rem; padding: 0.42rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700; cursor: pointer;" onclick="detectCommunityRegion()" title="Auto-detect closest community scene">
-              <span>📍</span> <span>Detect Scene</span>
+            <button id="comm-btn-gps" class="btn" style="font-size: 0.78rem; padding: 0.42rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-weight: 700; cursor: pointer;" onclick="detectCommunityGPS()" title="Use Current GPS Coordinates">
+              <span id="comm-gps-icon">🛰️</span> <span id="comm-gps-label">Use GPS</span>
             </button>
 
-            <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
-              <button class="comm-pill-btn active" data-region="socal" onclick="changeCommunityRegion('socal')">🌴 SoCal</button>
-              <button class="comm-pill-btn" data-region="norcal" onclick="changeCommunityRegion('norcal')">🌉 NorCal</button>
-              <button class="comm-pill-btn" data-region="texas" onclick="changeCommunityRegion('texas')">⭐ Texas</button>
-              <button class="comm-pill-btn" data-region="midwest" onclick="changeCommunityRegion('midwest')">🏙️ Midwest</button>
-              <button class="comm-pill-btn" data-region="northeast" onclick="changeCommunityRegion('northeast')">🗽 Northeast</button>
-              <button class="comm-pill-btn" data-region="uk" onclick="changeCommunityRegion('uk')">🏰 UK</button>
-              <button class="comm-pill-btn" data-region="all" onclick="changeCommunityRegion('all')">🌍 Global</button>
-            </div>
+            <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.85rem; border-radius: 8px; font-weight: 700; display: inline-flex; align-items: center; gap: 5px;" onclick="openCommunityLocationModal()" title="Change city, venue, or address">
+              <span>📍</span> <span>Change Location</span>
+            </button>
           </div>
         </div>
 
-        <!-- Regional Scene Header Banner -->
+        <!-- Local Tournament Scene Header Banner -->
         <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.85) 100%); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
           <div>
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 0.35rem;">
               <span id="comm-header-badge" style="font-size: 0.72rem; font-weight: 800; color: #38bdf8; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 2px 9px; border-radius: 9999px; text-transform: uppercase; letter-spacing: 0.05em;">
-                🌴 SoCal Scene
+                📍 100-Mile Tournament Radius
               </span>
               <span style="color: #64748b;">•</span>
-              <span style="font-size: 0.76rem; color: #10b981; font-weight: 700;">Active Tournament &amp; Sparring Hub</span>
+              <span style="font-size: 0.76rem; color: #10b981; font-weight: 700;">Active Local Scene</span>
             </div>
-            <h2 id="comm-header-title" style="font-size: 1.4rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
-              Southern California
+            <h2 id="comm-header-title" style="font-size: 1.35rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
+              Tournaments within 100 miles of San Diego, CA
             </h2>
             <p id="comm-header-desc" style="font-size: 0.82rem; color: #94a3b8; margin: 0; max-width: 680px;">
-              Los Angeles, San Diego, Orange County, Inland Empire
+              Showing verified tournaments, local competitor rosters, and standings within 100 miles.
             </p>
           </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <button onclick="switchCommunitySubtab('radar')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; border-color: rgba(56,189,248,0.3); color: #38bdf8;">
-              🎯 Sparring Radar
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button onclick="switchCommunitySubtab('tournaments')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; border-color: rgba(56,189,248,0.3); color: #38bdf8;">
+              🏆 Local Tournaments
             </button>
-            <button onclick="switchCommunitySubtab('chat')" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.95rem;">
-              💬 Community Chat
+            <button onclick="switchCommunitySubtab('scene')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.95rem; border-color: rgba(168,85,247,0.3); color: #c084fc;">
+              👑 Local Leaderboard
+            </button>
+            <button onclick="switchCommunitySubtab('radar')" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.95rem;">
+              🎯 Sparring Radar
             </button>
           </div>
         </div>
@@ -948,10 +940,10 @@
             <span id="badge-players-count" class="oc-badge" style="margin-left: 5px;">0</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-tournaments" data-subtab="tournaments" onclick="switchCommunitySubtab('tournaments')">
-            <span>🏆</span> <span>Regional Tournaments</span>
+            <span>🏆</span> <span>Local Tournaments</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-scene" data-subtab="scene" onclick="switchCommunitySubtab('scene')">
-            <span>👑</span> <span>Scene Leaderboard &amp; Competitors</span>
+            <span>👑</span> <span>Local Leaderboard &amp; Competitors</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-chat" data-subtab="chat" onclick="switchCommunitySubtab('chat')">
             <span>💬</span> <span>Messages &amp; Chat</span>

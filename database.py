@@ -4438,88 +4438,50 @@ class PostgresDatabase:
     # =========================================================================
     # REGIONAL COMMUNITY HUB & COMPETITOR DISCOVERY
     # =========================================================================
+    # COMMUNITY HUB: GPS RADIUS TOURNAMENT & LOCAL COMPETITOR DISCOVERY
+    # =========================================================================
+
+    KNOWN_COMMUNITY_HUBS = {
+        "san diego": (32.7157, -117.1611, "San Diego, CA"),
+        "socal": (32.7157, -117.1611, "Southern California"),
+        "los angeles": (34.0522, -118.2437, "Los Angeles, CA"),
+        "orange county": (33.7175, -117.8311, "Orange County, CA"),
+        "temecula": (33.4936, -117.1484, "Temecula, CA"),
+        "pasadena": (34.1478, -118.1445, "Pasadena, CA"),
+        "burbank": (34.1808, -118.3090, "Burbank, CA"),
+        "anaheim": (33.8366, -117.9143, "Anaheim, CA"),
+        "long beach": (33.7701, -118.1937, "Long Beach, CA"),
+        "irvine": (33.6846, -117.8265, "Irvine, CA"),
+        "riverside": (33.9806, -117.3755, "Riverside, CA"),
+        "san francisco": (37.7749, -122.4194, "San Francisco, CA"),
+        "norcal": (37.7749, -122.4194, "Northern California"),
+        "san jose": (37.3382, -121.8863, "San Jose, CA"),
+        "sacramento": (38.5816, -121.4944, "Sacramento, CA"),
+        "austin": (30.2672, -97.7431, "Austin, TX"),
+        "texas": (30.2672, -97.7431, "Texas"),
+        "dallas": (32.7767, -96.7970, "Dallas, TX"),
+        "houston": (29.7604, -95.3698, "Houston, TX"),
+        "chicago": (41.8781, -87.6298, "Chicago, IL"),
+        "midwest": (41.8781, -87.6298, "Midwest"),
+        "seattle": (47.6062, -122.3321, "Seattle, WA"),
+        "pnw": (47.6062, -122.3321, "Pacific Northwest"),
+        "new york": (40.7128, -74.0060, "New York, NY"),
+        "northeast": (40.7128, -74.0060, "Northeast"),
+        "orlando": (28.5383, -81.3792, "Orlando, FL"),
+        "southeast": (33.7490, -84.3880, "Southeast"),
+        "london": (51.5074, -0.1278, "London, UK"),
+        "uk": (51.5074, -0.1278, "United Kingdom")
+    }
 
     COMMUNITY_REGIONS = [
-        {
-            "id": "socal",
-            "name": "Southern California",
-            "badge": "🌴 SoCal Scene",
-            "description": "Los Angeles, San Diego, Orange County, Inland Empire",
-            "keywords": ["los angeles", "san diego", "orange", "anaheim", "pasadena", "burbank", "riverside", "ca", "california", "long beach", "irvine"],
-            "lat": 33.7490, "lng": -117.8732
-        },
-        {
-            "id": "norcal",
-            "name": "Northern California / Bay Area",
-            "badge": "🌉 NorCal Scene",
-            "description": "San Francisco, San Jose, Silicon Valley, Sacramento, Oakland",
-            "keywords": ["san francisco", "san jose", "oakland", "sacramento", "santa clara", "berkeley", "sunnyvale", "fremont", "bay area", "ca"],
-            "lat": 37.7749, "lng": -122.4194
-        },
-        {
-            "id": "texas",
-            "name": "Texas Metro",
-            "badge": "⭐ Lone Star Scene",
-            "description": "Dallas-Fort Worth, Austin, Houston, San Antonio",
-            "keywords": ["dallas", "austin", "houston", "san antonio", "fort worth", "plano", "arlington", "tx", "texas"],
-            "lat": 30.2672, "lng": -97.7431
-        },
-        {
-            "id": "pnw",
-            "name": "Pacific Northwest",
-            "badge": "🌲 PNW Scene",
-            "description": "Seattle, Portland, Tacoma, Vancouver, Bellevue",
-            "keywords": ["seattle", "portland", "tacoma", "bellevue", "vancouver", "wa", "or", "washington", "oregon"],
-            "lat": 47.6062, "lng": -122.3321
-        },
-        {
-            "id": "midwest",
-            "name": "Midwest",
-            "badge": "🏙️ Midwest Scene",
-            "description": "Chicago, Indianapolis, Minneapolis, Milwaukee, Detroit",
-            "keywords": ["chicago", "indianapolis", "minneapolis", "milwaukee", "detroit", "il", "in", "mn", "wi", "mi", "illinois", "indiana"],
-            "lat": 41.8781, "lng": -87.6298
-        },
-        {
-            "id": "northeast",
-            "name": "Mid-Atlantic & Northeast",
-            "badge": "🗽 Northeast Scene",
-            "description": "New York City, Philadelphia, Boston, DC, Baltimore",
-            "keywords": ["new york", "brooklyn", "philadelphia", "boston", "washington", "baltimore", "ny", "pa", "ma", "md", "dc", "nj"],
-            "lat": 40.7128, "lng": -74.0060
-        },
-        {
-            "id": "southeast",
-            "name": "Southeast",
-            "badge": "☀️ Southeast Scene",
-            "description": "Atlanta, Orlando, Tampa, Miami, Charlotte, Raleigh",
-            "keywords": ["atlanta", "orlando", "tampa", "miami", "charlotte", "raleigh", "ga", "fl", "nc", "sc", "florida", "georgia"],
-            "lat": 33.7490, "lng": -84.3880
-        },
-        {
-            "id": "mountain",
-            "name": "Mountain West",
-            "badge": "🏔️ Mountain Scene",
-            "description": "Denver, Phoenix, Salt Lake City, Las Vegas",
-            "keywords": ["denver", "phoenix", "salt lake", "las vegas", "co", "az", "ut", "nv", "colorado", "arizona", "nevada"],
-            "lat": 39.7392, "lng": -104.9903
-        },
-        {
-            "id": "uk",
-            "name": "United Kingdom",
-            "badge": "🏰 UK Scene",
-            "description": "London, Midlands, Manchester, Nottingham, Scotland",
-            "keywords": ["london", "manchester", "birmingham", "nottingham", "uk", "united kingdom", "england", "scotland", "wales"],
-            "lat": 51.5074, "lng": -0.1278
-        },
-        {
-            "id": "all",
-            "name": "All Regions / Global",
-            "badge": "🌍 Global Circuit",
-            "description": "Competitive circuit across all regions and tournaments",
-            "keywords": [],
-            "lat": None, "lng": None
-        }
+        {"id": "socal", "name": "Southern California", "badge": "🌴 SoCal", "description": "Los Angeles, San Diego, Orange County", "lat": 32.7157, "lng": -117.1611},
+        {"id": "norcal", "name": "Northern California", "badge": "🌉 NorCal", "description": "San Francisco, Bay Area, Sacramento", "lat": 37.7749, "lng": -122.4194},
+        {"id": "texas", "name": "Texas Metro", "badge": "⭐ Texas", "description": "Dallas, Austin, Houston, San Antonio", "lat": 30.2672, "lng": -97.7431},
+        {"id": "midwest", "name": "Midwest", "badge": "🏙️ Midwest", "description": "Chicago, Indianapolis, Great Lakes", "lat": 41.8781, "lng": -87.6298},
+        {"id": "northeast", "name": "Northeast", "badge": "🗽 Northeast", "description": "New York, Philadelphia, Boston, DC", "lat": 40.7128, "lng": -74.0060},
+        {"id": "pnw", "name": "Pacific Northwest", "badge": "🌲 PNW", "description": "Seattle, Portland, Vancouver", "lat": 47.6062, "lng": -122.3321},
+        {"id": "southeast", "name": "Southeast", "badge": "☀️ Southeast", "description": "Atlanta, Orlando, Miami, Charlotte", "lat": 33.7490, "lng": -84.3880},
+        {"id": "uk", "name": "United Kingdom", "badge": "🏰 UK", "description": "London, Manchester, Midlands", "lat": 51.5074, "lng": -0.1278}
     ]
 
     def get_community_regions(self) -> List[Dict[str, Any]]:
@@ -4528,94 +4490,208 @@ class PostgresDatabase:
 
     def get_community_overview(
         self,
-        region: Optional[str] = "socal",
         lat: Optional[float] = None,
         lng: Optional[float] = None,
+        radius_miles: float = 100.0,
+        location_name: Optional[str] = None,
+        region: Optional[str] = None,
         current_user_id: Optional[str] = None,
         current_player_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Builds complete community hub payload:
-        - Upcoming & ongoing events in region
-        - Past regional tournament history & field ratings
-        - Local community leaderboard
-        - Local competitors discovered via shared event participation
-        - Verified matching disclaimer & BCP linking prompts
+        Builds complete community hub payload based on GPS location and search radius:
+        - Upcoming & ongoing tournaments within radius (event_date >= CURRENT_DATE - INTERVAL '1 day')
+        - Recent tournament history & field ratings within radius (event_date < CURRENT_DATE - INTERVAL '1 day')
+        - Local community leaderboard derived exclusively from competitors who played in those tournaments
+        - Local competitors discovered via tournament participation
         """
-        region_key = (region or "socal").strip().lower()
-        matched_region = next((r for r in self.COMMUNITY_REGIONS if r["id"] == region_key), None)
+        try:
+            radius_miles = float(radius_miles or 100.0)
+        except (ValueError, TypeError):
+            radius_miles = 100.0
+        radius_miles = max(5.0, min(radius_miles, 1000.0))
 
-        # Build region filter clause
-        where_clauses = []
-        params = []
-
-        if matched_region and matched_region.get("keywords"):
-            kw_conditions = []
-            for kw in matched_region["keywords"]:
-                kw_conditions.append("(e.city ILIKE %s OR e.state ILIKE %s OR e.name ILIKE %s)")
-                params.extend([f"%{kw}%", f"%{kw}%", f"%{kw}%"])
-            where_clauses.append(f"({' OR '.join(kw_conditions)})")
-            region_name = matched_region["name"]
-            region_badge = matched_region["badge"]
-            region_desc = matched_region["description"]
-        elif region_key and region_key != "all":
-            # Custom search query for city/state/region
-            clean_q = region_key.strip()
-            where_clauses.append("(e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s OR e.name ILIKE %s)")
-            params.extend([f"%{clean_q}%", f"%{clean_q}%", f"%{clean_q}%", f"%{clean_q}%"])
-            region_name = clean_q.title()
-            region_badge = f"📍 {region_name} Scene"
-            region_desc = f"Local tournament scene in {region_name}"
-        else:
-            region_name = "Global Community"
-            region_badge = "🌍 Global Circuit"
-            region_desc = "Global tournament scene and international competitors"
-
-        filter_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+        user_lat = None
+        user_lng = None
+        if lat is not None and lng is not None:
+            try:
+                user_lat = float(lat)
+                user_lng = float(lng)
+            except (ValueError, TypeError):
+                user_lat = None
+                user_lng = None
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                # 1. Fetch Upcoming & Ongoing Regional Events
-                upcoming_sql = f"""
-                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                           COALESCE(e.venue, e.venue_name) as venue, e.total_players, e.num_rounds,
-                           e.current_round, e.is_ended, e.circuits
-                    FROM events e
-                    {filter_sql}
-                    {"AND" if filter_sql else "WHERE"} (e.is_ended = FALSE OR e.event_date >= NOW() - INTERVAL '3 days')
-                    ORDER BY e.event_date ASC NULLS LAST
-                    LIMIT 10;
+                # 1. Resolve user coordinates if missing
+                if (user_lat is None or user_lng is None) and current_user_id:
+                    cursor.execute("""
+                        SELECT latitude, longitude, city, state, home_venue_name
+                        FROM player_lfg_profiles
+                        WHERE player_id = %s AND latitude IS NOT NULL AND longitude IS NOT NULL;
+                    """, (current_user_id,))
+                    p_row = cursor.fetchone()
+                    if p_row:
+                        user_lat = float(p_row["latitude"])
+                        user_lng = float(p_row["longitude"])
+                        if not location_name:
+                            location_name = p_row.get("home_venue_name") or f"{p_row.get('city')}, {p_row.get('state')}"
+
+                if (user_lat is None or user_lng is None) and current_player_id:
+                    cursor.execute("""
+                        SELECT e.latitude, e.longitude, e.city, e.state, COUNT(*) as cnt
+                        FROM event_participants ep
+                        JOIN events e ON ep.event_id = e.id
+                        WHERE ep.player_id = %s AND e.latitude IS NOT NULL AND e.longitude IS NOT NULL
+                        GROUP BY e.latitude, e.longitude, e.city, e.state
+                        ORDER BY cnt DESC, MAX(e.event_date) DESC
+                        LIMIT 1;
+                    """, (current_player_id,))
+                    e_loc = cursor.fetchone()
+                    if e_loc and e_loc.get("latitude") and e_loc.get("longitude"):
+                        user_lat = float(e_loc["latitude"])
+                        user_lng = float(e_loc["longitude"])
+                        if not location_name:
+                            location_name = f"{e_loc.get('city')}, {e_loc.get('state')}"
+
+                if user_lat is None or user_lng is None:
+                    lookup_key = (region or location_name or "san diego").strip().lower()
+                    if lookup_key in self.KNOWN_COMMUNITY_HUBS:
+                        hub_lat, hub_lng, hub_name = self.KNOWN_COMMUNITY_HUBS[lookup_key]
+                        user_lat, user_lng = hub_lat, hub_lng
+                        if not location_name:
+                            location_name = hub_name
+                    else:
+                        user_lat = 32.7157
+                        user_lng = -117.1611
+                        if not location_name:
+                            location_name = "San Diego, CA"
+
+                if not location_name:
+                    location_name = f"{user_lat:.2f}, {user_lng:.2f}"
+
+                # 2. Haversine distance query for tournaments within radius
+                geo_cte = """
+                    WITH events_geo AS (
+                        SELECT 
+                            e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                            COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
+                            e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
+                            COALESCE(
+                                e.latitude,
+                                CASE 
+                                    WHEN jsonb_typeof(e.raw_json->'coordinate') = 'array' 
+                                         AND jsonb_array_length(e.raw_json->'coordinate') = 2 
+                                    THEN (e.raw_json->'coordinate'->>1)::double precision 
+                                    WHEN jsonb_typeof(e.raw_json->'location'->'coordinate') = 'array'
+                                         AND jsonb_array_length(e.raw_json->'location'->'coordinate') = 2
+                                    THEN (e.raw_json->'location'->'coordinate'->>1)::double precision
+                                    ELSE NULL 
+                                END,
+                                CASE LOWER(TRIM(COALESCE(e.city, '')))
+                                    WHEN 'san diego' THEN 32.7157
+                                    WHEN 'los angeles' THEN 34.0522
+                                    WHEN 'temecula' THEN 33.4936
+                                    WHEN 'pasadena' THEN 34.1478
+                                    WHEN 'burbank' THEN 34.1808
+                                    WHEN 'anaheim' THEN 33.8366
+                                    WHEN 'long beach' THEN 33.7701
+                                    WHEN 'irvine' THEN 33.6846
+                                    WHEN 'riverside' THEN 33.9806
+                                    WHEN 'san francisco' THEN 37.7749
+                                    WHEN 'san jose' THEN 37.3382
+                                    WHEN 'sacramento' THEN 38.5816
+                                    WHEN 'austin' THEN 30.2672
+                                    WHEN 'dallas' THEN 32.7767
+                                    WHEN 'houston' THEN 29.7604
+                                    WHEN 'chicago' THEN 41.8781
+                                    WHEN 'seattle' THEN 47.6062
+                                    WHEN 'orlando' THEN 28.5383
+                                    WHEN 'london' THEN 51.5074
+                                    ELSE NULL
+                                END
+                            ) AS ev_lat,
+                            COALESCE(
+                                e.longitude,
+                                CASE 
+                                    WHEN jsonb_typeof(e.raw_json->'coordinate') = 'array' 
+                                         AND jsonb_array_length(e.raw_json->'coordinate') = 2 
+                                    THEN (e.raw_json->'coordinate'->>0)::double precision 
+                                    WHEN jsonb_typeof(e.raw_json->'location'->'coordinate') = 'array'
+                                         AND jsonb_array_length(e.raw_json->'location'->'coordinate') = 2
+                                    THEN (e.raw_json->'location'->'coordinate'->>0)::double precision
+                                    ELSE NULL 
+                                END,
+                                CASE LOWER(TRIM(COALESCE(e.city, '')))
+                                    WHEN 'san diego' THEN -117.1611
+                                    WHEN 'los angeles' THEN -118.2437
+                                    WHEN 'temecula' THEN -117.1484
+                                    WHEN 'pasadena' THEN -118.1445
+                                    WHEN 'burbank' THEN -118.3090
+                                    WHEN 'anaheim' THEN -117.9143
+                                    WHEN 'long beach' THEN -118.1937
+                                    WHEN 'irvine' THEN -117.8265
+                                    WHEN 'riverside' THEN -117.3755
+                                    WHEN 'san francisco' THEN -122.4194
+                                    WHEN 'san jose' THEN -121.8863
+                                    WHEN 'sacramento' THEN -121.4944
+                                    WHEN 'austin' THEN -97.7431
+                                    WHEN 'dallas' THEN -96.7970
+                                    WHEN 'houston' THEN -95.3698
+                                    WHEN 'chicago' THEN -87.6298
+                                    WHEN 'seattle' THEN -122.3321
+                                    WHEN 'orlando' THEN -81.3792
+                                    WHEN 'london' THEN -0.1278
+                                    ELSE NULL
+                                END
+                            ) AS ev_lng
+                        FROM events e
+                    ),
+                    events_dist AS (
+                        SELECT *,
+                            (3959.0 * acos(
+                                LEAST(1.0, GREATEST(-1.0,
+                                    cos(radians(%s)) * cos(radians(ev_lat)) * cos(radians(ev_lng) - radians(%s)) +
+                                    sin(radians(%s)) * sin(radians(ev_lat))
+                                ))
+                            )) AS distance_miles
+                        FROM events_geo
+                        WHERE ev_lat IS NOT NULL AND ev_lng IS NOT NULL
+                          AND ev_lat BETWEEN -90.0 AND 90.0
+                          AND ev_lng BETWEEN -180.0 AND 180.0
+                          AND NOT (ev_lat = 0.0 AND ev_lng = 0.0)
+                    )
                 """
-                cursor.execute(upcoming_sql, params)
+
+                # Upcoming Tournaments (Strictly event_date >= CURRENT_DATE - INTERVAL '1 day')
+                upcoming_sql = geo_cte + """
+                    SELECT id, name, event_date, end_date, city, state, country,
+                           venue, total_players, num_rounds, current_round, is_ended, circuits,
+                           ROUND(distance_miles::numeric, 1) as distance_miles
+                    FROM events_dist
+                    WHERE distance_miles <= %s
+                      AND event_date >= CURRENT_DATE - INTERVAL '1 day'
+                    ORDER BY event_date ASC, distance_miles ASC
+                    LIMIT 25;
+                """
+                cursor.execute(upcoming_sql, (user_lat, user_lng, user_lat, radius_miles))
                 events_upcoming = [dict(r) for r in cursor.fetchall()]
 
-                # 2. Fetch Recent Past Regional Events
-                recent_sql = f"""
-                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                           COALESCE(e.venue, e.venue_name) as venue, e.total_players, e.num_rounds,
-                           e.current_round, e.is_ended, e.circuits
-                    FROM events e
-                    {filter_sql}
-                    {"AND" if filter_sql else "WHERE"} (e.is_ended = TRUE OR e.event_date < NOW())
-                    ORDER BY e.event_date DESC NULLS LAST
-                    LIMIT 10;
+                # Recent Past Tournaments (Strictly event_date < CURRENT_DATE - INTERVAL '1 day')
+                recent_sql = geo_cte + """
+                    SELECT id, name, event_date, end_date, city, state, country,
+                           venue, total_players, num_rounds, current_round, is_ended, circuits,
+                           ROUND(distance_miles::numeric, 1) as distance_miles
+                    FROM events_dist
+                    WHERE distance_miles <= %s
+                      AND event_date < CURRENT_DATE - INTERVAL '1 day'
+                    ORDER BY event_date DESC, distance_miles ASC
+                    LIMIT 25;
                 """
-                cursor.execute(recent_sql, params)
+                cursor.execute(recent_sql, (user_lat, user_lng, user_lat, radius_miles))
                 events_recent = [dict(r) for r in cursor.fetchall()]
 
-                # Fallback if specific region has zero events
-                if not events_upcoming and not events_recent and filter_sql:
-                    cursor.execute("""
-                        SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                               COALESCE(e.venue, e.venue_name) as venue, e.total_players, e.num_rounds,
-                               e.current_round, e.is_ended, e.circuits
-                        FROM events e
-                        ORDER BY e.event_date DESC NULLS LAST
-                        LIMIT 10;
-                    """)
-                    events_recent = [dict(r) for r in cursor.fetchall()]
-
-                # Collect all event IDs for field stats
+                # Collect event IDs for field stats and player discovery
                 all_event_ids = [e["id"] for e in (events_upcoming + events_recent)]
                 field_stats_map = self.get_events_field_stats(all_event_ids) if all_event_ids else {}
 
@@ -4628,12 +4704,10 @@ class PostgresDatabase:
                         ev["event_date"] = ev["event_date"].isoformat()
                     if ev.get("end_date") and hasattr(ev["end_date"], "isoformat"):
                         ev["end_date"] = ev["end_date"].isoformat()
+                    if ev.get("distance_miles") is not None:
+                        ev["distance_miles"] = float(ev["distance_miles"])
 
-                # 3. Discover Local Community Competitors based on Event Participation
-                # We query players who actively played matches in these regional events
-                regional_event_ids = [e["id"] for e in (events_recent + events_upcoming)]
-                
-                # Fetch user's played events if current_player_id is known
+                # 3. Discover Local Competitors from the tournaments within this radius
                 user_event_ids = set()
                 user_event_names = {}
                 if current_player_id:
@@ -4651,10 +4725,9 @@ class PostgresDatabase:
                             user_event_names[eid] = u_row["event_name"] or "Tournament Match"
 
                 local_competitors = []
-                if regional_event_ids:
-                    # Query participants from event_participants and matches
+                if all_event_ids:
                     cursor.execute("""
-                        WITH reg_participants AS (
+                        WITH local_participants AS (
                             SELECT ep.player_id, ep.full_name as player_name, ep.event_id
                             FROM event_participants ep
                             WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
@@ -4671,7 +4744,7 @@ class PostgresDatabase:
                             SELECT player_id,
                                    COUNT(DISTINCT event_id) as regional_events_count,
                                    ARRAY_AGG(DISTINCT event_id) as event_ids
-                            FROM reg_participants
+                            FROM local_participants
                             GROUP BY player_id
                         )
                         SELECT ps.player_id, ps.regional_events_count, ps.event_ids,
@@ -4681,21 +4754,17 @@ class PostgresDatabase:
                         JOIN player_ratings pr ON ps.player_id = pr.player_id
                         ORDER BY pr.current_elo DESC
                         LIMIT 60;
-                    """, (regional_event_ids, regional_event_ids, regional_event_ids))
+                    """, (all_event_ids, all_event_ids, all_event_ids))
                     comp_rows = cursor.fetchall()
 
-                    # Build quick lookup of regional event names
                     event_title_map = {e["id"]: e.get("name", "Tournament") for e in (events_recent + events_upcoming)}
 
                     for r in comp_rows:
                         p_dict = dict(r)
                         e_ids = p_dict.get("event_ids") or []
                         
-                        # Calculate shared events with current user
                         shared_ids = [eid for eid in e_ids if eid in user_event_ids]
                         shared_names = [event_title_map.get(eid) or user_event_names.get(eid) for eid in shared_ids if (event_title_map.get(eid) or user_event_names.get(eid))]
-                        
-                        # Competitor's recent events in region
                         recent_local_names = [event_title_map.get(eid) for eid in e_ids if eid in event_title_map]
                         
                         p_dict["shared_events_count"] = len(shared_ids)
@@ -4703,37 +4772,15 @@ class PostgresDatabase:
                         p_dict["has_shared_events"] = len(shared_ids) > 0
                         p_dict["recent_local_event"] = recent_local_names[0] if recent_local_names else (shared_names[0] if shared_names else None)
                         
-                        # Format floats
                         if p_dict.get("current_elo"): p_dict["current_elo"] = round(float(p_dict["current_elo"]), 1)
                         if p_dict.get("peak_elo"): p_dict["peak_elo"] = round(float(p_dict["peak_elo"]), 1)
                         if p_dict.get("win_rate"): p_dict["win_rate"] = round(float(p_dict["win_rate"]), 1)
                         
                         local_competitors.append(p_dict)
 
-                # Fallback if no competitors found for selected region
-                if not local_competitors:
-                    cursor.execute("""
-                        SELECT player_id, player_name, current_elo, peak_elo, top_faction,
-                               team, matches_played, wins, losses, win_rate, 1 as regional_events_count
-                        FROM player_ratings
-                        ORDER BY current_elo DESC
-                        LIMIT 30;
-                    """)
-                    for r in cursor.fetchall():
-                        pd = dict(r)
-                        pd["shared_events_count"] = 0
-                        pd["shared_event_names"] = []
-                        pd["has_shared_events"] = False
-                        pd["recent_local_event"] = "Grand Tournament Circuit"
-                        if pd.get("current_elo"): pd["current_elo"] = round(float(pd["current_elo"]), 1)
-                        if pd.get("peak_elo"): pd["peak_elo"] = round(float(pd["peak_elo"]), 1)
-                        if pd.get("win_rate"): pd["win_rate"] = round(float(pd["win_rate"]), 1)
-                        local_competitors.append(pd)
-
-                # 4. Regional Leaderboard
-                # Top competitors ranked in this local scene
+                # 4. Local Leaderboard (Competitors who played in tournaments within radius)
                 leaderboard = []
-                for idx, c in enumerate(local_competitors[:40], start=1):
+                for idx, c in enumerate(local_competitors[:50], start=1):
                     leaderboard.append({
                         "rank": idx,
                         "player_id": c["player_id"],
@@ -4749,30 +4796,38 @@ class PostgresDatabase:
                         "has_shared_events": c.get("has_shared_events", False)
                     })
 
+                radius_int = int(round(radius_miles))
                 return {
                     "success": True,
+                    "location": {
+                        "lat": round(user_lat, 4),
+                        "lng": round(user_lng, 4),
+                        "radius_miles": radius_int,
+                        "location_name": location_name,
+                        "badge": f"📍 {radius_int}-Mile Tournament Radius",
+                        "description": f"Showing tournaments and competitors within {radius_int} miles of {location_name}."
+                    },
                     "region": {
-                        "id": region_key,
-                        "name": region_name,
-                        "badge": region_badge,
-                        "description": region_desc
+                        "id": "local",
+                        "name": location_name,
+                        "badge": f"📍 {radius_int}-Mile Radius",
+                        "description": f"Tournaments within {radius_int} miles of {location_name}"
                     },
                     "events_upcoming": events_upcoming,
                     "events_recent": events_recent,
-                    "local_competitors": local_competitors[:40],
+                    "local_competitors": local_competitors[:50],
                     "local_leaderboard": leaderboard,
                     "available_regions": self.COMMUNITY_REGIONS,
                     "disclaimer": (
-                        "Competitors and community members are surfaced here based on verified tournament participation "
-                        "and shared event rosters in your region. Linking your Best Coast Pairings (BCP) account "
-                        "enables automatic local scene matching and personalized community discovery."
+                        f"Competitors and leaderboard standings are surfaced exclusively from verified tournament rosters "
+                        f"and matches played within {radius_int} miles of {location_name}."
                     ),
                     "bcp_prompt": {
                         "is_linked": bool(current_player_id),
-                        "prompt_title": "Link Best Coast Pairings for Automatic Community Matching",
+                        "prompt_title": "Link Best Coast Pairings for Automatic Local Matching",
                         "prompt_text": (
-                            "Linking your BCP account enables automatic local scene matching, surfaces competitors "
-                            "you've shared tournaments with, and enters you into your regional leaderboard."
+                            "Linking your BCP account enables automatic tournament discovery, surfaces competitors "
+                            "you've shared events with, and enters you into the local standings."
                         )
                     }
                 }

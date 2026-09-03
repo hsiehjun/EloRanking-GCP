@@ -5779,12 +5779,14 @@ if FASTAPI_AVAILABLE:
         db = get_database()
         return {"success": True, "regions": db.get_community_regions()}
 
-    @app.get("/api/community/overview", summary="Get Regional Community Hub Overview, Events, and Competitors")
+    @app.get("/api/community/overview", summary="Get Community Hub Overview, Events, and Competitors within Radius")
     async def api_community_overview(
         request: Request,
-        region: Optional[str] = Query("socal"),
         lat: Optional[float] = Query(None),
         lng: Optional[float] = Query(None),
+        radius_miles: float = Query(100.0),
+        location_name: Optional[str] = Query(None),
+        region: Optional[str] = Query(None),
         token: Optional[str] = Query(None)
     ):
         auth_mgr = get_auth_manager()
@@ -5796,9 +5798,11 @@ if FASTAPI_AVAILABLE:
 
         db = get_database()
         return db.get_community_overview(
-            region=region,
             lat=lat,
             lng=lng,
+            radius_miles=radius_miles,
+            location_name=location_name,
+            region=region,
             current_user_id=user_id,
             current_player_id=player_id
         )

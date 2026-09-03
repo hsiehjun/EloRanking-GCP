@@ -4,7 +4,10 @@
    ========================================================================== */
 
 const communityState = {
-  currentRegion: 'socal',
+  lat: null,
+  lng: null,
+  radiusMiles: 100,
+  locationName: 'San Diego, CA',
   activeSubtab: 'radar', // 'radar', 'tournaments', 'scene', 'chat'
   sceneView: 'leaderboard', // 'leaderboard', 'competitors'
   chatMode: 'regional', // 'regional', 'direct'
@@ -13,8 +16,7 @@ const communityState = {
   isLoading: false,
   chatMessages: [],
   chatPollingInterval: null,
-  isSendingChat: false,
-  regions: []
+  isSendingChat: false
 };
 
 /**
@@ -22,9 +24,25 @@ const communityState = {
  */
 async function initCommunityHub(targetSubtab = null) {
   updateCommunityBcpBanner();
-  await loadCommunityRegions();
 
-  // Initialize LFG profile & Google Places for Sparring Radar if available
+  // 1. Check saved local preferences
+  const savedLat = localStorage.getItem('comm_lat');
+  const savedLng = localStorage.getItem('comm_lng');
+  const savedRad = localStorage.getItem('comm_radius');
+  const savedLoc = localStorage.getItem('comm_loc_name');
+
+  if (savedLat && savedLng) {
+    communityState.lat = parseFloat(savedLat);
+    communityState.lng = parseFloat(savedLng);
+  }
+  if (savedRad) {
+    communityState.radiusMiles = parseInt(savedRad, 10) || 100;
+  }
+  if (savedLoc) {
+    communityState.locationName = savedLoc;
+  }
+
+  // 2. Initialize LFG profile & Google Places for Sparring Radar if available
   if (typeof window.api?.getConnectProfile === 'function') {
     try {
       const res = await window.api.getConnectProfile();
@@ -35,10 +53,29 @@ async function initCommunityHub(targetSubtab = null) {
         if (typeof renderTopBarOptions === 'function') {
           renderTopBarOptions(res.profile);
         }
+        // If no saved coords, adopt from profile
+        if (communityState.lat == null && res.profile.latitude && res.profile.longitude) {
+          communityState.lat = parseFloat(res.profile.latitude);
+          communityState.lng = parseFloat(res.profile.longitude);
+          communityState.locationName = res.profile.home_venue_name || res.profile.city || 'My Location';
+        }
       }
     } catch (e) {
       console.warn("Notice loading LFG profile for Community Hub:", e);
     }
+  }
+
+  // 3. Fallback default coordinates if neither localStorage nor profile set
+  if (communityState.lat == null || communityState.lng == null) {
+    communityState.lat = 32.7157;
+    communityState.lng = -117.1611;
+    communityState.locationName = 'San Diego, CA';
+  }
+
+  // Sync radius dropdown
+  const radSelect = document.getElementById('comm-radius-select');
+  if (radSelect) {
+    radSelect.value = String(communityState.radiusMiles);
   }
 
   if (typeof initConnectGooglePlaces === 'function') {
@@ -52,7 +89,7 @@ async function initCommunityHub(targetSubtab = null) {
   const subtab = targetSubtab || communityState.activeSubtab || 'radar';
   switchCommunitySubtab(subtab);
 
-  await loadCommunityHub(communityState.currentRegion);
+  await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
 }
 
 /**
@@ -74,7 +111,7 @@ function updateCommunityBcpBanner() {
         <div>
           <span style="font-weight: 700; color: #fff;">Connected to Best Coast Pairings</span>
           <span style="color: #94a3b8; font-size: 0.8rem; margin-left: 6px;">(${escapeHtml(bcpName)})</span>
-          <div style="font-size: 0.76rem; color: #10b981; margin-top: 1px;">✓ Automatic local scene matching & shared tournament discovery active</div>
+          <div style="font-size: 0.76rem; color: #10b981; margin-top: 1px;">✓ Automatic local tournament discovery & shared roster matching active</div>
         </div>
       </div>
       <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -91,7 +128,7 @@ function updateCommunityBcpBanner() {
             Connect Your Best Coast Pairings (BCP) Account
           </div>
           <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin-top: 2px;">
-            Linking your BCP account enables <strong>automatic local scene matching</strong>, surfaces fellow competitors you've shared tournaments with, and enters your verified records into regional leaderboards.
+            Linking your BCP account enables <strong>automatic local tournament matching</strong>, surfaces fellow competitors you've shared tournaments with, and enters your verified records into local leaderboards.
           </div>
         </div>
       </div>
@@ -105,44 +142,26 @@ function updateCommunityBcpBanner() {
 }
 
 /**
- * Fetch available regions from API and populate the region dropdown
+ * Load complete Community Hub data for coordinates and radius
  */
-async function loadCommunityRegions() {
-  try {
-    const res = await API.getCommunityRegions();
-    if (res && res.regions) {
-      communityState.regions = res.regions;
-      const select = document.getElementById('comm-region-select');
-      if (select) {
-        select.innerHTML = res.regions.map(r => `
-          <option value="${escapeHtml(r.id)}" ${r.id === communityState.currentRegion ? 'selected' : ''}>
-            ${escapeHtml(r.badge || r.name)} — ${escapeHtml(r.name)}
-          </option>
-        `).join('');
-      }
-    }
-  } catch (err) {
-    console.warn('Notice loading community regions:', err);
-  }
-}
-
-/**
- * Load complete Community Hub data for a region
- */
-async function loadCommunityHub(regionId, lat = null, lng = null) {
+async function loadCommunityHub(lat = null, lng = null, radius = null, locationName = null) {
   communityState.isLoading = true;
-  communityState.currentRegion = regionId || 'socal';
-
-  // Sync region select dropdown
-  const select = document.getElementById('comm-region-select');
-  if (select && select.value !== communityState.currentRegion) {
-    select.value = communityState.currentRegion;
+  if (lat != null && lng != null) {
+    communityState.lat = parseFloat(lat);
+    communityState.lng = parseFloat(lng);
+  }
+  if (radius != null) {
+    communityState.radiusMiles = parseInt(radius, 10) || 100;
+  }
+  if (locationName != null) {
+    communityState.locationName = locationName;
   }
 
-  // Update quick pills active state
-  document.querySelectorAll('.comm-pill-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.region === communityState.currentRegion);
-  });
+  // Sync radius select dropdown
+  const radSelect = document.getElementById('comm-radius-select');
+  if (radSelect && radSelect.value !== String(communityState.radiusMiles)) {
+    radSelect.value = String(communityState.radiusMiles);
+  }
 
   // Show loading indicator in target subviews if overview is not yet cached
   if (!communityState.overview) {
@@ -151,7 +170,7 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
       tourneyView.innerHTML = `
         <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
           <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
+          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles...</div>
         </div>
       `;
     }
@@ -160,26 +179,36 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
       sceneView.innerHTML = `
         <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
           <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
+          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles...</div>
         </div>
       `;
     }
   }
 
   try {
-    const data = await API.getCommunityOverview(communityState.currentRegion, lat, lng);
+    const data = await API.getCommunityOverview(
+      communityState.lat,
+      communityState.lng,
+      communityState.radiusMiles,
+      communityState.locationName
+    );
     if (!data || !data.success) {
       throw new Error(data?.error || 'Failed to load community data');
     }
     communityState.overview = data;
 
-    // Render region header info
-    renderCommunityHeader(data.region);
+    // Update location details
+    if (data.location?.location_name) {
+      communityState.locationName = data.location.location_name;
+    }
 
-    // Update region title in chat header
+    // Render region/location header info
+    renderCommunityHeader(data.location || data.region);
+
+    // Update title in chat header
     const chatTitle = document.getElementById('comm-chat-region-title');
-    if (chatTitle && data.region?.name) {
-      chatTitle.textContent = `${data.region.name} Community Chat`;
+    if (chatTitle) {
+      chatTitle.textContent = `${communityState.locationName || 'Local'} Community Chat`;
     }
 
     // Render current active subtab
@@ -191,11 +220,11 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
       tourneyView.innerHTML = `
         <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
           <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
-          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Regional Tournaments</h4>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Tournaments</h4>
           <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-            ${escapeHtml(err.message || 'An unexpected error occurred while fetching regional data.')}
+            ${escapeHtml(err.message || 'An unexpected error occurred while fetching tournament data.')}
           </p>
-          <button class="btn btn-primary" onclick="loadCommunityHub('${communityState.currentRegion}')">🔄 Retry</button>
+          <button class="btn btn-primary" onclick="loadCommunityHub()">🔄 Retry</button>
         </div>
       `;
     }
@@ -204,11 +233,11 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
       sceneView.innerHTML = `
         <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
           <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
-          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Scene Intel</h4>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Competitors</h4>
           <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-            ${escapeHtml(err.message || 'An unexpected error occurred while fetching regional data.')}
+            ${escapeHtml(err.message || 'An unexpected error occurred while fetching competitor data.')}
           </p>
-          <button class="btn btn-primary" onclick="loadCommunityHub('${communityState.currentRegion}')">🔄 Retry</button>
+          <button class="btn btn-primary" onclick="loadCommunityHub()">🔄 Retry</button>
         </div>
       `;
     }
@@ -218,105 +247,128 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
 }
 
 /**
- * Render region metadata badge and title
+ * Render location metadata badge and title
  */
-function renderCommunityHeader(regionInfo) {
+function renderCommunityHeader(locInfo) {
   const badgeEl = document.getElementById('comm-header-badge');
   const titleEl = document.getElementById('comm-header-title');
   const descEl = document.getElementById('comm-header-desc');
 
-  if (regionInfo) {
-    if (badgeEl) badgeEl.textContent = regionInfo.badge || '📍 Regional Scene';
-    if (titleEl) titleEl.textContent = regionInfo.name || 'Local Community';
-    if (descEl) descEl.textContent = regionInfo.description || 'Local tournament scene and competitive circuit';
-  }
+  const rad = locInfo?.radius_miles || communityState.radiusMiles || 100;
+  const locName = locInfo?.location_name || locInfo?.name || communityState.locationName || 'Your Location';
+
+  if (badgeEl) badgeEl.textContent = `📍 ${rad}-Mile Tournament Radius`;
+  if (titleEl) titleEl.textContent = `Tournaments within ${rad} miles of ${locName}`;
+  if (descEl) descEl.textContent = `Showing verified upcoming & recent tournaments, local competitor rosters, and standings within ${rad} miles.`;
 }
 
 /**
- * Handle changing region from select dropdown or quick pill
+ * Change search radius (25, 50, 100, 250, 500 mi)
  */
-function changeCommunityRegion(regionId) {
-  if (!regionId) return;
-  stopCommunityChatPolling();
-  loadCommunityHub(regionId);
+function changeCommunityRadius(radius) {
+  const r = parseInt(radius, 10) || 100;
+  communityState.radiusMiles = r;
+  localStorage.setItem('comm_radius', String(r));
+  const select = document.getElementById('comm-radius-select');
+  if (select) select.value = String(r);
+  loadCommunityHub(communityState.lat, communityState.lng, r, communityState.locationName);
 }
 
 /**
- * Detect user's closest region via browser Geolocation
+ * Detect user's GPS coordinates via browser Geolocation
  */
-function detectCommunityRegion() {
-  const btn = document.getElementById('comm-btn-detect-gps');
+function detectCommunityGPS() {
+  const btn = document.getElementById('comm-btn-gps');
+  const icon = document.getElementById('comm-gps-icon');
+  const label = document.getElementById('comm-gps-label');
+
   if (!navigator.geolocation) {
     alert('Geolocation is not supported by your browser.');
     return;
   }
 
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = '<span>🛰️</span> <span>Detecting GPS...</span>';
-  }
+  if (btn) btn.disabled = true;
+  if (icon) icon.textContent = '⏳';
+  if (label) label.textContent = 'Locating...';
 
   navigator.geolocation.getCurrentPosition(
-    (position) => {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<span>📍</span> <span>Detect My Region</span>';
-      }
+    async (position) => {
+      if (btn) btn.disabled = false;
+      if (icon) icon.textContent = '🛰️';
+      if (label) label.textContent = 'Use GPS';
+
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
+      let locName = `GPS (${lat.toFixed(2)}, ${lng.toFixed(2)})`;
 
-      // Find closest region by Haversine distance
-      let closestRegion = 'socal';
-      let minDistance = Infinity;
-
-      const regions = communityState.regions.length > 0 ? communityState.regions : [
-        { id: 'socal', lat: 33.7490, lng: -117.8732 },
-        { id: 'norcal', lat: 37.7749, lng: -122.4194 },
-        { id: 'texas', lat: 30.2672, lng: -97.7431 },
-        { id: 'pnw', lat: 47.6062, lng: -122.3321 },
-        { id: 'midwest', lat: 41.8781, lng: -87.6298 },
-        { id: 'northeast', lat: 40.7128, lng: -74.0060 },
-        { id: 'southeast', lat: 33.7490, lng: -84.3880 },
-        { id: 'mountain', lat: 39.7392, lng: -104.9903 },
-        { id: 'uk', lat: 51.5074, lng: -0.1278 }
-      ];
-
-      for (const r of regions) {
-        if (r.lat != null && r.lng != null) {
-          const d = haversineDistance(lat, lng, r.lat, r.lng);
-          if (d < minDistance) {
-            minDistance = d;
-            closestRegion = r.id;
+      // Attempt reverse geocoding with Google Geocoder if available
+      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+        try {
+          const geocoder = new google.maps.Geocoder();
+          const response = await new Promise((resolve) => {
+            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+              if (status === 'OK' && results && results[0]) {
+                resolve(results[0]);
+              } else {
+                resolve(null);
+              }
+            });
+          });
+          if (response && response.address_components) {
+            let city = '', state = '';
+            for (const comp of response.address_components) {
+              if (comp.types.includes('locality')) city = comp.long_name;
+              if (comp.types.includes('administrative_area_level_1')) state = comp.short_name;
+            }
+            if (city && state) locName = `${city}, ${state}`;
+            else if (city) locName = city;
           }
+        } catch (e) {
+          console.warn("Geocoder notice:", e);
         }
       }
 
-      console.log(`📍 Closest region detected: ${closestRegion} (~${Math.round(minDistance)} miles)`);
-      changeCommunityRegion(closestRegion);
+      updateCommunityLocation(lat, lng, locName);
     },
     (err) => {
-      console.warn('Geolocation failed:', err);
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = '<span>📍</span> <span>Detect My Region</span>';
-      }
-      alert('Could not determine your location. Please select your region manually.');
+      console.warn('Geolocation error:', err);
+      if (btn) btn.disabled = false;
+      if (icon) icon.textContent = '🛰️';
+      if (label) label.textContent = 'Use GPS';
+      alert('Could not determine your GPS location. Please click "Change Location" to search for your city or store.');
     },
     { timeout: 10000, maximumAge: 60000 }
   );
 }
 
-function haversineDistance(lat1, lon1, lat2, lon2) {
-  const toRad = x => (x * Math.PI) / 180;
-  const R = 3958.8; // miles
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+/**
+ * Updates active community location and saves to localStorage
+ */
+function updateCommunityLocation(lat, lng, locationName, radius = null) {
+  if (lat == null || lng == null) return;
+  communityState.lat = parseFloat(lat);
+  communityState.lng = parseFloat(lng);
+  if (locationName) communityState.locationName = locationName;
+  if (radius) communityState.radiusMiles = parseInt(radius, 10) || communityState.radiusMiles;
+
+  localStorage.setItem('comm_lat', String(lat));
+  localStorage.setItem('comm_lng', String(lng));
+  if (locationName) localStorage.setItem('comm_loc_name', locationName);
+  if (radius) localStorage.setItem('comm_radius', String(communityState.radiusMiles));
+
+  loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
+}
+
+/**
+ * Opens edit location modal
+ */
+function openCommunityLocationModal() {
+  if (typeof openEditLocationModal === 'function') {
+    openEditLocationModal();
+  } else {
+    const modal = document.getElementById('edit-location-modal');
+    if (modal) modal.style.display = 'flex';
+  }
 }
 
 /**
@@ -423,11 +475,11 @@ function renderCommunityEvents() {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
       <div>
         <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>🏆 Regional Tournaments</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${upcoming.length} upcoming, ${recent.length} recent)</span>
+          <span>🏆 Local Tournaments</span>
+          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${upcoming.length} upcoming, ${recent.length} recent within ${communityState.radiusMiles} miles)</span>
         </h3>
         <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Tournament scenes, Field Avg Elo ratings, and registered rosters
+          Verified tournament scenes, Field Avg Elo ratings, and registered rosters within ${communityState.radiusMiles} miles
         </div>
       </div>
 
@@ -458,8 +510,16 @@ function renderCommunityEvents() {
 
     if (displayedUpcoming.length === 0) {
       html += `
-        <div style="padding: 2rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px dashed var(--border);">
-          No upcoming tournaments currently scheduled in this region. Check back soon or browse recent tournament results below!
+        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px dashed var(--border);">
+          <div style="font-size: 1.8rem; margin-bottom: 0.5rem;">📅</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">No Upcoming Tournaments within ${communityState.radiusMiles} Miles</h4>
+          <p style="font-size: 0.82rem; color: #94a3b8; max-width: 480px; margin: 0 auto 1.25rem;">
+            No upcoming tournaments currently scheduled within ${communityState.radiusMiles} miles of ${escapeHtml(communityState.locationName)}.
+          </p>
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.78rem;" onclick="changeCommunityRadius(${Math.min(500, Math.round(communityState.radiusMiles * 2.5))})">Expand Radius to ${Math.min(500, Math.round(communityState.radiusMiles * 2.5))} Miles</button>
+            <button class="btn btn-outline" style="font-size: 0.78rem;" onclick="openCommunityLocationModal()">Change Location</button>
+          </div>
         </div>
       `;
     } else {
@@ -485,8 +545,16 @@ function renderCommunityEvents() {
 
     if (displayedRecent.length === 0) {
       html += `
-        <div style="padding: 2rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px dashed var(--border);">
-          No recent tournament results found for this region.
+        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: rgba(15, 23, 42, 0.5); border-radius: 10px; border: 1px dashed var(--border);">
+          <div style="font-size: 1.8rem; margin-bottom: 0.5rem;">📜</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">No Recent Tournament Results within ${communityState.radiusMiles} Miles</h4>
+          <p style="font-size: 0.82rem; color: #94a3b8; max-width: 480px; margin: 0 auto 1.25rem;">
+            No past tournament records found within this radius. Try expanding your search radius to discover events in adjacent areas.
+          </p>
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.78rem;" onclick="changeCommunityRadius(250)">Search 250 Miles</button>
+            <button class="btn btn-outline" style="font-size: 0.78rem;" onclick="openCommunityLocationModal()">Change Location</button>
+          </div>
         </div>
       `;
     } else {
@@ -504,9 +572,10 @@ function renderCommunityEvents() {
 
 function renderTournamentCard(ev, isUpcoming, userElo) {
   const dateStr = ev.event_date ? ev.event_date.slice(0, 10) : 'TBD';
-  const loc = [ev.venue, ev.city, ev.state].filter(Boolean).join(', ') || 'Online / Unspecified';
+  const loc = [ev.venue, ev.city, ev.state].filter(Boolean).join(', ') || 'Unspecified Location';
   const fieldAvg = ev.avg_field_elo ? Math.round(Number(ev.avg_field_elo)) : null;
   const topSeed = ev.top_seed_elo ? Math.round(Number(ev.top_seed_elo)) : null;
+  const distance = ev.distance_miles != null ? Number(ev.distance_miles).toFixed(1) : null;
 
   // Delta calculation relative to user Elo
   let deltaMarkup = '';
@@ -527,9 +596,16 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
         <span class="badge" style="background: ${isUpcoming ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${isUpcoming ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${isUpcoming ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.1)'}; font-size: 0.72rem; font-family: monospace;">
           📅 ${escapeHtml(dateStr)}
         </span>
-        <span class="badge" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 0.72rem;">
-          ${isUpcoming ? '⚡ Upcoming' : '✓ Completed'}
-        </span>
+        <div style="display: flex; gap: 4px; align-items: center;">
+          ${distance ? `
+            <span class="badge" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); font-size: 0.7rem; font-weight: 700;">
+              🚗 ${distance} mi
+            </span>
+          ` : ''}
+          <span class="badge" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 0.7rem;">
+            ${isUpcoming ? '⚡ Upcoming' : '✓ Completed'}
+          </span>
+        </div>
       </div>
 
       <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.35rem; line-height: 1.35;">
@@ -585,14 +661,16 @@ function renderCommunityCompetitors() {
   if (!container) return;
 
   const overview = communityState.overview;
-  const competitors = overview.local_competitors || [];
-  const disclaimer = overview.disclaimer || (
-    "Competitors surfaced here based on shared tournament participation and verified event rosters in your region. " +
-    "Linking your BCP account enables automatic local scene matching."
+  const competitors = overview?.local_competitors || [];
+  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 100;
+  const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
+  const disclaimer = overview?.disclaimer || (
+    `Competitors surfaced here based on verified tournament participation and event rosters within ${rad} miles of ${locName}. ` +
+    "Linking your BCP account enables automatic local matching and tournament tracking."
   );
 
   let html = `
-    <!-- Verified Tournament Participation Disclaimer (Mandatory) -->
+    <!-- Verified Tournament Participation Disclaimer -->
     <div class="comm-disclaimer-card">
       <div style="font-size: 1.4rem; line-height: 1; color: #38bdf8;">ℹ️</div>
       <div>
@@ -608,11 +686,11 @@ function renderCommunityCompetitors() {
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
       <div>
         <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>👥 Local Scene Competitors</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${competitors.length} active players)</span>
+          <span>👥 Local Tournament Competitors</span>
+          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${competitors.length} active players within ${rad} miles)</span>
         </h3>
         <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Tabletop players identified through tournament participation and local circuits
+          Tabletop players identified through tournament participation within ${rad} miles of ${escapeHtml(locName)}
         </div>
       </div>
     </div>
@@ -622,10 +700,14 @@ function renderCommunityCompetitors() {
     html += `
       <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border);">
         <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔍</div>
-        <h4 style="color: #fff; margin-bottom: 0.4rem;">No Competitors Found in this Region</h4>
+        <h4 style="color: #fff; margin-bottom: 0.4rem;">No Competitors Found within ${rad} Miles</h4>
         <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-          No verified tournament participants found yet for this region. Link your BCP account or choose another region.
+          No verified tournament participants found yet within ${rad} miles of ${escapeHtml(locName)}. Try expanding your search radius to discover competitors in adjacent areas.
         </p>
+        <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+          <button class="btn btn-primary" onclick="changeCommunityRadius(250)">Expand Radius to 250 Miles</button>
+          <button class="btn btn-outline" onclick="openCommunityLocationModal()">Change Location</button>
+        </div>
       </div>
     `;
   } else {
@@ -756,17 +838,19 @@ function renderCommunityLeaderboard() {
   if (!container) return;
 
   const overview = communityState.overview;
-  const leaderboard = overview.local_leaderboard || [];
+  const leaderboard = overview?.local_leaderboard || [];
+  const rad = overview?.location?.radius_miles || communityState.radiusMiles || 100;
+  const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
 
   let html = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
       <div>
         <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>👑 Regional Player Standings</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${leaderboard.length} ranked competitors)</span>
+          <span>👑 Local Player Standings</span>
+          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${leaderboard.length} ranked competitors within ${rad} miles)</span>
         </h3>
         <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Top rated tournament players actively competing in this regional scene
+          Top rated tournament players actively competing in tournaments within ${rad} miles of ${escapeHtml(locName)}
         </div>
       </div>
     </div>
@@ -781,7 +865,7 @@ function renderCommunityLeaderboard() {
             <th>Peak Elo</th>
             <th>Primary Faction</th>
             <th>Team / Club</th>
-            <th>Regional Events</th>
+            <th>Local Events</th>
             <th>Win Rate</th>
           </tr>
         </thead>
@@ -789,7 +873,19 @@ function renderCommunityLeaderboard() {
   `;
 
   if (leaderboard.length === 0) {
-    html += `<tr><td colspan="8" class="empty-state">No ranked players found for this region.</td></tr>`;
+    html += `
+      <tr>
+        <td colspan="8" class="empty-state" style="padding: 2.5rem 1rem; text-align: center;">
+          <div style="font-size: 1.6rem; margin-bottom: 0.4rem;">👑</div>
+          <div style="font-weight: 700; color: #fff; margin-bottom: 0.25rem;">No Ranked Competitors Found within ${rad} Miles</div>
+          <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1rem;">No tournament records found in this area. Try expanding your search radius.</div>
+          <div style="display: flex; gap: 0.5rem; justify-content: center; flex-wrap: wrap;">
+            <button class="btn btn-primary" style="font-size: 0.78rem;" onclick="changeCommunityRadius(250)">Search 250 Miles</button>
+            <button class="btn btn-outline" style="font-size: 0.78rem;" onclick="openCommunityLocationModal()">Change Location</button>
+          </div>
+        </td>
+      </tr>
+    `;
   } else {
     leaderboard.forEach(row => {
       const rank = row.rank;
@@ -893,7 +989,8 @@ async function loadCommunityChatMessages(scrollIfBottom = true) {
   if (!stream) return;
 
   try {
-    const res = await API.getCommunityChatMessages(communityState.currentRegion, 60);
+    const channel = communityState.chatChannel || 'global';
+    const res = await API.getCommunityChatMessages(channel, 60);
     const messages = (res && res.messages) ? res.messages : [];
     communityState.chatMessages = messages;
 
@@ -970,7 +1067,8 @@ async function handleSendCommunityChat(e) {
   if (btn) btn.disabled = true;
 
   try {
-    const res = await API.sendCommunityChatMessage(communityState.currentRegion, text);
+    const channel = communityState.chatChannel || 'global';
+    const res = await API.sendCommunityChatMessage(channel, text);
     if (res && res.success) {
       if (input) input.value = '';
       await loadCommunityChatMessages(true);
@@ -1006,12 +1104,27 @@ function stopCommunityChatPolling() {
 // Attach global helpers for window scope
 window.initCommunityHub = initCommunityHub;
 window.loadCommunityHub = loadCommunityHub;
-window.changeCommunityRegion = changeCommunityRegion;
-window.detectCommunityRegion = detectCommunityRegion;
+window.changeCommunityRadius = changeCommunityRadius;
+window.detectCommunityGPS = detectCommunityGPS;
+window.updateCommunityLocation = updateCommunityLocation;
+window.openCommunityLocationModal = openCommunityLocationModal;
 window.switchCommunitySubtab = switchCommunitySubtab;
 window.setCommunityEventsFilter = setCommunityEventsFilter;
 window.challengeCompetitor = challengeCompetitor;
 window.setCommunitySceneView = setCommunitySceneView;
 window.setCommunityChatMode = setCommunityChatMode;
 window.handleSendCommunityChat = handleSendCommunityChat;
+
+// Backwards compatibility aliases
+window.changeCommunityRegion = (region) => {
+  if (communityState.overview?.available_regions) {
+    const matched = communityState.overview.available_regions.find(r => r.id === region);
+    if (matched && matched.lat && matched.lng) {
+      updateCommunityLocation(matched.lat, matched.lng, matched.name);
+      return;
+    }
+  }
+  loadCommunityHub(null, null, communityState.radiusMiles, null);
+};
+window.detectCommunityRegion = detectCommunityGPS;
 

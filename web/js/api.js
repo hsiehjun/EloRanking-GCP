@@ -948,13 +948,22 @@ window.api = {
     return this._fetchJson('/api/community/regions');
   },
 
-  // Community Hub: Regional Overview
-  async getCommunityOverview(region = 'socal', lat = null, lng = null) {
-    let url = `/api/community/overview?region=${encodeURIComponent(region || 'socal')}`;
-    if (lat != null && lng != null) {
-      url += `&lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`;
+  // Community Hub: Overview within radius
+  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null) {
+    if (typeof lat === 'string' && lng == null) {
+      region = lat;
+      lat = null;
     }
-    return this._fetchJson(url, {
+    const params = new URLSearchParams();
+    if (radiusMiles != null) params.set('radius_miles', radiusMiles);
+    if (lat != null && lng != null) {
+      params.set('lat', lat);
+      params.set('lng', lng);
+    }
+    if (locationName) params.set('location_name', locationName);
+    if (region) params.set('region', region);
+
+    return this._fetchJson(`/api/community/overview?${params.toString()}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
     });
   },

@@ -251,6 +251,9 @@ async function shareCurrentLocation(inModalOnly = false) {
             closeEditLocationModal();
             if (connectState.activeSubtab === 'players') loadNearbyPlayers();
             if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
+            if (typeof updateCommunityLocation === 'function') {
+              updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
+            }
           }
         } catch (err) {
           console.error("Auto-save GPS notice:", err);
@@ -354,6 +357,9 @@ async function handleSaveLocation(e) {
       closeEditLocationModal();
       if (connectState.activeSubtab === 'players') loadNearbyPlayers();
       if (connectState.activeSubtab === 'tournaments') loadNearbyTournaments();
+      if (typeof updateCommunityLocation === 'function') {
+        updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
+      }
     } else {
       alert('Failed to save location: ' + (res?.error || 'Unknown error'));
     }
