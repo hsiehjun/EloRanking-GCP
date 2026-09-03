@@ -819,7 +819,7 @@
         <button class="nav-btn" id="nav-btn-search" onclick="switchTab('search')">
           🔍 Search
         </button>
-        <button class="nav-btn" id="nav-btn-event-studio" onclick="switchTab('event-studio')">
+        <button class="nav-btn" id="nav-btn-event-studio" onclick="switchTab('event-studio')" style="display: none;">
           🛠️ Event Studio <span style="font-size:0.68rem; color:#f59e0b; font-weight:700; background:rgba(245,158,11,0.15); padding:1px 5px; border-radius:4px; border:1px solid rgba(245,158,11,0.3); margin-left:3px;">TO</span>
         </button>
       </div>
@@ -2079,6 +2079,10 @@
         <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
           <span style="color: var(--text-muted);">Email Address:</span>
           <b id="settings-email-display" style="color: #fff;">-</b>
+        </div>
+        <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
+          <span style="color: var(--text-muted);">Account Role:</span>
+          <span id="settings-role-display" style="color: #fff;">-</span>
         </div>
         <div style="display: flex; justify-content: space-between;">
           <span style="color: var(--text-muted);">BCP Status:</span>

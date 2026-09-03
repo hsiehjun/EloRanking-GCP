@@ -75,6 +75,15 @@ function switchTab(tabName) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
       return;
     }
+    const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
+      const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
+      const userEmail = ((currentUser && currentUser.email) ? currentUser.email : '').toLowerCase();
+      return userEmail === 'swimgeek751@gmail.com' || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+    })();
+    if (!canAccessTO) {
+      switchTab('community');
+      return;
+    }
     if (typeof initStudio === 'function') initStudio();
   } else if (tabName === 'my-hub') {
     if (!currentUser) {
@@ -338,6 +347,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') targetTab = 'community';
   if (targetTab === 'eventstudio') targetTab = 'event-studio';
   if (targetTab === 'community-hub' || targetTab === 'communityhub') targetTab = 'community';
+  if (targetTab === 'event-studio') {
+    const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
+      const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
+      const userEmail = ((currentUser && currentUser.email) ? currentUser.email : '').toLowerCase();
+      return userEmail === 'swimgeek751@gmail.com' || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+    })();
+    if (!canAccessTO) {
+      targetTab = 'community';
+    }
+  }
   if (targetTab) {
     switchTab(targetTab);
   } else {

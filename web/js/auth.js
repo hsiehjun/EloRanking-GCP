@@ -20,11 +20,26 @@ try {
   currentUser = null;
 }
 
+function isUserTO(user) {
+  if (!user) return false;
+  const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
+  const userEmail = ((user && user.email) ? user.email : '').toLowerCase();
+  const isSuperAdmin = userEmail === 'swimgeek751@gmail.com';
+  return isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+}
+window.isUserTO = isUserTO;
+
 function syncAppAuthView() {
   const landingView = document.getElementById('landing-page-view');
   const appShell = document.getElementById('app-shell');
   const appHeader = document.getElementById('app-header');
   const foucGuard = document.getElementById('auth-fouc-guard');
+  const esNavBtn = document.getElementById('nav-btn-event-studio');
+
+  const canAccessTO = isUserTO(currentUser);
+  if (esNavBtn) {
+    esNavBtn.style.display = (currentUser && canAccessTO) ? 'flex' : 'none';
+  }
 
   if (currentUser) {
     if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: block !important; } #app-header { display: block !important; }';
@@ -425,9 +440,14 @@ async function handleLogout() {
 function renderHeaderAuth() {
   const container = document.getElementById('header-user-area');
   const feedbackBtn = document.getElementById('nav-btn-feedback');
+  const esNavBtn = document.getElementById('nav-btn-event-studio');
 
   if (feedbackBtn) {
     feedbackBtn.style.display = currentUser ? 'inline-flex' : 'none';
+  }
+
+  if (esNavBtn) {
+    esNavBtn.style.display = (currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
   }
 
   if (!container) return;
@@ -468,6 +488,7 @@ function openUserSettingsModal() {
   // Populate fields
   const nameInput = document.getElementById('settings-display-name');
   const emailVal = document.getElementById('settings-email-display');
+  const roleVal = document.getElementById('settings-role-display');
   const bcpVal = document.getElementById('settings-bcp-status');
   const errDiv = document.getElementById('settings-error');
   const successDiv = document.getElementById('settings-success');
@@ -478,6 +499,15 @@ function openUserSettingsModal() {
   if (currentUser) {
     if (nameInput) nameInput.value = currentUser.display_name || '';
     if (emailVal) emailVal.innerText = currentUser.email || '-';
+    if (roleVal) {
+      const isTO = isUserTO(currentUser);
+      const roleStr = ((currentUser && currentUser.role) ? currentUser.role : 'player').toUpperCase();
+      if (isTO) {
+        roleVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🎖️ ${escapeHtml(roleStr)}</span>`;
+      } else {
+        roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:transparent; border:none; color:#f59e0b; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:6px; font-weight:600;">Request TO Access</button>`;
+      }
+    }
     if (bcpVal) {
       if (currentUser.bcp_connected || currentUser.bcp_user_id) {
         bcpVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🟢 Connected</span> (${escapeHtml(currentUser.bcp_email || 'Linked')})`;
