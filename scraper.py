@@ -131,43 +131,29 @@ class BestCoastPairingsScraper:
         return []
 
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
-        """Fetches registered player roster and official placings for an event from BCP."""
-        # 1. Try /events/{event_id}/placings first (contains official BCP tournament standings)
-        resp_placings = self._make_request(f"/events/{event_id}/placings", params={"limit": 1000})
+        """Fetches registered player roster for an event from BCP."""
+        # 1. Fetch from /events/{event_id}/players (primary BCP participant endpoint)
+        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 1000})
         players = []
-        if resp_placings:
-            if isinstance(resp_placings, dict):
-                if "data" in resp_placings and isinstance(resp_placings["data"], list):
-                    players = resp_placings["data"]
-                elif "active" in resp_placings and isinstance(resp_placings["active"], list):
-                    players = resp_placings["active"]
-                elif "placings" in resp_placings and isinstance(resp_placings["placings"], list):
-                    players = resp_placings["placings"]
-            elif isinstance(resp_placings, list):
-                players = resp_placings
+        if resp:
+            if isinstance(resp, dict):
+                if "active" in resp and isinstance(resp["active"], list):
+                    players = resp["active"]
+                elif "data" in resp and isinstance(resp["data"], list):
+                    players = resp["data"]
+                elif "players" in resp and isinstance(resp["players"], list):
+                    players = resp["players"]
+            elif isinstance(resp, list):
+                players = resp
 
-        # 2. If empty, try /events/{event_id}/players
-        if not players:
-            resp = self._make_request(f"/events/{event_id}/players", params={"limit": 1000})
-            if resp:
-                if isinstance(resp, dict):
-                    if "active" in resp and isinstance(resp["active"], list):
-                        players = resp["active"]
-                    elif "data" in resp and isinstance(resp["data"], list):
-                        players = resp["data"]
-                    elif "players" in resp and isinstance(resp["players"], list):
-                        players = resp["players"]
-                elif isinstance(resp, list):
-                    players = resp
-
-        # 3. If still empty, check full event details object
+        # 2. If empty, fallback to full event details object
         if not players:
             ev_data = self.fetch_event_details(event_id)
             if ev_data and isinstance(ev_data, dict):
-                if "placings" in ev_data and isinstance(ev_data["placings"], list):
-                    players = ev_data["placings"]
-                elif "players" in ev_data and isinstance(ev_data["players"], list):
+                if "players" in ev_data and isinstance(ev_data["players"], list):
                     players = ev_data["players"]
+                elif "placings" in ev_data and isinstance(ev_data["placings"], list):
+                    players = ev_data["placings"]
                 elif "users" in ev_data and isinstance(ev_data["users"], list):
                     players = ev_data["users"]
 
