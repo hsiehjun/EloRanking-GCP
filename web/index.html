@@ -810,20 +810,25 @@
 
             <div class="oc-chat-main">
               <div class="oc-chat-header" id="chat-active-header" style="display: none;">
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                  <div class="oc-player-avatar" id="chat-active-avatar" style="width: 36px; height: 36px; font-size: 0.9rem;">-</div>
-                  <div>
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                      <span id="chat-active-name" style="font-weight: 800; color: #fff; font-size: 0.92rem;">Select a Chat</span>
-                      <span id="chat-active-elo" class="oc-badge">1500 Elo</span>
+                <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
+                  <button type="button" class="oc-chat-back-btn" onclick="backToChatList()" aria-label="Back to conversations">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+                    <span>Chats</span>
+                  </button>
+                  <div class="oc-player-avatar" id="chat-active-avatar" style="width: 36px; height: 36px; font-size: 0.9rem; flex-shrink: 0;">-</div>
+                  <div style="min-width: 0;">
+                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0;">
+                      <span id="chat-active-name" style="font-weight: 800; color: #fff; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Select a Chat</span>
+                      <span id="chat-active-elo" class="oc-badge" style="flex-shrink: 0;">1500 Elo</span>
                     </div>
-                    <div id="chat-active-sub" style="font-size: 0.74rem; color: #94a3b8;">Home Store: -</div>
+                    <div id="chat-active-sub" style="font-size: 0.74rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Home Store: -</div>
                   </div>
                 </div>
 
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                  <button onclick="createGameTrackerRoomForChat()" class="btn" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-size: 0.76rem; font-weight: 700; padding: 0.38rem 0.75rem;">
-                    🎲 Invite to Match Room
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                  <button type="button" onclick="createGameTrackerRoomForChat()" class="btn" style="background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.35); font-size: 0.76rem; font-weight: 700; padding: 0.38rem 0.65rem; white-space: nowrap;">
+                    <span class="oc-invite-desktop">🎲 Invite to Match Room</span>
+                    <span class="oc-invite-mobile">🎲 Room</span>
                   </button>
                 </div>
               </div>
@@ -837,8 +842,14 @@
               </div>
 
               <form class="oc-chat-input-bar" id="chat-input-form" onsubmit="handleSendChatMessage(event)" style="display: none;">
-                <input type="text" id="chat-input-text" class="search-input" style="flex: 1;" placeholder="Type a message (e.g. Can do Thursday at 6pm, 2,000 pts with Pariah Nexus)..." autocomplete="off">
-                <button type="submit" class="btn btn-primary" style="padding: 0.5rem 1.15rem; font-weight: 700;">Send</button>
+                <input type="text" id="chat-input-text" class="search-input" style="flex: 1;" placeholder="Type a message..." autocomplete="off">
+                <button type="submit" class="btn btn-primary oc-chat-send-btn" aria-label="Send message">
+                  <span class="oc-send-text">Send</span>
+                  <svg class="oc-send-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </button>
               </form>
             </div>
           </div>

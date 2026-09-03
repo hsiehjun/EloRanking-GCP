@@ -622,7 +622,7 @@ async function loadUserRequests() {
       if (incomingPending.length > 0) {
         pendingCount.textContent = incomingPending.length;
         pendingList.innerHTML = incomingPending.map(req => `
-          <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; padding: 0.75rem;">
+          <div class="oc-pending-card">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
               <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.sender_name)}</span>
               <span class="oc-badge">${Math.round(req.sender_elo || 1500)} Elo</span>
@@ -632,10 +632,10 @@ async function loadUserRequests() {
             </div>
             ${req.note ? `<div style="font-size: 0.74rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px;">"${escapeHtml(req.note)}"</div>` : ''}
             <div style="display: flex; gap: 0.5rem;">
-              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; padding: 0.32rem; font-size: 0.75rem;">
+              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; min-height: 38px; padding: 0.4rem; font-size: 0.76rem; font-weight: 700;">
                 ✓ Accept & Chat
               </button>
-              <button onclick="respondToRequest('${req.id}', 'decline')" class="btn btn-outline" style="padding: 0.32rem 0.6rem; font-size: 0.75rem;">
+              <button onclick="respondToRequest('${req.id}', 'decline')" class="btn btn-outline" style="min-height: 38px; min-width: 44px; padding: 0.4rem 0.7rem; font-size: 0.76rem;" title="Decline">
                 ✕
               </button>
             </div>
@@ -664,15 +664,15 @@ async function loadUserRequests() {
           const unread = parseInt(req.unread_count || 0, 10);
 
           return `
-            <div onclick="selectConversation('${req.id}')" style="padding: 0.65rem 0.75rem; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; transition: background 0.15s; background: ${isSelected ? 'rgba(56,189,248,0.15)' : 'rgba(255,255,255,0.02)'}; border: 1px solid ${isSelected ? 'rgba(56,189,248,0.4)' : 'rgba(255,255,255,0.05)'};">
-              <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
-                <div class="oc-player-avatar" style="width: 32px; height: 32px; font-size: 0.82rem; flex-shrink: 0;">${initials}</div>
-                <div style="min-width: 0;">
-                  <div style="font-weight: 700; color: #fff; font-size: 0.84rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(otherName)}</div>
-                  <div style="font-size: 0.72rem; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(req.last_message || req.proposed_venue || 'Connected')}</div>
+            <div class="oc-convo-item ${isSelected ? 'active' : ''}" data-request-id="${req.id}" onclick="selectConversation('${req.id}')">
+              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
+                <div class="oc-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; flex-shrink: 0;">${initials}</div>
+                <div style="min-width: 0; flex: 1;">
+                  <div class="oc-convo-name">${escapeHtml(otherName)}</div>
+                  <div class="oc-convo-snippet">${escapeHtml(req.last_message || req.proposed_venue || 'Connected')}</div>
                 </div>
               </div>
-              <div style="text-align: right; flex-shrink: 0;">
+              <div style="text-align: right; flex-shrink: 0; margin-left: 6px;">
                 <div style="font-size: 0.74rem; font-weight: 700; color: #38bdf8;">${otherElo}</div>
                 ${unread > 0 ? `<span class="oc-badge oc-badge-danger" style="margin-top: 2px;">${unread}</span>` : ''}
               </div>
@@ -682,7 +682,7 @@ async function loadUserRequests() {
       }
     }
 
-    if (!connectState.activeRequestId && acceptedConvos.length > 0) {
+    if (!connectState.activeRequestId && acceptedConvos.length > 0 && window.innerWidth > 768) {
       selectConversation(acceptedConvos[0].id);
     }
 
@@ -758,6 +758,18 @@ function attachChatSnapshot(requestId) {
   }
 }
 
+function backToChatList() {
+  const layout = document.querySelector('.oc-chat-layout');
+  if (layout) {
+    layout.classList.remove('is-viewing-chat');
+  }
+  if (window.innerWidth <= 768) {
+    connectState.activeRequestId = null;
+    detachChatSnapshot();
+  }
+  loadUserRequests();
+}
+
 function openChatWithRequest(requestId) {
   connectState.activeRequestId = requestId;
   switchConnectSubtab('chats');
@@ -765,6 +777,19 @@ function openChatWithRequest(requestId) {
 }
 
 async function selectConversation(requestId) {
+  const layout = document.querySelector('.oc-chat-layout');
+  if (layout) {
+    layout.classList.add('is-viewing-chat');
+  }
+
+  const convoList = document.getElementById('chat-conversations-list');
+  if (convoList) {
+    Array.from(convoList.children).forEach(child => {
+      const isMatch = (child.getAttribute('data-request-id') === requestId);
+      child.classList.toggle('active', isMatch);
+    });
+  }
+
   if (connectState.activeRequestId === requestId && connectState.chatSnapshotUnsub) {
     return;
   }
@@ -776,24 +801,19 @@ async function selectConversation(requestId) {
   if (header) header.style.display = 'flex';
   if (inputForm) inputForm.style.display = 'flex';
 
-  const convoList = document.getElementById('chat-conversations-list');
-  if (convoList) {
-    Array.from(convoList.children).forEach(child => {
-      child.style.background = 'rgba(255,255,255,0.02)';
-      child.style.borderColor = 'rgba(255,255,255,0.05)';
-    });
-  }
-
   // Pre-fill header instantly from local requestsList if available
   const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
   const localReq = connectState.requestsList.find(r => r.id === requestId);
   if (localReq) {
     const isMeSender = (localReq.sender_id === myId);
     const otherName = isMeSender ? localReq.receiver_name : localReq.sender_name;
+    const otherElo = Math.round(isMeSender ? localReq.receiver_elo : localReq.sender_elo);
     const nameEl = document.getElementById('chat-active-name');
+    const eloEl = document.getElementById('chat-active-elo');
     const subEl = document.getElementById('chat-active-sub');
     const avatarEl = document.getElementById('chat-active-avatar');
     if (nameEl && otherName) nameEl.textContent = otherName;
+    if (eloEl && !isNaN(otherElo)) eloEl.textContent = `${otherElo} Elo`;
     if (avatarEl && otherName) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
     if (subEl) subEl.textContent = `Proposed: ${localReq.proposed_points || 2000} pts at ${localReq.proposed_venue || 'Local Store'}`;
   }
@@ -848,12 +868,12 @@ function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
     let roomCard = '';
     if (m.room_key) {
       roomCard = `
-        <div style="margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(56,189,248,0.4); border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-          <div>
-            <div style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">🎲 Live Game Tracker Room</div>
+        <div class="oc-msg-room-card">
+          <div style="min-width: 0;">
+            <div style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em;">🎲 Live Game Tracker Room</div>
             <div style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(m.room_key)}</div>
           </div>
-          <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.72rem; text-decoration: none;">
+          <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 700; text-decoration: none; min-height: 32px; display: inline-flex; align-items: center; white-space: nowrap;">
             Join Room ↗
           </a>
         </div>
@@ -872,7 +892,9 @@ function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
   }).join('');
 
   if (!scrollOnlyIfNearBottom || wasNearBottom) {
-    msgContainer.scrollTop = msgContainer.scrollHeight;
+    requestAnimationFrame(() => {
+      msgContainer.scrollTop = msgContainer.scrollHeight;
+    });
   }
 }
 
@@ -887,13 +909,16 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
 
     const req = res.request || {};
     const otherName = res.other_user_name || 'Opponent';
+    const otherElo = res.other_user_elo ? Math.round(res.other_user_elo) : null;
 
     const nameEl = document.getElementById('chat-active-name');
+    const eloEl = document.getElementById('chat-active-elo');
     const subEl = document.getElementById('chat-active-sub');
     const avatarEl = document.getElementById('chat-active-avatar');
 
     if (nameEl) nameEl.textContent = otherName;
-    if (avatarEl) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    if (eloEl && otherElo) eloEl.textContent = `${otherElo} Elo`;
+    if (avatarEl && otherName) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
     if (subEl) subEl.textContent = `Proposed: ${req.proposed_points || 2000} pts at ${req.proposed_venue || 'Local Store'}`;
 
     const messages = res.messages || [];
