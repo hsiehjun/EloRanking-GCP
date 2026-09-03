@@ -81,12 +81,19 @@ class PostgresDatabase:
             val, ts = cache_dict[key]
             if (time.time() - ts) < ttl:
                 return val
+            cache_dict.pop(key, None)
         return None
 
     @classmethod
-    def set_cached(cls, cache_dict: dict, key: Any, val: Any) -> None:
-        if len(cache_dict) > 1000:
-            cache_dict.clear()
+    def set_cached(cls, cache_dict: dict, key: Any, val: Any, max_size: int = 1000) -> None:
+        if len(cache_dict) >= max_size:
+            try:
+                # Evict oldest 20% rather than clearing the entire cache (prevent thundering herd)
+                oldest_keys = sorted(cache_dict.keys(), key=lambda k: cache_dict[k][1])[:max(1, max_size // 5)]
+                for k in oldest_keys:
+                    cache_dict.pop(k, None)
+            except Exception:
+                cache_dict.clear()
         cache_dict[key] = (val, time.time())
 
     @classmethod
@@ -360,6 +367,7 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_p2 ON matches(player1_id, player2_id);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_fac1 ON matches(player1_faction, is_done);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_fac2 ON matches(player2_faction, is_done);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_elo ON player_ratings(current_elo DESC);
@@ -431,6 +439,7 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_events_organizer_bcp_id ON events(organizer_bcp_id);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;",
             """CREATE TABLE IF NOT EXISTS user_army_lists (
                 id VARCHAR(64) PRIMARY KEY,
                 user_id VARCHAR(64),
