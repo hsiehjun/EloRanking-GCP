@@ -325,6 +325,62 @@ class FirestoreRoomEngine:
         self._fallback_rooms[request_id] = doc_data
         return True
 
+    def get_user_sync_doc_ref(self, user_id: str):
+        """Returns DocumentReference for connect_user_sync/{user_id}."""
+        if not user_id or not self._client:
+            return None
+        return self._client.collection("connect_user_sync").document(str(user_id).strip())
+
+    def notify_user_requests_updated(self, user_ids: List[str], reason: str = "request_updated") -> bool:
+        """Pushes a lightweight real-time timestamp notification to connect_user_sync/{user_id} in Firestore."""
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        for uid in user_ids:
+            if not uid:
+                continue
+            clean_uid = str(uid).strip()
+            doc_data = {
+                "userId": clean_uid,
+                "updatedAt": now_ts,
+                "reason": reason
+            }
+            if self._client:
+                try:
+                    ref = self.get_user_sync_doc_ref(clean_uid)
+                    if ref:
+                        ref.set(doc_data, merge=True)
+                except Exception as e:
+                    logger.warning(f"Notice pushing user sync to Firestore for {clean_uid}: {e}")
+            self._fallback_rooms[f"sync_{clean_uid}"] = doc_data
+        return True
+
+    def update_chat_status(self, request_id: str, status: str, participants: Optional[List[str]] = None) -> bool:
+        """Updates request status (pending, accepted, declined) in connect_chats/{request_id}."""
+        request_id = str(request_id).strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        expires_dt = datetime.now(timezone.utc) + timedelta(days=30)
+        doc_data: Dict[str, Any] = {
+            "requestId": request_id,
+            "status": status,
+            "updatedAt": now_ts,
+            "expiresAt": expires_dt
+        }
+        if participants:
+            doc_data["participants"] = [str(p).strip() for p in participants if p]
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(request_id)
+                if ref:
+                    ref.set(doc_data, merge=True)
+                    return True
+            except Exception as e:
+                logger.error(f"❌ [FIRESTORE] Error updating chat status {request_id}: {e}")
+
+        if request_id in self._fallback_rooms:
+            self._fallback_rooms[request_id].update(doc_data)
+        else:
+            self._fallback_rooms[request_id] = doc_data
+        return True
+
 # Singleton instance
 _firestore_engine_instance = None
 

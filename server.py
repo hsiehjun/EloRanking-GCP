@@ -110,8 +110,8 @@ if FASTAPI_AVAILABLE:
     async def add_cache_headers(request, call_next):
         response = await call_next(request)
         path = request.url.path
-        if path.startswith("/api/auth") or path.startswith("/api/user"):
-            # Never cache authentication, session, or user endpoints
+        if path.startswith("/api/auth") or path.startswith("/api/user") or path.startswith("/api/connect") or path.startswith("/api/tracker") or path.startswith("/api/chat"):
+            # Never cache authentication, session, user, connect, chat, or live tracker endpoints
             response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
             response.headers["Pragma"] = "no-cache"
         elif path.startswith("/css") or path.startswith("/js"):
@@ -1006,6 +1006,17 @@ if FASTAPI_AVAILABLE:
         )
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to create match request"))
+
+        # Real-time Firestore notification
+        try:
+            fs_engine = get_firestore_engine()
+            req_id = res.get("request_id")
+            if req_id:
+                fs_engine.update_chat_status(req_id, "pending", participants=[user["id"], payload.receiver_id])
+            fs_engine.notify_user_requests_updated([user["id"], payload.receiver_id], reason="request_created")
+        except Exception as e:
+            logger.warning(f"Notice notifying Firestore on match request creation: {e}")
+
         return res
 
     @app.post("/api/connect/request/{request_id}/respond", summary="Respond to match request")
@@ -1021,6 +1032,23 @@ if FASTAPI_AVAILABLE:
         res = db.respond_match_request(request_id, user["id"], payload.action, getattr(payload, "message", None))
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to update match request"))
+
+        # Real-time Firestore push for both participants
+        try:
+            fs_engine = get_firestore_engine()
+            chat_info = db.get_chat_messages(request_id, user["id"])
+            req_info = chat_info.get("request", {}) or {}
+            sender_id = req_info.get("sender_id")
+            receiver_id = req_info.get("receiver_id")
+            participants = [p for p in [sender_id, receiver_id] if p]
+            status = res.get("status") or ("accepted" if payload.action == "accept" else "declined")
+            fs_engine.update_chat_status(request_id, status, participants=participants)
+            fs_engine.notify_user_requests_updated(participants, reason=f"request_{payload.action}")
+            if payload.action == "accept":
+                fs_engine.sync_chat_history(request_id, chat_info.get("messages", []), req_info)
+        except Exception as e:
+            logger.warning(f"Notice notifying Firestore on match request response: {e}")
+
         return res
 
     @app.get("/api/connect/request/{request_id}/messages", summary="Get messages in request thread")
@@ -1073,6 +1101,14 @@ if FASTAPI_AVAILABLE:
                 "created_at": res.get("created_at") or datetime.now(timezone.utc).isoformat()
             }
             fs_engine.append_chat_message(request_id, msg_obj)
+            # Also notify other participant in connect_user_sync so conversation list updates in real-time
+            chat_info = db.get_chat_messages(request_id, user["id"])
+            req_info = chat_info.get("request", {}) or {}
+            sender_id = req_info.get("sender_id")
+            receiver_id = req_info.get("receiver_id")
+            other_id = receiver_id if sender_id == user["id"] else sender_id
+            if other_id:
+                fs_engine.notify_user_requests_updated([other_id], reason="new_message")
         except Exception as e:
             logger.warning(f"Notice pushing chat message to Firestore: {e}")
 

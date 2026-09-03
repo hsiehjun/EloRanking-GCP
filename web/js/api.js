@@ -869,8 +869,9 @@ window.api = {
 
   // OmniConnect: Get Requests & Chats
   async getConnectRequests() {
-    return this._fetchJson('/api/connect/requests', {
-      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    return this._fetchJson(`/api/connect/requests?_t=${Date.now()}`, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` },
+      cache: 'no-store'
     });
   },
 
@@ -900,8 +901,9 @@ window.api = {
 
   // OmniConnect: Get Thread Messages
   async getConnectMessages(requestId) {
-    return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/messages`, {
-      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/messages?_t=${Date.now()}`, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` },
+      cache: 'no-store'
     });
   },
 
@@ -916,8 +918,9 @@ window.api = {
 
   // OmniConnect: Get Unread Count
   async getConnectUnreadCount() {
-    return this._fetchJson('/api/connect/unread-count', {
-      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
+    return this._fetchJson(`/api/connect/unread-count?_t=${Date.now()}`, {
+      headers: { 'Authorization': `Bearer ${this.getAuthToken()}` },
+      cache: 'no-store'
     });
   },
 

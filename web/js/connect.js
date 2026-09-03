@@ -11,6 +11,7 @@ const connectState = {
   tournamentsList: [],
   chatPollInterval: null,
   chatSnapshotUnsub: null,
+  userSyncSnapshotUnsub: null,
   activeMessages: [],
   placesAutocomplete: null,
   initialized: false
@@ -592,14 +593,17 @@ function switchConnectSubtab(tabName) {
 
   if (tabName === 'players') {
     detachChatSnapshot();
+    detachUserSyncSnapshot();
     stopChatPolling();
     loadNearbyPlayers();
   } else if (tabName === 'tournaments') {
     detachChatSnapshot();
+    detachUserSyncSnapshot();
     stopChatPolling();
     loadNearbyTournaments();
   } else if (tabName === 'chats') {
     loadUserRequests();
+    attachUserSyncSnapshot();
     startChatPolling();
     if (connectState.activeRequestId) {
       attachChatSnapshot(connectState.activeRequestId);
@@ -925,124 +929,133 @@ async function loadNearbyTournaments() {
 /* --------------------------------------------------------------------------
    SUBVIEW 3: MATCH CHATS & REQUESTS
    -------------------------------------------------------------------------- */
+function renderRequestsList(requests = connectState.requestsList, myId = null) {
+  if (!myId) {
+    myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id || '';
+  }
+
+  const pendingSection = document.getElementById('chat-pending-section');
+  const pendingList = document.getElementById('chat-pending-list');
+  const pendingCount = document.getElementById('pending-count');
+  const sentSection = document.getElementById('chat-sent-section');
+  const sentList = document.getElementById('chat-sent-list');
+  const sentCount = document.getElementById('sent-count');
+  const convoList = document.getElementById('chat-conversations-list');
+
+  const incomingPending = requests.filter(r => r.status === 'pending' && r.receiver_id === myId);
+  const outgoingPending = requests.filter(r => r.status === 'pending' && r.sender_id === myId);
+  const acceptedConvos = requests.filter(r => r.status === 'accepted');
+
+  // 1. Render Incoming Pending Requests
+  if (pendingSection && pendingList && pendingCount) {
+    if (incomingPending.length > 0) {
+      pendingCount.textContent = incomingPending.length;
+      pendingList.innerHTML = incomingPending.map(req => `
+        <div class="oc-pending-card" style="cursor: pointer;" onclick="selectPendingRequest('${req.id}')">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.sender_name)}</span>
+            <span class="oc-badge">${Math.round(req.sender_elo || 1500)} Elo</span>
+          </div>
+          ${req.proposed_venue ? `
+          <div style="font-size: 0.74rem; color: #94a3b8; margin-bottom: 5px;">
+            🏪 ${escapeHtml(req.proposed_venue)} • ${req.proposed_points || 2000} pts
+          </div>` : ''}
+          ${req.note ? `<div style="font-size: 0.75rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px; line-height: 1.35; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 4px; border-left: 2px solid #38bdf8;">"${escapeHtml(req.note)}"</div>` : ''}
+          <div style="display: flex; gap: 0.35rem; margin-top: 4px;" onclick="event.stopPropagation()">
+            <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; min-height: 32px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700;" title="Accept chat request">
+              ✓ Accept
+            </button>
+            <button onclick="handleQuickRespondPrompt('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="flex: 1; min-height: 32px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700; border-color: #38bdf8; color: #38bdf8;" title="Respond with message">
+              💬 Respond
+            </button>
+            <button onclick="handleDeclineRequest('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="min-height: 32px; padding: 0.35rem 0.55rem; font-size: 0.74rem; border-color: rgba(239,68,68,0.4); color: #f87171;" title="Decline request">
+              ✕
+            </button>
+          </div>
+        </div>
+      `).join('');
+      pendingSection.style.display = 'block';
+    } else {
+      pendingSection.style.display = 'none';
+    }
+  }
+
+  // 2. Render Outgoing Pending Requests
+  if (sentSection && sentList && sentCount) {
+    if (outgoingPending.length > 0) {
+      sentCount.textContent = outgoingPending.length;
+      sentList.innerHTML = outgoingPending.map(req => `
+        <div class="oc-pending-card" style="border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+            <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.receiver_name)}</span>
+            <span class="oc-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">${Math.round(req.receiver_elo || 1500)} Elo</span>
+          </div>
+          ${req.note ? `<div style="font-size: 0.74rem; color: #94a3b8; font-style: italic; margin-bottom: 5px; line-height: 1.35;">"${escapeHtml(req.note)}"</div>` : ''}
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: #f59e0b; font-weight: 600;">
+            <span>⏳ Waiting for response...</span>
+          </div>
+        </div>
+      `).join('');
+      sentSection.style.display = 'block';
+    } else {
+      sentSection.style.display = 'none';
+    }
+  }
+
+  // 3. Render Accepted Conversations
+  if (convoList) {
+    if (acceptedConvos.length === 0) {
+      convoList.innerHTML = `
+        <div style="text-align: center; padding: 2.5rem 1rem; color: #64748b; font-size: 0.82rem;">
+          No active chats.<br>Send a chat request to any OmniTactica player or accept a pending request!
+        </div>
+      `;
+    } else {
+      convoList.innerHTML = acceptedConvos.map(req => {
+        const isMeSender = (req.sender_id === myId);
+        const otherName = isMeSender ? req.receiver_name : req.sender_name;
+        const otherElo = Math.round(isMeSender ? req.receiver_elo : req.sender_elo);
+        const initials = (otherName || 'P').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+        const isSelected = (connectState.activeRequestId === req.id);
+        const unread = parseInt(req.unread_count || 0, 10);
+
+        return `
+          <div class="oc-convo-item ${isSelected ? 'active' : ''}" data-request-id="${req.id}" onclick="selectConversation('${req.id}')">
+            <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
+              <div class="oc-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; flex-shrink: 0;">${initials}</div>
+              <div style="min-width: 0; flex: 1;">
+                <div class="oc-convo-name">${escapeHtml(otherName)}</div>
+                <div class="oc-convo-snippet">${escapeHtml(req.last_message || req.proposed_venue || 'Connected')}</div>
+              </div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0; margin-left: 6px;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #38bdf8;">${otherElo}</div>
+              ${unread > 0 ? `<span class="oc-badge oc-badge-danger" style="margin-top: 2px;">${unread}</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  }
+
+  if (!connectState.activeRequestId && acceptedConvos.length > 0 && window.innerWidth > 768) {
+    selectConversation(acceptedConvos[0].id);
+  }
+}
+window.renderRequestsList = renderRequestsList;
+
 async function loadUserRequests() {
   try {
     const res = await window.api.getConnectRequests();
     const requests = (res && res.requests) ? res.requests : [];
-    const myId = res?.current_user_id || '';
+    const myId = res?.current_user_id || (typeof currentUser !== 'undefined' && currentUser?.id) || '';
     connectState.requestsList = requests;
-
-    const pendingSection = document.getElementById('chat-pending-section');
-    const pendingList = document.getElementById('chat-pending-list');
-    const pendingCount = document.getElementById('pending-count');
-    const sentSection = document.getElementById('chat-sent-section');
-    const sentList = document.getElementById('chat-sent-list');
-    const sentCount = document.getElementById('sent-count');
-    const convoList = document.getElementById('chat-conversations-list');
-
-    const incomingPending = requests.filter(r => r.status === 'pending' && r.receiver_id === myId);
-    const outgoingPending = requests.filter(r => r.status === 'pending' && r.sender_id === myId);
-    const acceptedConvos = requests.filter(r => r.status === 'accepted');
-
-    // 1. Render Incoming Pending Requests
-    if (pendingSection && pendingList && pendingCount) {
-      if (incomingPending.length > 0) {
-        pendingCount.textContent = incomingPending.length;
-        pendingList.innerHTML = incomingPending.map(req => `
-          <div class="oc-pending-card" style="cursor: pointer;" onclick="selectPendingRequest('${req.id}')">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.sender_name)}</span>
-              <span class="oc-badge">${Math.round(req.sender_elo || 1500)} Elo</span>
-            </div>
-            ${req.proposed_venue ? `
-            <div style="font-size: 0.74rem; color: #94a3b8; margin-bottom: 5px;">
-              🏪 ${escapeHtml(req.proposed_venue)} • ${req.proposed_points || 2000} pts
-            </div>` : ''}
-            ${req.note ? `<div style="font-size: 0.75rem; color: #cbd5e1; font-style: italic; margin-bottom: 8px; line-height: 1.35; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 4px; border-left: 2px solid #38bdf8;">"${escapeHtml(req.note)}"</div>` : ''}
-            <div style="display: flex; gap: 0.35rem; margin-top: 4px;" onclick="event.stopPropagation()">
-              <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; min-height: 32px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700;" title="Accept chat request">
-                ✓ Accept
-              </button>
-              <button onclick="handleQuickRespondPrompt('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="flex: 1; min-height: 32px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700; border-color: #38bdf8; color: #38bdf8;" title="Respond with message">
-                💬 Respond
-              </button>
-              <button onclick="handleDeclineRequest('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="min-height: 32px; padding: 0.35rem 0.55rem; font-size: 0.74rem; border-color: rgba(239,68,68,0.4); color: #f87171;" title="Decline request">
-                ✕
-              </button>
-            </div>
-          </div>
-        `).join('');
-        pendingSection.style.display = 'block';
-      } else {
-        pendingSection.style.display = 'none';
-      }
-    }
-
-    // 2. Render Outgoing Pending Requests
-    if (sentSection && sentList && sentCount) {
-      if (outgoingPending.length > 0) {
-        sentCount.textContent = outgoingPending.length;
-        sentList.innerHTML = outgoingPending.map(req => `
-          <div class="oc-pending-card" style="border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-              <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.receiver_name)}</span>
-              <span class="oc-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">${Math.round(req.receiver_elo || 1500)} Elo</span>
-            </div>
-            ${req.note ? `<div style="font-size: 0.74rem; color: #94a3b8; font-style: italic; margin-bottom: 5px; line-height: 1.35;">"${escapeHtml(req.note)}"</div>` : ''}
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: #f59e0b; font-weight: 600;">
-              <span>⏳ Waiting for response...</span>
-            </div>
-          </div>
-        `).join('');
-        sentSection.style.display = 'block';
-      } else {
-        sentSection.style.display = 'none';
-      }
-    }
-
-    if (convoList) {
-      if (acceptedConvos.length === 0) {
-        convoList.innerHTML = `
-          <div style="text-align: center; padding: 2.5rem 1rem; color: #64748b; font-size: 0.82rem;">
-            No active chats.<br>Send a chat request to any OmniTactica player or accept a pending request!
-          </div>
-        `;
-      } else {
-        convoList.innerHTML = acceptedConvos.map(req => {
-          const isMeSender = (req.sender_id === myId);
-          const otherName = isMeSender ? req.receiver_name : req.sender_name;
-          const otherElo = Math.round(isMeSender ? req.receiver_elo : req.sender_elo);
-          const initials = (otherName || 'P').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-          const isSelected = (connectState.activeRequestId === req.id);
-          const unread = parseInt(req.unread_count || 0, 10);
-
-          return `
-            <div class="oc-convo-item ${isSelected ? 'active' : ''}" data-request-id="${req.id}" onclick="selectConversation('${req.id}')">
-              <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
-                <div class="oc-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; flex-shrink: 0;">${initials}</div>
-                <div style="min-width: 0; flex: 1;">
-                  <div class="oc-convo-name">${escapeHtml(otherName)}</div>
-                  <div class="oc-convo-snippet">${escapeHtml(req.last_message || req.proposed_venue || 'Connected')}</div>
-                </div>
-              </div>
-              <div style="text-align: right; flex-shrink: 0; margin-left: 6px;">
-                <div style="font-size: 0.74rem; font-weight: 700; color: #38bdf8;">${otherElo}</div>
-                ${unread > 0 ? `<span class="oc-badge oc-badge-danger" style="margin-top: 2px;">${unread}</span>` : ''}
-              </div>
-            </div>
-          `;
-        }).join('');
-      }
-    }
-
-    if (!connectState.activeRequestId && acceptedConvos.length > 0 && window.innerWidth > 768) {
-      selectConversation(acceptedConvos[0].id);
-    }
-
+    renderRequestsList(requests, myId);
   } catch (err) {
     console.warn("Failed to load requests:", err);
   }
 }
+window.loadUserRequests = loadUserRequests;
 
 function selectPendingRequest(requestId) {
   const req = connectState.requestsList.find(r => r.id === requestId);
@@ -1151,41 +1164,99 @@ function handleDeclineRequest(requestId, senderName) {
 window.handleDeclineRequest = handleDeclineRequest;
 
 async function respondToRequest(requestId, action, message = '') {
+  // Snapshot previous state for rollback on error
+  const prevRequests = JSON.parse(JSON.stringify(connectState.requestsList || []));
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id || '';
+  const targetReq = connectState.requestsList.find(r => r.id === requestId);
+
+  // 1. Instant optimistic local UI update (0ms response)
+  if (action === 'accept') {
+    if (targetReq) {
+      targetReq.status = 'accepted';
+      if (message) {
+        targetReq.last_message = message;
+      }
+    }
+    connectState.activeRequestId = requestId;
+    renderRequestsList(connectState.requestsList, myId);
+    selectConversation(requestId);
+  } else if (action === 'decline') {
+    connectState.requestsList = connectState.requestsList.filter(r => r.id !== requestId);
+    if (connectState.activeRequestId === requestId) {
+      connectState.activeRequestId = null;
+      const header = document.getElementById('chat-active-header');
+      const inputForm = document.getElementById('chat-input-form');
+      const msgContainer = document.getElementById('chat-messages-container');
+      if (header) header.style.display = 'none';
+      if (inputForm) inputForm.style.display = 'none';
+      if (msgContainer) msgContainer.innerHTML = `
+        <div style="text-align: center; margin: auto; color: #64748b;">
+          <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">💬</div>
+          <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">Request declined</p>
+          <p style="margin: 4px 0 0; font-size: 0.78rem;">Select a conversation from the sidebar.</p>
+        </div>
+      `;
+    }
+    renderRequestsList(connectState.requestsList, myId);
+  }
+
+  // 2. Real-time push via Cloud Firestore
+  const fsDb = getConnectFirestoreDb();
+  if (fsDb) {
+    try {
+      const now = Date.now();
+      fsDb.collection('connect_chats').doc(requestId).set({
+        requestId: requestId,
+        status: action === 'accept' ? 'accepted' : 'declined',
+        updatedAt: now
+      }, { merge: true }).catch(() => {});
+
+      const otherId = targetReq ? (targetReq.sender_id === myId ? targetReq.receiver_id : targetReq.sender_id) : null;
+      if (myId) {
+        fsDb.collection('connect_user_sync').doc(myId).set({
+          userId: myId,
+          updatedAt: now,
+          action: `request_${action}`,
+          requestId: requestId
+        }, { merge: true }).catch(() => {});
+      }
+      if (otherId) {
+        fsDb.collection('connect_user_sync').doc(otherId).set({
+          userId: otherId,
+          updatedAt: now,
+          action: `request_${action}`,
+          requestId: requestId
+        }, { merge: true }).catch(() => {});
+      }
+    } catch (fsErr) {
+      console.warn("Notice pushing request response to Firestore:", fsErr);
+    }
+  }
+
+  // 3. Durable write to backend database
   try {
     const res = await window.api.respondConnectRequest(requestId, action, message);
     if (res && res.success) {
-      if (action === 'accept') {
-        connectState.activeRequestId = requestId;
-        await loadUserRequests();
-        selectConversation(requestId);
-      } else {
-        connectState.activeRequestId = null;
-        await loadUserRequests();
-        const header = document.getElementById('chat-active-header');
-        const inputForm = document.getElementById('chat-input-form');
-        const msgContainer = document.getElementById('chat-messages-container');
-        if (header) header.style.display = 'none';
-        if (inputForm) inputForm.style.display = 'none';
-        if (msgContainer) msgContainer.innerHTML = `
-          <div style="text-align: center; margin: auto; color: #64748b;">
-            <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">💬</div>
-            <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">Request declined</p>
-            <p style="margin: 4px 0 0; font-size: 0.78rem;">Select a conversation from the sidebar.</p>
-          </div>
-        `;
-      }
+      // Re-fetch in background to ensure complete parity with database
+      await loadUserRequests();
       updateUnreadCountBadge();
     } else {
+      // Revert optimistic update on backend error
+      connectState.requestsList = prevRequests;
+      renderRequestsList(connectState.requestsList, myId);
       alert(res?.error || 'Failed to update request');
     }
   } catch (err) {
+    // Revert optimistic update on network error
+    connectState.requestsList = prevRequests;
+    renderRequestsList(connectState.requestsList, myId);
     alert('Error responding to request: ' + err.message);
   }
 }
 window.respondToRequest = respondToRequest;
 
 /* --------------------------------------------------------------------------
-   REAL-TIME CLOUD FIRESTORE INTEGRATION FOR OMNICONNECT CHATS
+   REAL-TIME CLOUD FIRESTORE INTEGRATION FOR OMNICONNECT CHATS & USER SYNC
    -------------------------------------------------------------------------- */
 let connectFirestoreDb = null;
 function getConnectFirestoreDb() {
@@ -1236,6 +1307,47 @@ function attachChatSnapshot(requestId) {
   }
 }
 
+function detachUserSyncSnapshot() {
+  if (connectState.userSyncSnapshotUnsub) {
+    try {
+      connectState.userSyncSnapshotUnsub();
+    } catch (e) {}
+    connectState.userSyncSnapshotUnsub = null;
+  }
+}
+window.detachUserSyncSnapshot = detachUserSyncSnapshot;
+
+function attachUserSyncSnapshot(userId = null) {
+  detachUserSyncSnapshot();
+  const myId = userId || (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+  if (!myId) return;
+
+  const fsDb = getConnectFirestoreDb();
+  if (!fsDb) return;
+
+  try {
+    let isInitial = true;
+    const docRef = fsDb.collection('connect_user_sync').doc(myId);
+    connectState.userSyncSnapshotUnsub = docRef.onSnapshot((snap) => {
+      if (!snap || !snap.exists) return;
+      if (isInitial) {
+        isInitial = false;
+        return;
+      }
+      // Real-time Firestore notification: requests or chat updated!
+      if (typeof updateUnreadCountBadge === 'function') {
+        updateUnreadCountBadge();
+      }
+      loadUserRequests();
+    }, (err) => {
+      console.warn("Firestore user sync snapshot notice:", err);
+    });
+  } catch (err) {
+    console.warn("Failed to attach user sync snapshot:", err);
+  }
+}
+window.attachUserSyncSnapshot = attachUserSyncSnapshot;
+
 function backToChatList() {
   const layout = document.querySelector('.oc-chat-layout');
   if (layout) {
@@ -1245,6 +1357,7 @@ function backToChatList() {
     connectState.activeRequestId = null;
     detachChatSnapshot();
   }
+  renderRequestsList();
   loadUserRequests();
 }
 
@@ -1845,6 +1958,19 @@ async function handleSubmitMatchProposal(e) {
         alert('💬 Chat request sent! When they accept or respond, your conversation will open in Messages.');
         closeProposeMatchModal();
         if (typeof closeModal === 'function') closeModal('player-modal');
+
+        const fsDb = getConnectFirestoreDb();
+        if (fsDb && receiverId) {
+          try {
+            const now = Date.now();
+            fsDb.collection('connect_user_sync').doc(receiverId).set({
+              userId: receiverId,
+              updatedAt: now,
+              action: 'request_created'
+            }, { merge: true }).catch(() => {});
+          } catch (e) {}
+        }
+
         if (typeof loadUserRequests === 'function') {
           loadUserRequests();
         }

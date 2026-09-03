@@ -408,6 +408,9 @@ async function handleLogout() {
     await window.api.logout();
   } catch (e) {}
   currentUser = null;
+  if (typeof detachUserSyncSnapshot === 'function') detachUserSyncSnapshot();
+  if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
+  if (typeof stopChatPolling === 'function') stopChatPolling();
   localStorage.removeItem('native_session_token');
   localStorage.removeItem('native_user_profile');
   localStorage.removeItem('elo_auth_token');

@@ -35,6 +35,7 @@ function switchTab(tabName) {
   if (tabName !== 'chat') {
     if (typeof stopChatPolling === 'function') stopChatPolling();
     if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
+    if (typeof detachUserSyncSnapshot === 'function') detachUserSyncSnapshot();
   }
 
   // Update top navigation button states
@@ -81,6 +82,7 @@ function switchTab(tabName) {
       return;
     }
     if (typeof loadUserRequests === 'function') loadUserRequests();
+    if (typeof attachUserSyncSnapshot === 'function') attachUserSyncSnapshot();
     if (typeof startChatPolling === 'function') startChatPolling();
     if (typeof attachChatSnapshot === 'function' && typeof connectState !== 'undefined' && connectState.activeRequestId) {
       attachChatSnapshot(connectState.activeRequestId);
