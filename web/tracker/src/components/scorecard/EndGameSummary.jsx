@@ -69,7 +69,7 @@ export function EndGameSummary() {
         <span className="gtk-num w-7 flex-none text-right text-[13px] font-bold tabular-nums">
           {p1Val}
         </span>
-        <div className="relative h-2 flex-1 overflow-hidden rounded-[4px]" style={{ background: "rgba(0,0,0,0.06)" }}>
+        <div className="relative h-2 flex-1 overflow-hidden rounded-[4px]" style={{ background: "var(--gtk-line, #273042)" }}>
           <div
             className="absolute inset-y-0 right-0 rounded-l-[4px]"
             style={{
@@ -85,7 +85,7 @@ export function EndGameSummary() {
       </span>
 
       <div className="flex items-center gap-2">
-        <div className="relative h-2 flex-1 overflow-hidden rounded-[4px]" style={{ background: "rgba(0,0,0,0.06)" }}>
+        <div className="relative h-2 flex-1 overflow-hidden rounded-[4px]" style={{ background: "var(--gtk-line, #273042)" }}>
           <div
             className="absolute inset-y-0 left-0 rounded-r-[4px]"
             style={{
@@ -153,7 +153,7 @@ export function EndGameSummary() {
                   <span className="gtk-num w-7 text-right text-[13px] font-bold">
                     {p1RoundScore}
                   </span>
-                  <div className="relative h-2.5 flex-1 overflow-hidden rounded-[4px]" style={{ background: "rgba(0,0,0,0.06)" }}>
+                  <div className="relative h-2.5 flex-1 overflow-hidden rounded-[4px]" style={{ background: "var(--gtk-line, #273042)" }}>
                     <div
                       className="absolute inset-y-0 right-0 rounded-l-[4px]"
                       style={{
@@ -173,7 +173,7 @@ export function EndGameSummary() {
                   <span className="gtk-num w-7 text-left text-[13px] font-bold">
                     {p2RoundScore}
                   </span>
-                  <div className="relative h-2.5 flex-1 overflow-hidden rounded-[4px]" style={{ background: "rgba(0,0,0,0.06)" }}>
+                  <div className="relative h-2.5 flex-1 overflow-hidden rounded-[4px]" style={{ background: "var(--gtk-line, #273042)" }}>
                     <div
                       className="absolute inset-y-0 left-0 rounded-r-[4px]"
                       style={{

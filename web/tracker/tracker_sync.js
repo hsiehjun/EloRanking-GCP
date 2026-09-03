@@ -30,99 +30,12 @@
     return url;
   }
 
-  // 1. Suppress and block GDM's native install prompt from triggering in tracker
+  // Suppress browser default PWA install prompt
   window.addEventListener('beforeinstallprompt', (e) => {
     e.stopImmediatePropagation();
     e.preventDefault();
   }, true);
 
-  // 2. Aggressively remove any native GDM Install / Add to Home Screen popups
-  function suppressGdmInstallPrompts() {
-    try {
-      const candidates = document.querySelectorAll('div, section, aside, [role="dialog"], [role="alert"]');
-      candidates.forEach(el => {
-        if (el.closest('#gt-lobby-wrapper') || el.closest('#gt-sync-hud') || el.closest('#gt-user-status-bar') || el.closest('#gt-waiting-modal') || el.closest('#pwa-install-banner')) return;
-        const txt = (el.textContent || '').trim().toUpperCase();
-        if (
-          (txt.includes('INSTALL') && (txt.includes('HOME SCREEN') || txt.includes('HOMESCREEN') || txt.includes('APP') || txt.includes('BROWSER'))) ||
-          (txt.includes('ADD TO HOME SCREEN') || txt.includes('ADD TO HOMESCREEN')) ||
-          (txt.includes('INSTALL GDM') || txt.includes('INSTALL 40K ELO') || txt.includes('INSTALL OMNITACTICA'))
-        ) {
-          const popup = el.closest('div[class*="fixed"], div[class*="absolute"], [role="dialog"], [role="alert"]') || el;
-          if (popup && popup !== document.body && popup !== document.documentElement && !popup.contains(document.getElementById('gt-lobby-wrapper'))) {
-            popup.style.display = 'none';
-            try { popup.remove(); } catch(e) {}
-          }
-        }
-      });
-    } catch(e) {}
-  }
-
-  // 1.5 Auto-repair any Next.js optimized images (e.g. terrain layouts, mission cards)
-  function repairNextImages() {
-    try {
-      const imgs = document.querySelectorAll('img');
-      for (const img of imgs) {
-        const src = img.getAttribute('src') || '';
-        if (src.includes('/_next/image?url=') && !img.dataset.gdmRepaired) {
-          try {
-            const u = new URL(src, window.location.href);
-            const rawTarget = u.searchParams.get('url');
-            if (rawTarget) {
-              img.dataset.gdmRepaired = 'true';
-              img.src = `https://gdmissions.app${rawTarget}`;
-            }
-          } catch(e) {}
-        }
-      }
-    } catch(e) {}
-  }
-
-  window.addEventListener('error', function(e) {
-    if (e.target && e.target.tagName === 'IMG') {
-      const src = e.target.getAttribute('src') || '';
-      if (src.includes('/_next/image') || src.includes('/assets/11th/')) {
-        try {
-          const u = new URL(src, window.location.href);
-          const rawTarget = u.searchParams.get('url') || u.pathname;
-          if (rawTarget && !e.target.dataset.retried) {
-            e.target.dataset.retried = 'true';
-            e.target.src = `https://gdmissions.app${rawTarget}`;
-          }
-        } catch(err) {}
-      }
-    }
-  }, true);
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => {
-      suppressGdmInstallPrompts();
-      repairNextImages();
-      setInterval(() => {
-        suppressGdmInstallPrompts();
-        repairNextImages();
-      }, 300);
-      if (document.body) {
-        new MutationObserver(() => {
-          suppressGdmInstallPrompts();
-          repairNextImages();
-        }).observe(document.body, { childList: true, subtree: true });
-      }
-    });
-  } else {
-    suppressGdmInstallPrompts();
-    repairNextImages();
-    setInterval(() => {
-      suppressGdmInstallPrompts();
-      repairNextImages();
-    }, 300);
-    if (document.body) {
-      new MutationObserver(() => {
-        suppressGdmInstallPrompts();
-        repairNextImages();
-      }).observe(document.body, { childList: true, subtree: true });
-    }
-  }
 
   const SYNC_CONFIG = {
     apiBase: '/api/tracker/room',
@@ -650,7 +563,7 @@
           p2_score: p2Score,
           p1_name: game.p1Name || st.p1_name || 'Player 1',
           p2_name: game.p2Name || st.p2_name || 'Player 2',
-          source_app: 'GameTracker-GDM',
+          source_app: 'GameTracker-OmniTactica',
           game_details: {
             match_id: matchId,
             first_turn: firstTurnVal,
@@ -960,38 +873,38 @@
         wrapper.style.cssText = "width:100%; max-width:820px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
 
         wrapper.innerHTML = `
-          <div id="gt-lobby-hub-card" style="margin:16px 0 24px; background:#0f1524; border:1px solid #1e293b; border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid rgba(255,255,255,0.06); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
+          <div id="gt-lobby-hub-card" style="margin:16px 0 24px; background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid var(--border, #273042); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
               <div>
-                <h3 style="font-size:15px; font-weight:800; color:#f8fafc; margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
-                <p style="font-size:11px; color:#94a3b8; margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
+                <h3 style="font-size:15px; font-weight:800; color:var(--text-primary, #f0f4fc); margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
+                <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
               </div>
-              <span style="font-size:10px; font-weight:700; color:#38bdf8; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px;">2 Players Max</span>
+              <span style="font-size:10px; font-weight:700; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">2 Players Max</span>
             </div>
 
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
               <!-- Host Card -->
-              <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+              <div style="background:var(--bg-card, #181d28); border:1px solid var(--border, #273042); border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
                 <div>
                   <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
-                  <p style="font-size:11px; color:#94a3b8; margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
+                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
                 </div>
-                <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0f172a; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:background 0.2s;">
+                <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
                   CREATE & ENTER MATCH ➔
                 </button>
               </div>
 
               <!-- Join Card -->
-              <div style="background:#090d18; border:1px solid #1e293b; border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+              <div style="background:var(--bg-card, #181d28); border:1px solid var(--border, #273042); border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
                 <div>
-                  <div style="font-size:12px; font-weight:800; color:#38bdf8; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
-                  <p style="font-size:11px; color:#94a3b8; margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
+                  <div style="font-size:12px; font-weight:800; color:var(--accent, #38bdf8); text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
+                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
                 </div>
                 <div>
-                  <div id="gt-lobby-join-error" style="display:none; color:#ef4444; font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
+                  <div id="gt-lobby-join-error" style="display:none; color:var(--loss, #ef4444); font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
                   <div style="display:flex; gap:8px;">
-                    <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:#070b14; border:1px solid #334155; border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:#f8fafc; outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+                    <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:var(--bg-primary, #0a0c10); border:1px solid var(--border, #273042); border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-primary, #f0f4fc); outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
+                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
                   </div>
                 </div>
               </div>
@@ -1000,12 +913,12 @@
 
           <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
-              <div style="font-size:14px; font-weight:800; color:#f8fafc; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
-                GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:#38bdf8; font-weight:700; margin-left:4px;"></span>
+              <div style="font-size:14px; font-weight:800; color:var(--text-primary, #f0f4fc); font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
+                GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
               </div>
             </div>
             <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
-              <div style="color:#64748b; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
+              <div style="color:var(--text-muted, #64748b); font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:var(--bg-secondary, #12161f); border-radius:14px; border:1px solid var(--border, #273042);">
                 Loading match history...
               </div>
             </div>
@@ -1188,31 +1101,7 @@
         document.body.classList.add('is-tracker-lobby');
       }
       document.body.classList.remove('is-tracker-play');
-
-      // 2. Hide all elements that belong to GDM's native landing page
-      const gdmCandidates = document.querySelectorAll(
-        'main h2, main button, main h3, main p, div[class*="max-w-md"]'
-      );
-      gdmCandidates.forEach(el => {
-        if (!el.closest('#gt-lobby-wrapper') && !el.closest('#gt-user-status-bar') && !el.closest('#gt-sync-hud') && !el.closest('#gt-waiting-modal')) {
-          el.style.setProperty('display', 'none', 'important');
-        }
-      });
-
-      // 3. Hide any sibling container inside main that is not #gt-lobby-wrapper
-      const main = document.querySelector('main');
-      if (main) {
-        Array.from(main.children).forEach(child => {
-          if (child.id !== 'gt-lobby-wrapper' && !child.contains(document.getElementById('gt-lobby-wrapper'))) {
-            child.style.setProperty('display', 'none', 'important');
-          }
-        });
-      }
     }
-
-    document.querySelectorAll('footer, .tac-footer, .tac-header, button:has(span.text-xs), a[href*="/news"]').forEach(el => {
-      el.style.setProperty('display', 'none', 'important');
-    });
   }
 
   function renderHistoryList(historyList) {
@@ -1252,7 +1141,7 @@
 
     if (activeList.length === 0 && completed.length === 0) {
       container.innerHTML = `
-        <div style="color:#94a3b8; font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:#0f1524; border-radius:14px; border:1px solid #1e293b;">
+        <div style="color:var(--text-secondary, #94a3b8); font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:var(--bg-secondary, #12161f); border-radius:14px; border:1px solid var(--border, #273042);">
           No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!
         </div>
       `;
@@ -1266,8 +1155,8 @@
       outHtml += `
         <div style="margin-bottom:18px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-family:'JetBrains Mono',monospace; flex-wrap:wrap; gap:4px;">
-            <span style="font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase;">🟢 Active Matches (${activeList.length})</span>
-            <span style="font-size:10px; color:#94a3b8;">⏳ Uncompleted games auto-purge after 14 days</span>
+            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches (${activeList.length})</span>
+            <span style="font-size:10px; color:var(--text-secondary, #94a3b8);">⏳ Uncompleted games auto-purge after 14 days</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:10px;">
             ${activeList.map(m => {
@@ -1292,28 +1181,28 @@
               const isRegisteredPlayer = !currentUser || (uId && (uId === p1Uid || uId === p2Uid)) || (uName && (uName === p1NameStr || uName === p2NameStr));
 
               return `
-                <div style="background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.35); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
+                <div style="background:var(--win-bg, rgba(34,197,94,0.08)); border:1px solid rgba(34,197,94,0.3); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; flex-wrap:wrap; gap:4px;">
-                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:#10b981; text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
-                      <span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+                    <span style="display:inline-flex; align-items:center; gap:6px; font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase; font-family:'JetBrains Mono',monospace;">
+                      <span style="width:7px; height:7px; border-radius:50%; background:var(--win, #22c55e); display:inline-block;"></span>
                       🟢 Active Match (Round ${rNum})
                     </span>
-                    <span style="font-size:11px; color:#94a3b8; font-family:'JetBrains Mono',monospace;">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
+                    <span style="font-size:11px; color:var(--text-secondary, #94a3b8); font-family:'JetBrains Mono',monospace;">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
                   </div>
                   <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
                     <div>
-                      <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} (${p1S}) <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)} (${p2S})</b>
-                      <div style="font-size:11px; color:#94a3b8; margin-top:2px;">
+                      <b style="color:var(--text-primary, #f0f4fc); font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} (${p1S}) <span style="color:var(--text-muted, #64748b); font-weight:normal;">vs</span> ${escapeHtml(p2)} (${p2S})</b>
+                      <div style="font-size:11px; color:var(--text-secondary, #94a3b8); margin-top:2px;">
                         ${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}
                         ${m.primary_mission ? ` • 🎯 ${escapeHtml(m.primary_mission)}` : ''}
                       </div>
                     </div>
                     <div style="display:flex; gap:6px; align-items:center;">
-                      <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:#0284c7; color:#fff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
+                      <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
                         ▶️ Resume Match
                       </a>
                       ${isRegisteredPlayer ? `
-                        <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('div[style*=\\'background\\']'))" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
+                        <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('div[style*=\\'background\\']'))" style="background:var(--loss-bg, rgba(239,68,68,0.15)); color:var(--loss, #ef4444); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
                           🗑️
                         </button>
                       ` : ''}
@@ -1331,7 +1220,7 @@
     if (completed.length > 0) {
       outHtml += `
         <div style="margin-top:14px;">
-          <div style="font-size:11px; font-weight:800; color:#94a3b8; text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:8px;">
+          <div style="font-size:11px; font-weight:800; color:var(--text-secondary, #94a3b8); text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:8px;">
             📜 Completed Matches (${completed.length})
           </div>
           <div style="display:flex; flex-direction:column; gap:8px;">
@@ -1345,28 +1234,28 @@
               const mid = item.match_id || item.id || '';
               const shortId = mid.replace('WH40K-', '');
               const dateStr = item.date ? new Date(item.date).toLocaleDateString() : 'Completed';
-              const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:#94a3b8; margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
+              const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:var(--text-secondary, #94a3b8); margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
 
               return `
-                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:#0f1524; border:1px solid #1e293b; border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='#38bdf8'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='#1e293b'; this.style.transform='none'">
+                <div data-match-id="${escapeHtml(mid)}" onclick="window.location.href='/scorecard/${encodeURIComponent(mid)}'" style="background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:14px; padding:14px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; transition:all 0.2s; box-sizing:border-box; position:relative;" onmouseover="this.style.borderColor='var(--accent, #38bdf8)'; this.style.transform='translateY(-1px)'" onmouseout="this.style.borderColor='var(--border, #273042)'; this.style.transform='none'">
                   <div style="min-width:0; flex:1;">
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:2px; flex-wrap:wrap;">
-                      <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
-                      <b style="color:#f8fafc; font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:#64748b; font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
+                      <span style="font-size:12px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8); background:var(--accent-glow, rgba(56,189,248,0.1)); padding:2px 6px; border-radius:6px; border:1px solid rgba(56,189,248,0.25);">#${escapeHtml(shortId)} ↗</span>
+                      <b style="color:var(--text-primary, #f0f4fc); font-size:14px; font-family:'JetBrains Mono',monospace;">${escapeHtml(p1)} <span style="color:var(--text-muted, #64748b); font-weight:normal;">vs</span> ${escapeHtml(p2)}</b>
                     </div>
                     ${factionSubtitle}
-                    <div style="font-size:11px; color:#64748b; margin-top:4px;">
+                    <div style="font-size:11px; color:var(--text-muted, #64748b); margin-top:4px;">
                       <span>${dateStr}</span>
                     </div>
                   </div>
                   <div style="display:flex; align-items:center; gap:12px; margin-left:14px;">
-                    <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:#38bdf8;">
+                    <span style="font-size:15px; font-weight:800; font-family:'JetBrains Mono',monospace; color:var(--accent, #38bdf8);">
                       ${p1S} - ${p2S}
                     </span>
-                    <span style="background:rgba(148,163,184,0.1); color:#94a3b8; border:1px solid rgba(148,163,184,0.25); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
+                    <span style="background:rgba(148,163,184,0.1); color:var(--text-secondary, #94a3b8); border:1px solid rgba(148,163,184,0.25); font-weight:800; font-size:11px; padding:4px 10px; border-radius:6px; font-family:'JetBrains Mono',monospace; white-space:nowrap; letter-spacing:0.04em;">
                       Completed
                     </span>
-                    <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.28); color:#38bdf8; font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='rgba(56,189,248,0.12)'">
+                    <button title="View Full Turn-by-Turn Digital Scorecard" onclick="event.stopPropagation(); window.open('/scorecard/${encodeURIComponent(mid)}', '_blank')" style="background:var(--accent-glow, rgba(56,189,248,0.12)); border:1px solid rgba(56,189,248,0.28); color:var(--accent, #38bdf8); font-size:11px; font-weight:700; padding:4px 8px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap; transition:all 0.15s;" onmouseover="this.style.background='rgba(56,189,248,0.25)'" onmouseout="this.style.background='var(--accent-glow, rgba(56,189,248,0.12))'">
                       📄 Scorecard
                     </button>
                   </div>
@@ -1951,7 +1840,7 @@
       }
       injectMultiplayerHUD();
     } catch (err) {
-      console.error('[GDM Sync Bridge] Error applying remote state:', err);
+      console.error('[OmniTactica Sync Bridge] Error applying remote state:', err);
     } finally {
       setTimeout(() => { clientState.isApplyingRemote = false; }, 60);
     }
@@ -2098,7 +1987,7 @@
       const target = e.target;
       if (!target) return;
 
-      // Intercept GDM "Return to games" summary button to trigger conclusion & save
+      // Intercept Game Tracker "Return to games" summary button to trigger conclusion & save
       const btnOrLink = target.closest ? target.closest('button, a') : null;
       if (btnOrLink) {
         const txt = (btnOrLink.textContent || '').trim().toLowerCase();

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="light">
+<html lang="en" class="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,6 +7,9 @@
   <meta name="description" content="Start a new Warhammer 40,000 11th edition game or browse the games you've played: scores, factions and the round reached, all saved on your device." />
 
   <!-- Fonts & Preloads -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&family=Rajdhani:wght@600;700&display=swap" rel="stylesheet">
   <link rel="preload" href="/_next/static/media/3d26d2f3aa81a833-s.p.woff2" as="font" crossorigin="" type="font/woff2" />
   <link rel="preload" href="/_next/static/media/4b657decd6407698-s.p.woff2" as="font" crossorigin="" type="font/woff2" />
   <link rel="preload" href="/_next/static/media/558ca1a6aa3cb55e-s.p.woff2" as="font" crossorigin="" type="font/woff2" />
@@ -23,23 +26,37 @@
   <!-- CLOUD FIRESTORE & MULTIPLAYER SYNC OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=61.0">
-  <script src="/tracker/tracker_sync.js?v=61.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=62.0">
+  <script src="/tracker/tracker_sync.js?v=62.0"></script>
 
   <style>
     :root {
-      --gtk-accent: #d9a017;
-      --gtk-panel: #f6f2e9;
-      --gtk-tile: #ffffff;
-      --gtk-line: #c7bea8;
-      --gtk-text: #1a1f25;
-      --gtk-muted: #6f6657;
+      --gtk-accent: #38bdf8;
+      --gtk-panel: #12161f;
+      --gtk-tile: #181d28;
+      --gtk-line: #273042;
+      --gtk-text: #f0f4fc;
+      --gtk-muted: #94a3b8;
+      --bg-primary: #0a0c10;
+      --bg-secondary: #12161f;
+      --bg-card: #181d28;
+      --border: #273042;
+      --text-primary: #f0f4fc;
+      --text-secondary: #94a3b8;
+      --accent: #38bdf8;
+      --p1: #3b82f6;
+      --p2: #ef4444;
     }
     body {
       margin: 0;
       min-height: 100vh;
-      background-color: #0b1120 !important;
-      color: #f8fafc;
+      background-color: #0a0c10 !important;
+      color: #f0f4fc !important;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-image:
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px) !important;
+      background-size: 40px 40px !important;
     }
   </style>
 </head>

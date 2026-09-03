@@ -28,17 +28,17 @@ export const ROLE_COLORS = {
 
 // Theme and styling palette
 export const THEME_PALETTE = {
-  paper: "#f4f0e7",
-  ink: "#11161c",
-  rule: "#c9c0aa",
-  foot: "#ece5d6",
-  brass: "#d9a017",
-  green: "#1e9d52",
-  greenHover: "#27b35f",
-  red: "#e23b3b",
-  scoreDisabled: "#b9c2bb",
-  back: "#cfc7b4",
-  backInk: "#2c3138"
+  paper: "#12161f",
+  ink: "#f0f4fc",
+  rule: "#273042",
+  foot: "#0e131d",
+  brass: "#38bdf8",
+  green: "#22c55e",
+  greenHover: "#16a34a",
+  red: "#ef4444",
+  scoreDisabled: "#334155",
+  back: "#1e2533",
+  backInk: "#94a3b8"
 };
 
 // Local storage key for persistent game state

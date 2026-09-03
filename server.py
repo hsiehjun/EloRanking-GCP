@@ -3678,79 +3678,13 @@ if FASTAPI_AVAILABLE:
         return StreamingResponse(event_generator(), media_type="text/event-stream")
 
     # =========================================================================
-    # REVERSE PROXY & DYNAMIC HTML BRIDGE INJECTION (UPSTREAM GDM SYNC)
+    # NATIVE GAME TRACKER STATIC ASSET & PAGE SERVING
     # =========================================================================
-    GDM_UPSTREAM = "https://gdmissions.app"
-    GDM_STATIC_CACHE: Dict[str, Tuple[bytes, str, Dict[str, str]]] = {}
-
-    BRIDGE_INJECTION_HTML = """
-  <!-- CLOUD FIRESTORE NATIVE CLIENT SDK & MULTIPLAYER OVERLAY -->
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=52.0">
-  <script src="/tracker/tracker_sync.js?v=52.0"></script>
-  <style>
-    header.tac-header, footer.tac-footer, .tac-header, .tac-footer, footer {
-      display: none !important;
-    }
-    body.is-tracker-lobby main > :not(#gt-lobby-wrapper),
-    body:not(.is-tracker-play) main > div:not(:has(#gt-lobby-wrapper)):not(#gt-lobby-wrapper),
-    body:not(.is-tracker-play) main h2:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) main button:not(#gt-lobby-wrapper *):not(#gt-user-status-bar *),
-    body:not(.is-tracker-play) main h3:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) main p:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) div[class*="max-w-md"]:not(#gt-lobby-wrapper *),
-    body:not(.is-tracker-play) main > div > div:not(:has(#gt-lobby-wrapper)):not(#gt-lobby-wrapper) {
-      display: none !important;
-    }
-    #gt-lobby-wrapper {
-      display: block !important;
-      visibility: visible !important;
-      opacity: 1 !important;
-    }
-    button[aria-label*="Delete"],
-    button[aria-label*="delete"],
-    button:has(svg.lucide-trash),
-    button:has(svg.lucide-trash-2),
-    [class*="delete-game"],
-    [data-action="delete"],
-    button:has(span.text-xs),
-    button[aria-label*="News"],
-    a[href*="/news"],
-    div[class*="fixed"]:has(button:has(svg.lucide-download)),
-    div[class*="fixed"]:has(button:has(svg.lucide-plus-square)),
-    div[class*="fixed"]:has(a[href*="install"]) {
-      display: none !important;
-    }
-  </style>
-  <script>
-    if ('serviceWorker' in navigator) {
-      try {
-        navigator.serviceWorker.getRegistrations().then(function(registrations) {
-          for (let registration of registrations) {
-            try { registration.unregister(); } catch(e) {}
-          }
-        }).catch(function() {});
-        navigator.serviceWorker.register = function() {
-          return Promise.resolve({
-            installing: null,
-            waiting: null,
-            active: null,
-            addEventListener: function() {},
-            removeEventListener: function() {},
-            dispatchEvent: function() { return false; }
-          });
-        };
-      } catch(e) {}
-    }
-  </script>
-"""
-
-    async def proxy_gdm_asset(rel_path: str, query: str = "") -> Response:
-        """Serves static chunks, CSS, fonts, and images from local disk, falling back to upstream if missing."""
+    async def serve_tracker_asset(rel_path: str) -> Response:
+        """Serves static chunks, CSS, fonts, and images from local disk. Returns 404 if missing."""
         cache_key = rel_path.lstrip("/")
 
-        # 1. Check local static directory web/tracker/static/
+        # 1. Check local tracker static directory web/tracker/static/
         local_tracker_file = web_dir / "tracker" / "static" / cache_key
         if local_tracker_file.is_file():
             c_type = "application/javascript" if cache_key.endswith(".js") else ("text/css" if cache_key.endswith(".css") else None)
@@ -3765,43 +3699,10 @@ if FASTAPI_AVAILABLE:
         if local_web_file.is_file():
             return FileResponse(str(local_web_file))
 
-        # 3. Fallback to upstream proxy with in-memory caching
-        full_cache_key = f"{cache_key}?{query}" if query else cache_key
-        if full_cache_key in GDM_STATIC_CACHE:
-            body, c_type, hdrs = GDM_STATIC_CACHE[full_cache_key]
-            return Response(content=body, media_type=c_type, headers=hdrs)
+        raise HTTPException(status_code=404, detail="Asset not found")
 
-        url = f"{GDM_UPSTREAM}/{cache_key}"
-        if query:
-            url += f"?{query}"
-
-        def _fetch():
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "*/*"
-                }
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                content = resp.read()
-                c_type = resp.headers.get("Content-Type", "application/octet-stream")
-                return content, c_type
-
-        try:
-            content, c_type = await asyncio.to_thread(_fetch)
-            hdrs = {
-                "Cache-Control": "public, max-age=31536000, immutable" if "/_next/static/" in cache_key else "public, max-age=3600",
-                "Access-Control-Allow-Origin": "*"
-            }
-            GDM_STATIC_CACHE[full_cache_key] = (content, c_type, hdrs)
-            return Response(content=content, media_type=c_type, headers=hdrs)
-        except Exception as e:
-            logger.error(f"Error serving tracker asset {url}: {e}")
-            raise HTTPException(status_code=404, detail="Asset not found")
-
-    async def proxy_gdm_html(path: str, request: Request) -> Response:
-        """Serves frozen local Tracker HTML page with live multiplayer bridge, falling back to upstream if needed."""
+    async def serve_tracker_html(path: str, request: Request) -> Response:
+        """Serves local Tracker HTML page (play.html or lobby.html) with SSO authentication."""
         # Enforce SSO authentication on all Tracker routes
         if "tracker" in path.lower():
             auth_mgr = get_auth_manager()
@@ -3814,19 +3715,12 @@ if FASTAPI_AVAILABLE:
                     redirect_target += f"?{request.url.query}"
                 return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
 
-        # 1. Serve local frozen HTML if available
         is_play_page = "play" in path.lower()
-        body_class = "is-tracker-play" if is_play_page else "is-tracker-lobby"
         local_html_file = (web_dir / "tracker" / "play.html") if is_play_page else (web_dir / "tracker" / "lobby.html")
 
         if local_html_file.is_file():
             try:
                 content = local_html_file.read_text(encoding="utf-8")
-                if "<body" in content:
-                    if 'class="' in content[content.find("<body"):content.find("<body") + 50]:
-                        content = re.sub(r'(<body[^>]*class=")([^"]*)(")', rf'\1\2 {body_class}\3', content, count=1)
-                    else:
-                        content = re.sub(r'<body(\s*[^>]*)>', rf'<body\1 class="{body_class}">', content, count=1)
                 return HTMLResponse(
                     content=content,
                     status_code=200,
@@ -3838,41 +3732,7 @@ if FASTAPI_AVAILABLE:
             except Exception as e:
                 logger.warning(f"Failed to read local tracker HTML {local_html_file}: {e}")
 
-        # 2. Fallback to upstream proxy if needed
-        url = f"{GDM_UPSTREAM}/{path.lstrip('/')}"
-
-        def _fetch():
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                }
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                return resp.read().decode("utf-8", errors="ignore")
-
-        try:
-            raw_html = await asyncio.to_thread(_fetch)
-            if "</head>" in raw_html:
-                modified_html = raw_html.replace("</head>", f"{BRIDGE_INJECTION_HTML}\n</head>", 1)
-            else:
-                modified_html = f"{BRIDGE_INJECTION_HTML}\n{raw_html}"
-
-            modified_html = re.sub(r'<title>.*?</title>', '<title>Game Tracker | Warhammer 40,000 Elo Rankings</title>', modified_html, flags=re.IGNORECASE)
-            modified_html = re.sub(r'content="GDM[^"]*"', 'content="40k Elo"', modified_html)
-            modified_html = modified_html.replace('content="Game Day - Tabletop App"', 'content="Warhammer 40,000 Elo Game Tracker"')
-
-            if "<body" in modified_html:
-                if 'class="' in modified_html[modified_html.find("<body"):modified_html.find("<body") + 50]:
-                    modified_html = re.sub(r'(<body[^>]*class=")([^"]*)(")', rf'\1\2 {body_class}\3', modified_html, count=1)
-                else:
-                    modified_html = re.sub(r'<body(\s*[^>]*)>', rf'<body\1 class="{body_class}">', modified_html, count=1)
-
-            return HTMLResponse(content=modified_html, status_code=200, headers={"Content-Type": "text/html; charset=utf-8"})
-        except Exception as e:
-            logger.error(f"Error fetching GDM HTML {url}: {e}")
-            raise HTTPException(status_code=502, detail="Failed to fetch upstream GDM layout")
+        raise HTTPException(status_code=404, detail="Tracker page not found")
 
     # Root Leaderboard & Competitor Hub
     @app.get("/", include_in_schema=False)
@@ -3945,45 +3805,38 @@ if FASTAPI_AVAILABLE:
         query = f"?{request.url.query}" if request.url.query else ""
         return RedirectResponse(url=f"/11th/tracker/play{query}", status_code=303)
 
-    # Dynamic Upstream Next.js Static Asset & Image Optimization Streaming
+    # Native Next.js Static Asset & Image Optimization Serving
     @app.get("/_next/image", include_in_schema=False)
     async def serve_next_image_optimizer(request: Request):
         raw_url = request.query_params.get("url")
         if not raw_url:
             raise HTTPException(status_code=400, detail="Missing url parameter")
         clean_path = raw_url.lstrip("/")
-        return await proxy_gdm_asset(clean_path)
+        return await serve_tracker_asset(clean_path)
 
     @app.get("/_next/{path:path}", include_in_schema=False)
     async def serve_next_assets(path: str, request: Request):
-        return await proxy_gdm_asset(f"_next/{path}", request.url.query)
+        return await serve_tracker_asset(f"_next/{path}")
 
-    # Dynamic Upstream Terrain, Cards, Layouts, and Media Assets
+    # Native Tracker Terrain, Cards, Layouts, and Media Assets
     @app.get("/terrain/{path:path}", include_in_schema=False)
     @app.get("/cards/{path:path}", include_in_schema=False)
     @app.get("/images/{path:path}", include_in_schema=False)
     @app.get("/icons/{path:path}", include_in_schema=False)
     @app.get("/assets/{path:path}", include_in_schema=False)
-    @app.get("/svg/{path:path}", include_in_schema=False)
     @app.get("/factions/{path:path}", include_in_schema=False)
-    @app.get("/data/{path:path}", include_in_schema=False)
-    @app.get("/battlemaster/{path:path}", include_in_schema=False)
-    async def serve_gdm_media_assets(request: Request):
+    async def serve_tracker_media_assets(request: Request):
         rel_path = request.url.path.lstrip("/")
-        return await proxy_gdm_asset(rel_path, request.url.query)
+        return await serve_tracker_asset(rel_path)
 
-    # Dynamic Upstream HTML Pages with Live Bridge Injection
+    # Native Tracker HTML Pages
     @app.get("/11th/{path:path}", include_in_schema=False)
     async def serve_11th_pages(path: str, request: Request):
-        return await proxy_gdm_html(f"11th/{path}", request)
+        return await serve_tracker_html(f"11th/{path}", request)
 
     @app.get("/11th", include_in_schema=False)
     async def serve_11th_root(request: Request):
-        return await proxy_gdm_html("11th", request)
-
-    @app.get("/10th/{path:path}", include_in_schema=False)
-    async def serve_10th_pages(path: str, request: Request):
-        return await proxy_gdm_html(f"10th/{path}", request)
+        return await serve_tracker_html("11th", request)
 
     @app.get("/manifest.json", include_in_schema=False)
     @app.get("/manifest.webmanifest", include_in_schema=False)

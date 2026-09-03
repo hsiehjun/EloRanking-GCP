@@ -155,11 +155,11 @@ export function TallyModal({
         <div
           className="mx-4 mt-3 flex items-start gap-2.5 rounded-[10px] border px-3 py-2.5"
           style={{
-            background: "color-mix(in srgb, #15314a 8%, #fff)",
-            borderColor: "color-mix(in srgb, #15314a 30%, #fff)"
+            background: "color-mix(in srgb, #38bdf8 12%, var(--gtk-tile, #181d28))",
+            borderColor: "color-mix(in srgb, #38bdf8 30%, var(--gtk-line, #273042))"
           }}
         >
-          <InfoIcon className="mt-0.5 h-4 w-4 flex-none" style={{ color: "#15314a" }} />
+          <InfoIcon className="mt-0.5 h-4 w-4 flex-none" style={{ color: "#38bdf8" }} />
           <span className="text-[13px] font-medium leading-snug" style={{ color: THEME_PALETTE.ink }}>
             {reshuffleNote}
           </span>
@@ -168,7 +168,7 @@ export function TallyModal({
 
       {/* Checklist Body */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 max-h-[55vh]">
-        <p className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "#5a6068" }}>
+        <p className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted, #94a3b8)" }}>
           Tally what you scored
         </p>
 
@@ -206,7 +206,7 @@ export function TallyModal({
                         return (
                           <React.Fragment key={member.id}>
                             {mIdx > 0 && (
-                              <div className="flex items-center gap-2" style={{ color: "#94896f" }}>
+                              <div className="flex items-center gap-2" style={{ color: "var(--gtk-muted, #94a3b8)" }}>
                                 <span className="h-px flex-1" style={{ background: THEME_PALETTE.rule }} />
                                 <span className="font-mono text-[10px] font-bold tracking-[0.15em]">OR</span>
                                 <span className="h-px flex-1" style={{ background: THEME_PALETTE.rule }} />
@@ -225,8 +225,8 @@ export function TallyModal({
                               style={{
                                 borderColor: isSelected ? accent : THEME_PALETTE.rule,
                                 background: isSelected
-                                  ? `color-mix(in srgb, ${accent} 10%, #fff)`
-                                  : "#fff"
+                                  ? `color-mix(in srgb, ${accent} 16%, var(--gtk-tile, #181d28))`
+                                  : "var(--gtk-tile, #181d28)"
                               }}
                             >
                               <span
@@ -266,7 +266,7 @@ export function TallyModal({
                       className="flex flex-col gap-2 rounded-[12px] border-2 p-3"
                       style={{
                         borderColor: count > 0 ? accent : THEME_PALETTE.rule,
-                        background: count > 0 ? `color-mix(in srgb, ${accent} 8%, #fff)` : "#fff"
+                        background: count > 0 ? `color-mix(in srgb, ${accent} 14%, var(--gtk-tile, #181d28))` : "var(--gtk-tile, #181d28)"
                       }}
                     >
                       <div className="flex items-center gap-3">
@@ -285,7 +285,7 @@ export function TallyModal({
                       <div className="flex items-center justify-end gap-3 pt-1">
                         <div
                           className="inline-flex items-stretch overflow-hidden rounded-[8px] border-2"
-                          style={{ borderColor: THEME_PALETTE.rule, background: "#fff" }}
+                          style={{ borderColor: THEME_PALETTE.rule, background: "var(--gtk-tile, #181d28)" }}
                         >
                           <button
                             type="button"
@@ -321,7 +321,7 @@ export function TallyModal({
                             <PlusIcon className="h-4 w-4" />
                           </button>
                         </div>
-                        <span className="gtk-mono text-[12px] font-bold" style={{ color: "#5a6068" }}>
+                        <span className="gtk-mono text-[12px] font-bold" style={{ color: "var(--gtk-muted, #94a3b8)" }}>
                           = {itemVp} VP
                         </span>
                       </div>
@@ -343,7 +343,7 @@ export function TallyModal({
                     className="flex w-full items-center gap-3 rounded-[12px] border-2 p-3 text-left transition-colors"
                     style={{
                       borderColor: isChecked ? accent : THEME_PALETTE.rule,
-                      background: isChecked ? `color-mix(in srgb, ${accent} 10%, #fff)` : "#fff"
+                      background: isChecked ? `color-mix(in srgb, ${accent} 16%, var(--gtk-tile, #181d28))` : "var(--gtk-tile, #181d28)"
                     }}
                   >
                     <span
@@ -388,12 +388,12 @@ export function TallyModal({
           <div
             className="flex items-center gap-2 rounded-[8px] border px-3 py-1.5"
             style={{
-              background: "color-mix(in srgb, #c84a2b 10%, #fff)",
-              borderColor: "color-mix(in srgb, #c84a2b 40%, #fff)"
+              background: "color-mix(in srgb, #ef4444 14%, var(--gtk-tile, #181d28))",
+              borderColor: "color-mix(in srgb, #ef4444 40%, var(--gtk-line, #273042))"
             }}
           >
-            <AlertCircleIcon className="h-4 w-4 flex-none" style={{ color: "#c84a2b" }} />
-            <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.06em]" style={{ color: "#8a3115" }}>
+            <AlertCircleIcon className="h-4 w-4 flex-none" style={{ color: "#ef4444" }} />
+            <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.06em]" style={{ color: "#f87171" }}>
               {capNotice}
             </span>
           </div>
@@ -402,7 +402,7 @@ export function TallyModal({
         {/* Secondary options row: Previous score, Return to deck, Full card */}
         <div className="flex items-center justify-between gap-2">
           {currentTotal != null && currentTotal > 0 ? (
-            <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.1em]" style={{ color: "#8a8270" }}>
+            <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.1em]" style={{ color: "var(--gtk-muted, #94a3b8)" }}>
               Was {currentTotal} VP
             </span>
           ) : <span />}

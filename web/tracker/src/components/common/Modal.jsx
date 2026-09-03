@@ -45,8 +45,8 @@ export function Modal({ isOpen = true, onClose, ariaLabel, children, maxWidth = 
         className="flex max-h-full w-full flex-col overflow-hidden rounded-[16px] border shadow-[0_24px_60px_rgba(0,0,0,0.6)]"
         style={{
           maxWidth,
-          background: "var(--gtk-panel, #edeae2)",
-          borderColor: "var(--gtk-line, #c9c0aa)"
+          background: "var(--gtk-panel, #12161f)",
+          borderColor: "var(--gtk-line, #273042)"
         }}
       >
         {children}

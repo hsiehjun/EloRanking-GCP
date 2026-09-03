@@ -1,47 +1,74 @@
-/* GDM Clean Layout Overrides */
+/* OmniTactica Design System & Theme Variables */
+:root {
+  --bg-primary: #0a0c10;
+  --bg-secondary: #12161f;
+  --bg-card: #181d28;
+  --bg-card-hover: #1f2533;
+  --border: #273042;
+  --border-subtle: #1e2533;
+  --text-primary: #f0f4fc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --accent: #38bdf8;
+  --accent-glow: rgba(56, 189, 248, 0.15);
+  --win: #22c55e;
+  --win-bg: rgba(34, 197, 94, 0.12);
+  --loss: #ef4444;
+  --loss-bg: rgba(239, 68, 68, 0.12);
+  --draw: #eab308;
+  --draw-bg: rgba(234, 179, 8, 0.12);
+  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 
-/* 1. Hide GDM upstream nav header, footer, and floating buttons */
-header.tac-header,
-footer.tac-footer,
-.tac-header,
-.tac-footer,
-footer,
-button:has(span.text-xs),
-button[aria-label*="News"],
-a[href*="/news"] {
-  display: none !important;
+  /* Game Tracker Component Variables */
+  --gtk-accent: #38bdf8;
+  --gtk-panel: #12161f;
+  --gtk-tile: #181d28;
+  --gtk-line: #273042;
+  --gtk-text: #f0f4fc;
+  --gtk-muted: #94a3b8;
+  --p1: #3b82f6;
+  --p2: #ef4444;
 }
 
-/* 2. Hide Top-Right Action Trio (Profile, Stats, Settings) */
-header .gtk-icon-btn,
-header .flex.flex-none.items-center.gap-2,
-button[aria-label="Tracker settings"],
-a[aria-label="Statistics"] {
-  display: none !important;
+/* Base typography & theme consistency */
+body {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  font-family: var(--font-main) !important;
 }
 
-/* 3. Disable Delete Options on Shared Matches */
-button[aria-label*="Delete"],
-button[aria-label*="delete"],
-button:has(svg.lucide-trash),
-button:has(svg.lucide-trash-2),
-[class*="delete-game"],
-[data-action="delete"] {
-  display: none !important;
+.gtk-card {
+  background: var(--gtk-tile) !important;
+  color: var(--gtk-text) !important;
+  border-color: var(--gtk-line) !important;
 }
 
-/* 4. Landing Page Only: Hide all upstream native GDM elements outside our custom lobby wrapper */
-body:has(#gt-lobby-wrapper) main > :not(#gt-lobby-wrapper) {
-  display: none !important;
+.gtk-mono {
+  font-family: var(--font-mono) !important;
 }
 
-/* 5. Suppress all GDM native install popups, toasts, and banners */
+.gtk-display {
+  font-family: var(--font-main) !important;
+  letter-spacing: 0.02em;
+}
+
+.gtk-num {
+  font-family: var(--font-mono) !important;
+}
+
+/* Modal Dialog Shells */
+.gtk-dialog,
+.gtk[role="dialog"] {
+  background: var(--gtk-panel) !important;
+  color: var(--gtk-text) !important;
+  border-color: var(--gtk-line) !important;
+}
+
+/* PWA Prompts & Unused Controls */
 [class*="install-prompt"],
 [class*="pwa-prompt"],
-[id*="install-prompt"],
-div[class*="fixed"]:has(button:has(svg.lucide-download)),
-div[class*="fixed"]:has(button:has(svg.lucide-plus-square)),
-div[class*="fixed"]:has(a[href*="install"]) {
+[id*="install-prompt"] {
   display: none !important;
 }
 
