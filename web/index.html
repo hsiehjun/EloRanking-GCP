@@ -105,6 +105,17 @@
           The unified competitive intelligence and matchmaking platform for Warhammer 40k players and tournament organizers. Real-time Elo tracking across <strong>92,100+</strong> rated competitors, <strong>OmniConnect</strong> local sparring partner radar & push chat, interactive live match scorekeeping, 50-mile GPS tournament radar with Field Avg ratings, algorithmic win prediction, and tournament event management.
         </p>
 
+        <!-- Hero CTAs -->
+        <div style="display: flex; gap: 0.85rem; align-items: center; margin: 1.35rem 0 1.65rem; flex-wrap: wrap;">
+          <a href="#connect" class="btn btn-primary" style="padding: 0.7rem 1.4rem; font-size: 0.9rem; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 18px rgba(56,189,248,0.35); border-radius: 8px;">
+            <span>⚡ Explore OmniConnect</span>
+            <span>↓</span>
+          </a>
+          <a href="/login?mode=register&redirect=/" class="btn" style="padding: 0.7rem 1.3rem; font-size: 0.9rem; font-weight: 700; background: rgba(255,255,255,0.06); color: #f8fafc; border: 1px solid rgba(255,255,255,0.16); text-decoration: none; border-radius: 8px;">
+            Join Competitor Network
+          </a>
+        </div>
+
         <!-- Stats Bar -->
         <div class="landing-stats-bar" style="margin-bottom: 0;">
           <div>
@@ -164,6 +175,411 @@
       </div>
     </section>
 
+    <!-- OmniConnect Flagship Showcase Section -->
+    <section class="landing-connect-showcase" id="connect">
+      <div class="landing-sec-head" style="text-align: center; margin-bottom: 2.25rem;">
+        <div class="landing-badge" style="margin-bottom: 0.75rem; background: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.4); color: #10b981;">
+          ⚡ NEW REVOLUTIONARY MATCHMAKER
+        </div>
+        <h2 class="landing-sec-title" style="font-size: clamp(1.8rem, 3.5vw, 2.5rem);">
+          Find Warhammer 40k Sparring Partners.<br>
+          <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Anywhere. Anytime. By Elo & Faction.</span>
+        </h2>
+        <p class="landing-sec-sub" style="max-width: 780px; margin: 0 auto;">
+          OmniConnect bridges the gap between digital competitor tracking and real-world tabletop games. Scan for local players within 15 to 100 miles, inspect rated army lists and playstyles, challenge opponents to customized mission packs, and coordinate directly via live push chat with 1-click Game Tracker rooms.
+        </p>
+      </div>
+
+      <!-- Interactive 3-Stage Walkthrough Showcase -->
+      <div style="background: linear-gradient(180deg, #0d1527 0%, #090f1d 100%); border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 18px; box-shadow: 0 25px 65px rgba(0,0,0,0.85), 0 0 35px rgba(56,189,248,0.12); overflow: hidden; margin-bottom: 2.5rem;">
+        
+        <!-- Stage Switcher Tabs -->
+        <div class="omni-stage-tabs">
+          <button class="omni-stage-btn active" id="omni-stage-tab-1" onclick="setOmniStage(1)">
+            <div class="omni-stage-num">1</div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.92rem; color: #fff;">Radar Matchmaking</div>
+              <div style="font-size: 0.74rem; color: #94a3b8;">Discover local players by GPS & Elo</div>
+            </div>
+          </button>
+          <button class="omni-stage-btn" id="omni-stage-tab-2" onclick="setOmniStage(2)">
+            <div class="omni-stage-num">2</div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.92rem; color: #fff;">Challenge & Proposal</div>
+              <div style="font-size: 0.74rem; color: #94a3b8;">Structured points, venue & missions</div>
+            </div>
+          </button>
+          <button class="omni-stage-btn" id="omni-stage-tab-3" onclick="setOmniStage(3)">
+            <div class="omni-stage-num">3</div>
+            <div>
+              <div style="font-weight: 800; font-size: 0.92rem; color: #fff;">Live Chat & Tracker Sync</div>
+              <div style="font-size: 0.74rem; color: #94a3b8;">Push messaging & 1-click room keys</div>
+            </div>
+          </button>
+        </div>
+
+        <!-- Stage 1 Content: Sparring Radar -->
+        <div id="omni-stage-view-1" class="omni-stage-content" style="display: block;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
+                <span>📍 Hyperlocal Competitor Radar</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px;">Active Within 25 Miles</span>
+              </h4>
+              <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
+                Players are sorted by proximity, active availability, and verified Elo tier. Filter by preferred playstyle or army faction.
+              </p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <span class="hub-loc-chip active" style="font-size: 0.74rem; padding: 4px 10px;">📍 25 Miles</span>
+              <span class="hub-loc-chip" style="font-size: 0.74rem; padding: 4px 10px;">Competitive (GT Prep)</span>
+              <span class="hub-loc-chip" style="font-size: 0.74rem; padding: 4px 10px;">Strike Force (2000 pts)</span>
+            </div>
+          </div>
+
+          <!-- Cards Grid Mockup -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.15rem;">
+            <!-- Player Card 1 -->
+            <div class="oc-player-card" style="background: #090f1d; border-color: rgba(56, 189, 248, 0.28);">
+              <div>
+                <div class="oc-player-header">
+                  <div style="display: flex; gap: 12px; align-items: center;">
+                    <div class="oc-player-avatar" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: #fff;">
+                      MV
+                    </div>
+                    <div>
+                      <div style="font-weight: 800; font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 6px;">
+                        <span>Marcus "Grim" Vance</span>
+                        <span style="font-size: 0.72rem; color: #38bdf8;" title="Verified ITC/BCP Competitor">✓</span>
+                      </div>
+                      <div style="font-size: 0.76rem; color: #94a3b8; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                        <span>Aeldari (Craftworlds)</span>
+                        <span>&bull;</span>
+                        <span style="color: #38bdf8; font-weight: 700;">1,842 Elo</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="oc-badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);">
+                    Tournament Prep
+                  </span>
+                </div>
+
+                <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0.75rem 0; background: rgba(15,23,42,0.6); padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  "Prepping for the upcoming Super-Major. Looking for tight, timed 2k matches against Top-100 meta lists. Pariah Nexus terrain layouts 1-3."
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.85rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>📍 4.2 miles away</span>
+                    <span>&bull;</span>
+                    <span>Home Store: <strong style="color: #e2e8f0;">Game Haven FLGS</strong></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>⚔️ Preferred: <strong style="color: #e2e8f0;">2,000 pts (Strike Force)</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 0.5rem; margin-top: auto; pt: 0.5rem;">
+                <button onclick="setOmniStage(2)" class="btn btn-primary" style="flex: 1; padding: 0.55rem; font-size: 0.78rem; font-weight: 800; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                  <span>⚔️ Send Battle Challenge</span>
+                </button>
+                <button onclick="setOmniStage(3)" class="btn btn-outline" style="padding: 0.55rem 0.85rem; font-size: 0.78rem; border-radius: 7px; color: #cbd5e1; border-color: rgba(255,255,255,0.15);">
+                  💬 Message
+                </button>
+              </div>
+            </div>
+
+            <!-- Player Card 2 -->
+            <div class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1);">
+              <div>
+                <div class="oc-player-header">
+                  <div style="display: flex; gap: 12px; align-items: center;">
+                    <div class="oc-player-avatar" style="background: linear-gradient(135deg, #7c3aed 0%, #4c1d95 100%); color: #fff;">
+                      TL
+                    </div>
+                    <div>
+                      <div style="font-weight: 800; font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 6px;">
+                        <span>Tara Lindqvist</span>
+                      </div>
+                      <div style="font-size: 0.76rem; color: #94a3b8; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                        <span>World Eaters</span>
+                        <span>&bull;</span>
+                        <span style="color: #38bdf8; font-weight: 700;">1,610 Elo</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="oc-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">
+                    Competitive
+                  </span>
+                </div>
+
+                <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0.75rem 0; background: rgba(15,23,42,0.6); padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  "Testing Angron + 3 Eightbound blocks. Down for weeknight sparring at Titan Games or Battleground."
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.85rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>📍 8.7 miles away</span>
+                    <span>&bull;</span>
+                    <span>Home Store: <strong style="color: #e2e8f0;">Titan Games & Hobbies</strong></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>⚔️ Preferred: <strong style="color: #e2e8f0;">2,000 pts &bull; Pariah Nexus</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 0.5rem; margin-top: auto; pt: 0.5rem;">
+                <button onclick="setOmniStage(2)" class="btn btn-primary" style="flex: 1; padding: 0.55rem; font-size: 0.78rem; font-weight: 800; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                  <span>⚔️ Send Battle Challenge</span>
+                </button>
+                <button onclick="setOmniStage(3)" class="btn btn-outline" style="padding: 0.55rem 0.85rem; font-size: 0.78rem; border-radius: 7px; color: #cbd5e1; border-color: rgba(255,255,255,0.15);">
+                  💬 Message
+                </button>
+              </div>
+            </div>
+
+            <!-- Player Card 3 -->
+            <div class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1);">
+              <div>
+                <div class="oc-player-header">
+                  <div style="display: flex; gap: 12px; align-items: center;">
+                    <div class="oc-player-avatar" style="background: linear-gradient(135deg, #059669 0%, #064e3b 100%); color: #fff;">
+                      DR
+                    </div>
+                    <div>
+                      <div style="font-weight: 800; font-size: 1rem; color: #fff; display: flex; align-items: center; gap: 6px;">
+                        <span>Dave Ramirez</span>
+                      </div>
+                      <div style="font-size: 0.76rem; color: #94a3b8; display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                        <span>Necrons (Canoptek Court)</span>
+                        <span>&bull;</span>
+                        <span style="color: #38bdf8; font-weight: 700;">1,520 Elo</span>
+                      </div>
+                    </div>
+                  </div>
+                  <span class="oc-badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">
+                    Casual / Narrative
+                  </span>
+                </div>
+
+                <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.45; margin: 0.75rem 0; background: rgba(15,23,42,0.6); padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+                  "Getting back into 10th/11th edition. Looking for chill Sunday games. Happy to play 1k Incursion or 2k Strike Force."
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.75rem; color: #94a3b8; margin-bottom: 0.85rem;">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>📍 11.5 miles away</span>
+                    <span>&bull;</span>
+                    <span>Home Store: <strong style="color: #e2e8f0;">Red Dragon Hobbies</strong></span>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <span>⚔️ Preferred: <strong style="color: #e2e8f0;">1,000 – 2,000 pts</strong></span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 0.5rem; margin-top: auto; pt: 0.5rem;">
+                <button onclick="setOmniStage(2)" class="btn btn-primary" style="flex: 1; padding: 0.55rem; font-size: 0.78rem; font-weight: 800; border-radius: 7px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">
+                  <span>⚔️ Send Battle Challenge</span>
+                </button>
+                <button onclick="setOmniStage(3)" class="btn btn-outline" style="padding: 0.55rem 0.85rem; font-size: 0.78rem; border-radius: 7px; color: #cbd5e1; border-color: rgba(255,255,255,0.15);">
+                  💬 Message
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 2 Content: Challenge & Proposal Modal Mockup -->
+        <div id="omni-stage-view-2" class="omni-stage-content" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
+                <span>⚔️ Structured Battle Match Proposals</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); padding: 2px 8px; border-radius: 6px;">Zero Ambiguity</span>
+              </h4>
+              <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
+                Pre-agree on points limits, mission pack, battlefield layout, and venue before meeting up at the table.
+              </p>
+            </div>
+            <button onclick="setOmniStage(3)" class="btn btn-outline" style="font-size: 0.78rem; padding: 5px 12px; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
+              Skip to Live Chat Preview →
+            </button>
+          </div>
+
+          <!-- Proposal Card Form Mockup -->
+          <div style="max-width: 680px; margin: 0 auto; background: #090f1d; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 14px; padding: 1.5rem; box-shadow: 0 15px 35px rgba(0,0,0,0.5);">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.85rem; margin-bottom: 1.25rem;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="oc-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">MV</div>
+                <div>
+                  <div style="font-size: 0.88rem; font-weight: 800; color: #fff;">Challenging: Marcus "Grim" Vance</div>
+                  <div style="font-size: 0.74rem; color: #38bdf8;">Aeldari (Craftworlds) &bull; 1,842 Elo</div>
+                </div>
+              </div>
+              <span style="font-size: 0.72rem; font-weight: 700; color: #e2e8f0; background: rgba(255,255,255,0.07); padding: 3px 8px; border-radius: 6px;">
+                Drafting Proposal
+              </span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+              <div>
+                <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.35rem;">Game Format / Size</label>
+                <div style="background: #0f172a; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.85rem; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+                  <span>Strike Force (2,000 pts)</span>
+                  <span style="color: #38bdf8;">▾</span>
+                </div>
+              </div>
+
+              <div>
+                <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.35rem;">Mission Rule Pack</label>
+                <div style="background: #0f172a; border: 1px solid rgba(56,189,248,0.3); border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.85rem; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+                  <span>Pariah Nexus Tournament Companion</span>
+                  <span style="color: #38bdf8;">▾</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+              <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.35rem;">Preferred Venue / Table Location</label>
+              <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.85rem; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+                <span>Game Haven FLGS (Table 4 Reserved)</span>
+                <span style="font-size: 0.72rem; color: #94a3b8;">4.2 mi away</span>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 1.25rem;">
+              <label style="display: block; font-size: 0.74rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.35rem;">Tactical Match Notes</label>
+              <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.65rem 0.85rem; font-size: 0.82rem; color: #cbd5e1; font-style: italic;">
+                "Hey Marcus! Bringing my Space Marine Gladius Task Force for tournament test games. Using GW Layout 2 with WTC terrain sizing. Let's do Thursday 6:30 PM!"
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+              <button onclick="setOmniStage(1)" class="btn btn-outline" style="padding: 0.55rem 1rem; font-size: 0.8rem; border-radius: 7px; color: #94a3b8;">
+                Back to Radar
+              </button>
+              <button onclick="setOmniStage(3)" class="btn btn-primary" style="padding: 0.55rem 1.4rem; font-size: 0.82rem; font-weight: 800; border-radius: 7px; box-shadow: 0 4px 15px rgba(56,189,248,0.35);">
+                Send Challenge & Launch Chat ➔
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Stage 3 Content: Real-Time Chat & Tracker Room Sync -->
+        <div id="omni-stage-view-3" class="omni-stage-content" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
+                <span>💬 Cloud-Synced Push Chat & Tracker Bridge</span>
+                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); padding: 2px 8px; border-radius: 6px;">Firebase Live Sync</span>
+              </h4>
+              <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
+                Once challenged, converse in real time, lock in match times, and spawn a live Game Tracker room with synchronized scorecards in one click.
+              </p>
+            </div>
+            <button onclick="setOmniStage(1)" class="btn btn-outline" style="font-size: 0.78rem; padding: 5px 12px; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
+              ↺ Back to Step 1
+            </button>
+          </div>
+
+          <!-- Chat UI Shell Mockup -->
+          <div style="max-width: 820px; margin: 0 auto; background: #070b14; border: 1px solid rgba(56, 189, 248, 0.35); border-radius: 14px; overflow: hidden; box-shadow: 0 15px 40px rgba(0,0,0,0.6);">
+            <!-- Mock Chat Header -->
+            <div style="background: #0f172a; padding: 0.85rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="oc-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">MV</div>
+                <div>
+                  <div style="font-size: 0.88rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px;">
+                    <span>Marcus "Grim" Vance</span>
+                    <span style="font-size: 0.72rem; color: #22c55e;">● online</span>
+                  </div>
+                  <div style="font-size: 0.74rem; color: #94a3b8;">Aeldari (1,842 Elo) &bull; Game Haven FLGS</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <span style="font-size: 0.74rem; font-weight: 700; color: #10b981; background: rgba(16,185,129,0.1); border: 1px solid rgba(16,185,129,0.25); padding: 3px 8px; border-radius: 6px;">
+                  Match Accepted
+                </span>
+              </div>
+            </div>
+
+            <!-- Messages List -->
+            <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-height: 280px; background: radial-gradient(circle at 50% 20%, rgba(56,189,248,0.03) 0%, transparent 60%), #070b14;">
+              <!-- Message Incoming -->
+              <div class="oc-msg-bubble oc-msg-in" style="max-width: 75%;">
+                <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; 6:15 PM</div>
+                <div>Challenge accepted! Thursday at 6:30 PM at Game Haven works great. I have table 4 on hold. Ready for your Gladius Marines!</div>
+              </div>
+
+              <!-- Message Outgoing with Room Card -->
+              <div class="oc-msg-bubble oc-msg-out" style="max-width: 80%;">
+                <div style="font-size: 0.7rem; color: rgba(255,255,255,0.75); margin-bottom: 2px;">You &bull; 6:18 PM</div>
+                <div>Awesome! I just generated our live Game Tracker room for the match. Jump in whenever you're ready:</div>
+                
+                <!-- 1-Click Game Tracker Card -->
+                <div class="oc-msg-room-card" style="background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.25); margin-top: 8px;">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.2rem;">🎲</span>
+                    <div>
+                      <div style="font-weight: 800; font-size: 0.8rem; color: #fff;">Live Game Tracker Room</div>
+                      <div style="font-size: 0.72rem; color: #93c5fd; font-family: monospace;">Room Key: OMNI-7842</div>
+                    </div>
+                  </div>
+                  <span style="background: #38bdf8; color: #020617; font-weight: 800; font-size: 0.72rem; padding: 4px 10px; border-radius: 6px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                    Join Room ↗
+                  </span>
+                </div>
+              </div>
+
+              <!-- Message Incoming Confirmation -->
+              <div class="oc-msg-bubble oc-msg-in" style="max-width: 75%;">
+                <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; 6:20 PM</div>
+                <div>Connected! My secondary objectives and CP counter are syncing live to your screen. See you on Thursday. 🔥</div>
+              </div>
+            </div>
+
+            <!-- Mock Input Bar -->
+            <div style="padding: 0.75rem 1.25rem; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 0.5rem; align-items: center;">
+              <input type="text" disabled placeholder="Type a message or share an army list URL..." style="flex: 1; background: #090f1d; border: 1px solid rgba(255,255,255,0.12); color: #94a3b8; padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.82rem; cursor: not-allowed;">
+              <button disabled style="background: #0284c7; color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; opacity: 0.7; cursor: not-allowed;">
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3 Value Pillars of OmniConnect -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 1.35rem;">
+          <div style="font-size: 1.75rem; margin-bottom: 0.5rem;">📍</div>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">Hyperlocal GPS Matchmaking</h3>
+          <p style="font-size: 0.82rem; color: #94a3b8; line-height: 1.55; margin: 0;">
+            Radius filtering from 15 to 100 miles using browser geolocation or your designated home FLGS. See who plays near your local shop or when traveling for Grand Tournaments.
+          </p>
+        </div>
+
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 1.35rem;">
+          <div style="font-size: 1.75rem; margin-bottom: 0.5rem;">🎯</div>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">Playstyle & Rating Alignment</h3>
+          <p style="font-size: 0.82rem; color: #94a3b8; line-height: 1.55; margin: 0;">
+            Filter by Casual, Competitive, or Tournament Prep. Review opponents' verified tournament Elo and faction records so both players arrive with matching expectations.
+          </p>
+        </div>
+
+        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 12px; padding: 1.35rem;">
+          <div style="font-size: 1.75rem; margin-bottom: 0.5rem;">⚡</div>
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin-bottom: 0.35rem;">Real-Time Chat & Tracker Bridge</h3>
+          <p style="font-size: 0.82rem; color: #94a3b8; line-height: 1.55; margin: 0;">
+            Zero-friction transition from coordination to battle. Generate a synced live match room directly within the chat window with synchronized turn timers, VP math, and dice logs.
+          </p>
+        </div>
+      </div>
+    </section>
+
     <!-- Tactical Pillars Feature Section -->
     <section class="landing-features-sec" id="features">
       <div class="landing-sec-head">
@@ -200,7 +616,7 @@
         </div>
 
         <!-- Feature 2: OmniConnect (Flagship Spotlight) -->
-        <div class="landing-feat-card" id="connect" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(14, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.88) 100%); border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 10px 30px rgba(56, 189, 248, 0.12);">
+        <div class="landing-feat-card" id="connect-feature" style="grid-column: 1 / -1; background: linear-gradient(135deg, rgba(14, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.88) 100%); border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 10px 30px rgba(56, 189, 248, 0.12);">
           <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.85rem;">
               <div class="landing-feat-icon" style="margin-bottom: 0; background: rgba(56, 189, 248, 0.15); border-color: rgba(56, 189, 248, 0.4); font-size: 1.5rem;">⚡</div>
@@ -2369,5 +2785,24 @@
       </div>
     </div>
   </div>
+
+  <!-- OmniConnect Landing Interactive Stage Switcher -->
+  <script>
+    function setOmniStage(stage) {
+      for (var i = 1; i <= 3; i++) {
+        var tab = document.getElementById('omni-stage-tab-' + i);
+        var view = document.getElementById('omni-stage-view-' + i);
+        if (tab && view) {
+          if (i === stage) {
+            tab.classList.add('active');
+            view.style.display = 'block';
+          } else {
+            tab.classList.remove('active');
+            view.style.display = 'none';
+          }
+        }
+      }
+    }
+  </script>
 </body>
 </html>

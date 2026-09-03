@@ -2489,6 +2489,90 @@ input, select, textarea {
   line-height: 1.55;
 }
 
+/* OmniConnect Dedicated Landing Showcase */
+.landing-connect-showcase {
+  max-width: 1320px;
+  margin: 4rem auto;
+  padding: 0 1.5rem;
+}
+.omni-stage-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: rgba(15, 23, 42, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.omni-stage-btn {
+  padding: 1.15rem 1rem;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.omni-stage-btn:hover {
+  background: rgba(56, 189, 248, 0.04);
+  color: #e2e8f0;
+}
+.omni-stage-btn.active {
+  border-bottom-color: #38bdf8 !important;
+  color: #fff !important;
+  background: rgba(56, 189, 248, 0.06);
+}
+.omni-stage-btn.active .omni-stage-num {
+  background: rgba(56, 189, 248, 0.2) !important;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  color: #38bdf8 !important;
+}
+.omni-stage-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.05rem;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+.omni-stage-content {
+  padding: 2rem;
+  animation: omniFadeIn 0.25s ease-in-out;
+}
+@keyframes omniFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (max-width: 800px) {
+  .omni-stage-tabs {
+    grid-template-columns: 1fr;
+  }
+  .omni-stage-btn {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-left: 3px solid transparent;
+  }
+  .omni-stage-btn.active {
+    border-left-color: #38bdf8 !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+  }
+  .omni-stage-content {
+    padding: 1.25rem 1rem !important;
+  }
+  .landing-connect-showcase {
+    margin: 2.25rem auto 3rem !important;
+    padding: 0 1rem !important;
+  }
+}
+
 .landing-footer {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding: 2.5rem 1.5rem;
