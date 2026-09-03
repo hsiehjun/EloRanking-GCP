@@ -2296,6 +2296,18 @@ if FASTAPI_AVAILABLE:
             "cpCounter": True
         }
         
+        initial_clock = {
+            "visible": False,
+            "running": False,
+            "active_player": 1,
+            "duration_minutes": 75,
+            "p1_remaining": 4500,
+            "p2_remaining": 4500,
+            "round_remaining": 9000,
+            "last_start_time": None,
+            "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000)
+        }
+
         TRACKER_ROOMS[match_id] = {
             "match_id": match_id,
             "user_id_p1": user_id_p1,
@@ -2303,6 +2315,7 @@ if FASTAPI_AVAILABLE:
             "referee_ids": [],
             "version": 1,
             "state": initial_state,
+            "chess_clock": initial_clock,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat()
         }
@@ -2318,17 +2331,7 @@ if FASTAPI_AVAILABLE:
                 "p1_name": p1_name,
                 "p2_name": p2_name,
                 "state": initial_state,
-                "participants": {
-                    "player1": {"uid": user_id_p1, "name": p1_name, "faction": p1_fac, "detachment": p1_det},
-                    "player2": {"uid": None, "name": p2_name, "faction": p2_fac, "detachment": p2_det}
-                },
-                "clock": {
-                    "activePlayer": "player1",
-                    "player1RemainingMs": 4500000,
-                    "player2RemainingMs": 4500000,
-                    "lastSwitchTimestamp": int(datetime.now(timezone.utc).timestamp() * 1000),
-                    "isPaused": True
-                }
+                "chess_clock": initial_clock
             })
             logger.info(f"🔥 [CREATE ROOM] Created Firestore document rooms/{match_id}")
         except Exception as err:
@@ -2646,8 +2649,7 @@ if FASTAPI_AVAILABLE:
                 "state": payload.state,
                 "version": payload.version,
                 "user_id_p1": room.get("user_id_p1"),
-                "user_id_p2": room.get("user_id_p2"),
-                "game": payload.state.get("game", {})
+                "user_id_p2": room.get("user_id_p2")
             })
         except Exception as fs_err:
             logger.debug(f"Firestore update notice: {fs_err}")
@@ -3437,7 +3439,7 @@ if FASTAPI_AVAILABLE:
         # Persist in Cloud Firestore Native
         try:
             fs_engine = get_firestore_engine()
-            fs_engine.update_room(match_id, {"chess_clock": clock_data, "clock": clock_data})
+            fs_engine.update_room(match_id, {"chess_clock": clock_data})
         except Exception:
             pass
 
@@ -3491,15 +3493,10 @@ if FASTAPI_AVAILABLE:
             fs_engine = get_firestore_engine()
             update_fields = {
                 "dice_tray": tray,
-                "dice_target": target,
-                "state": {
-                    "dice_tray": tray,
-                    "dice_target": target
-                }
+                "dice_target": target
             }
             if history is not None:
                 update_fields["dice_history"] = history
-                update_fields["state"]["dice_history"] = history
             fs_engine.update_room(match_id, update_fields)
         except Exception:
             pass
@@ -3578,15 +3575,10 @@ if FASTAPI_AVAILABLE:
             fs_engine = get_firestore_engine()
             fs_updates = {
                 "dice_history": room["dice_history"],
-                "dice_target": target,
-                "state": {
-                    "dice_history": room["dice_history"],
-                    "dice_target": target
-                }
+                "dice_target": target
             }
             if tray is not None:
                 fs_updates["dice_tray"] = tray
-                fs_updates["state"]["dice_tray"] = tray
             fs_engine.update_room(match_id, fs_updates)
         except Exception:
             pass

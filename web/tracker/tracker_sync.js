@@ -1780,8 +1780,8 @@
               handleRemoteMatchFinalized();
               return;
             }
-            if (data.clock) {
-              applyRemoteChessClock(data.clock);
+            if (data.chess_clock || data.clock) {
+              applyRemoteChessClock(data.chess_clock || data.clock);
             }
             const remoteHist = data.dice_history || (data.state && data.state.dice_history) || [];
             applyRemoteDiceTray(
@@ -1817,23 +1817,6 @@
     try { parsedState = JSON.parse(raw); } catch (e) { return; }
     if (parsedState.is_finished) return;
 
-    // Embed unified chess_clock directly into game state payload
-    parsedState.chess_clock = {
-      visible: chessClock.visible,
-      running: chessClock.running,
-      active_player: chessClock.activePlayer,
-      p1_remaining: chessClock.p1Remaining,
-      p2_remaining: chessClock.p2Remaining,
-      round_remaining: chessClock.roundRemaining,
-      last_start_time: chessClock.lastStartTime,
-      updated_at: chessClock.updatedAt
-    };
-
-    // Embed unified tabletop dice_tray directly into game state payload
-    parsedState.dice_tray = diceRollerState.tray;
-    parsedState.dice_target = diceRollerState.target;
-    parsedState.dice_history = diceRollerState.history;
-
     clientState.version++;
 
     // 1. Direct write to Cloud Firestore if client SDK is loaded
@@ -1842,9 +1825,6 @@
         const db = firebase.firestore();
         db.collection('rooms').doc(clientState.matchId).set({
           state: parsedState,
-          dice_tray: diceRollerState.tray,
-          dice_target: diceRollerState.target,
-          dice_history: diceRollerState.history,
           version: clientState.version,
           updatedAt: Date.now()
         }, { merge: true });
@@ -1885,6 +1865,7 @@
     try {
       const sanitized = injectDefaultCpIntoState(incoming);
       const stateObj = typeof sanitized === 'string' ? JSON.parse(sanitized) : sanitized;
+      const oldState = originalGetItem('gdm-11e-tracker-state');
       const serialized = JSON.stringify(stateObj);
       originalSetItem('gdm-11e-tracker-state', serialized);
 
@@ -1953,7 +1934,7 @@
       window.dispatchEvent(new StorageEvent('storage', {
         key: 'gdm-11e-tracker-state',
         newValue: serialized,
-        oldValue: current,
+        oldValue: oldState,
         url: window.location.href,
         storageArea: localStorage
       }));
@@ -2968,34 +2949,6 @@ Space Marines - Gladius Task Force (2000 pts)
     return `${isNeg ? '-' : ''}${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  function applyRemoteChessClock(remote) {
-    if (!remote || typeof remote !== 'object') return;
-
-    if (remote.updated_at && chessClock.updatedAt && remote.updated_at < chessClock.updatedAt) {
-      return;
-    }
-
-    chessClock.visible = !!remote.visible;
-    chessClock.running = !!remote.running;
-    chessClock.activePlayer = remote.active_player === 2 ? 2 : 1;
-    chessClock.p1Remaining = typeof remote.p1_remaining === 'number' ? remote.p1_remaining : (75 * 60);
-    chessClock.p2Remaining = typeof remote.p2_remaining === 'number' ? remote.p2_remaining : (75 * 60);
-    chessClock.roundRemaining = typeof remote.round_remaining === 'number' ? remote.round_remaining : (150 * 60);
-    chessClock.lastStartTime = remote.last_start_time || null;
-    chessClock.updatedAt = remote.updated_at || Date.now();
-
-    let clockEl = document.getElementById('gt-chess-clock-hud');
-    if (!clockEl) {
-      clockEl = document.createElement('div');
-      clockEl.id = 'gt-chess-clock-hud';
-      document.body.appendChild(clockEl);
-    }
-    clockEl.style.display = chessClock.visible ? 'flex' : 'none';
-
-    ensureClockTicker();
-    renderChessClock();
-  }
-
   function ensureClockTicker() {
     if (chessClock.running && !clockUiTicker) {
       clockUiTicker = setInterval(() => {
@@ -3013,50 +2966,53 @@ Space Marines - Gladius Task Force (2000 pts)
       clockEl = document.createElement('div');
       clockEl.id = 'gt-chess-clock-hud';
       clockEl.innerHTML = `
-        <div id="gt-clock-p1-box" class="gt-clock-player-box">
-          <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:2px; gap:4px;">
-            <span id="gt-clock-p1-name" style="font-size:10px; font-weight:800; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Player 1</span>
-            <div style="display:flex; gap:2px;">
-              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(1, -60)" title="Deduct 1 minute">-1m</button>
-              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(1, 60)" title="Add 1 minute">+1m</button>
-            </div>
+        <div class="gt-clock-header-row">
+          <div class="gt-clock-meta-badge">
+            <span class="gt-clock-meta-title">⏱️ CLOCK</span>
+            <span id="gt-clock-round-time" class="gt-clock-round-time">(Round: 150:00)</span>
           </div>
-          <div id="gt-clock-p1-time" class="gt-clock-time">75:00</div>
+          <div class="gt-clock-header-controls">
+            <button id="gt-clock-play-pause-btn" class="gt-clock-play-pause-btn">▶️ Start</button>
+            <select id="gt-clock-duration-select" class="gt-clock-select" onchange="window.gtHandleClockPresetChange(this.value)">
+              <option value="90">90m</option>
+              <option value="75" selected>75m</option>
+              <option value="60">60m</option>
+              <option value="45">45m</option>
+              <option value="30">30m</option>
+              <option value="custom">Custom...</option>
+            </select>
+            <button id="gt-clock-close-btn" class="gt-clock-close-btn" title="Hide Clock">✕</button>
+          </div>
         </div>
 
-        <button id="gt-clock-pass-btn" class="gt-clock-switch-btn" title="Tap to switch active clock turn">
-          <span>🔄 PASS TURN</span>
-          <span id="gt-clock-round-time" style="font-size:9px; opacity:0.85; font-weight:600;">(Round: 150:00)</span>
-        </button>
-
-        <div id="gt-clock-p2-box" class="gt-clock-player-box">
-          <div style="display:flex; justify-content:space-between; width:100%; align-items:center; margin-bottom:2px; gap:4px;">
-            <span id="gt-clock-p2-name" style="font-size:10px; font-weight:800; max-width:80px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">Player 2</span>
-            <div style="display:flex; gap:2px;">
-              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(2, -60)" title="Deduct 1 minute">-1m</button>
-              <button class="gt-clock-nudge-btn" onclick="window.gtAdjustPlayerTime(2, 60)" title="Add 1 minute">+1m</button>
+        <div class="gt-clock-main-row">
+          <div id="gt-clock-p1-box" class="gt-clock-player-box" onclick="window.gtHandlePlayerBoxClick(1, event)" title="Tap to switch turn">
+            <div class="gt-clock-player-header">
+              <span id="gt-clock-p1-name" class="gt-clock-player-name">Player 1</span>
+              <div class="gt-clock-nudge-group">
+                <button class="gt-clock-nudge-btn" onclick="event.stopPropagation(); window.gtAdjustPlayerTime(1, -60)" title="Deduct 1 minute">-1m</button>
+                <button class="gt-clock-nudge-btn" onclick="event.stopPropagation(); window.gtAdjustPlayerTime(1, 60)" title="Add 1 minute">+1m</button>
+              </div>
             </div>
+            <div id="gt-clock-p1-time" class="gt-clock-time">75:00</div>
           </div>
-          <div id="gt-clock-p2-time" class="gt-clock-time">75:00</div>
-        </div>
 
-        <div style="display:flex; flex-direction:column; gap:4px; align-items:stretch;">
-          <button id="gt-clock-play-pause-btn" style="background:#1e293b; color:#f8fafc; border:1px solid #334155; padding:3px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">
-            ▶️ Start
+          <button id="gt-clock-pass-btn" class="gt-clock-switch-btn" title="Tap to switch active clock turn">
+            <span class="gt-clock-pass-icon">🔄</span>
+            <span class="gt-clock-pass-text">PASS TURN</span>
           </button>
-          <select id="gt-clock-duration-select" class="gt-clock-select" onchange="window.gtHandleClockPresetChange(this.value)">
-            <option value="90">⏱️ 90m (Casual)</option>
-            <option value="75" selected>⏱️ 75m (Tournament)</option>
-            <option value="60">⏱️ 60m (Speed)</option>
-            <option value="45">⏱️ 45m (Incursion)</option>
-            <option value="30">⏱️ 30m (Patrol)</option>
-            <option value="custom">✏️ Custom...</option>
-          </select>
-        </div>
 
-        <button id="gt-clock-close-btn" style="background:transparent; border:none; color:#64748b; font-size:18px; cursor:pointer; padding:0 4px;" title="Hide Clock">
-          ✕
-        </button>
+          <div id="gt-clock-p2-box" class="gt-clock-player-box" onclick="window.gtHandlePlayerBoxClick(2, event)" title="Tap to switch turn">
+            <div class="gt-clock-player-header">
+              <span id="gt-clock-p2-name" class="gt-clock-player-name">Player 2</span>
+              <div class="gt-clock-nudge-group">
+                <button class="gt-clock-nudge-btn" onclick="event.stopPropagation(); window.gtAdjustPlayerTime(2, -60)" title="Deduct 1 minute">-1m</button>
+                <button class="gt-clock-nudge-btn" onclick="event.stopPropagation(); window.gtAdjustPlayerTime(2, 60)" title="Add 1 minute">+1m</button>
+              </div>
+            </div>
+            <div id="gt-clock-p2-time" class="gt-clock-time">75:00</div>
+          </div>
+        </div>
       `;
       document.body.appendChild(clockEl);
 
@@ -3064,8 +3020,8 @@ Space Marines - Gladius Task Force (2000 pts)
       const passBtn = document.getElementById('gt-clock-pass-btn');
       if (passBtn) {
         passBtn.addEventListener('click', (e) => window.gtSwitchClockTurn(e));
-        passBtn.addEventListener('pointerdown', (e) => {
-          passBtn.style.transform = 'scale(0.96)';
+        passBtn.addEventListener('pointerdown', () => {
+          passBtn.style.transform = 'scale(0.95)';
         });
         window.addEventListener('pointerup', () => {
           if (passBtn) passBtn.style.transform = '';
@@ -3082,6 +3038,13 @@ Space Marines - Gladius Task Force (2000 pts)
     clockEl.style.display = chessClock.visible ? 'flex' : 'none';
     updateClockDom();
   }
+
+  window.gtHandlePlayerBoxClick = function(playerNum, e) {
+    if (e && e.target && (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.tagName === 'SELECT')) return;
+    if (chessClock.activePlayer === playerNum) {
+      window.gtSwitchClockTurn(e);
+    }
+  };
 
   function updateClockDom() {
     const clockEl = document.getElementById('gt-chess-clock-hud');
@@ -3283,6 +3246,15 @@ Space Marines - Gladius Task Force (2000 pts)
       last_start_time: chessClock.running ? chessClock.lastStartTime : null,
       updated_at: chessClock.updatedAt
     };
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        const db = firebase.firestore();
+        db.collection('rooms').doc(clientState.matchId).set({
+          chess_clock: payload,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch(e) {}
+    }
     fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}/clock`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3340,10 +3312,6 @@ Space Marines - Gladius Task Force (2000 pts)
             dice_tray: diceRollerState.tray,
             dice_target: diceRollerState.target,
             dice_history: diceRollerState.history,
-            state: {
-              dice_tray: diceRollerState.tray,
-              dice_target: diceRollerState.target
-            },
             updatedAt: Date.now()
           }, { merge: true });
         } catch(e) {}
@@ -3807,10 +3775,6 @@ Space Marines - Gladius Task Force (2000 pts)
           dice_tray: diceRollerState.tray,
           dice_target: diceRollerState.target,
           dice_history: diceRollerState.history,
-          state: {
-            dice_tray: diceRollerState.tray,
-            dice_target: diceRollerState.target
-          },
           updatedAt: Date.now()
         }, { merge: true });
       } catch(e) {}

@@ -98,6 +98,10 @@ class FirestoreRoomEngine:
 
         if self._client:
             try:
+                # Automatically prune legacy duplicate fields if present
+                for legacy_field in ("clock", "game"):
+                    if legacy_field not in updates:
+                        updates[legacy_field] = firestore.DELETE_FIELD
                 ref = self.get_room_doc_ref(match_id)
                 ref.set(updates, merge=True)
                 return True
@@ -106,6 +110,8 @@ class FirestoreRoomEngine:
 
         if match_id in self._fallback_rooms:
             self._fallback_rooms[match_id].update(updates)
+            self._fallback_rooms[match_id].pop("clock", None)
+            self._fallback_rooms[match_id].pop("game", None)
         else:
             self._fallback_rooms[match_id] = updates
         return True

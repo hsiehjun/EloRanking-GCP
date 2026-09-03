@@ -39,88 +39,12 @@ export function App() {
         : "setup"
       : overrideView;
 
-  const handleSelectView = view => {
-    setOverrideView(view);
-    window.location.hash = view === "auto" ? "" : view;
-  };
-
   return (
     <div className="min-h-screen flex flex-col font-sans">
-      {/* Minimal clean mode switcher bar - NO headers, no branding, isolated module selector */}
-      <header
-        className="sticky top-0 z-50 flex items-center justify-between border-b px-4 py-2.5 backdrop-blur-md transition-colors"
-        style={{
-          background: "rgba(237, 234, 226, 0.94)",
-          borderColor: "var(--gtk-line)"
-        }}
-      >
-        <div
-          className="flex items-center gap-1 p-0.5 rounded-lg border"
-          style={{
-            borderColor: "var(--gtk-line)",
-            background: "var(--gtk-tile)"
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => handleSelectView("setup")}
-            className="px-3.5 py-1.5 rounded-md font-mono text-[12px] font-bold uppercase tracking-[0.1em] transition-all"
-            style={
-              activeView === "setup"
-                ? {
-                    background: "var(--gtk-accent)",
-                    color: "#15171b"
-                  }
-                : {
-                    color: "var(--gtk-muted)"
-                  }
-            }
-          >
-            7-Step Setup
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSelectView("scorecard")}
-            className="px-3.5 py-1.5 rounded-md font-mono text-[12px] font-bold uppercase tracking-[0.1em] transition-all"
-            style={
-              activeView === "scorecard"
-                ? {
-                    background: "var(--gtk-accent)",
-                    color: "#15171b"
-                  }
-                : {
-                    color: "var(--gtk-muted)"
-                  }
-            }
-          >
-            Score Keeping
-          </button>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {state.started && activeView === "setup" && (
-            <button
-              type="button"
-              onClick={() => handleSelectView("scorecard")}
-              className="font-mono text-[11px] font-bold uppercase tracking-[0.08em] underline cursor-pointer"
-              style={{ color: "var(--gtk-accent)" }}
-            >
-              Resume Match &rarr;
-            </button>
-          )}
-          <span
-            className="font-mono text-[11px] font-semibold uppercase tracking-[0.12em]"
-            style={{ color: "var(--gtk-muted)" }}
-          >
-            {activeView === "setup" ? "Setup Wizard" : `Round ${state.round} · Scorekeeper`}
-          </span>
-        </div>
-      </header>
-
       {/* Main Content: Isolated Setup Wizard OR Isolated Scorecard */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-2 sm:p-4">
         {activeView === "setup" ? (
-          <GameSetupWizard onGameStarted={() => handleSelectView("scorecard")} />
+          <GameSetupWizard onGameStarted={() => setOverrideView("scorecard")} />
         ) : (
           <BattleScorecard />
         )}
