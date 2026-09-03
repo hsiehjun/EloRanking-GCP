@@ -995,6 +995,13 @@ window.api = {
     return this._fetchJson(`/api/community/store/tournaments?${params.toString()}`);
   },
 
+  // Community Hub: Asynchronous Field Stats & Live Roster Hydration
+  async getEventsFieldStats(eventIds) {
+    if (!eventIds || eventIds.length === 0) return { success: true, stats: {} };
+    const idsParam = Array.isArray(eventIds) ? eventIds.join(',') : eventIds;
+    return this._fetchJson(`/api/community/events/field_stats?event_ids=${encodeURIComponent(idsParam)}`);
+  },
+
   // Community Hub: Chat Messages
   async getCommunityChatMessages(region = 'socal', limit = 50) {
     return this._fetchJson(`/api/community/chat/messages?region=${encodeURIComponent(region || 'socal')}&limit=${limit}`);

@@ -8,6 +8,7 @@ import secrets
 import asyncio
 import re
 import time
+import concurrent.futures
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
@@ -5868,6 +5869,110 @@ if FASTAPI_AVAILABLE:
             current_user_id=user_id,
             current_player_id=player_id
         )
+
+    _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
+
+    @app.get("/api/community/events/field_stats", summary="Get or compute live average field Elo and top seed Elo")
+    @app.post("/api/community/events/field_stats", summary="Get or compute live average field Elo and top seed Elo")
+    async def api_community_events_field_stats(
+        request: Request,
+        event_ids: Optional[str] = Query(None, description="Comma-separated event IDs")
+    ):
+        target_ids: List[str] = []
+        if event_ids:
+            target_ids.extend([eid.strip() for eid in event_ids.split(",") if eid.strip()])
+        if request.method == "POST":
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    t_list = body.get("event_ids") or body.get("ids") or []
+                    if isinstance(t_list, list):
+                        target_ids.extend([str(x).strip() for x in t_list if str(x).strip()])
+                elif isinstance(body, list):
+                    target_ids.extend([str(x).strip() for x in body if str(x).strip()])
+            except Exception:
+                pass
+
+        if not target_ids:
+            return {"success": True, "stats": {}}
+
+        # Deduplicate and cap at 30 events per request
+        target_ids = list(dict.fromkeys(target_ids))[:30]
+
+        now_ts = time.time()
+        results: Dict[str, Any] = {}
+        missing_ids: List[str] = []
+
+        # Check in-memory cache first (15-minute TTL)
+        for eid in target_ids:
+            cached = _community_field_stats_cache.get(eid)
+            if cached and (now_ts - cached.get("timestamp", 0) < 900):
+                results[eid] = cached.get("stats", {})
+            else:
+                missing_ids.append(eid)
+
+        if missing_ids:
+            db = get_database()
+            # 1. Query existing DB participants
+            db_stats = db.get_events_field_stats(missing_ids)
+            need_bcp_sync: List[str] = []
+
+            for eid in missing_ids:
+                stat = db_stats.get(eid)
+                # If DB already has participants, cache and return
+                if stat and int(stat.get("total_enrolled") or 0) > 0:
+                    results[eid] = stat
+                    _community_field_stats_cache[eid] = {
+                        "timestamp": now_ts,
+                        "stats": stat
+                    }
+                else:
+                    need_bcp_sync.append(eid)
+
+            # 2. For events without participants in DB, fetch live roster from BCP concurrently
+            if need_bcp_sync:
+                def fetch_and_sync_one(eid_to_sync: str):
+                    try:
+                        s = BestCoastPairingsScraper(db=db, request_delay=0.0)
+                        s.sync_event_roster(eid_to_sync)
+                    except Exception as err:
+                        logger.debug(f"Async live roster sync notice for {eid_to_sync}: {err}")
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync))) as executor:
+                    futures = [executor.submit(fetch_and_sync_one, eid) for eid in need_bcp_sync]
+                    concurrent.futures.wait(futures, timeout=3.5)
+
+                # Re-query DB for newly synced events
+                newly_synced_stats = db.get_events_field_stats(need_bcp_sync)
+                for eid in need_bcp_sync:
+                    stat = newly_synced_stats.get(eid)
+                    if stat and int(stat.get("total_enrolled") or 0) > 0:
+                        results[eid] = stat
+                        _community_field_stats_cache[eid] = {
+                            "timestamp": now_ts,
+                            "stats": stat
+                        }
+                    else:
+                        # Empty roster or unlisted event
+                        empty_stat = {
+                            "event_id": eid,
+                            "avg_field_elo": None,
+                            "top_seed_elo": None,
+                            "total_enrolled": 0,
+                            "rated_players_count": 0,
+                            "status": "empty"
+                        }
+                        results[eid] = empty_stat
+                        _community_field_stats_cache[eid] = {
+                            "timestamp": now_ts,
+                            "stats": empty_stat
+                        }
+
+        return {
+            "success": True,
+            "count": len(results),
+            "stats": results
+        }
 
     @app.get("/api/community/stores", summary="Find local game stores and clubs for Warhammer 40k")
     async def api_community_stores(

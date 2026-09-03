@@ -183,19 +183,26 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
         const avgElo = Math.round(elos.reduce((a, b) => a + b, 0) / elos.length);
         const maxElo = Math.max(...elos);
         let updated = false;
-        ['upcoming_events', 'recent_events'].forEach(k => {
+        ['events_upcoming', 'events_recent', 'upcoming_events', 'recent_events'].forEach(k => {
           const list = communityState.overview[k];
           if (Array.isArray(list)) {
             const match = list.find(item => item.id === eventId);
             if (match) {
               match.avg_field_elo = avgElo;
               match.top_seed_elo = maxElo;
+              if (eventPlayersCache.length > (match.total_players || 0)) {
+                match.total_players = eventPlayersCache.length;
+              }
               updated = true;
             }
           }
         });
-        if (updated && typeof renderCommunityTournaments === 'function') {
-          renderCommunityTournaments(communityState.overview);
+        if (updated) {
+          if (typeof renderCommunityEvents === 'function') {
+            renderCommunityEvents();
+          } else if (typeof renderCommunityTournaments === 'function') {
+            renderCommunityTournaments(communityState.overview);
+          }
         }
       }
     }

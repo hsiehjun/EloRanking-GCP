@@ -735,6 +735,14 @@ function renderCommunityEvents() {
   }
 
   container.innerHTML = html;
+
+  // Asynchronously hydrate field stats (field avg Elo, top seed Elo, live roster count) for upcoming events
+  if (displayedUpcoming && displayedUpcoming.length > 0) {
+    const missingStats = displayedUpcoming.filter(ev => ev.avg_field_elo == null);
+    if (missingStats.length > 0) {
+      hydrateUpcomingFieldStats(missingStats.map(ev => ev.id), userElo);
+    }
+  }
 }
 
 function renderTournamentCard(ev, isUpcoming, userElo) {
@@ -788,19 +796,18 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
           <span style="color: #94a3b8;">⭐ Field Avg:</span>
-          <span style="font-weight: 800; color: #fff; font-family: monospace;">
-            ${fieldAvg ? `${fieldAvg} Elo` : (isUpcoming ? (ev.total_players > 0 ? '<span style="color: #94a3b8; font-weight: 600; font-size: 0.78rem;" title="Roster is forming on BCP. Click Roster & Details to sync live players">Roster Forming</span>' : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>') : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>')}
-            ${deltaMarkup}
+          <span id="field-avg-${escapeHtml(ev.id)}" style="font-weight: 800; color: #fff; font-family: monospace;">
+            ${fieldAvg ? `${fieldAvg} Elo ${deltaMarkup}` : (isUpcoming ? (ev.total_players > 0 ? `<span class="field-avg-computing" style="color: #38bdf8; font-weight: 600; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;"><span class="spinner-mini" style="display: inline-block; width: 9px; height: 9px; border: 1.5px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span><span>Computing Field...</span></span>` : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>') : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>')}
           </span>
         </div>
-        ${topSeed ? `
+        <div id="top-seed-container-${escapeHtml(ev.id)}" style="${topSeed ? '' : 'display: none;'}">
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
             <span style="color: #94a3b8;">👑 Top Seed:</span>
-            <span style="font-weight: 700; color: #f59e0b; font-family: monospace;">${topSeed} Elo</span>
+            <span id="top-seed-val-${escapeHtml(ev.id)}" style="font-weight: 700; color: #f59e0b; font-family: monospace;">${topSeed ? `${topSeed} Elo` : ''}</span>
           </div>
-        ` : ''}
+        </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: #64748b; margin-top: 2px;">
-          <span>👥 ${ev.total_players || 0} Competitors</span>
+          <span id="competitors-count-${escapeHtml(ev.id)}">👥 ${ev.total_players || 0} Competitor${ev.total_players === 1 ? '' : 's'}</span>
           <span>⚔️ ${ev.num_rounds || 0} Swiss Rounds</span>
         </div>
       </div>
@@ -816,6 +823,86 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
       </div>
     </div>
   `;
+}
+
+/**
+ * Asynchronously loads field stats (average Elo, top seed Elo, enrolled players) for upcoming tournaments
+ */
+async function hydrateUpcomingFieldStats(eventIds, userElo) {
+  if (!eventIds || eventIds.length === 0) return;
+  if (!communityState.fieldStatsHydrating) {
+    communityState.fieldStatsHydrating = new Set();
+  }
+
+  const toFetch = eventIds.filter(id => id && !communityState.fieldStatsHydrating.has(id));
+  if (toFetch.length === 0) return;
+
+  toFetch.forEach(id => communityState.fieldStatsHydrating.add(id));
+
+  try {
+    const res = await window.api.getEventsFieldStats(toFetch);
+    if (!res || !res.success || !res.stats) return;
+
+    const stats = res.stats;
+    Object.keys(stats).forEach(eid => {
+      const data = stats[eid];
+      if (!data) return;
+
+      // Update in communityState.overview.events_upcoming
+      if (communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
+        const ev = communityState.overview.events_upcoming.find(e => String(e.id) === String(eid));
+        if (ev) {
+          if (data.avg_field_elo != null) ev.avg_field_elo = data.avg_field_elo;
+          if (data.top_seed_elo != null) ev.top_seed_elo = data.top_seed_elo;
+          if (data.total_enrolled != null && data.total_enrolled > (ev.total_players || 0)) {
+            ev.total_players = data.total_enrolled;
+          }
+        }
+      }
+
+      // Update DOM element for Field Avg
+      const avgEl = document.getElementById(`field-avg-${eid}`);
+      if (avgEl) {
+        if (data.avg_field_elo != null && data.rated_players_count > 0) {
+          const avg = Math.round(Number(data.avg_field_elo));
+          let delta = '';
+          if (userElo) {
+            const diff = Math.round(userElo - avg);
+            if (diff > 0) {
+              delta = `<span style="font-size: 0.72rem; color: #10b981; font-weight: 700; margin-left: 4px;" title="You are rated +${diff} above this tournament's average field">(+${diff} vs your Elo)</span>`;
+            } else if (diff < 0) {
+              delta = `<span style="font-size: 0.72rem; color: #f43f5e; font-weight: 700; margin-left: 4px;" title="This field average is ${Math.abs(diff)} points above your current Elo">(${diff} vs your Elo)</span>`;
+            } else {
+              delta = `<span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-left: 4px;">(Even with your Elo)</span>`;
+            }
+          }
+          avgEl.innerHTML = `${avg} Elo ${delta}`;
+        } else if (data.total_enrolled > 0) {
+          avgEl.innerHTML = `<span style="color: #94a3b8; font-weight: 600; font-size: 0.78rem;">Provisional Field (${data.total_enrolled} ${data.total_enrolled === 1 ? 'player' : 'players'})</span>`;
+        } else {
+          avgEl.innerHTML = `<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>`;
+        }
+      }
+
+      // Update DOM element for Top Seed
+      const topSeedContainer = document.getElementById(`top-seed-container-${eid}`);
+      const topSeedVal = document.getElementById(`top-seed-val-${eid}`);
+      if (topSeedContainer && topSeedVal && data.top_seed_elo != null && data.rated_players_count > 0) {
+        topSeedVal.innerText = `${Math.round(Number(data.top_seed_elo))} Elo`;
+        topSeedContainer.style.display = '';
+      }
+
+      // Update DOM element for Competitors Count
+      const countEl = document.getElementById(`competitors-count-${eid}`);
+      if (countEl && data.total_enrolled != null && data.total_enrolled > 0) {
+        countEl.innerText = `👥 ${data.total_enrolled} Competitor${data.total_enrolled === 1 ? '' : 's'}`;
+      }
+    });
+  } catch (err) {
+    console.debug('Notice hydrating upcoming field stats:', err);
+  } finally {
+    toFetch.forEach(id => communityState.fieldStatsHydrating.delete(id));
+  }
 }
 
 /**
@@ -2340,6 +2427,7 @@ window.renderStoreTournamentsModalList = renderStoreTournamentsModalList;
 window.filterStoreTournamentsModal = filterStoreTournamentsModal;
 window.filterTournamentsByVenue = filterTournamentsByVenue;
 window.clearTournamentsVenueFilter = clearTournamentsVenueFilter;
+window.hydrateUpcomingFieldStats = hydrateUpcomingFieldStats;
 window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;
 
 // Backwards compatibility aliases
