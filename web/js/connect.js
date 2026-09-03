@@ -564,6 +564,13 @@ async function handleSaveLocation(e) {
 function switchConnectSubtab(tabName) {
   connectState.activeSubtab = tabName;
 
+  if (tabName === 'chats' || tabName === 'chat' || tabName === 'messages') {
+    if (typeof switchTab === 'function') {
+      switchTab('chat');
+      return;
+    }
+  }
+
   // If running inside unified Community Hub, delegate to switchCommunitySubtab
   if (typeof switchCommunitySubtab === 'function') {
     if (tabName === 'players' || tabName === 'radar' || tabName === 'sparring') {
@@ -571,12 +578,6 @@ function switchConnectSubtab(tabName) {
       return;
     } else if (tabName === 'tournaments' || tabName === 'events') {
       switchCommunitySubtab('tournaments');
-      return;
-    } else if (tabName === 'chats' || tabName === 'chat' || tabName === 'messages') {
-      switchCommunitySubtab('chat');
-      if (typeof setCommunityChatMode === 'function') {
-        setCommunityChatMode('direct');
-      }
       return;
     }
   }
@@ -1093,7 +1094,11 @@ function backToChatList() {
 
 function openChatWithRequest(requestId) {
   connectState.activeRequestId = requestId;
-  switchConnectSubtab('chats');
+  if (typeof switchTab === 'function') {
+    switchTab('chat');
+  } else {
+    switchConnectSubtab('chats');
+  }
   selectConversation(requestId);
 }
 
@@ -1434,7 +1439,8 @@ async function updateUnreadCountBadge() {
     const count = (res && res.unread_count) ? parseInt(res.unread_count, 10) : 0;
     const badge = document.getElementById('badge-unread-count');
     const directBadge = document.getElementById('badge-chat-direct-unread');
-    [badge, directBadge].forEach(b => {
+    const navBadge = document.getElementById('nav-badge-chat');
+    [badge, directBadge, navBadge].forEach(b => {
       if (b) {
         if (count > 0) {
           b.textContent = count;

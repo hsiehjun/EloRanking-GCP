@@ -311,8 +311,8 @@ function renderCommunityHeader(locInfo) {
   const locName = locInfo?.location_name || locInfo?.name || communityState.locationName || 'Your Location';
 
   if (badgeEl) badgeEl.textContent = `📍 ${rad}-Mile Tournament Radius`;
-  if (titleEl) titleEl.textContent = `Tournaments within ${rad} miles of ${locName}`;
-  if (descEl) descEl.textContent = `Showing verified upcoming & recent tournaments, local competitor rosters, and standings within ${rad} miles.`;
+  if (titleEl) titleEl.textContent = `Local 40k Scene within ${rad} miles of ${locName}`;
+  if (descEl) descEl.textContent = `Local tournaments, sparring radar, game stores, and regional player standings.`;
   const userLocEl = document.getElementById('user-location-text');
   if (userLocEl && locName) userLocEl.textContent = locName;
 }
@@ -514,6 +514,14 @@ function openCommunityLocationModal() {
  * Switch Community Hub Subtab
  */
 function switchCommunitySubtab(subtabName) {
+  // If user requests chat or messages, forward to top-level tab
+  if (subtabName === 'chat' || subtabName === 'messages' || subtabName === 'chats') {
+    if (typeof switchTab === 'function') {
+      switchTab('chat');
+    }
+    return;
+  }
+
   // Normalize alias names
   if (subtabName === 'players' || subtabName === 'sparring') subtabName = 'radar';
   if (subtabName === 'events') subtabName = 'tournaments';
@@ -527,8 +535,6 @@ function switchCommunitySubtab(subtabName) {
   } else if (subtabName === 'leaderboard') {
     subtabName = 'scene';
     communityState.sceneView = 'leaderboard';
-  } else if (subtabName === 'messages') {
-    subtabName = 'chat';
   }
 
   communityState.activeSubtab = subtabName;
@@ -539,17 +545,11 @@ function switchCommunitySubtab(subtabName) {
   });
 
   // Toggle subviews
-  const subviews = ['radar', 'tournaments', 'stores', 'scene', 'chat'];
+  const subviews = ['radar', 'tournaments', 'stores', 'scene'];
   subviews.forEach(s => {
     const el = document.getElementById(`comm-subview-${s}`);
     if (el) el.style.display = (s === subtabName) ? 'block' : 'none';
   });
-
-  // Stop chat polling if leaving chat subtab
-  if (subtabName !== 'chat') {
-    if (typeof stopChatPolling === 'function') stopChatPolling();
-    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
-  }
 
   renderCurrentSubtab();
 }
@@ -566,8 +566,6 @@ function renderCurrentSubtab() {
     loadLocalGameStores();
   } else if (communityState.activeSubtab === 'scene') {
     renderCurrentSceneView();
-  } else if (communityState.activeSubtab === 'chat') {
-    renderCurrentChatView();
   }
 }
 

@@ -10,17 +10,16 @@ function switchTab(tabName) {
     return;
   }
 
-  // Normalize alias names & target subtabs for Community Hub
+  // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
-  if (tabName === 'connect' || tabName === 'omniconnect' || tabName === 'sparring' || tabName === 'radar') {
+  if (tabName === 'chat' || tabName === 'community-chat' || tabName === 'messages' || tabName === 'chats' || tabName === 'direct-chat') {
+    tabName = 'chat';
+  } else if (tabName === 'connect' || tabName === 'omniconnect' || tabName === 'sparring' || tabName === 'radar') {
     tabName = 'community';
     communitySubtab = 'radar';
   } else if (tabName === 'tournaments' || tabName === 'events') {
     tabName = 'community';
     communitySubtab = 'tournaments';
-  } else if (tabName === 'chat' || tabName === 'community-chat' || tabName === 'messages') {
-    tabName = 'community';
-    communitySubtab = 'chat';
   } else if (tabName === 'competitors' || tabName === 'scene' || tabName === 'regional-leaderboard') {
     tabName = 'community';
     communitySubtab = 'scene';
@@ -31,6 +30,12 @@ function switchTab(tabName) {
   if (tabName === 'myhub') tabName = 'my-hub';
 
   activeTab = tabName;
+
+  // Stop chat polling if leaving chat tab
+  if (tabName !== 'chat') {
+    if (typeof stopChatPolling === 'function') stopChatPolling();
+    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
+  }
 
   // Update top navigation button states
   document.querySelectorAll('.nav-btn').forEach(b => {
@@ -70,6 +75,17 @@ function switchTab(tabName) {
     } else if (typeof initConnectTab === 'function') {
       initConnectTab();
     }
+  } else if (tabName === 'chat') {
+    if (!currentUser) {
+      window.location.href = '/login?redirect=' + encodeURIComponent('/#chat');
+      return;
+    }
+    if (typeof loadUserRequests === 'function') loadUserRequests();
+    if (typeof startChatPolling === 'function') startChatPolling();
+    if (typeof attachChatSnapshot === 'function' && typeof connectState !== 'undefined' && connectState.activeRequestId) {
+      attachChatSnapshot(connectState.activeRequestId);
+    }
+    if (typeof updateUnreadCountBadge === 'function') updateUnreadCountBadge();
   } else if (tabName === 'event-studio') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
@@ -340,10 +356,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadGlobalStats();
   checkIosPwaInstall();
 
+  // Periodic check for chat unread notifications badge
+  if (typeof updateUnreadCountBadge === 'function') {
+    updateUnreadCountBadge();
+    setInterval(updateUnreadCountBadge, 15000);
+  }
+
   const hashVal = window.location.hash ? window.location.hash.replace('#', '').trim() : null;
   const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal || params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
+  if (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats') targetTab = 'chat';
   if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') targetTab = 'community';
   if (targetTab === 'eventstudio') targetTab = 'event-studio';
   if (targetTab === 'community-hub' || targetTab === 'communityhub') targetTab = 'community';
