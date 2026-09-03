@@ -10,6 +10,8 @@ const connectState = {
   requestsList: [],
   tournamentsList: [],
   chatPollInterval: null,
+  chatSnapshotUnsub: null,
+  activeMessages: [],
   placesAutocomplete: null,
   initialized: false
 };
@@ -375,14 +377,19 @@ function switchConnectSubtab(tabName) {
   });
 
   if (tabName === 'players') {
+    detachChatSnapshot();
     stopChatPolling();
     loadNearbyPlayers();
   } else if (tabName === 'tournaments') {
+    detachChatSnapshot();
     stopChatPolling();
     loadNearbyTournaments();
   } else if (tabName === 'chats') {
     loadUserRequests();
     startChatPolling();
+    if (connectState.activeRequestId) {
+      attachChatSnapshot(connectState.activeRequestId);
+    }
   }
 }
 
@@ -699,6 +706,58 @@ async function respondToRequest(requestId, action) {
   }
 }
 
+/* --------------------------------------------------------------------------
+   REAL-TIME CLOUD FIRESTORE INTEGRATION FOR OMNICONNECT CHATS
+   -------------------------------------------------------------------------- */
+let connectFirestoreDb = null;
+function getConnectFirestoreDb() {
+  if (connectFirestoreDb) return connectFirestoreDb;
+  if (typeof firebase !== 'undefined' && firebase.firestore) {
+    try {
+      if (!firebase.apps || !firebase.apps.length) {
+        firebase.initializeApp({ projectId: "eloranking-506820" });
+      }
+      connectFirestoreDb = firebase.firestore();
+      return connectFirestoreDb;
+    } catch (e) {
+      console.warn("Notice initializing Firestore for OmniConnect:", e);
+    }
+  }
+  return null;
+}
+
+function detachChatSnapshot() {
+  if (connectState.chatSnapshotUnsub) {
+    try {
+      connectState.chatSnapshotUnsub();
+    } catch (e) {}
+    connectState.chatSnapshotUnsub = null;
+  }
+}
+
+function attachChatSnapshot(requestId) {
+  detachChatSnapshot();
+  const fsDb = getConnectFirestoreDb();
+  if (!fsDb) return;
+
+  try {
+    const docRef = fsDb.collection('connect_chats').doc(requestId);
+    connectState.chatSnapshotUnsub = docRef.onSnapshot((snap) => {
+      if (connectState.activeRequestId !== requestId) return;
+      if (!snap || !snap.exists) return;
+      const data = snap.data();
+      if (data && Array.isArray(data.messages)) {
+        connectState.activeMessages = data.messages;
+        renderChatMessages(data.messages, true);
+      }
+    }, (err) => {
+      console.warn("Firestore chat snapshot notice:", err);
+    });
+  } catch (err) {
+    console.warn("Failed to attach Firestore snapshot:", err);
+  }
+}
+
 function openChatWithRequest(requestId) {
   connectState.activeRequestId = requestId;
   switchConnectSubtab('chats');
@@ -706,6 +765,9 @@ function openChatWithRequest(requestId) {
 }
 
 async function selectConversation(requestId) {
+  if (connectState.activeRequestId === requestId && connectState.chatSnapshotUnsub) {
+    return;
+  }
   connectState.activeRequestId = requestId;
 
   const header = document.getElementById('chat-active-header');
@@ -722,7 +784,96 @@ async function selectConversation(requestId) {
     });
   }
 
+  // Pre-fill header instantly from local requestsList if available
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+  const localReq = connectState.requestsList.find(r => r.id === requestId);
+  if (localReq) {
+    const isMeSender = (localReq.sender_id === myId);
+    const otherName = isMeSender ? localReq.receiver_name : localReq.sender_name;
+    const nameEl = document.getElementById('chat-active-name');
+    const subEl = document.getElementById('chat-active-sub');
+    const avatarEl = document.getElementById('chat-active-avatar');
+    if (nameEl && otherName) nameEl.textContent = otherName;
+    if (avatarEl && otherName) avatarEl.textContent = otherName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    if (subEl) subEl.textContent = `Proposed: ${localReq.proposed_points || 2000} pts at ${localReq.proposed_venue || 'Local Store'}`;
+  }
+
+  // Attach real-time Firestore push listener
+  attachChatSnapshot(requestId);
+
+  // Durable sync from backend (seeds Firestore if newly opened & updates request details)
   await refreshActiveMessages(false);
+}
+
+function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
+  if (!connectState.activeRequestId) return;
+  const msgContainer = document.getElementById('chat-messages-container');
+  if (!msgContainer) return;
+
+  if (!messages || messages.length === 0) {
+    msgContainer.innerHTML = `
+      <div style="text-align: center; margin: auto; color: #64748b;">
+        <div style="font-size: 2rem; margin-bottom: 0.4rem;">🤝</div>
+        <div style="font-weight: 700; color: #fff; font-size: 0.92rem;">Match Challenge Accepted!</div>
+        <div style="font-size: 0.78rem; margin-top: 4px;">Coordinate your game timing, store table, or share a live match room code.</div>
+      </div>
+    `;
+    return;
+  }
+
+  // Deduplicate messages by id or composite key
+  const seen = new Set();
+  const deduped = [];
+  for (const m of messages) {
+    const key = m.id || `${m.sender_id}_${m.created_at}_${m.message_text}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(m);
+  }
+
+  // Sort chronologically
+  deduped.sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ta - tb;
+  });
+
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+  const wasNearBottom = (msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight) < 100;
+
+  msgContainer.innerHTML = deduped.map(m => {
+    const isMe = (m.sender_id === myId);
+    const timeStr = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+    let roomCard = '';
+    if (m.room_key) {
+      roomCard = `
+        <div style="margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(56,189,248,0.4); border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+          <div>
+            <div style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">🎲 Live Game Tracker Room</div>
+            <div style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(m.room_key)}</div>
+          </div>
+          <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.72rem; text-decoration: none;">
+            Join Room ↗
+          </a>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="oc-msg-bubble ${isMe ? 'oc-msg-out' : 'oc-msg-in'}">
+        <div style="font-size: 0.7rem; opacity: 0.75; margin-bottom: 3px;">
+          ${escapeHtml(isMe ? 'You' : (m.sender_name || 'Opponent'))} • ${timeStr}
+        </div>
+        <div>${escapeHtml(m.message_text)}</div>
+        ${roomCard}
+      </div>
+    `;
+  }).join('');
+
+  if (!scrollOnlyIfNearBottom || wasNearBottom) {
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
 }
 
 async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
@@ -736,7 +887,6 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
 
     const req = res.request || {};
     const otherName = res.other_user_name || 'Opponent';
-    const myId = connectState.userProfile?.player_id;
 
     const nameEl = document.getElementById('chat-active-name');
     const subEl = document.getElementById('chat-active-sub');
@@ -747,51 +897,10 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
     if (subEl) subEl.textContent = `Proposed: ${req.proposed_points || 2000} pts at ${req.proposed_venue || 'Local Store'}`;
 
     const messages = res.messages || [];
-    if (messages.length === 0) {
-      msgContainer.innerHTML = `
-        <div style="text-align: center; margin: auto; color: #64748b;">
-          <div style="font-size: 2rem; margin-bottom: 0.4rem;">🤝</div>
-          <div style="font-weight: 700; color: #fff; font-size: 0.92rem;">Match Challenge Accepted!</div>
-          <div style="font-size: 0.78rem; margin-top: 4px;">Coordinate your game timing, store table, or share a live match room code.</div>
-        </div>
-      `;
-      return;
-    }
-
-    const wasNearBottom = (msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight) < 100;
-
-    msgContainer.innerHTML = messages.map(m => {
-      const isMe = (m.sender_id === myId);
-      const timeStr = m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-
-      let roomCard = '';
-      if (m.room_key) {
-        roomCard = `
-          <div style="margin-top: 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(56,189,248,0.4); border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-            <div>
-              <div style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase;">🎲 Live Game Tracker Room</div>
-              <div style="font-family: monospace; font-size: 0.95rem; font-weight: 800; color: #fff;">${m.room_key}</div>
-            </div>
-            <a href="/11th/tracker/play?room=${encodeURIComponent(m.room_key)}" target="_blank" class="btn btn-primary" style="padding: 4px 10px; font-size: 0.72rem; text-decoration: none;">
-              Join Room ↗
-            </a>
-          </div>
-        `;
-      }
-
-      return `
-        <div class="oc-msg-bubble ${isMe ? 'oc-msg-out' : 'oc-msg-in'}">
-          <div style="font-size: 0.7rem; opacity: 0.75; margin-bottom: 3px;">
-            ${escapeHtml(isMe ? 'You' : m.sender_name)} • ${timeStr}
-          </div>
-          <div>${escapeHtml(m.message_text)}</div>
-          ${roomCard}
-        </div>
-      `;
-    }).join('');
-
-    if (!scrollOnlyIfNearBottom || wasNearBottom) {
-      msgContainer.scrollTop = msgContainer.scrollHeight;
+    // If snapshot has already populated newer messages, don't clobber unless messages count is >=
+    if (!connectState.chatSnapshotUnsub || !connectState.activeMessages || connectState.activeMessages.length <= messages.length) {
+      connectState.activeMessages = messages;
+      renderChatMessages(messages, scrollOnlyIfNearBottom);
     }
 
   } catch (err) {
@@ -807,14 +916,64 @@ async function handleSendChatMessage(e) {
   if (!text) return;
 
   input.value = '';
+
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+  const myName = (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'You';
+
+  let randomHex = "";
+  if (window.crypto && window.crypto.getRandomValues) {
+    const bytes = new Uint8Array(8);
+    window.crypto.getRandomValues(bytes);
+    randomHex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  } else {
+    randomHex = Math.random().toString(16).slice(2, 18);
+  }
+  const msgId = `msg_${randomHex}`;
+  const nowIso = new Date().toISOString();
+
+  const newMsg = {
+    id: msgId,
+    request_id: connectState.activeRequestId,
+    sender_id: myId,
+    sender_name: myName,
+    message_text: text,
+    room_key: null,
+    created_at: nowIso
+  };
+
+  // 1. Instant optimistic local render (0ms response)
+  if (!connectState.activeMessages) connectState.activeMessages = [];
+  connectState.activeMessages.push(newMsg);
+  renderChatMessages(connectState.activeMessages, false);
+
+  // 2. Real-time push via Firestore
+  const fsDb = getConnectFirestoreDb();
+  if (fsDb && firebase.firestore?.FieldValue) {
+    try {
+      const docRef = fsDb.collection('connect_chats').doc(connectState.activeRequestId);
+      docRef.set({
+        requestId: connectState.activeRequestId,
+        lastMessage: text,
+        lastSenderId: myId,
+        lastSenderName: myName,
+        updatedAt: Date.now(),
+        messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
+      }, { merge: true }).catch(err => {
+        console.warn("Notice pushing message to Firestore:", err);
+      });
+    } catch (err) {
+      console.warn("Notice writing to Firestore:", err);
+    }
+  }
+
+  // 3. Durable write to PostgreSQL
   try {
-    const res = await window.api.sendConnectMessage(connectState.activeRequestId, text);
+    const res = await window.api.sendConnectMessage(connectState.activeRequestId, text, null, msgId);
     if (res && res.success) {
-      await refreshActiveMessages(false);
       loadUserRequests();
     }
   } catch (err) {
-    alert('Failed to send message: ' + err.message);
+    console.warn('Failed to persist message to server:', err);
   }
 }
 
@@ -829,10 +988,60 @@ async function createGameTrackerRoomForChat() {
 
   const msg = `🎲 I generated an OmniTactica Game Tracker match room! Click the button below to join the digital scorecard.`;
 
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+  const myName = (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'You';
+
+  let randomHex = "";
+  if (window.crypto && window.crypto.getRandomValues) {
+    const bytes = new Uint8Array(8);
+    window.crypto.getRandomValues(bytes);
+    randomHex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  } else {
+    randomHex = Math.random().toString(16).slice(2, 18);
+  }
+  const msgId = `msg_${randomHex}`;
+  const nowIso = new Date().toISOString();
+
+  const newMsg = {
+    id: msgId,
+    request_id: connectState.activeRequestId,
+    sender_id: myId,
+    sender_name: myName,
+    message_text: msg,
+    room_key: roomCode,
+    created_at: nowIso
+  };
+
+  // 1. Instant optimistic local render (0ms response)
+  if (!connectState.activeMessages) connectState.activeMessages = [];
+  connectState.activeMessages.push(newMsg);
+  renderChatMessages(connectState.activeMessages, false);
+
+  // 2. Real-time push via Firestore
+  const fsDb = getConnectFirestoreDb();
+  if (fsDb && firebase.firestore?.FieldValue) {
+    try {
+      const docRef = fsDb.collection('connect_chats').doc(connectState.activeRequestId);
+      docRef.set({
+        requestId: connectState.activeRequestId,
+        lastMessage: `🎲 Live Game Tracker Room: ${roomCode}`,
+        lastSenderId: myId,
+        lastSenderName: myName,
+        updatedAt: Date.now(),
+        messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
+      }, { merge: true }).catch(err => {
+        console.warn("Notice pushing room to Firestore:", err);
+      });
+    } catch (err) {
+      console.warn("Notice writing room to Firestore:", err);
+    }
+  }
+
+  // 3. Durable write to PostgreSQL
   try {
-    const res = await window.api.sendConnectMessage(connectState.activeRequestId, msg, roomCode);
+    const res = await window.api.sendConnectMessage(connectState.activeRequestId, msg, roomCode, msgId);
     if (res && res.success) {
-      await refreshActiveMessages(false);
+      loadUserRequests();
     }
   } catch (err) {
     alert('Failed to create room: ' + err.message);
@@ -843,10 +1052,13 @@ function startChatPolling() {
   stopChatPolling();
   connectState.chatPollInterval = setInterval(() => {
     if (connectState.activeSubtab === 'chats') {
-      refreshActiveMessages(true);
+      // If Firestore push listener is active, avoid duplicate polling of messages
+      if (!connectState.chatSnapshotUnsub) {
+        refreshActiveMessages(true);
+      }
       loadUserRequests();
     }
-  }, 4000);
+  }, 8000);
 }
 
 function stopChatPolling() {

@@ -210,6 +210,117 @@ class FirestoreRoomEngine:
         rooms.sort(key=lambda r: r.get("updatedAt") or r.get("updated_at") or 0, reverse=True)
         return rooms
 
+    def get_chat_doc_ref(self, request_id: str):
+        if not request_id or not self._client:
+            return None
+        return self._client.collection("connect_chats").document(request_id.strip())
+
+    def append_chat_message(self, request_id: str, message_data: Dict[str, Any], participants: Optional[List[str]] = None) -> bool:
+        """Appends a single message to connect_chats/{request_id} in Firestore."""
+        request_id = request_id.strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        doc_data: Dict[str, Any] = {
+            "requestId": request_id,
+            "lastMessage": message_data.get("message_text") or (f"🎲 Live Game Tracker Room: {message_data.get('room_key')}" if message_data.get("room_key") else ""),
+            "lastSenderId": message_data.get("sender_id"),
+            "lastSenderName": message_data.get("sender_name"),
+            "updatedAt": now_ts
+        }
+        if participants:
+            doc_data["participants"] = participants
+
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(request_id)
+                if ref:
+                    doc_snap = ref.get()
+                    if doc_snap.exists:
+                        d = doc_snap.to_dict() or {}
+                        existing_msgs = d.get("messages", [])
+                        msg_id = message_data.get("id")
+                        if msg_id and any(m.get("id") == msg_id for m in existing_msgs):
+                            # Already recorded in Firestore
+                            return True
+
+                    if FIRESTORE_AVAILABLE and hasattr(firestore, "ArrayUnion"):
+                        doc_data["messages"] = firestore.ArrayUnion([message_data])
+                    else:
+                        existing = (doc_snap.to_dict().get("messages", []) if doc_snap.exists else [])
+                        existing.append(message_data)
+                        doc_data["messages"] = existing
+
+                    ref.set(doc_data, merge=True)
+                    return True
+            except Exception as e:
+                logger.error(f"❌ [FIRESTORE] Error appending chat message to {request_id}: {e}")
+
+        # In-memory fallback
+        if request_id not in self._fallback_rooms:
+            self._fallback_rooms[request_id] = {
+                "requestId": request_id,
+                "participants": participants or [],
+                "messages": []
+            }
+        cache = self._fallback_rooms[request_id]
+        cache.update(doc_data)
+        if "messages" not in cache or not isinstance(cache["messages"], list):
+            cache["messages"] = []
+        msg_id = message_data.get("id")
+        if not msg_id or not any(m.get("id") == msg_id for m in cache["messages"]):
+            cache["messages"].append(message_data)
+        return True
+
+    def sync_chat_history(self, request_id: str, messages: List[Dict[str, Any]], request_meta: Optional[Dict[str, Any]] = None) -> bool:
+        """Seeds or updates full chat history in Firestore from PostgreSQL."""
+        request_id = request_id.strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+        participants = []
+        if request_meta:
+            participants = [p for p in [request_meta.get("sender_id"), request_meta.get("receiver_id")] if p]
+
+        clean_messages = []
+        for m in messages:
+            msg_dict = dict(m)
+            created_at = msg_dict.get("created_at")
+            if hasattr(created_at, "isoformat"):
+                msg_dict["created_at"] = created_at.isoformat()
+            elif created_at is not None:
+                msg_dict["created_at"] = str(created_at)
+
+            read_at = msg_dict.get("read_at")
+            if hasattr(read_at, "isoformat"):
+                msg_dict["read_at"] = read_at.isoformat()
+            elif read_at is not None:
+                msg_dict["read_at"] = str(read_at)
+
+            clean_messages.append(msg_dict)
+
+        doc_data: Dict[str, Any] = {
+            "requestId": request_id,
+            "participants": participants,
+            "messages": clean_messages,
+            "updatedAt": now_ts
+        }
+        if clean_messages:
+            last = clean_messages[-1]
+            doc_data["lastMessage"] = last.get("message_text") or (f"🎲 Live Room: {last.get('room_key')}" if last.get("room_key") else "")
+            doc_data["lastSenderId"] = last.get("sender_id")
+            doc_data["lastSenderName"] = last.get("sender_name")
+
+        if self._client:
+            try:
+                ref = self.get_chat_doc_ref(request_id)
+                if ref:
+                    ref.set(doc_data, merge=True)
+                    return True
+            except Exception as e:
+                logger.error(f"❌ [FIRESTORE] Error syncing chat history to {request_id}: {e}")
+
+        self._fallback_rooms[request_id] = doc_data
+        return True
+
 # Singleton instance
 _firestore_engine_instance = None
 

@@ -859,11 +859,11 @@ window.api = {
   },
 
   // OmniConnect: Send Message
-  async sendConnectMessage(requestId, text, roomKey = null) {
+  async sendConnectMessage(requestId, text, roomKey = null, messageId = null) {
     return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/message`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
-      body: JSON.stringify({ message: text, room_key: roomKey })
+      body: JSON.stringify({ message: text, room_key: roomKey, message_id: messageId })
     });
   },
 

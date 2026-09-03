@@ -242,6 +242,7 @@ if FASTAPI_AVAILABLE:
     class ChatMessagePayload(BaseModel):
         message: str
         room_key: Optional[str] = None
+        message_id: Optional[str] = None
 
     def execute_bcp_api_call(
         url: str,
@@ -993,6 +994,14 @@ if FASTAPI_AVAILABLE:
         res = db.get_chat_messages(request_id, user["id"])
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to load messages"))
+
+        # Sync messages into Firestore room engine for real-time push subscribers
+        try:
+            fs_engine = get_firestore_engine()
+            fs_engine.sync_chat_history(request_id, res.get("messages", []), res.get("request"))
+        except Exception as e:
+            logger.warning(f"Notice syncing chat history to Firestore: {e}")
+
         return res
 
     @app.post("/api/connect/request/{request_id}/message", summary="Send message in request thread")
@@ -1005,9 +1014,26 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=401, detail="Authentication required")
 
         db = get_database()
-        res = db.send_chat_message(request_id, user["id"], payload.message, payload.room_key)
+        res = db.send_chat_message(request_id, user["id"], payload.message, payload.room_key, payload.message_id)
         if not res.get("success"):
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message"))
+
+        # Real-time Firestore synchronization
+        try:
+            fs_engine = get_firestore_engine()
+            msg_obj = {
+                "id": res.get("message_id") or payload.message_id,
+                "request_id": request_id,
+                "sender_id": user["id"],
+                "sender_name": user.get("display_name") or "Player",
+                "message_text": payload.message.strip() if payload.message else "",
+                "room_key": payload.room_key.strip() if payload.room_key else None,
+                "created_at": res.get("created_at") or datetime.now(timezone.utc).isoformat()
+            }
+            fs_engine.append_chat_message(request_id, msg_obj)
+        except Exception as e:
+            logger.warning(f"Notice pushing chat message to Firestore: {e}")
+
         return res
 
     @app.get("/api/connect/unread-count", summary="Get total unread requests and messages count")

@@ -4351,13 +4351,13 @@ class PostgresDatabase:
                     "messages": messages
                 }
 
-    def send_chat_message(self, request_id: str, sender_id: str, message_text: str, room_key: Optional[str] = None) -> Dict[str, Any]:
+    def send_chat_message(self, request_id: str, sender_id: str, message_text: str, room_key: Optional[str] = None, message_id: Optional[str] = None) -> Dict[str, Any]:
         """Appends a new chat message to an accepted match request."""
         if not message_text and not room_key:
             return {"success": False, "error": "Message content cannot be empty"}
 
         import uuid
-        msg_id = f"msg_{uuid.uuid4().hex[:16]}"
+        msg_id = message_id.strip() if (message_id and isinstance(message_id, str)) else f"msg_{uuid.uuid4().hex[:16]}"
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("SELECT sender_id, receiver_id, status FROM match_requests WHERE id = %s;", (request_id,))
@@ -4375,12 +4375,19 @@ class PostgresDatabase:
                     INSERT INTO match_chat_messages (
                         id, request_id, sender_id, message_text, room_key, created_at
                     ) VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (id) DO NOTHING
                     RETURNING id, created_at;
-                """, (msg_id, request_id, sender_id, message_text.strip(), room_key.strip() if room_key else None))
+                """, (msg_id, request_id, sender_id, (message_text or '').strip(), room_key.strip() if room_key else None))
+                row = cursor.fetchone()
+                if not row:
+                    cursor.execute("SELECT created_at FROM match_chat_messages WHERE id = %s;", (msg_id,))
+                    row = cursor.fetchone()
 
                 cursor.execute("UPDATE match_requests SET updated_at = NOW() WHERE id = %s;", (request_id,))
                 conn.commit()
-                return {"success": True, "message_id": msg_id}
+                created_at = row["created_at"] if row else None
+                created_at_str = created_at.isoformat() if hasattr(created_at, "isoformat") else (str(created_at) if created_at else None)
+                return {"success": True, "message_id": msg_id, "created_at": created_at_str}
 
     def get_connect_unread_count(self, user_id: str) -> int:
         """Returns total unread match requests and chat messages for user."""
