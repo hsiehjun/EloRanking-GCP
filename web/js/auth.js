@@ -40,6 +40,10 @@ function syncAppAuthView() {
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && canAccessTO) ? 'flex' : 'none';
   }
+  const mobEsOpt = document.getElementById('mobile-opt-event-studio');
+  if (mobEsOpt) {
+    mobEsOpt.style.display = (currentUser && canAccessTO) ? '' : 'none';
+  }
 
   if (currentUser) {
     if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; } #app-header { display: block !important; }';
@@ -451,6 +455,10 @@ function renderHeaderAuth() {
 
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
+  }
+  const mobEsOpt = document.getElementById('mobile-opt-event-studio');
+  if (mobEsOpt) {
+    mobEsOpt.style.display = (currentUser && isUserTO(currentUser)) ? '' : 'none';
   }
 
   if (!container) return;

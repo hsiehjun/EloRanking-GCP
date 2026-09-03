@@ -111,7 +111,7 @@
           <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">For The 40K Community.</span>
         </h1>
         <p class="landing-subtitle">
-          OmniTactica is created by passionate tournament players and local organizers to unite the Warhammer 40k hobby without paywalls or subscriptions. Discover your local scene in the <strong>Community Hub</strong>, track <strong>Local Player & Team Leaderboards</strong>, find nearby sparring partners with <strong>OmniConnect Sparring Radar</strong>, score games live with our peer-to-peer <strong>Sync Game Tracker</strong>, explore transparent global Elo ratings across <strong>92,100+</strong> competitors, and empower local Tournament Organizers.
+          OmniTactica is created by passionate tournament players and local organizers to bring the Warhammer 40k tabletop community together with modern digital tools. Discover your local scene in the <strong>Community Hub</strong>, track <strong>Local Player & Team Leaderboards</strong>, find nearby sparring partners with <strong>OmniConnect Sparring Radar</strong>, score games live with our peer-to-peer <strong>Sync Game Tracker</strong>, explore transparent global Elo ratings across <strong>92,100+</strong> competitors, and empower local Tournament Organizers.
         </p>
 
         <!-- Hero CTAs -->
@@ -136,7 +136,7 @@
           </div>
           <div>
             <div class="landing-stat-val">100% Free</div>
-            <div class="landing-stat-lbl">Open Elo & No Paywalls</div>
+            <div class="landing-stat-lbl">Open Elo & Match Data</div>
           </div>
           <div>
             <div class="landing-stat-val">OmniConnect</div>
@@ -195,10 +195,10 @@
         </div>
         <h2 class="landing-sec-title" style="font-size: clamp(1.8rem, 3.5vw, 2.5rem);">
           Your Local Tabletop Scene.<br>
-          <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">United Without Paywalls or Subscriptions.</span>
+          <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Connected &amp; Seamless.</span>
         </h2>
         <p class="landing-sec-sub" style="max-width: 800px; margin: 0 auto;">
-          OmniTactica is built on a fundamental principle: competitive data, tournament tools, matchmaking, and player Elo ratings belong to the players who build the hobby—not locked behind corporate paywalls.
+          OmniTactica is built to empower the tabletop community: competitive data, tournament tools, matchmaking, and player Elo ratings designed specifically for players, clubs, and local tournament organizers.
         </p>
       </div>
 
@@ -243,10 +243,10 @@
           <span style="font-size: 1.6rem;">🛡️</span>
           <div>
             <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">
-              No Paywalls. No Premium Tiers. No Pay-To-Win.
+              Built for Every Player, Club, and Tournament Organizer.
             </div>
             <div style="font-size: 0.82rem; color: #cbd5e1; margin-top: 2px;">
-              Every feature in OmniTactica is 100% accessible to every player and tournament organizer in the Warhammer 40,000 community.
+              Every feature in OmniTactica is 100% accessible to everyone in the Warhammer 40,000 community.
             </div>
           </div>
         </div>
@@ -855,6 +855,26 @@
         </button>
       </div>
 
+      <!-- Mobile Tab Dropdown Selector (Rendered on mobile only) -->
+      <div class="mobile-nav-wrapper">
+        <div class="mobile-nav-select-wrap">
+          <select id="mobile-nav-select" class="mobile-nav-select" onchange="handleMobileNavChange(this.value)" aria-label="Switch Tab">
+            <option value="my-hub">🏠 My Hub</option>
+            <option value="community">👥 Community Hub</option>
+            <option value="chat" id="mobile-opt-chat">💬 Chat</option>
+            <option value="tracker">🎲 Game Tracker</option>
+            <option value="leaderboard" selected>🏆 Leaderboard</option>
+            <option value="search">🔍 Search Directory</option>
+            <option value="event-studio" id="mobile-opt-event-studio" style="display: none;">🛠️ Event Studio (TO)</option>
+          </select>
+          <div class="mobile-nav-select-arrow" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </div>
+        </div>
+      </div>
+
       <!-- User Account Action & Feedback Area -->
       <div class="header-actions-group" style="display: flex; align-items: center; gap: 0.6rem;">
         <button id="nav-btn-feedback" onclick="openFeedbackModal()" class="nav-btn" style="padding: 5px 12px; font-size: 0.82rem; display: none; align-items: center; gap: 5px; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; background: rgba(15,23,42,0.6); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#38bdf8'; this.style.borderColor='rgba(56,189,248,0.4)';" onmouseout="this.style.color='#94a3b8'; this.style.borderColor='rgba(255,255,255,0.1)';" title="Send Feedback or Report an Issue">
@@ -878,9 +898,9 @@
       <div class="comm-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
         
         <!-- Unified Community Hub Header & Controls Banner -->
-        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.9) 100%); border: 1px solid rgba(56, 189, 248, 0.28); border-radius: var(--radius-lg); padding: 1.1rem 1.4rem; margin-bottom: 1.1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
-          <!-- Left: Title & Description -->
-          <div style="min-width: 260px; flex: 1;">
+        <div class="comm-header-banner">
+          <!-- Left: Title & Description (Hidden on mobile to save vertical real estate) -->
+          <div class="comm-header-title-box mobile-hidden">
             <h2 id="comm-header-title" style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
               Local 40k Scene within 50 miles of San Diego, CA
             </h2>
@@ -890,7 +910,7 @@
           </div>
 
           <!-- Right: Status, Location, Radius & GPS Controls -->
-          <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; justify-content: flex-end;">
+          <div class="comm-header-controls">
             <!-- Status Toggle -->
             <button id="btn-toggle-lfg" onclick="toggleUserLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Toggle your Sparring Radar game availability">
               <span id="user-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
@@ -979,7 +999,7 @@
         <div id="comm-subview-stores" class="comm-subview" style="display: none;">
           <div class="comm-stores-header-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-              <div>
+              <div class="mobile-hidden">
                 <h3 style="font-size: 1.18rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
                   <span>🏪 Local Warhammer 40k Game Stores &amp; Tabletop Clubs</span>
                 </h3>
@@ -1076,7 +1096,7 @@
     <!-- TAB: DEDICATED SPARRING & MATCH CHAT -->
     <section id="tab-chat" class="tab-panel">
       <div class="comm-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
-        <div class="chat-tab-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 0.75rem;">
+        <div class="chat-tab-header mobile-hidden" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 0.75rem;">
           <div>
             <h2 style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem; display: flex; align-items: center; gap: 8px;">
               <span>💬 Direct Sparring &amp; Match Chat</span>
@@ -1191,7 +1211,7 @@
 
       <!-- View 1: Players Leaderboard -->
       <div id="lead-view-players">
-        <div class="controls-bar">
+        <div class="controls-bar mobile-hidden">
           <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem;">
             <span>👑 Global Player Elo Standings</span>
           </div>
@@ -1226,7 +1246,7 @@
 
       <!-- View 2: Teams Leaderboard -->
       <div id="lead-view-teams" style="display: none;">
-        <div class="controls-bar">
+        <div class="controls-bar mobile-hidden">
           <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem;">
             <span>🛡️ Global Team Power Standings</span>
             <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">(Search gaming clubs in 🔍 Search)</span>

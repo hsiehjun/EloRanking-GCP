@@ -47,6 +47,12 @@ function switchTab(tabName) {
                       document.querySelector(`.nav-btn[onclick*="'${tabName}'"]`);
   if (matchingBtn) matchingBtn.classList.add('active');
 
+  // Synchronize mobile dropdown tab selector
+  const mobNavSelect = document.getElementById('mobile-nav-select');
+  if (mobNavSelect) {
+    mobNavSelect.value = tabName;
+  }
+
   // Update tab panel visibility
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.remove('active');
@@ -121,6 +127,18 @@ function switchTab(tabName) {
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   }
 }
+
+/**
+ * Handle selection from mobile navigation tab dropdown
+ */
+function handleMobileNavChange(val) {
+  if (val === 'tracker') {
+    window.location.href = '/11th/tracker';
+  } else {
+    switchTab(val);
+  }
+}
+window.handleMobileNavChange = handleMobileNavChange;
 
 // Support hash navigation and reactive updates across tabs
 window.addEventListener('hashchange', () => {
