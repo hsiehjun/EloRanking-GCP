@@ -7,7 +7,7 @@ PostgreSQL is strictly cold storage for finalized verified scorecards.
 import os
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("elo_ranking.firestore")
 
@@ -219,13 +219,15 @@ class FirestoreRoomEngine:
         """Appends a single message to connect_chats/{request_id} in Firestore."""
         request_id = request_id.strip()
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        expires_dt = datetime.now(timezone.utc) + timedelta(days=30)
 
         doc_data: Dict[str, Any] = {
             "requestId": request_id,
             "lastMessage": message_data.get("message_text") or (f"🎲 Live Game Tracker Room: {message_data.get('room_key')}" if message_data.get("room_key") else ""),
             "lastSenderId": message_data.get("sender_id"),
             "lastSenderName": message_data.get("sender_name"),
-            "updatedAt": now_ts
+            "updatedAt": now_ts,
+            "expiresAt": expires_dt
         }
         if participants:
             doc_data["participants"] = participants
@@ -275,6 +277,7 @@ class FirestoreRoomEngine:
         """Seeds or updates full chat history in Firestore from PostgreSQL."""
         request_id = request_id.strip()
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        expires_dt = datetime.now(timezone.utc) + timedelta(days=30)
 
         participants = []
         if request_meta:
@@ -301,7 +304,8 @@ class FirestoreRoomEngine:
             "requestId": request_id,
             "participants": participants,
             "messages": clean_messages,
-            "updatedAt": now_ts
+            "updatedAt": now_ts,
+            "expiresAt": expires_dt
         }
         if clean_messages:
             last = clean_messages[-1]

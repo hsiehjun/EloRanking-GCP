@@ -950,13 +950,20 @@ async function handleSendChatMessage(e) {
   const fsDb = getConnectFirestoreDb();
   if (fsDb && firebase.firestore?.FieldValue) {
     try {
+      const now = Date.now();
+      const expiresAtDate = new Date(now + (30 * 24 * 60 * 60 * 1000));
+      const expiresAt = (firebase.firestore?.Timestamp)
+        ? firebase.firestore.Timestamp.fromDate(expiresAtDate)
+        : expiresAtDate;
+
       const docRef = fsDb.collection('connect_chats').doc(connectState.activeRequestId);
       docRef.set({
         requestId: connectState.activeRequestId,
         lastMessage: text,
         lastSenderId: myId,
         lastSenderName: myName,
-        updatedAt: Date.now(),
+        updatedAt: now,
+        expiresAt: expiresAt,
         messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
       }, { merge: true }).catch(err => {
         console.warn("Notice pushing message to Firestore:", err);
@@ -1021,13 +1028,20 @@ async function createGameTrackerRoomForChat() {
   const fsDb = getConnectFirestoreDb();
   if (fsDb && firebase.firestore?.FieldValue) {
     try {
+      const now = Date.now();
+      const expiresAtDate = new Date(now + (30 * 24 * 60 * 60 * 1000));
+      const expiresAt = (firebase.firestore?.Timestamp)
+        ? firebase.firestore.Timestamp.fromDate(expiresAtDate)
+        : expiresAtDate;
+
       const docRef = fsDb.collection('connect_chats').doc(connectState.activeRequestId);
       docRef.set({
         requestId: connectState.activeRequestId,
         lastMessage: `🎲 Live Game Tracker Room: ${roomCode}`,
         lastSenderId: myId,
         lastSenderName: myName,
-        updatedAt: Date.now(),
+        updatedAt: now,
+        expiresAt: expiresAt,
         messages: firebase.firestore.FieldValue.arrayUnion(newMsg)
       }, { merge: true }).catch(err => {
         console.warn("Notice pushing room to Firestore:", err);
