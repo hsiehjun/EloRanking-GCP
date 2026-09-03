@@ -5886,6 +5886,21 @@ if FASTAPI_AVAILABLE:
             location_name=location_name
         )
 
+    @app.get("/api/community/store/tournaments", summary="Get all tournaments hosted by a local game store")
+    async def api_community_store_tournaments(
+        name: str = Query(..., description="Store or venue name"),
+        lat: Optional[float] = Query(None, description="Store latitude"),
+        lng: Optional[float] = Query(None, description="Store longitude"),
+        place_id: Optional[str] = Query(None, description="Google Place ID")
+    ):
+        db = get_database()
+        return db.get_store_tournaments(
+            store_name=name,
+            lat=lat,
+            lng=lng,
+            place_id=place_id
+        )
+
     @app.get("/api/community/chat/messages", summary="Get Regional Community Chat Messages")
     async def api_community_chat_messages(
         region: str = Query("socal"),

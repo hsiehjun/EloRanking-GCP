@@ -2442,6 +2442,45 @@
     </div>
   </div>
 
+  <!-- Store Hosted Tournaments Modal -->
+  <div id="store-tournaments-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-window" style="max-width: 760px; max-height: 85vh;">
+      <div class="modal-header" style="border-bottom: 1px solid var(--border); padding: 1.2rem 1.5rem;">
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <h2 id="store-tournaments-modal-title" style="font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Store Tournaments</h2>
+            <span id="store-tournaments-modal-badge" class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-weight: 700; font-size: 0.74rem;">0 verified events</span>
+          </div>
+          <div id="store-tournaments-modal-address" style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.35rem; display: flex; align-items: center; gap: 6px;">
+            <span>📍</span>
+            <span id="store-tournaments-modal-address-text" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">-</span>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-left: 1rem;">
+          <button class="modal-close" onclick="closeModal('store-tournaments-modal')" title="Close">✕</button>
+        </div>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem 1.5rem; overflow-y: auto;">
+        <!-- Filter / Search bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 1rem; flex-wrap: wrap;">
+          <div style="font-size: 0.8rem; color: #94a3b8;">
+            <span>Verified Warhammer 40,000 tournaments hosted at this venue:</span>
+          </div>
+          <div style="position: relative; width: 220px;">
+            <input type="text" id="store-tournaments-search" placeholder="Search tournaments..." oninput="filterStoreTournamentsModal(this.value)" style="width: 100%; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.78rem; padding: 0.38rem 0.65rem 0.38rem 1.85rem;" />
+            <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: #64748b; pointer-events: none;">🔍</span>
+          </div>
+        </div>
+
+        <!-- Tournaments list -->
+        <div id="store-tournaments-modal-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Tournament Details Modal -->
   <div id="event-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window">

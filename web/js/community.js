@@ -21,6 +21,7 @@ const communityState = {
   storesMarkers: [],
   storesInfoWindow: null,
   storesLoading: false,
+  currentStoreTournaments: [],
   overview: null,
   isLoading: false,
   chatMessages: [],
@@ -1790,7 +1791,7 @@ function renderStoreCard(store) {
         ` : ''}
 
         ${isTourney ? `
-          <button onclick="filterTournamentsByVenue('${escapeHtml(store.name)}')" class="comm-store-btn" title="View tournaments at this venue">
+          <button onclick="openStoreTournamentsModal('${escapeHtml(store.id)}')" class="comm-store-btn" title="View all tournaments hosted at this venue">
             <span>⚔️</span> <span>Tournaments</span>
           </button>
         ` : ''}
@@ -1918,10 +1919,15 @@ function initStoresGoogleMap(stores = null) {
             <span>🚗 <strong>${store.distance_miles != null ? store.distance_miles.toFixed(1) : '?'} mi</strong></span>
             ${store.rating ? `<span>⭐ <strong>${store.rating.toFixed(1)}</strong> (${store.user_ratings_total || 0})</span>` : (isTourney ? '<span style="color: #10b981; font-weight: 700;">✓ Tournament Host</span>' : '')}
           </div>
-          <div style="display: flex; gap: 6px; align-items: center;">
+          <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
             <a href="${escapeHtml(dirUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 700; padding: 4px 10px; background: #0284c7; color: #ffffff; border-radius: 4px; text-decoration: none; display: inline-block;">
               🧭 Directions
             </a>
+            ${isTourney ? `
+              <button onclick="openStoreTournamentsModal('${escapeHtml(store.id)}')" style="font-size: 11px; font-weight: 700; padding: 4px 8px; background: rgba(56,189,248,0.15); color: #0284c7; border: 1px solid rgba(56,189,248,0.35); border-radius: 4px; cursor: pointer;">
+                ⚔️ Tournaments (${store.tournament_count})
+              </button>
+            ` : ''}
             <button onclick="setStoreAsMatchmakingLocation('${escapeHtml(store.id)}')" style="font-size: 11px; font-weight: 700; padding: 4px 8px; background: #f1f5f9; color: #0284c7; border: 1px solid #cbd5e1; border-radius: 4px; cursor: pointer;">
               📍 Set Location
             </button>
@@ -2110,6 +2116,190 @@ function clearTournamentsVenueFilter() {
 }
 
 /**
+ * Opens the Store Tournaments popup modal and loads verified tournaments
+ */
+async function openStoreTournamentsModal(storeId) {
+  const store = (communityState.stores || []).find(s => String(s.id) === String(storeId) || String(s.place_id) === String(storeId));
+  const modal = document.getElementById('store-tournaments-modal');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('store-tournaments-modal-title');
+  const badgeEl = document.getElementById('store-tournaments-modal-badge');
+  const addrEl = document.getElementById('store-tournaments-modal-address-text');
+  const listEl = document.getElementById('store-tournaments-modal-list');
+  const searchEl = document.getElementById('store-tournaments-search');
+
+  const storeName = store ? store.name : 'Game Store';
+  const storeAddr = store ? (store.address || store.city || '') : '';
+  const initialCount = store ? (store.tournament_count || 0) : 0;
+
+  if (titleEl) titleEl.innerText = storeName;
+  if (addrEl) addrEl.innerText = storeAddr || 'Address unavailable';
+  if (badgeEl) badgeEl.innerText = `${initialCount} verified event${initialCount === 1 ? '' : 's'}`;
+  if (searchEl) searchEl.value = '';
+
+  if (listEl) {
+    listEl.innerHTML = `
+      <div style="text-align: center; padding: 2.5rem; color: #94a3b8;">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.9rem; font-weight: 600; color: #fff;">Loading verified tournaments...</div>
+        <div style="font-size: 0.76rem; color: #64748b; margin-top: 0.25rem;">Fetching tournament records for ${escapeHtml(storeName)}</div>
+      </div>
+    `;
+  }
+
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+  }
+
+  try {
+    const lat = store?.latitude ?? null;
+    const lng = store?.longitude ?? null;
+    const placeId = store?.place_id ?? (String(storeId).startsWith('ChIJ') ? storeId : null);
+
+    const res = await window.api.getStoreTournaments(storeName, lat, lng, placeId);
+    if (!res || !res.success) {
+      throw new Error(res?.error || 'Failed to fetch tournaments');
+    }
+
+    const tournaments = res.tournaments || [];
+    communityState.currentStoreTournaments = tournaments;
+
+    if (badgeEl) {
+      badgeEl.innerText = `${tournaments.length} verified event${tournaments.length === 1 ? '' : 's'}`;
+    }
+
+    renderStoreTournamentsModalList(tournaments);
+  } catch (err) {
+    console.error('Failed to load store tournaments:', err);
+    if (listEl) {
+      listEl.innerHTML = `
+        <div style="text-align: center; padding: 2rem; color: #f87171; background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.2); border-radius: 8px;">
+          <div style="font-size: 1.5rem; margin-bottom: 0.35rem;">⚠️</div>
+          <div style="font-size: 0.88rem; font-weight: 700;">Failed to load tournaments</div>
+          <div style="font-size: 0.76rem; color: #fca5a5; margin-top: 0.2rem;">${escapeHtml(err.message || 'An unexpected error occurred')}</div>
+          <button onclick="openStoreTournamentsModal('${escapeHtml(storeId)}')" class="btn btn-outline" style="font-size: 0.75rem; margin-top: 0.75rem; color: #38bdf8;">
+            🔄 Retry
+          </button>
+        </div>
+      `;
+    }
+  }
+}
+
+/**
+ * Renders the tournament cards inside the store tournaments modal list
+ */
+function renderStoreTournamentsModalList(tournaments) {
+  const listEl = document.getElementById('store-tournaments-modal-list');
+  if (!listEl) return;
+
+  if (!tournaments || tournaments.length === 0) {
+    listEl.innerHTML = `
+      <div style="text-align: center; padding: 2.5rem 1rem; color: #94a3b8; background: rgba(15, 23, 42, 0.4); border-radius: 8px; border: 1px dashed var(--border);">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚔️</div>
+        <div style="font-size: 0.95rem; font-weight: 700; color: #fff;">No Tournaments Found</div>
+        <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;">No historical Warhammer 40,000 tournaments recorded at this venue yet.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  tournaments.forEach(ev => {
+    const dateStr = ev.event_date ? ev.event_date.slice(0, 10) : 'Date TBD';
+    const isEnded = ev.is_ended || (ev.event_date && new Date(ev.event_date) < new Date());
+    const winnerName = ev.winner_name;
+    const winnerFaction = ev.winner_faction;
+    const totalPlayers = ev.total_players || 0;
+    const numRounds = ev.num_rounds || 0;
+
+    html += `
+      <div class="comm-store-tourney-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.9rem 1.15rem; transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(56,189,248,0.4)'; this.style.background='rgba(15,23,42,0.85)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(15,23,42,0.6)';">
+        <!-- Top meta bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem; flex-wrap: wrap; gap: 6px;">
+          <span class="badge" style="background: rgba(255, 255, 255, 0.06); color: #94a3b8; border: 1px solid rgba(255, 255, 255, 0.1); font-size: 0.72rem; font-family: monospace;">
+            📅 ${escapeHtml(dateStr)}
+          </span>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span class="badge" style="background: ${isEnded ? 'rgba(16,185,129,0.1)' : 'rgba(56,189,248,0.1)'}; color: ${isEnded ? '#10b981' : '#38bdf8'}; border: 1px solid ${isEnded ? 'rgba(16,185,129,0.25)' : 'rgba(56,189,248,0.25)'}; font-size: 0.7rem; font-weight: 700;">
+              ${isEnded ? '✓ Completed' : '⚡ Upcoming'}
+            </span>
+            <span class="badge" style="background: rgba(148,163,184,0.1); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.2); font-size: 0.7rem;">
+              ${escapeHtml(ev.event_type || 'Singles')}
+            </span>
+          </div>
+        </div>
+
+        <!-- Tournament Title -->
+        <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem; line-height: 1.35; cursor: pointer;" onclick="openEventModal('${escapeHtml(ev.id)}', false, 'elo')">
+          <span style="transition: color 0.15s;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#fff'">${escapeHtml(ev.name || 'Warhammer 40k Tournament')}</span>
+        </h4>
+
+        <!-- Key Details Box -->
+        <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.05); border-radius: 6px; padding: 0.55rem 0.8rem; margin-bottom: 0.75rem; display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+            <span style="color: #94a3b8;">Format &amp; Turnout:</span>
+            <span style="font-weight: 600; color: #e2e8f0;">
+              👥 ${totalPlayers} Competitor${totalPlayers === 1 ? '' : 's'} • ⚔️ ${numRounds} Swiss Round${numRounds === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          ${winnerName ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
+              <span style="color: #94a3b8;">🏆 Champion:</span>
+              <span style="font-weight: 700; color: #facc15;">
+                ${escapeHtml(winnerName)} ${winnerFaction ? `<span style="color: #94a3b8; font-weight: 500; font-size: 0.74rem;">(${escapeHtml(winnerFaction)})</span>` : ''}
+              </span>
+            </div>
+          ` : (isEnded ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: #64748b;">
+              <span>Standings:</span>
+              <span>Full bracket &amp; placings in details</span>
+            </div>
+          ` : '')}
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.42rem 0.8rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false, 'elo')">
+            📋 View Bracket &amp; Roster
+          </button>
+          <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.7rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 4px;" title="Open this event on Best Coast Pairings">
+            <span>🔗 BCP</span>
+          </a>
+        </div>
+      </div>
+    `;
+  });
+
+  listEl.innerHTML = html;
+}
+
+/**
+ * Filter modal tournaments in real-time as user types
+ */
+function filterStoreTournamentsModal(query) {
+  const q = (query || '').trim().toLowerCase();
+  const all = communityState.currentStoreTournaments || [];
+  if (!q) {
+    renderStoreTournamentsModalList(all);
+    return;
+  }
+  const filtered = all.filter(ev => {
+    return (
+      (ev.name && ev.name.toLowerCase().includes(q)) ||
+      (ev.winner_name && ev.winner_name.toLowerCase().includes(q)) ||
+      (ev.winner_faction && ev.winner_faction.toLowerCase().includes(q)) ||
+      (ev.event_date && ev.event_date.toLowerCase().includes(q))
+    );
+  });
+  renderStoreTournamentsModalList(filtered);
+}
+
+/**
  * Hook triggered when Google Maps script completes loading
  */
 function onGoogleMapsScriptLoaded() {
@@ -2145,6 +2335,9 @@ window.clearStoresSearch = clearStoresSearch;
 window.resetStoresFilters = resetStoresFilters;
 window.setStoresViewMode = setStoresViewMode;
 window.setStoreAsMatchmakingLocation = setStoreAsMatchmakingLocation;
+window.openStoreTournamentsModal = openStoreTournamentsModal;
+window.renderStoreTournamentsModalList = renderStoreTournamentsModalList;
+window.filterStoreTournamentsModal = filterStoreTournamentsModal;
 window.filterTournamentsByVenue = filterTournamentsByVenue;
 window.clearTournamentsVenueFilter = clearTournamentsVenueFilter;
 window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;

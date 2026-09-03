@@ -5987,6 +5987,177 @@ class PostgresDatabase:
         PostgresDatabase.set_cached(PostgresDatabase._stores_cache_dict, cache_key, result)
         return result
 
+    def get_store_tournaments(
+        self,
+        store_name: str,
+        lat: Optional[float] = None,
+        lng: Optional[float] = None,
+        place_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Retrieves all verified Warhammer 40k tournaments hosted by a specific game store or venue.
+        Matches by Google Place ID, spatial proximity (~350m), or normalized venue name.
+        """
+        clean_name = (store_name or "").strip()
+        s_norm = clean_name.lower().replace("'", "").replace('"', '').strip()
+
+        # Extract core name by removing common geographical / corporate suffixes
+        core_name = s_norm
+        for suffix in [" san diego", " llc", " inc", " store", " game store", " hobby shop", " games"]:
+            if core_name.endswith(suffix):
+                core_name = core_name[:-len(suffix)].strip()
+
+        p_lat = None
+        p_lng = None
+        if lat is not None and lng is not None:
+            try:
+                p_lat = float(lat)
+                p_lng = float(lng)
+            except (ValueError, TypeError):
+                p_lat = None
+                p_lng = None
+
+        events = []
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    # Spatial bounding box (~0.006 deg is ~600m)
+                    min_lat = p_lat - 0.006 if p_lat is not None else None
+                    max_lat = p_lat + 0.006 if p_lat is not None else None
+                    min_lng = p_lng - 0.006 if p_lng is not None else None
+                    max_lng = p_lng + 0.006 if p_lng is not None else None
+
+                    like_name = f"%{clean_name}%" if clean_name else "%"
+                    like_core = f"%{core_name}%" if core_name and len(core_name) >= 3 else like_name
+
+                    sql = """
+                    SELECT 
+                        e.id,
+                        e.name,
+                        e.event_date,
+                        e.end_date,
+                        e.city,
+                        e.state,
+                        e.country,
+                        COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
+                        COALESCE(e.address, e.raw_json->>'address', e.raw_json->'location'->>'address') as address,
+                        COALESCE(e.total_players, 0) as total_players,
+                        COALESCE(e.num_rounds, 0) as num_rounds,
+                        COALESCE(e.current_round, 0) as current_round,
+                        e.is_ended,
+                        e.event_type,
+                        e.latitude,
+                        e.longitude,
+                        e.place_id,
+                        COALESCE(
+                            w.winner_name,
+                            e.raw_json->>'winnerName',
+                            e.raw_json->'winner'->>'name'
+                        ) as winner_name,
+                        w.winner_faction
+                    FROM events e
+                    LEFT JOIN LATERAL (
+                        SELECT ep.full_name as winner_name, ep.faction as winner_faction
+                        FROM event_participants ep
+                        WHERE ep.event_id = e.id AND ep.placement = 1
+                        ORDER BY ep.placement ASC
+                        LIMIT 1
+                    ) w ON true
+                    WHERE 
+                        (
+                            %s IS NOT NULL AND %s IS NOT NULL
+                            AND e.latitude BETWEEN %s AND %s
+                            AND e.longitude BETWEEN %s AND %s
+                        )
+                        OR (
+                            %s IS NOT NULL AND %s != ''
+                            AND (
+                                e.place_id = %s
+                                OR e.raw_json->>'place_id' = %s
+                                OR e.raw_json->'location'->>'placeId' = %s
+                            )
+                        )
+                        OR (
+                            %s IS NOT NULL AND %s != ''
+                            AND (
+                                COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') ILIKE %s
+                                OR COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') ILIKE %s
+                            )
+                        )
+                    ORDER BY e.event_date DESC NULLS LAST;
+                    """
+
+                    params = (
+                        min_lat, min_lng, min_lat, max_lat, min_lng, max_lng,
+                        place_id, place_id, place_id, place_id, place_id,
+                        clean_name, clean_name, like_name, like_core
+                    )
+
+                    cursor.execute(sql, params)
+                    raw_rows = cursor.fetchall()
+
+                    seen_ids = set()
+                    for r in raw_rows:
+                        eid = str(r.get("id"))
+                        if eid in seen_ids:
+                            continue
+
+                        v_name = (r.get("venue") or "").strip()
+                        v_norm = v_name.lower().replace("'", "").replace('"', '').strip()
+                        ev_lat = r.get("latitude")
+                        ev_lng = r.get("longitude")
+                        ev_pid = r.get("place_id")
+
+                        is_match = False
+                        if place_id and ev_pid and ev_pid == place_id:
+                            is_match = True
+                        elif p_lat is not None and p_lng is not None and ev_lat is not None and ev_lng is not None:
+                            if abs(p_lat - float(ev_lat)) < 0.0035 and abs(p_lng - float(ev_lng)) < 0.0035:
+                                is_match = True
+
+                        if not is_match and s_norm and v_norm and len(v_norm) >= 3:
+                            if s_norm in v_norm or v_norm in s_norm:
+                                is_match = True
+                            elif core_name and len(core_name) >= 3 and (core_name in v_norm or v_norm in core_name):
+                                is_match = True
+
+                        if is_match:
+                            seen_ids.add(eid)
+                            ed = r.get("event_date")
+                            if hasattr(ed, "isoformat"):
+                                ed = ed.isoformat()
+                            end_d = r.get("end_date")
+                            if hasattr(end_d, "isoformat"):
+                                end_d = end_d.isoformat()
+
+                            events.append({
+                                "id": eid,
+                                "name": r.get("name") or "Tournament",
+                                "event_date": ed,
+                                "end_date": end_d,
+                                "city": r.get("city") or "",
+                                "state": r.get("state") or "",
+                                "country": r.get("country") or "",
+                                "venue": v_name,
+                                "address": r.get("address") or "",
+                                "total_players": int(r.get("total_players") or 0),
+                                "num_rounds": int(r.get("num_rounds") or 0),
+                                "current_round": int(r.get("current_round") or 0),
+                                "is_ended": bool(r.get("is_ended")),
+                                "event_type": r.get("event_type") or "singles",
+                                "winner_name": r.get("winner_name"),
+                                "winner_faction": r.get("winner_faction")
+                            })
+        except Exception as e:
+            logger.error(f"Error getting store tournaments for {store_name}: {e}")
+
+        return {
+            "success": True,
+            "store_name": clean_name,
+            "total_tournaments": len(events),
+            "tournaments": events
+        }
+
     def get_community_chat_messages(self, region: str = "socal", limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves recent community messages for regional channel."""
         limit = max(1, min(int(limit or 50), 100))

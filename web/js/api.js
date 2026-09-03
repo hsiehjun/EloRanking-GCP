@@ -982,6 +982,19 @@ window.api = {
     return this._fetchJson(`/api/community/stores?${params.toString()}`);
   },
 
+  // Community Hub: Store Hosted Tournaments
+  async getStoreTournaments(name, lat = null, lng = null, placeId = null) {
+    const params = new URLSearchParams();
+    if (name) params.set('name', name);
+    if (lat != null && lng != null) {
+      params.set('lat', lat);
+      params.set('lng', lng);
+    }
+    if (placeId) params.set('place_id', placeId);
+
+    return this._fetchJson(`/api/community/store/tournaments?${params.toString()}`);
+  },
+
   // Community Hub: Chat Messages
   async getCommunityChatMessages(region = 'socal', limit = 50) {
     return this._fetchJson(`/api/community/chat/messages?region=${encodeURIComponent(region || 'socal')}&limit=${limit}`);
