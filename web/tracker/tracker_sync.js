@@ -3160,7 +3160,12 @@ Space Marines - Gladius Task Force (2000 pts)
   // ==========================================================================
   const diceRollerState = {
     visible: localStorage.getItem('gt-dice-visible') === 'true',
-    target: parseInt(localStorage.getItem('gt-dice-target') || '3', 10),
+    target: (function() {
+      const v = localStorage.getItem('gt-dice-target');
+      if (v === null || v === undefined || v === '') return 3;
+      const n = parseInt(v, 10);
+      return isNaN(n) ? 3 : n;
+    })(),
     tray: [], // Array of { id: number, val: number, selected: boolean, rolled: boolean }
     history: [] // Strictly populated from active Firestore match room
   };
@@ -3227,7 +3232,8 @@ Space Marines - Gladius Task Force (2000 pts)
       diceRollerState.tray = remoteTray;
     }
     if (remoteTarget !== undefined && remoteTarget !== null) {
-      diceRollerState.target = parseInt(remoteTarget, 10);
+      const n = parseInt(remoteTarget, 10);
+      diceRollerState.target = isNaN(n) ? 0 : n;
       try { localStorage.setItem('gt-dice-target', diceRollerState.target); } catch(e) {}
     }
     if (Array.isArray(remoteHistory)) {
@@ -3310,11 +3316,11 @@ Space Marines - Gladius Task Force (2000 pts)
           <div style="font-size:11px; color:#cbd5e1; font-weight:700;">SUCCESS THRESHOLD:</div>
           <div style="display:flex; gap:4px;">
             ${[2, 3, 4, 5, 6].map(t => `
-              <button class="gt-dice-target-pill ${target === t ? 'active' : ''}" style="flex:1; text-align:center; font-family:'JetBrains Mono',monospace;" onclick="window.gtSetDiceTarget(${t})">
+              <button class="gt-dice-target-pill ${Number(target) === t ? 'active' : ''}" style="flex:1; text-align:center; font-family:'JetBrains Mono',monospace;" onclick="window.gtSetDiceTarget(${t})">
                 ${t}+
               </button>
             `).join('')}
-            <button class="gt-dice-target-pill ${target === 0 ? 'active' : ''}" style="flex:1; text-align:center;" onclick="window.gtSetDiceTarget(0)">
+            <button class="gt-dice-target-pill ${Number(target) === 0 ? 'active' : ''}" style="flex:1; text-align:center;" onclick="window.gtSetDiceTarget(0)">
               Raw
             </button>
           </div>
@@ -3330,6 +3336,9 @@ Space Marines - Gladius Task Force (2000 pts)
                 ${hasRolled && target > 0 ? `
                   <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#10b981;" onclick="window.gtSelectPass()">Pass (${passCount})</button>
                   <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#ef4444;" onclick="window.gtSelectFails()">Fails (${failCount})</button>
+                ` : ''}
+                ${hasRolled && rolledDice.some(d => d.val === 6) ? `
+                  <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#f59e0b;" onclick="window.gtSelectCrits()">6s (${critCount})</button>
                 ` : ''}
                 ${hasRolled && rolledDice.some(d => d.val === 1) ? `
                   <button class="gt-dice-quick-btn" style="padding:1px 5px; font-size:9px; color:#38bdf8;" onclick="window.gtSelectOnes()">1s (${rolledDice.filter(d => d.val === 1).length})</button>
@@ -3468,18 +3477,33 @@ Space Marines - Gladius Task Force (2000 pts)
   };
 
   window.gtSetDiceTarget = function(target) {
-    diceRollerState.target = target;
-    localStorage.setItem('gt-dice-target', target);
+    const parsedTarget = parseInt(target, 10);
+    const validTarget = isNaN(parsedTarget) ? 0 : parsedTarget;
+    diceRollerState.target = validTarget;
+    try { localStorage.setItem('gt-dice-target', validTarget); } catch(e) {}
     
-    // Auto-update selection based on new target if tray has rolled dice
+    // Auto-update selection based on target
     const tray = diceRollerState.tray || [];
     const hasRolled = tray.some(d => d.rolled);
-    if (hasRolled && target > 0) {
+    if (hasRolled) {
+      if (validTarget > 0) {
+        // Target threshold: select dice meeting or exceeding threshold
+        tray.forEach(d => {
+          if (d.rolled) d.selected = (d.val >= validTarget);
+        });
+      } else {
+        // Raw mode: no pass/fail filter, select all dice in tray
+        tray.forEach(d => {
+          d.selected = true;
+        });
+      }
+    } else {
+      // Unrolled dice in tray: ensure all are selected
       tray.forEach(d => {
-        if (d.rolled) d.selected = (d.val >= target);
+        d.selected = true;
       });
-      saveDiceTray();
     }
+    saveDiceTray();
     
     renderDiceRollerContent();
   };
@@ -3515,6 +3539,15 @@ Space Marines - Gladius Task Force (2000 pts)
     const tray = diceRollerState.tray || [];
     tray.forEach(d => {
       d.selected = d.rolled && (target > 0 ? d.val < target : false);
+    });
+    saveDiceTray();
+    renderDiceRollerContent();
+  };
+
+  window.gtSelectCrits = function() {
+    const tray = diceRollerState.tray || [];
+    tray.forEach(d => {
+      d.selected = d.rolled && d.val === 6;
     });
     saveDiceTray();
     renderDiceRollerContent();
