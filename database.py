@@ -107,7 +107,7 @@ class PostgresDatabase:
         if not PSYCOPG2_AVAILABLE:
             raise ImportError("psycopg2 is not installed. Run 'pip install psycopg2-binary' or 'sudo apt install python3-psycopg2'.")
 
-        raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or "postgresql://elo_user:Jung@1475369@localhost:5432/elo_ranking"
+        raw_dsn = dsn or os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL") or os.environ.get("POSTGRES_DSN") or "postgresql://elo_user:elo_password@localhost:5432/elo_ranking"
         self.dsn = self._normalize_dsn(raw_dsn)
 
         try:
@@ -6558,7 +6558,17 @@ class PostgresConnectionContext:
             except Exception:
                 pass
         finally:
-            self.pool.putconn(self.conn)
+            is_broken = False
+            try:
+                if self.conn.closed:
+                    is_broken = True
+                elif exc_val is not None:
+                    err_msg = str(exc_val).lower()
+                    if "closed" in err_msg or "terminat" in err_msg or "broken" in err_msg or "ssl" in err_msg:
+                        is_broken = True
+            except Exception:
+                is_broken = True
+            self.pool.putconn(self.conn, close=is_broken)
 
 
 # Compatibility Aliases

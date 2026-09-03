@@ -335,6 +335,9 @@ const CITY_COORDS_MAP = {
 };
 
 function lookupCityCoordinates(raw) {
+  if (typeof window !== 'undefined' && typeof window.lookupCityCoordinates === 'function' && window.lookupCityCoordinates !== lookupCityCoordinates) {
+    return window.lookupCityCoordinates(raw);
+  }
   if (!raw || typeof raw !== 'string') return null;
   const q = raw.trim().toLowerCase();
   if (!q) return null;
@@ -2047,6 +2050,9 @@ async function handleSubmitMatchProposal(e) {
 window.handleSubmitMatchProposal = handleSubmitMatchProposal;
 
 function escapeHtml(str) {
+  if (typeof window !== 'undefined' && typeof window.escapeHtml === 'function' && window.escapeHtml !== escapeHtml) {
+    return window.escapeHtml(str);
+  }
   if (!str) return '';
   return String(str).replace(/[&<>"']/g, m => ({
     '&': '&amp;',

@@ -160,19 +160,9 @@ if FASTAPI_AVAILABLE:
         round_num: int
         p1_score: int
         p2_score: int
-        p1_name: Optional[str] = None
-        p2_name: Optional[str] = None
-        winner_id: Optional[str] = None
-        source_app: Optional[str] = "Manual"
-        game_details: Optional[Dict[str, Any]] = None
-    class SubmitScorePayload(BaseModel):
-        event_id: str
-        table: int
-        round_num: int
-        p1_score: int
-        p2_score: int
         p1_name: Optional[str] = "Player 1"
         p2_name: Optional[str] = "Player 2"
+        winner_id: Optional[str] = None
         source_app: Optional[str] = "EventStudio"
         game_details: Optional[Dict[str, Any]] = None
         bcp_token: Optional[str] = None

@@ -1933,6 +1933,9 @@ function updateDefaultRounds() {
 }
 
 function escapeHtml(str) {
+  if (typeof window !== 'undefined' && typeof window.escapeHtml === 'function' && window.escapeHtml !== escapeHtml) {
+    return window.escapeHtml(str);
+  }
   if (str === null || str === undefined) return "";
   return String(str)
     .replace(/&/g, "&amp;")
