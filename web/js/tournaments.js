@@ -7,6 +7,7 @@ let eventPlayersCache = [];
 let currentRoundFilter = 'all';
 let currentOpenEventId = null;
 let currentEventData = null;
+let currentEventModalTab = 'elo';
 
 function debounceEventSearch() {
   clearTimeout(eventSearchTimeout);
@@ -72,7 +73,7 @@ function renderEventsRows() {
 
   eventsData.forEach(ev => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openEventModal(ev.id);
+    tr.onclick = () => openEventModal(ev.id, false, 'elo');
 
     const location = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Unspecified';
     const dateStr = (ev.event_date || '').slice(0, 10) || '-';
@@ -101,14 +102,14 @@ async function refreshCurrentEventModal(e) {
     refreshBtn.disabled = true;
     refreshBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Syncing...';
   }
-  await openEventModal(currentOpenEventId, true);
+  await openEventModal(currentOpenEventId, true, currentEventModalTab || 'elo');
   if (refreshBtn) {
     refreshBtn.disabled = false;
     refreshBtn.innerHTML = '<span>🔄 Refresh Live</span>';
   }
 }
 
-async function openEventModal(eventId, forceSync = false) {
+async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
   currentOpenEventId = eventId;
   const modal = document.getElementById('event-modal');
   if (!modal) return;
@@ -117,6 +118,9 @@ async function openEventModal(eventId, forceSync = false) {
   } else {
     modal.classList.add('active');
   }
+
+  // Set active tab immediately to prevent visual flashing
+  switchEventModalTab(initialTab || 'elo');
 
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink) {
@@ -158,7 +162,9 @@ async function openEventModal(eventId, forceSync = false) {
     if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
     if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
 
-    if (eventMatchesCache.length > 0) {
+    if (initialTab) {
+      switchEventModalTab(initialTab);
+    } else if (eventMatchesCache.length > 0) {
       switchEventModalTab('matches');
     } else if (placementsCount > 0) {
       switchEventModalTab('results');
@@ -212,6 +218,7 @@ async function openEventModal(eventId, forceSync = false) {
 }
 
 function switchEventModalTab(tabKey) {
+  currentEventModalTab = tabKey || 'elo';
   const btnResults = document.getElementById('event-subtab-results');
   const btnElo = document.getElementById('event-subtab-elo');
   const btnMatches = document.getElementById('event-subtab-matches');
@@ -222,15 +229,16 @@ function switchEventModalTab(tabKey) {
   [btnResults, btnElo, btnMatches].forEach(b => b && b.classList.remove('active'));
   [viewResults, viewElo, viewMatches].forEach(v => v && (v.style.display = 'none'));
 
-  if (tabKey === 'elo') {
-    if (btnElo) btnElo.classList.add('active');
-    if (viewElo) viewElo.style.display = 'block';
-  } else if (tabKey === 'matches') {
+  if (tabKey === 'matches') {
     if (btnMatches) btnMatches.classList.add('active');
     if (viewMatches) viewMatches.style.display = 'block';
-  } else {
+  } else if (tabKey === 'results') {
     if (btnResults) btnResults.classList.add('active');
     if (viewResults) viewResults.style.display = 'block';
+  } else {
+    // default to 'elo' tab
+    if (btnElo) btnElo.classList.add('active');
+    if (viewElo) viewElo.style.display = 'block';
   }
 }
 
@@ -584,7 +592,7 @@ async function submitTournamentRegistration(e) {
       }
       setTimeout(() => {
         closeTournamentRegistrationModal();
-        openEventModal(eventId, true);
+        openEventModal(eventId, true, 'elo');
       }, 1200);
     } else {
       if (msg) {

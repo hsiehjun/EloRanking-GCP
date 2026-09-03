@@ -279,7 +279,7 @@ function renderMyHub(data) {
                     <tr>
                       <td style="color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</td>
                       <td class="cell-ellipsis" title="${escapeHtml(h.event_name || 'Event')}">
-                        <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}')">${escapeHtml(h.event_name || 'Event')}</span>
+                        <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}', false, 'elo')">${escapeHtml(h.event_name || 'Event')}</span>
                       </td>
                       <td class="cell-ellipsis" title="${escapeHtml(h.opponent_name || 'Opponent')}">
                         <b style="font-size:0.78rem; color:#e2e8f0;">${escapeHtml(h.opponent_name || 'Opponent')}</b>
@@ -983,12 +983,39 @@ function renderHubEventCard(ev) {
     capacityText = `👥 <b>${enrolled} / ${capacity}</b> <span style="color:#f59e0b; font-size:0.75rem;">(Sold Out)</span>`;
   }
 
-  const skillLabel = ev.skill_match_label || 'Standard Field';
-  const skillBadge = ev.skill_match_badge || 'badge-match-prime';
-  const avgElo = ev.avg_elo_display || 1550.0;
+  const avgElo = ev.avg_elo_display ? Math.round(ev.avg_elo_display) : (ev.avg_field_elo ? Math.round(ev.avg_field_elo) : 1550);
+  const myElo = (typeof currentUser !== 'undefined' && (currentUser?.current_elo || currentUser?.elo)) ||
+                (typeof myHubData !== 'undefined' && (myHubData?.player?.current_elo || myHubData?.player?.elo)) ||
+                (typeof connectState !== 'undefined' && (connectState.userProfile?.current_elo || connectState.userProfile?.elo)) ||
+                ev.user_elo ||
+                null;
+
+  let deltaLabel = '';
+  let deltaBadge = 'badge-match-prime';
+
+  if (myElo) {
+    const delta = avgElo - Math.round(myElo);
+    const sign = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : `±0`);
+    deltaLabel = `${sign} vs My Elo`;
+    if (delta > 75) {
+      deltaBadge = 'badge-match-extreme';
+    } else if (delta > 25) {
+      deltaBadge = 'badge-match-hard';
+    } else if (delta < -25) {
+      deltaBadge = 'badge-match-favorable';
+    } else {
+      deltaBadge = 'badge-match-prime';
+    }
+  } else if (ev.skill_match_label && !ev.skill_match_label.includes('Field Avg')) {
+    deltaLabel = ev.skill_match_label;
+    deltaBadge = ev.skill_match_badge || 'badge-match-prime';
+  } else {
+    deltaLabel = '⚔️ Open Field';
+    deltaBadge = 'badge-match-prime';
+  }
 
   return `
-    <div class="hub-event-card-pro" onclick="openEventModal('${ev.id}')">
+    <div class="hub-event-card-pro" onclick="openEventModal('${ev.id}', false, 'elo')">
       <div>
         <!-- Card Header: Title & Badges -->
         <div class="hub-card-header">
@@ -1017,8 +1044,8 @@ function renderHubEventCard(ev) {
           <span style="color:#f59e0b;">⭐</span>
           <span>Field Avg: <b style="color:#fff; font-family:var(--font-mono);">${avgElo}</b> Elo</span>
         </div>
-        <span class="badge ${skillBadge}" style="font-size:0.72rem; padding:0.2rem 0.55rem; font-weight:700;">
-          ${escapeHtml(skillLabel)}
+        <span class="badge ${deltaBadge}" style="font-size:0.72rem; padding:0.2rem 0.55rem; font-weight:700;">
+          ${escapeHtml(deltaLabel)}
         </span>
       </div>
 

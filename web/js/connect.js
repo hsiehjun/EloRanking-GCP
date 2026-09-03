@@ -542,10 +542,19 @@ async function loadNearbyTournaments() {
   const lat = p.latitude || 32.7157;
   const lng = p.longitude || -117.1611;
 
+  const myPlayerId = (typeof currentUser !== 'undefined' && (currentUser?.player_id || currentUser?.id)) || p.player_id || '';
+
   try {
-    const res = await window.api.getRecommendedEvents('', '', '', lat, lng, radius, 35, '', 'date', monthsAhead);
+    const res = await window.api.getRecommendedEvents(myPlayerId, '', '', lat, lng, radius, 35, '', 'date', monthsAhead);
     const events = (res && res.events) ? res.events : [];
     connectState.tournamentsList = events;
+
+    const myElo = (typeof currentUser !== 'undefined' && (currentUser?.current_elo || currentUser?.elo)) ||
+                  connectState.userProfile?.current_elo ||
+                  connectState.userProfile?.elo ||
+                  (typeof myHubData !== 'undefined' && myHubData?.player?.current_elo) ||
+                  (res && res.user_elo) ||
+                  null;
 
     if (events.length === 0) {
       container.innerHTML = `
@@ -566,8 +575,31 @@ async function loadNearbyTournaments() {
       const dateStr = ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Upcoming';
       const capStr = `${ev.total_players || 0} / ${ev.capacity || 32} Players`;
       const avgElo = ev.avg_elo_display ? Math.round(ev.avg_elo_display) : (ev.avg_field_elo ? Math.round(ev.avg_field_elo) : 1550);
-      const skillLabel = ev.skill_match_label || `Field Avg: ${avgElo} Elo`;
-      const skillBadge = ev.skill_match_badge || 'badge-match-prime';
+      const effectiveUserElo = myElo || ev.user_elo;
+
+      let deltaLabel = '';
+      let deltaBadge = 'badge-match-prime';
+
+      if (effectiveUserElo) {
+        const delta = avgElo - Math.round(effectiveUserElo);
+        const sign = delta > 0 ? `+${delta}` : (delta < 0 ? `${delta}` : `±0`);
+        deltaLabel = `${sign} vs My Elo`;
+        if (delta > 75) {
+          deltaBadge = 'badge-match-extreme';
+        } else if (delta > 25) {
+          deltaBadge = 'badge-match-hard';
+        } else if (delta < -25) {
+          deltaBadge = 'badge-match-favorable';
+        } else {
+          deltaBadge = 'badge-match-prime';
+        }
+      } else if (ev.skill_match_label && !ev.skill_match_label.includes('Field Avg')) {
+        deltaLabel = ev.skill_match_label;
+        deltaBadge = ev.skill_match_badge || 'badge-match-prime';
+      } else {
+        deltaLabel = '⚔️ Open Field';
+        deltaBadge = 'badge-match-prime';
+      }
       const tierBadge = ev.tier_badge || 'tier-B';
       const tierName = ev.tier || 'RTT / Tournament';
 
@@ -593,14 +625,14 @@ async function loadNearbyTournaments() {
                 <span style="color: #f59e0b;">⭐</span>
                 <span>Field Avg: <b style="color: #fff; font-family: var(--font-mono);">${avgElo}</b> Elo</span>
               </div>
-              <span class="badge ${skillBadge}" style="font-size: 0.72rem; padding: 0.2rem 0.55rem; font-weight: 700;">
-                ${escapeHtml(skillLabel)}
+              <span class="badge ${deltaBadge}" style="font-size: 0.72rem; padding: 0.2rem 0.55rem; font-weight: 700;">
+                ${escapeHtml(deltaLabel)}
               </span>
             </div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-top: auto;">
-            <button onclick="openEventModal('${ev.id}')" class="btn" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.78rem; font-weight: 700; text-align: center; padding: 0.45rem;">
+            <button onclick="openEventModal('${ev.id}', false, 'elo')" class="btn" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); font-size: 0.78rem; font-weight: 700; text-align: center; padding: 0.45rem;">
               Roster & Details ⚔️
             </button>
             <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; text-align: center; text-decoration: none; padding: 0.45rem;">

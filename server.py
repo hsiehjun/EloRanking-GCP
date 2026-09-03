@@ -905,6 +905,8 @@ if FASTAPI_AVAILABLE:
         profile = db.get_lfg_profile(user["id"])
         profile["display_name"] = user.get("display_name") or user.get("email")
         profile["email"] = user.get("email")
+        profile["current_elo"] = float(user["current_elo"]) if user.get("current_elo") is not None else None
+        profile["player_id"] = user.get("player_id") or user["id"]
         return {"success": True, "profile": profile}
 
     @app.post("/api/connect/profile", summary="Update user LFG profile")
@@ -4607,6 +4609,7 @@ if FASTAPI_AVAILABLE:
     # API: Recommended & Upcoming Events for Competitor Hub (100% Live from BCP)
     @app.get("/api/events/recommended", summary="Get real-time live upcoming events from BCP")
     async def api_events_recommended(
+        request: Request,
         player_id: Optional[str] = Query(None),
         query: Optional[str] = Query(None),
         tier: Optional[str] = Query(None),
@@ -4627,6 +4630,16 @@ if FASTAPI_AVAILABLE:
         detected_state = None
         detected_city = None
         user_elo = None
+
+        auth_mgr = get_auth_manager()
+        auth_header = request.headers.get("Authorization", "")
+        session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+        auth_user = auth_mgr.get_session(session_token) if session_token else None
+        if auth_user:
+            if not player_id_clean and auth_user.get("player_id"):
+                player_id_clean = auth_user.get("player_id")
+            if user_elo is None and auth_user.get("current_elo") is not None:
+                user_elo = float(auth_user["current_elo"])
         
         KNOWN_CITIES = {
             "san diego": (32.7157, -117.1611),
@@ -4994,26 +5007,29 @@ if FASTAPI_AVAILABLE:
 
             if user_elo:
                 diff = avg_elo_val - user_elo
+                diff_val = round(diff)
+                diff_sign = "+" if diff_val > 0 else ""
+                delta_str = f"{diff_sign}{diff_val} vs My Elo" if diff_val != 0 else "±0 vs My Elo"
                 if enrolled <= 1:
-                    skill_label = f"👥 {enrolled} Registered ({round(diff):+d} Elo)" if enrolled == 1 else "👥 Registration Open"
+                    skill_label = f"👥 {enrolled} Reg ({delta_str})" if enrolled == 1 else delta_str
                     skill_badge = "badge-match-prime"
                 elif abs(diff) <= 35:
-                    skill_label = "🎯 Prime Skill Match"
+                    skill_label = delta_str
                     skill_badge = "badge-match-prime"
                 elif diff > 35 and diff <= 110:
-                    skill_label = f"⚔️ Tough Field (+{round(diff)} Elo)"
+                    skill_label = delta_str
                     skill_badge = "badge-match-hard"
                 elif diff > 110:
-                    skill_label = f"🦈 Shark Tank (+{round(diff)} Elo)"
+                    skill_label = delta_str
                     skill_badge = "badge-match-extreme"
                 else:
-                    skill_label = f"🏆 Favorable Match ({round(diff)} Elo)"
+                    skill_label = delta_str
                     skill_badge = "badge-match-favorable"
             else:
                 if enrolled <= 1:
                     skill_label = f"👥 {enrolled} Registered" if enrolled == 1 else "👥 Registration Open"
                 else:
-                    skill_label = f"⭐ Field Avg: {round(avg_elo_val)} Elo"
+                    skill_label = "⚔️ Open Field"
                 skill_badge = "badge-match-prime"
 
             processed_events.append({
@@ -5034,6 +5050,8 @@ if FASTAPI_AVAILABLE:
                 "distance_miles": round(dist_val, 1) if dist_val is not None else None,
                 "is_nearby": bool(dist_val is not None and dist_val <= 60),
                 "avg_elo_display": round(avg_elo_val, 1),
+                "user_elo": round(user_elo, 1) if user_elo else None,
+                "elo_delta": round(avg_elo_val - user_elo, 1) if user_elo else None,
                 "skill_match_label": skill_label,
                 "skill_match_badge": skill_badge,
                 "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
