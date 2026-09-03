@@ -541,40 +541,13 @@ function switchHubTourneyTab(tabName) {
 
 let customUserLocation = null;
 
-const GLOBAL_CITY_COORDS = {
+// Reference shared GLOBAL_CITY_COORDS from utils.js
+const HUB_CITY_COORDS = (typeof window !== 'undefined' && window.GLOBAL_CITY_COORDS) ? window.GLOBAL_CITY_COORDS : {
   'san diego': { name: 'San Diego, CA', lat: 32.7157, lng: -117.1611 },
   'los angeles': { name: 'Los Angeles, CA', lat: 34.0522, lng: -118.2437 },
   'san francisco': { name: 'San Francisco, CA', lat: 37.7749, lng: -122.4194 },
-  'san jose': { name: 'San Jose, CA', lat: 37.3382, lng: -121.8863 },
-  'sacramento': { name: 'Sacramento, CA', lat: 38.5816, lng: -121.4944 },
-  'seattle': { name: 'Seattle, WA', lat: 47.6062, lng: -122.3321 },
-  'portland': { name: 'Portland, OR', lat: 45.5152, lng: -122.6784 },
-  'phoenix': { name: 'Phoenix, AZ', lat: 33.4484, lng: -112.0740 },
-  'las vegas': { name: 'Las Vegas, NV', lat: 36.1699, lng: -115.1398 },
-  'denver': { name: 'Denver, CO', lat: 39.7392, lng: -104.9903 },
-  'austin': { name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
-  'dallas': { name: 'Dallas, TX', lat: 32.7767, lng: -96.7970 },
-  'houston': { name: 'Houston, TX', lat: 29.7604, lng: -95.3698 },
-  'san antonio': { name: 'San Antonio, TX', lat: 29.4241, lng: -98.4936 },
-  'chicago': { name: 'Chicago, IL', lat: 41.8781, lng: -87.6298 },
-  'minneapolis': { name: 'Minneapolis, MN', lat: 44.9778, lng: -93.2650 },
-  'new york': { name: 'New York, NY', lat: 40.7128, lng: -74.0060 },
-  'philadelphia': { name: 'Philadelphia, PA', lat: 39.9526, lng: -75.1652 },
-  'boston': { name: 'Boston, MA', lat: 42.3601, lng: -71.0589 },
-  'atlanta': { name: 'Atlanta, GA', lat: 33.7490, lng: -84.3880 },
-  'orlando': { name: 'Orlando, FL', lat: 28.5383, lng: -81.3792 },
-  'miami': { name: 'Miami, FL', lat: 25.7617, lng: -80.1918 },
-  'charlotte': { name: 'Charlotte, NC', lat: 35.2271, lng: -80.8431 },
-  'columbus': { name: 'Columbus, OH', lat: 39.9612, lng: -82.9988 },
-  'toronto': { name: 'Toronto, Canada', lat: 43.6532, lng: -79.3832 },
-  'vancouver': { name: 'Vancouver, Canada', lat: 49.2827, lng: -123.1207 },
-  'london': { name: 'London, UK', lat: 51.5074, lng: -0.1278 },
-  'manchester': { name: 'Manchester, UK', lat: 53.4808, lng: -2.2426 },
-  'paris': { name: 'Paris, France', lat: 48.8566, lng: 2.3522 },
-  'sydney': { name: 'Sydney, Australia', lat: -33.8688, lng: 151.2093 },
-  'melbourne': { name: 'Melbourne, Australia', lat: -37.8136, lng: 144.9631 }
+  'seattle': { name: 'Seattle, WA', lat: 47.6062, lng: -122.3321 }
 };
-window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
 
 function openLocationPickerModal() {
   if (typeof bringModalToFront === 'function') {
@@ -609,7 +582,8 @@ function setPresetLocation(cityKey) {
     requestUserDeviceLocationPrompt();
     return;
   }
-  const loc = GLOBAL_CITY_COORDS[cityKey.toLowerCase()];
+  const dict = (typeof window !== 'undefined' && window.GLOBAL_CITY_COORDS) ? window.GLOBAL_CITY_COORDS : HUB_CITY_COORDS;
+  const loc = dict[cityKey.toLowerCase()];
   if (loc) {
     customUserLocation = { name: loc.name, lat: loc.lat, lng: loc.lng };
     try { sessionStorage.setItem('omni_user_custom_loc', JSON.stringify(customUserLocation)); } catch (e) {}
@@ -625,7 +599,8 @@ async function searchCustomLocationInput() {
   if (!q) return;
 
   const qLower = q.toLowerCase();
-  for (const [key, val] of Object.entries(GLOBAL_CITY_COORDS)) {
+  const dict = (typeof window !== 'undefined' && window.GLOBAL_CITY_COORDS) ? window.GLOBAL_CITY_COORDS : HUB_CITY_COORDS;
+  for (const [key, val] of Object.entries(dict)) {
     if (key.includes(qLower) || val.name.toLowerCase().includes(qLower)) {
       customUserLocation = { name: val.name, lat: val.lat, lng: val.lng };
       try { sessionStorage.setItem('omni_user_custom_loc', JSON.stringify(customUserLocation)); } catch (e) {}

@@ -16,7 +16,10 @@ let studioState = {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
-  initStudio();
+  setDefaultEventDates();
+  if (typeof activeTab !== 'undefined' && activeTab === 'event-studio') {
+    initStudio();
+  }
 });
 
 function getBcpToken() {
@@ -30,7 +33,15 @@ function getBcpToken() {
 async function initStudio() {
   updateStudioAuthBadge();
   setDefaultEventDates();
-  await loadStudioEvents();
+  
+  let user = typeof currentUser !== "undefined" ? currentUser : null;
+  const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
+  const userEmail = ((user && user.email) ? user.email : '').toLowerCase();
+  const canAccessTO = userEmail === 'swimgeek751@gmail.com' || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+
+  if (canAccessTO) {
+    await loadStudioEvents();
+  }
 }
 
 function setDefaultEventDates() {
