@@ -20,7 +20,7 @@ const connectState = {
 async function initConnectTab() {
   const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
   if (!token) {
-    window.location.href = '/login?redirect=' + encodeURIComponent('/#connect');
+    window.location.href = '/login?redirect=' + encodeURIComponent('/#community');
     return;
   }
 
@@ -367,6 +367,23 @@ async function handleSaveLocation(e) {
    -------------------------------------------------------------------------- */
 function switchConnectSubtab(tabName) {
   connectState.activeSubtab = tabName;
+
+  // If running inside unified Community Hub, delegate to switchCommunitySubtab
+  if (typeof switchCommunitySubtab === 'function') {
+    if (tabName === 'players' || tabName === 'radar' || tabName === 'sparring') {
+      switchCommunitySubtab('radar');
+      return;
+    } else if (tabName === 'tournaments' || tabName === 'events') {
+      switchCommunitySubtab('tournaments');
+      return;
+    } else if (tabName === 'chats' || tabName === 'chat' || tabName === 'messages') {
+      switchCommunitySubtab('chat');
+      if (typeof setCommunityChatMode === 'function') {
+        setCommunityChatMode('direct');
+      }
+      return;
+    }
+  }
 
   const tabs = ['players', 'tournaments', 'chats'];
   tabs.forEach(t => {
@@ -1160,14 +1177,17 @@ async function updateUnreadCountBadge() {
     const res = await window.api.getConnectUnreadCount();
     const count = (res && res.unread_count) ? parseInt(res.unread_count, 10) : 0;
     const badge = document.getElementById('badge-unread-count');
-    if (badge) {
-      if (count > 0) {
-        badge.textContent = count;
-        badge.style.display = 'inline-block';
-      } else {
-        badge.style.display = 'none';
+    const directBadge = document.getElementById('badge-chat-direct-unread');
+    [badge, directBadge].forEach(b => {
+      if (b) {
+        if (count > 0) {
+          b.textContent = count;
+          b.style.display = 'inline-block';
+        } else {
+          b.style.display = 'none';
+        }
       }
-    }
+    });
   } catch (e) {}
 }
 

@@ -10,11 +10,25 @@ function switchTab(tabName) {
     return;
   }
 
-  // Normalize alias names
-  if (tabName === 'tournaments' || tabName === 'events' || tabName === 'sparring') tabName = 'connect';
+  // Normalize alias names & target subtabs for Community Hub
+  let communitySubtab = null;
+  if (tabName === 'connect' || tabName === 'omniconnect' || tabName === 'sparring' || tabName === 'radar') {
+    tabName = 'community';
+    communitySubtab = 'radar';
+  } else if (tabName === 'tournaments' || tabName === 'events') {
+    tabName = 'community';
+    communitySubtab = 'tournaments';
+  } else if (tabName === 'chat' || tabName === 'community-chat' || tabName === 'messages') {
+    tabName = 'community';
+    communitySubtab = 'chat';
+  } else if (tabName === 'competitors' || tabName === 'scene' || tabName === 'regional-leaderboard') {
+    tabName = 'community';
+    communitySubtab = 'scene';
+  } else if (tabName === 'community-hub' || tabName === 'communityhub') {
+    tabName = 'community';
+  }
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
-  if (tabName === 'community-hub' || tabName === 'communityhub') tabName = 'community';
 
   activeTab = tabName;
 
@@ -51,13 +65,11 @@ function switchTab(tabName) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#community');
       return;
     }
-    if (typeof initCommunityHub === 'function') initCommunityHub();
-  } else if (tabName === 'connect') {
-    if (!currentUser) {
-      window.location.href = '/login?redirect=' + encodeURIComponent('/#connect');
-      return;
+    if (typeof initCommunityHub === 'function') {
+      initCommunityHub(communitySubtab);
+    } else if (typeof initConnectTab === 'function') {
+      initConnectTab();
     }
-    if (typeof initConnectTab === 'function') initConnectTab();
   } else if (tabName === 'event-studio') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
@@ -323,7 +335,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal || params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
-  if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring') targetTab = 'connect';
+  if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') targetTab = 'community';
   if (targetTab === 'eventstudio') targetTab = 'event-studio';
   if (targetTab === 'community-hub' || targetTab === 'communityhub') targetTab = 'community';
   if (targetTab) {

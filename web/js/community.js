@@ -5,7 +5,9 @@
 
 const communityState = {
   currentRegion: 'socal',
-  activeSubtab: 'events',
+  activeSubtab: 'radar', // 'radar', 'tournaments', 'scene', 'chat'
+  sceneView: 'leaderboard', // 'leaderboard', 'competitors'
+  chatMode: 'regional', // 'regional', 'direct'
   eventsFilter: 'all', // 'all', 'upcoming', 'recent'
   overview: null,
   isLoading: false,
@@ -18,9 +20,38 @@ const communityState = {
 /**
  * Main entrypoint when switching to Community Hub tab
  */
-async function initCommunityHub() {
+async function initCommunityHub(targetSubtab = null) {
   updateCommunityBcpBanner();
   await loadCommunityRegions();
+
+  // Initialize LFG profile & Google Places for Sparring Radar if available
+  if (typeof window.api?.getConnectProfile === 'function') {
+    try {
+      const res = await window.api.getConnectProfile();
+      if (res && res.success && res.profile) {
+        if (typeof connectState !== 'undefined') {
+          connectState.userProfile = res.profile;
+        }
+        if (typeof renderTopBarOptions === 'function') {
+          renderTopBarOptions(res.profile);
+        }
+      }
+    } catch (e) {
+      console.warn("Notice loading LFG profile for Community Hub:", e);
+    }
+  }
+
+  if (typeof initConnectGooglePlaces === 'function') {
+    initConnectGooglePlaces();
+  }
+
+  if (typeof updateUnreadCountBadge === 'function') {
+    updateUnreadCountBadge();
+  }
+
+  const subtab = targetSubtab || communityState.activeSubtab || 'radar';
+  switchCommunitySubtab(subtab);
+
   await loadCommunityHub(communityState.currentRegion);
 }
 
@@ -113,16 +144,26 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
     b.classList.toggle('active', b.dataset.region === communityState.currentRegion);
   });
 
-  // Show loading indicator
-  const mainView = document.getElementById('comm-subtab-container');
-  if (mainView && !communityState.overview) {
-    mainView.innerHTML = `
-      <div style="padding: 4rem 1rem; text-align: center; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
-        <div style="font-size: 0.8rem; color: #64748b; margin-top: 4px;">Fetching regional tournaments, competitors & local leaderboard</div>
-      </div>
-    `;
+  // Show loading indicator in target subviews if overview is not yet cached
+  if (!communityState.overview) {
+    const tourneyView = document.getElementById('comm-tournaments-content');
+    if (tourneyView) {
+      tourneyView.innerHTML = `
+        <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+          <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
+        </div>
+      `;
+    }
+    const sceneView = document.getElementById('comm-scene-content');
+    if (sceneView) {
+      sceneView.innerHTML = `
+        <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+          <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+          <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
+        </div>
+      `;
+    }
   }
 
   try {
@@ -135,15 +176,35 @@ async function loadCommunityHub(regionId, lat = null, lng = null) {
     // Render region header info
     renderCommunityHeader(data.region);
 
+    // Update region title in chat header
+    const chatTitle = document.getElementById('comm-chat-region-title');
+    if (chatTitle && data.region?.name) {
+      chatTitle.textContent = `${data.region.name} Community Chat`;
+    }
+
     // Render current active subtab
     renderCurrentSubtab();
   } catch (err) {
     console.error('Failed to load community hub:', err);
-    if (mainView) {
-      mainView.innerHTML = `
-        <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
-          <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">⚠️</div>
-          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Regional Hub</h4>
+    const tourneyView = document.getElementById('comm-tournaments-content');
+    if (tourneyView) {
+      tourneyView.innerHTML = `
+        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Regional Tournaments</h4>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+            ${escapeHtml(err.message || 'An unexpected error occurred while fetching regional data.')}
+          </p>
+          <button class="btn btn-primary" onclick="loadCommunityHub('${communityState.currentRegion}')">🔄 Retry</button>
+        </div>
+      `;
+    }
+    const sceneView = document.getElementById('comm-scene-content');
+    if (sceneView) {
+      sceneView.innerHTML = `
+        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Scene Intel</h4>
           <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
             ${escapeHtml(err.message || 'An unexpected error occurred while fetching regional data.')}
           </p>
@@ -262,6 +323,19 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
  * Switch Community Hub Subtab
  */
 function switchCommunitySubtab(subtabName) {
+  // Normalize alias names
+  if (subtabName === 'players' || subtabName === 'sparring') subtabName = 'radar';
+  if (subtabName === 'events') subtabName = 'tournaments';
+  if (subtabName === 'competitors') {
+    subtabName = 'scene';
+    communityState.sceneView = 'competitors';
+  } else if (subtabName === 'leaderboard') {
+    subtabName = 'scene';
+    communityState.sceneView = 'leaderboard';
+  } else if (subtabName === 'messages') {
+    subtabName = 'chat';
+  }
+
   communityState.activeSubtab = subtabName;
 
   // Toggle subtab buttons
@@ -269,9 +343,18 @@ function switchCommunitySubtab(subtabName) {
     btn.classList.toggle('active', btn.dataset.subtab === subtabName);
   });
 
+  // Toggle subviews
+  const subviews = ['radar', 'tournaments', 'scene', 'chat'];
+  subviews.forEach(s => {
+    const el = document.getElementById(`comm-subview-${s}`);
+    if (el) el.style.display = (s === subtabName) ? 'block' : 'none';
+  });
+
   // Stop chat polling if leaving chat subtab
   if (subtabName !== 'chat') {
     stopCommunityChatPolling();
+    if (typeof stopChatPolling === 'function') stopChatPolling();
+    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
   }
 
   renderCurrentSubtab();
@@ -281,16 +364,14 @@ function switchCommunitySubtab(subtabName) {
  * Renders the active subtab content
  */
 function renderCurrentSubtab() {
-  if (!communityState.overview) return;
-
-  if (communityState.activeSubtab === 'events') {
+  if (communityState.activeSubtab === 'radar') {
+    if (typeof loadNearbyPlayers === 'function') loadNearbyPlayers();
+  } else if (communityState.activeSubtab === 'tournaments') {
     renderCommunityEvents();
-  } else if (communityState.activeSubtab === 'competitors') {
-    renderCommunityCompetitors();
-  } else if (communityState.activeSubtab === 'leaderboard') {
-    renderCommunityLeaderboard();
+  } else if (communityState.activeSubtab === 'scene') {
+    renderCurrentSceneView();
   } else if (communityState.activeSubtab === 'chat') {
-    renderCommunityChat();
+    renderCurrentChatView();
   }
 }
 
@@ -308,10 +389,19 @@ function setCommunityEventsFilter(filter) {
 }
 
 function renderCommunityEvents() {
-  const container = document.getElementById('comm-subtab-container');
+  const container = document.getElementById('comm-tournaments-content');
   if (!container) return;
 
   const overview = communityState.overview;
+  if (!overview) {
+    container.innerHTML = `
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Tournaments...</div>
+      </div>
+    `;
+    return;
+  }
   const upcoming = overview.events_upcoming || [];
   const recent = overview.events_recent || [];
 
@@ -491,7 +581,7 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
  * --------------------------------------------------------------------------
  */
 function renderCommunityCompetitors() {
-  const container = document.getElementById('comm-subtab-container');
+  const container = document.getElementById('comm-scene-content');
   if (!container) return;
 
   const overview = communityState.overview;
@@ -621,18 +711,48 @@ function renderCompetitorCard(c) {
 function challengeCompetitor(playerId, playerName) {
   if (typeof openProposeMatchModal === 'function') {
     openProposeMatchModal(playerId, playerName);
-  } else if (typeof switchTab === 'function') {
-    switchTab('connect');
+  } else {
+    switchCommunitySubtab('radar');
   }
 }
 
 /**
  * --------------------------------------------------------------------------
- * SUBTAB 3: REGIONAL LEADERBOARD
+ * SUBTAB 3: REGIONAL LEADERBOARD & SCENE VIEW TOGGLE
  * --------------------------------------------------------------------------
  */
+function setCommunitySceneView(mode) {
+  communityState.sceneView = mode;
+  const btnLead = document.getElementById('comm-scene-toggle-leaderboard');
+  const btnComp = document.getElementById('comm-scene-toggle-competitors');
+  if (btnLead) btnLead.classList.toggle('active', mode === 'leaderboard');
+  if (btnComp) btnComp.classList.toggle('active', mode === 'competitors');
+  renderCurrentSceneView();
+}
+
+function renderCurrentSceneView() {
+  const container = document.getElementById('comm-scene-content');
+  if (!container) return;
+
+  if (!communityState.overview) {
+    container.innerHTML = `
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
+      </div>
+    `;
+    return;
+  }
+
+  if (communityState.sceneView === 'competitors') {
+    renderCommunityCompetitors();
+  } else {
+    renderCommunityLeaderboard();
+  }
+}
+
 function renderCommunityLeaderboard() {
-  const container = document.getElementById('comm-subtab-container');
+  const container = document.getElementById('comm-scene-content');
   if (!container) return;
 
   const overview = communityState.overview;
@@ -725,57 +845,47 @@ function renderCommunityLeaderboard() {
 
 /**
  * --------------------------------------------------------------------------
- * SUBTAB 4: LOCAL COMMUNITY CHAT
+ * SUBTAB 4: MESSAGES & CHAT (REGIONAL TOWN HALL + DIRECT MATCH CHATS)
  * --------------------------------------------------------------------------
  */
-async function renderCommunityChat() {
-  const container = document.getElementById('comm-subtab-container');
-  if (!container) return;
+function setCommunityChatMode(mode) {
+  communityState.chatMode = mode;
+  const btnReg = document.getElementById('comm-chat-toggle-regional');
+  const btnDir = document.getElementById('comm-chat-toggle-direct');
+  const panelReg = document.getElementById('comm-chat-panel-regional');
+  const panelDir = document.getElementById('comm-chat-panel-direct');
 
-  const overview = communityState.overview;
-  const regionName = overview?.region?.name || 'Local Scene';
+  if (btnReg) btnReg.classList.toggle('active', mode === 'regional');
+  if (btnDir) btnDir.classList.toggle('active', mode === 'direct');
 
-  container.innerHTML = `
-    <div class="comm-chat-container">
-      <!-- Chat Header -->
-      <div class="comm-chat-header">
-        <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 1.3rem;">💬</span>
-          <div>
-            <div style="font-weight: 800; font-size: 0.95rem; color: #fff;">
-              ${escapeHtml(regionName)} Community Chat
-            </div>
-            <div style="font-size: 0.74rem; color: #94a3b8;">
-              Discuss local tournaments, carpools, army list tuning & sparring matches
-            </div>
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 6px;">
-          <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 6px #10b981;"></span>
-          <span style="font-size: 0.72rem; color: #10b981; font-weight: 700; text-transform: uppercase;">Live Feed</span>
-        </div>
-      </div>
+  if (panelReg) panelReg.style.display = (mode === 'regional') ? 'block' : 'none';
+  if (panelDir) panelDir.style.display = (mode === 'direct') ? 'block' : 'none';
 
-      <!-- Messages Stream -->
-      <div id="comm-chat-messages" class="comm-chat-messages">
-        <div style="padding: 2.5rem; text-align: center; color: var(--text-muted);">
-          <div class="spinner" style="margin: 0 auto 0.5rem;"></div>
-          Connecting to regional chat feed...
-        </div>
-      </div>
+  if (mode === 'regional') {
+    if (typeof stopChatPolling === 'function') stopChatPolling();
+    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
+    const chatTitle = document.getElementById('comm-chat-region-title');
+    if (chatTitle && communityState.overview?.region?.name) {
+      chatTitle.textContent = `${communityState.overview.region.name} Community Chat`;
+    }
+    loadCommunityChatMessages();
+    startCommunityChatPolling();
+  } else {
+    stopCommunityChatPolling();
+    if (typeof loadUserRequests === 'function') loadUserRequests();
+    if (typeof startChatPolling === 'function') startChatPolling();
+    if (typeof attachChatSnapshot === 'function' && typeof connectState !== 'undefined' && connectState.activeRequestId) {
+      attachChatSnapshot(connectState.activeRequestId);
+    }
+  }
+}
 
-      <!-- Input Bar -->
-      <form class="comm-chat-input-bar" onsubmit="handleSendCommunityChat(event)">
-        <input type="text" id="comm-chat-input" placeholder="Type a message to the ${escapeHtml(regionName)} community..." required autocomplete="off">
-        <button type="submit" id="comm-chat-send-btn" class="btn btn-primary" style="padding: 0.6rem 1.25rem; font-weight: 700;">
-          Send
-        </button>
-      </form>
-    </div>
-  `;
+function renderCurrentChatView() {
+  setCommunityChatMode(communityState.chatMode || 'regional');
+}
 
-  await loadCommunityChatMessages();
-  startCommunityChatPolling();
+function renderCommunityChat() {
+  renderCurrentChatView();
 }
 
 async function loadCommunityChatMessages(scrollIfBottom = true) {
@@ -901,4 +1011,7 @@ window.detectCommunityRegion = detectCommunityRegion;
 window.switchCommunitySubtab = switchCommunitySubtab;
 window.setCommunityEventsFilter = setCommunityEventsFilter;
 window.challengeCompetitor = challengeCompetitor;
+window.setCommunitySceneView = setCommunitySceneView;
+window.setCommunityChatMode = setCommunityChatMode;
 window.handleSendCommunityChat = handleSendCommunityChat;
+
