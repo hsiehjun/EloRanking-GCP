@@ -46,10 +46,17 @@ function syncAppAuthView() {
   }
 
   if (currentUser) {
-    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; } #app-header { display: block !important; }';
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; } #app-header { display: block !important; width: 100% !important; }';
     if (landingView) landingView.style.display = 'none';
-    if (appShell) appShell.style.display = 'flex';
-    if (appHeader) appHeader.style.display = 'block';
+    if (appShell) {
+      appShell.style.display = 'flex';
+      appShell.style.flexDirection = 'column';
+      appShell.style.width = '100%';
+    }
+    if (appHeader) {
+      appHeader.style.display = 'block';
+      appHeader.style.width = '100%';
+    }
     if (typeof renderHeaderAuth === 'function') renderHeaderAuth();
   } else {
     if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';

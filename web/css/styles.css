@@ -16,8 +16,17 @@ header {
   z-index: 100;
   backdrop-filter: blur(8px);
 }
+#app-shell {
+  width: 100% !important;
+  min-height: 100vh;
+  display: flex !important;
+  flex-direction: column !important;
+  position: relative;
+}
+
 #app-header {
-  flex-shrink: 0;
+  flex-shrink: 0 !important;
+  width: 100% !important;
 }
 .header-inner {
   max-width: 1440px;
@@ -28,6 +37,8 @@ header {
   align-items: center;
   gap: 1rem;
   flex-wrap: nowrap;
+  width: 100%;
+  box-sizing: border-box;
 }
 .logo-group {
   display: flex;
@@ -160,13 +171,21 @@ header {
 
 /* Main Container */
 main {
-  max-width: 1280px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 1.75rem 1.5rem;
   flex: 1;
   width: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
+}
+
+.comm-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  box-sizing: border-box;
 }
 
 /* Stats Ribbon */
@@ -827,9 +846,17 @@ input, select, textarea {
 
 /* Mobile Devices (<= 768px) */
 @media (max-width: 768px) {
+  #app-shell {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
   /* Header & Navigation: Mobile dropdown REPLACES the header */
   #app-header {
-    flex-shrink: 0;
+    width: 100% !important;
+    display: block !important;
+    flex-shrink: 0 !important;
     padding: 0 !important;
     background: rgba(10, 14, 23, 0.98);
     border-bottom: 1px solid rgba(56, 189, 248, 0.25);
@@ -952,7 +979,11 @@ input, select, textarea {
   /* Main Container */
   main {
     padding: 0.65rem 0.5rem 1.5rem;
-    width: 100%;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    box-sizing: border-box !important;
     overflow-x: hidden;
   }
 

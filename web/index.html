@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=74.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
+  <link rel="stylesheet" href="/css/theme.css?v=14.0">
+  <link rel="stylesheet" href="/css/styles.css?v=75.0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -97,7 +97,7 @@
         var style = document.createElement('style');
         style.id = 'auth-fouc-guard';
         if (isAuthenticated) {
-          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; } #app-header { display: block !important; }';
+          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; } #app-header { display: block !important; width: 100% !important; }';
         } else {
           style.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';
         }
@@ -875,7 +875,7 @@
   <!-- ========================================================================
        APPLICATION SHELL (REVEALED ONLY TO AUTHENTICATED USERS)
        ======================================================================== -->
-  <div id="app-shell" style="display: none;">
+  <div id="app-shell" style="display: none; width: 100%; flex-direction: column;">
 
   <!-- Top Navigation Header -->
   <header id="app-header">
@@ -960,7 +960,7 @@
 
     <!-- TAB 2: COMMUNITY HUB (LOCAL SCENES, SPARRING RADAR, TOURNAMENTS, COMPETITORS & CHAT) -->
     <section id="tab-community" class="tab-panel">
-      <div class="comm-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
+      <div class="comm-container" style="width: 100%; max-width: 100%; margin: 0; padding: 0.5rem 0 2rem 0; box-sizing: border-box;">
         
         <!-- Unified Community Hub Controls Toolbar -->
         <div class="comm-header-banner">
@@ -1574,7 +1574,7 @@
 
     <!-- TAB 5: EVENT STUDIO (TOURNAMENT DIRECTOR & ORGANIZER SUITE) -->
     <section id="tab-event-studio" class="tab-panel">
-      <div class="es-app-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
+      <div class="es-app-container" style="width: 100%; max-width: 100%; margin: 0; padding: 0.5rem 0 2rem 0; box-sizing: border-box;">
         
         <!-- BCP Account Connection Status Highlight Banner -->
         <div id="es-bcp-account-banner" style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1.15rem; margin-bottom: 1.25rem; font-size: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
@@ -2847,11 +2847,11 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=66.0"></script>
-  <script src="/js/auth.js?v=77.0"></script>
+  <script src="/js/auth.js?v=78.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
-  <script src="/js/connect.js?v=5.0"></script>
-  <script src="/js/community.js?v=3.1"></script>
+  <script src="/js/connect.js?v=6.0"></script>
+  <script src="/js/community.js?v=3.2"></script>
   <script src="/js/app.js?v=77.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->

@@ -127,10 +127,48 @@ def test_document_scrolling_architecture():
     print("✅ Document scrolling architecture verified (no floating scrollbar on desktop main)")
 
 
+def test_layout_width_and_mobile_stacking():
+    """Verify that browser pages have consistent container max-widths and mobile stacks vertically."""
+    theme_content = (root_dir / "web" / "css" / "theme.css").read_text(encoding="utf-8")
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+    connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+
+    # 1. Theme.css and styles.css enforce #app-shell column stacking
+    assert "flex-direction: column !important;" in theme_content, "#app-shell column stacking missing in theme.css"
+    assert "#app-shell" in styles_content, "#app-shell missing in styles.css"
+    assert "flex-direction: column !important;" in styles_content, "column stacking missing in styles.css"
+
+    # 2. Desktop container max-width consistency (1440px header and main)
+    header_match = re.search(r'\.header-inner\s*\{([^}]+)\}', styles_content)
+    assert header_match is not None, ".header-inner missing in styles.css"
+    assert "max-width: 1440px;" in header_match.group(1), ".header-inner should be 1440px"
+
+    main_match = re.search(r'/\* Main Container \*/\s*main\s*\{([^}]+)\}', styles_content)
+    assert main_match is not None, "/* Main Container */ main missing in styles.css"
+    assert "max-width: 1440px;" in main_match.group(1), "main should have max-width: 1440px matching header"
+
+    # 3. Community and EventStudio container width consistency
+    assert 'max-width: 1360px' not in index_content, "index.html still has conflicting max-width: 1360px"
+    assert 'class="comm-container" style="width: 100%; max-width: 100%;' in index_content, "comm-container not full-width"
+    assert 'class="es-app-container" style="width: 100%; max-width: 100%;' in index_content, "es-app-container not full-width"
+
+    # 4. Anti-FOUC guard and auth.js column enforcement
+    assert '#app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; }' in index_content, "anti-fouc guard in index.html missing column enforcement"
+    assert '#app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; }' in auth_content, "auth.js syncAppAuthView missing column enforcement"
+
+    # 5. Radar paused/empty cards should not shrink to 680px island
+    assert 'max-width: 680px' not in connect_content, "connect.js still has cards constrained to max-width: 680px"
+
+    print("✅ Layout container width consistency and mobile vertical stacking verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
     test_html_assets_exist()
     test_router_module_imports()
     test_document_scrolling_architecture()
+    test_layout_width_and_mobile_stacking()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")

@@ -51,10 +51,10 @@ body {
 }
 
 #app-shell {
-  width: 100%;
+  width: 100% !important;
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
+  display: flex !important;
+  flex-direction: column !important;
   position: relative;
 }
 

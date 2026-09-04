@@ -12,9 +12,17 @@
 }
 
 .es-app-container {
-  max-width: 1400px;
+  width: 100%;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 1rem 1.5rem 3rem 1.5rem;
+  box-sizing: border-box;
+}
+
+main .es-app-container {
+  max-width: 100%;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 /* Header */

@@ -651,7 +651,7 @@ async function loadNearbyPlayers() {
     const sumEl = document.getElementById('comm-radar-summary');
     if (sumEl) sumEl.textContent = 'Radar Paused (Off Duty)';
     container.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto; width: 100%; box-sizing: border-box;">
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; box-sizing: border-box;">
         <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(100, 116, 139, 0.15); border: 1px solid rgba(100, 116, 139, 0.3); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1rem;">
           📡
         </div>
@@ -707,7 +707,7 @@ async function loadNearbyPlayers() {
 
     if (players.length === 0) {
       container.innerHTML = `
-        <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto; width: 100%; box-sizing: border-box;">
+        <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; box-sizing: border-box;">
           <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.25); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1rem;">
             🎯
           </div>
