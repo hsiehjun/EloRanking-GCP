@@ -501,11 +501,26 @@ function openBcpLinkModal() {
   }
 
   modal.classList.add('active');
+
+  // Auto-focus email input so Chrome and password managers immediately detect active credentials
+  if (!isConnected || (formView && formView.style.display !== 'none')) {
+    setTimeout(() => {
+      const emailInput = document.getElementById('bcp-link-email');
+      if (emailInput) {
+        emailInput.focus();
+        if (typeof emailInput.select === 'function' && emailInput.value) {
+          emailInput.select();
+        }
+      }
+    }, 100);
+  }
 }
 
 function closeBcpLinkModal() {
   const modal = document.getElementById('bcp-link-modal');
   if (modal) modal.classList.remove('active');
+  const passInput = document.getElementById('bcp-link-password');
+  if (passInput) passInput.value = '';
 }
 
 function showBcpCredentialsForm() {
@@ -513,6 +528,10 @@ function showBcpCredentialsForm() {
   const formView = document.getElementById('bcp-form-credentials');
   if (connectedView) connectedView.style.display = 'none';
   if (formView) formView.style.display = 'block';
+  setTimeout(() => {
+    const emailInput = document.getElementById('bcp-link-email');
+    if (emailInput) emailInput.focus();
+  }, 100);
 }
 
 async function handleConnectBcp(e) {
@@ -542,6 +561,26 @@ async function handleConnectBcp(e) {
   try {
     const res = await window.api.connectBcpAccount(bcpEmail, bcpPassword);
     if (res && res.success) {
+      // Trigger Chrome/Edge Password Manager prompt to save credentials for OmniTactica
+      if (window.PasswordCredential && navigator.credentials && navigator.credentials.store) {
+        try {
+          const cred = new PasswordCredential({
+            id: bcpEmail,
+            password: bcpPassword,
+            name: bcpEmail
+          });
+          navigator.credentials.store(cred).catch(e => console.debug('Credential store note:', e));
+        } catch (err) {
+          const formEl = document.getElementById('bcp-form-credentials');
+          if (formEl) {
+            try {
+              const cred = new PasswordCredential(formEl);
+              navigator.credentials.store(cred).catch(e2 => console.debug('Credential form store note:', e2));
+            } catch (e2) {}
+          }
+        }
+      }
+
       if (res.user) {
         currentUser = res.user;
         localStorage.setItem('native_user_profile', JSON.stringify(currentUser));

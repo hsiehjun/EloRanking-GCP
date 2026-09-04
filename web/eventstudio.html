@@ -602,14 +602,14 @@
         </div>
 
         <!-- VIEW 2: Credentials Form -->
-        <form id="bcp-form-credentials" onsubmit="handleConnectBcp(event)">
+        <form id="bcp-form-credentials" method="post" action="javascript:void(0);" onsubmit="handleConnectBcp(event)">
           <div style="margin-bottom: 1rem;">
             <label for="bcp-link-email" style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary, #94a3b8); display: block; margin-bottom: 0.35rem;">BCP Email Address</label>
-            <input type="email" id="bcp-link-email" class="search-input" style="width: 100%; font-size: 0.9rem; box-sizing: border-box;" placeholder="e.g. your-email@domain.com" required autocomplete="username">
+            <input type="email" id="bcp-link-email" name="username" class="search-input" style="width: 100%; font-size: 0.9rem; box-sizing: border-box;" placeholder="e.g. your-email@domain.com" required autocomplete="username">
           </div>
           <div style="margin-bottom: 1.25rem;">
             <label for="bcp-link-password" style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary, #94a3b8); display: block; margin-bottom: 0.35rem;">BCP Password</label>
-            <input type="password" id="bcp-link-password" class="search-input" style="width: 100%; font-size: 0.9rem; box-sizing: border-box;" placeholder="••••••••••••" required autocomplete="current-password">
+            <input type="password" id="bcp-link-password" name="password" class="search-input" style="width: 100%; font-size: 0.9rem; box-sizing: border-box;" placeholder="••••••••••••" required autocomplete="current-password">
           </div>
           
           <div id="bcp-link-error" style="display: none; color: #ef4444; font-size: 0.82rem; margin-bottom: 1rem; padding: 0.55rem 0.75rem; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px;"></div>
@@ -633,7 +633,7 @@
   </div>
 
   <script src="/js/api.js?v=72.0"></script>
-  <script src="/js/auth.js?v=85.0"></script>
+  <script src="/js/auth.js?v=86.0"></script>
   <script src="/js/eventstudio.js?v=74.0"></script>
 </body>
 </html>
