@@ -1214,12 +1214,18 @@ async function respondToRequest(requestId, action, message = '') {
       }, { merge: true }).catch(() => {});
 
       const otherId = targetReq ? (targetReq.sender_id === myId ? targetReq.receiver_id : targetReq.sender_id) : null;
+      const expiresAtDate = new Date(now + (30 * 24 * 60 * 60 * 1000));
+      const expiresAt = (typeof firebase !== 'undefined' && firebase.firestore?.Timestamp)
+        ? firebase.firestore.Timestamp.fromDate(expiresAtDate)
+        : expiresAtDate;
+
       if (myId) {
         fsDb.collection('connect_user_sync').doc(myId).set({
           userId: myId,
           updatedAt: now,
           action: `request_${action}`,
-          requestId: requestId
+          requestId: requestId,
+          expiresAt: expiresAt
         }, { merge: true }).catch(() => {});
       }
       if (otherId) {
@@ -1227,7 +1233,8 @@ async function respondToRequest(requestId, action, message = '') {
           userId: otherId,
           updatedAt: now,
           action: `request_${action}`,
-          requestId: requestId
+          requestId: requestId,
+          expiresAt: expiresAt
         }, { merge: true }).catch(() => {});
       }
     } catch (fsErr) {
@@ -2220,10 +2227,15 @@ async function handleSubmitMatchProposal(e) {
         if (fsDb && receiverId) {
           try {
             const now = Date.now();
+            const expiresAtDate = new Date(now + (30 * 24 * 60 * 60 * 1000));
+            const expiresAt = (typeof firebase !== 'undefined' && firebase.firestore?.Timestamp)
+              ? firebase.firestore.Timestamp.fromDate(expiresAtDate)
+              : expiresAtDate;
             fsDb.collection('connect_user_sync').doc(receiverId).set({
               userId: receiverId,
               updatedAt: now,
-              action: 'request_created'
+              action: 'request_created',
+              expiresAt: expiresAt
             }, { merge: true }).catch(() => {});
           } catch (e) {}
         }

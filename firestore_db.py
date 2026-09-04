@@ -334,6 +334,7 @@ class FirestoreRoomEngine:
     def notify_user_requests_updated(self, user_ids: List[str], reason: str = "request_updated") -> bool:
         """Pushes a lightweight real-time timestamp notification to connect_user_sync/{user_id} in Firestore."""
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        expires_dt = datetime.now(timezone.utc) + timedelta(days=30)
         for uid in user_ids:
             if not uid:
                 continue
@@ -341,7 +342,8 @@ class FirestoreRoomEngine:
             doc_data = {
                 "userId": clean_uid,
                 "updatedAt": now_ts,
-                "reason": reason
+                "reason": reason,
+                "expiresAt": expires_dt
             }
             if self._client:
                 try:
@@ -380,6 +382,49 @@ class FirestoreRoomEngine:
         else:
             self._fallback_rooms[request_id] = doc_data
         return True
+
+    def cleanup_expired_documents(self) -> Dict[str, int]:
+        """
+        Cleans up expired documents across Firestore collections.
+        Acts as programmatic cleanup alongside GCP Firestore native TTL policies.
+        """
+        deleted_counts = {"connect_user_sync": 0, "connect_chats": 0, "rooms": 0}
+        if not self._client:
+            return deleted_counts
+
+        now_dt = datetime.now(timezone.utc)
+        now_ts = int(now_dt.timestamp() * 1000)
+
+        for col_name in ["connect_user_sync", "connect_chats"]:
+            try:
+                col_ref = self._client.collection(col_name)
+                expired_docs = col_ref.where("expiresAt", "<=", now_dt).limit(100).stream()
+                batch = self._client.batch()
+                count = 0
+                for doc in expired_docs:
+                    batch.delete(doc.reference)
+                    count += 1
+                if count > 0:
+                    batch.commit()
+                    deleted_counts[col_name] += count
+            except Exception as e:
+                logger.warning(f"Notice during {col_name} cleanup: {e}")
+
+        try:
+            rooms_ref = self._client.collection("rooms")
+            expired_rooms = rooms_ref.where("expiresAt", "<=", now_ts).limit(100).stream()
+            batch = self._client.batch()
+            count = 0
+            for doc in expired_rooms:
+                batch.delete(doc.reference)
+                count += 1
+            if count > 0:
+                batch.commit()
+                deleted_counts["rooms"] += count
+        except Exception as e:
+            logger.warning(f"Notice during rooms cleanup: {e}")
+
+        return deleted_counts
 
 # Singleton instance
 _firestore_engine_instance = None
