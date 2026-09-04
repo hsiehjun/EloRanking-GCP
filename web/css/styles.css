@@ -109,7 +109,7 @@ header {
 
 /* Mobile Nav Dropdown: Hidden on desktop */
 .mobile-nav-wrapper {
-  display: none;
+  display: none !important;
 }
 
 .nav-tabs {
@@ -939,12 +939,20 @@ input, select, textarea {
 
   .comm-header-controls {
     width: 100% !important;
+    display: flex !important;
     justify-content: space-between !important;
+    align-items: center !important;
     gap: 0.35rem !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    scrollbar-width: none;
+  }
+  .comm-header-controls::-webkit-scrollbar {
+    display: none;
   }
 
   .comm-header-controls > * {
-    flex-shrink: 1 !important;
+    flex-shrink: 0 !important;
   }
 
   #btn-toggle-lfg,
@@ -3484,19 +3492,18 @@ input, select, textarea {
 .comm-header-banner {
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.9) 100%);
   border: 1px solid rgba(56, 189, 248, 0.28);
-  border-radius: var(--radius-lg);
-  padding: 1.1rem 1.4rem;
-  margin-bottom: 1.1rem;
+  border-radius: var(--radius-md, 10px);
+  padding: 0.65rem 1rem;
+  margin-bottom: 0.85rem;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.65rem;
 }
 
 .comm-header-title-box {
-  min-width: 260px;
-  flex: 1;
+  display: none !important;
 }
 
 .comm-header-controls {
@@ -3504,7 +3511,7 @@ input, select, textarea {
   align-items: center;
   gap: 0.55rem;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  width: 100%;
 }
 
 .comm-bcp-banner {

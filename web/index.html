@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>OmniTactica • Warhammer 40k Elo Rankings & Game Tracker</title>
   
   <!-- PWA & Mobile App Meta -->
-  <link rel="manifest" href="/manifest.json">
+  <link rel="manifest" href="/manifest.json?v=2.0">
   <meta name="theme-color" content="#070b14">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,14 +15,53 @@
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-192.png">
   <link rel="icon" type="image/png" sizes="512x512" href="/assets/icon-512.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/assets/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/assets/icon-512.png">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=69.0">
+  <link rel="stylesheet" href="/css/styles.css?v=71.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
+
+  <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
+  <script>
+    function handleMobileNavChange(val) {
+      if (!val) return;
+      if (val === 'tracker') {
+        window.location.href = '/11th/tracker';
+        return;
+      }
+      if (typeof switchTab === 'function') {
+        switchTab(val);
+      } else {
+        window.location.hash = '#' + val;
+      }
+    }
+    window.handleMobileNavChange = handleMobileNavChange;
+
+    // Keep iOS Standalone PWA links inside webclip container
+    if (('standalone' in window.navigator) && window.navigator.standalone) {
+      document.addEventListener('click', function(e) {
+        var node = e.target;
+        while (node && node.nodeName !== 'A' && node.nodeName !== 'HTML') {
+          node = node.parentNode;
+        }
+        if (node && node.nodeName === 'A' && node.href) {
+          var href = node.getAttribute('href');
+          if (href && !href.startsWith('#') && !href.startsWith('javascript:') && !node.target) {
+            if (node.hostname === window.location.hostname || href.startsWith('/')) {
+              e.preventDefault();
+              window.location.href = node.href;
+            }
+          }
+        }
+      }, false);
+    }
+  </script>
 
   <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
   <script>
@@ -855,8 +894,8 @@
         </button>
       </div>
 
-      <!-- Mobile Tab Dropdown Selector (Rendered on mobile only) -->
-      <div class="mobile-nav-wrapper">
+      <!-- Mobile Tab Dropdown Selector (Strictly mobile viewports <= 768px only) -->
+      <div class="mobile-nav-wrapper desktop-hidden" style="display: none;">
         <div class="mobile-nav-select-wrap">
           <select id="mobile-nav-select" class="mobile-nav-select" onchange="handleMobileNavChange(this.value)" aria-label="Switch Tab">
             <option value="my-hub">🏠 My Hub</option>
@@ -897,19 +936,13 @@
     <section id="tab-community" class="tab-panel">
       <div class="comm-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
         
-        <!-- Unified Community Hub Header & Controls Banner -->
+        <!-- Unified Community Hub Controls Toolbar -->
         <div class="comm-header-banner">
-          <!-- Left: Title & Description (Hidden on mobile to save vertical real estate) -->
-          <div class="comm-header-title-box mobile-hidden">
-            <h2 id="comm-header-title" style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem;">
-              Local 40k Scene within 50 miles of San Diego, CA
-            </h2>
-            <p id="comm-header-desc" style="font-size: 0.8rem; color: #94a3b8; margin: 0; max-width: 650px;">
-              Local tournaments, sparring radar, game stores, and regional player standings.
-            </p>
-          </div>
+          <!-- Hidden fallback elements for JS references -->
+          <span id="comm-header-title" style="display: none;"></span>
+          <span id="comm-header-desc" style="display: none;"></span>
 
-          <!-- Right: Status, Location, Radius & GPS Controls -->
+          <!-- Status, Location, Radius & GPS Controls -->
           <div class="comm-header-controls">
             <!-- Status Toggle -->
             <button id="btn-toggle-lfg" onclick="toggleUserLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Toggle your Sparring Radar game availability">
@@ -927,11 +960,11 @@
             <!-- Radius Dropdown -->
             <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
               <select id="comm-radius-select" class="form-input" style="font-size: 0.78rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.7rem; cursor: pointer;" onchange="changeCommunityRadius(this.value)">
-                <option value="25">Within 25 Miles</option>
-                <option value="50" selected>Within 50 Miles (Default)</option>
-                <option value="100">Within 100 Miles</option>
-                <option value="250">Within 250 Miles</option>
-                <option value="500">Within 500 Miles</option>
+                <option value="25">25 Miles</option>
+                <option value="50" selected>50 Miles</option>
+                <option value="100">100 Miles</option>
+                <option value="250">250 Miles</option>
+                <option value="500">500 Miles</option>
               </select>
             </div>
 
@@ -1096,21 +1129,6 @@
     <!-- TAB: DEDICATED SPARRING & MATCH CHAT -->
     <section id="tab-chat" class="tab-panel">
       <div class="comm-container" style="max-width: 1360px; margin: 0 auto; padding: 0.5rem 0 2rem 0;">
-        <div class="chat-tab-header mobile-hidden" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.1rem; flex-wrap: wrap; gap: 0.75rem;">
-          <div>
-            <h2 style="font-size: 1.25rem; font-weight: 900; color: #fff; margin: 0 0 0.25rem; display: flex; align-items: center; gap: 8px;">
-              <span>💬 Direct Sparring &amp; Match Chat</span>
-            </h2>
-            <p style="font-size: 0.8rem; color: #94a3b8; margin: 0;">
-              Private matchmaking chats, sparring challenge coordination &amp; 1-click live game room creation
-            </p>
-          </div>
-          <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <button onclick="switchTab('community')" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 5px;">
-              <span>👥</span> <span>Community Hub</span>
-            </button>
-          </div>
-        </div>
 
         <!-- Direct Sparring Chats -->
         <div id="comm-chat-panel-direct">
@@ -2853,12 +2871,12 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=65.0"></script>
-  <script src="/js/auth.js?v=72.0"></script>
-  <script src="/js/my_hub.js?v=72.0"></script>
+  <script src="/js/auth.js?v=74.0"></script>
+  <script src="/js/my_hub.js?v=73.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
-  <script src="/js/connect.js?v=4.1"></script>
-  <script src="/js/community.js?v=1.8"></script>
-  <script src="/js/app.js?v=73.0"></script>
+  <script src="/js/connect.js?v=4.3"></script>
+  <script src="/js/community.js?v=1.9"></script>
+  <script src="/js/app.js?v=75.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

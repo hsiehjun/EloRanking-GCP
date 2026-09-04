@@ -271,9 +271,11 @@ async def serve_pwa_manifest():
             "name": "OmniTactica - 40K Tactical Suite",
             "short_name": "OmniTactica",
             "description": "OmniTactica Warhammer 40,000 Elo Rankings, Tournament Companion & Live Game Tracker",
-            "start_url": "/#my-hub",
+            "id": "/",
+            "start_url": "/",
             "scope": "/",
             "display": "standalone",
+            "orientation": "any",
             "background_color": "#070b14",
             "theme_color": "#070b14",
             "icons": [
