@@ -163,15 +163,26 @@ function syncAppAuthView() {
     if (typeof renderHeaderAuth === 'function') renderHeaderAuth();
   } else {
     document.body.classList.remove('is-authenticated');
-    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; } #floating-chat-widget { display: none !important; }';
-    if (landingView) landingView.style.display = 'block';
-    if (appShell) appShell.style.display = 'none';
-    if (appHeader) appHeader.style.display = 'none';
     if (chatWidget) chatWidget.style.display = 'none';
     if (typeof toggleFloatingChat === 'function') toggleFloatingChat(false);
-    if (window.location.pathname === '/app' || window.location.pathname === '/app.html') {
-      window.location.replace('/login?redirect=/app');
+
+    // If on app.html (no #landing-page-view exists):
+    if (!landingView) {
+      if (foucGuard) foucGuard.innerHTML = '#floating-chat-widget { display: none !important; }';
+      const isStandalone = ('standalone' in window.navigator && window.navigator.standalone) ||
+                           (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+      const target = isStandalone ? '/login' : '/login?redirect=/app';
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.replace(target);
+      }
+      return;
     }
+
+    // Only if #landing-page-view exists in DOM:
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; } #floating-chat-widget { display: none !important; }';
+    landingView.style.display = 'block';
+    if (appShell) appShell.style.display = 'none';
+    if (appHeader) appHeader.style.display = 'none';
   }
 }
 
@@ -546,13 +557,26 @@ async function handleLogout() {
   if (typeof detachUserSyncSnapshot === 'function') detachUserSyncSnapshot();
   if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
   if (typeof stopChatPolling === 'function') stopChatPolling();
-  localStorage.removeItem('native_session_token');
-  localStorage.removeItem('native_user_profile');
-  localStorage.removeItem('elo_auth_token');
-  localStorage.removeItem('bcp_session_token');
-  document.cookie = 'session_token=; path=/; max-age=0';
+
+  // 1. Thorough token purge across all storages
+  const storageKeys = [
+    'native_session_token', 'native_user_profile', 'elo_auth_token', 
+    'bcp_session_token', 'bcp_user_profile', 'pending_challenge_target'
+  ];
+  storageKeys.forEach(k => {
+    try { localStorage.removeItem(k); } catch (e) {}
+    try { sessionStorage.removeItem(k); } catch (e) {}
+  });
+
+  // 2. Thorough cookie wipe across all paths and variations
+  const cookieNames = ['session_token', 'elo_auth_token', 'native_session_token'];
+  cookieNames.forEach(name => {
+    document.cookie = `${name}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
+    document.cookie = `${name}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+    document.cookie = `${name}=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  });
   
-  // Wipe all form inputs and reset auth forms to ensure zero cached credentials
+  // 3. Wipe all form inputs and reset auth forms to ensure zero cached credentials
   try {
     const loginForm = document.getElementById('auth-form-login');
     if (loginForm) loginForm.reset();
@@ -571,9 +595,28 @@ async function handleLogout() {
     window.history.replaceState({}, '', url.pathname);
   } catch (e) {}
 
-  renderHeaderAuth();
-  syncAppAuthView();
-  window.location.href = '/';
+  // 4. Standalone PWA vs Regular Browser Detection
+  const isStandalone = ('standalone' in window.navigator && window.navigator.standalone) ||
+                       (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  const targetUrl = isStandalone ? '/login' : '/';
+
+  // 5. Visual feedback: if on app.html, NEVER show an empty black void!
+  const appShell = document.getElementById('app-shell');
+  if (appShell && !document.getElementById('landing-page-view')) {
+    appShell.innerHTML = `
+      <div style="min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; font-family: 'Inter', sans-serif; background: #07090e; padding: 24px; text-align: center;">
+        <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">🚪</div>
+        <div style="font-weight: 800; color: #fff; font-size: 1.25rem; margin-bottom: 0.4rem; font-family: 'Cinzel', serif;">Signed Out</div>
+        <div style="font-size: 0.88rem; color: #64748b; margin-bottom: 1.5rem;">Redirecting to ${isStandalone ? 'Sign In' : 'Home'}...</div>
+        <a href="${targetUrl}" class="btn btn-primary" style="padding: 10px 22px; font-size: 0.88rem; font-weight: 700; text-decoration: none; border-radius: 8px; box-shadow: 0 4px 16px rgba(56,189,248,0.35);">
+          ${isStandalone ? 'Proceed to Sign In' : 'Return to Home'} →
+        </a>
+      </div>
+    `;
+  }
+
+  // 6. Single authoritative navigation without conflicting syncAppAuthView or replace calls!
+  window.location.replace(targetUrl);
 }
 
 function renderHeaderAuth() {

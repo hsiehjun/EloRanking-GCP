@@ -194,7 +194,7 @@ async def api_auth_logout(request: Request, response: Response, token: Optional[
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     if session_token:
         get_auth_manager().logout(session_token)
-    response.delete_cookie(key="session_token", path="/")
+    response.delete_cookie(key="session_token", path="/", samesite="lax")
     return {"success": True}
 
 @router.post("/api/auth/logout-all", summary="Sign out user from all active devices")
@@ -213,7 +213,7 @@ async def api_auth_logout_all(request: Request, response: Response, keep_current
     count = auth_mgr.logout_all_sessions(user_id, keep_current_token=token_to_keep)
 
     if not keep_current:
-        response.delete_cookie(key="session_token", path="/")
+        response.delete_cookie(key="session_token", path="/", samesite="lax")
 
     return {
         "success": True,

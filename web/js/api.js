@@ -45,8 +45,12 @@ window.api = {
     localStorage.removeItem('native_user_profile');
     localStorage.removeItem('elo_auth_token');
     localStorage.removeItem('bcp_session_token');
-    sessionStorage.removeItem('elo_auth_token');
+    localStorage.removeItem('bcp_user_profile');
+    try { sessionStorage.removeItem('elo_auth_token'); } catch (e) {}
+    try { sessionStorage.removeItem('native_session_token'); } catch (e) {}
+    document.cookie = 'session_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
     document.cookie = 'session_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'session_token=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
   },
 
   // Native Auth: Register
@@ -178,15 +182,14 @@ window.api = {
   // Logout
   async logout() {
     const token = this.getAuthToken();
-    localStorage.removeItem('native_session_token');
-    localStorage.removeItem('native_user_profile');
-    localStorage.removeItem('bcp_session_token');
-    localStorage.removeItem('bcp_user_profile');
+    this.clearAuth();
     if (token) {
-      await fetch(`/api/auth/logout?token=${encodeURIComponent(token)}`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      try {
+        await fetch(`/api/auth/logout?token=${encodeURIComponent(token)}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+      } catch (e) {}
     }
     return { success: true };
   },

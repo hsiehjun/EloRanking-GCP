@@ -117,7 +117,9 @@
           if (match) token = match[2];
         }
         if (!token) {
-          window.location.replace('/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash));
+          var isStandalone = ('standalone' in window.navigator && window.navigator.standalone) ||
+                             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+          window.location.replace(isStandalone ? '/login' : '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.search + window.location.hash));
           return;
         }
         var style = document.createElement('style');

@@ -735,6 +735,45 @@ def test_landing_page_community_ethos_and_neutrality():
     print("✅ Landing page community ethos, 6-pillar feature suite, and strict neutrality verified (0 Event Studio, 0 BCP)!")
 
 
+def test_signout_and_pwa_standalone_navigation():
+    """Verify that signing out never leaves a black screen and handles PWA standalone navigation properly."""
+    auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    tracker_sync_content = (root_dir / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+    routers_auth_content = (root_dir / "routers" / "auth.py").read_text(encoding="utf-8")
+
+    # 1. routers/auth.py must delete cookie with samesite='lax' matching set_cookie
+    assert 'response.delete_cookie(key="session_token", path="/", samesite="lax")' in routers_auth_content, \
+        "routers/auth.py must delete session_token cookie with samesite='lax'"
+
+    # 2. handleLogout in auth.js must wipe cookies with past expires and SameSite=Lax
+    assert 'expires=Thu, 01 Jan 1970 00:00:00 GMT' in auth_content, \
+        "auth.js must wipe cookies with past expires timestamp"
+    assert "isStandalone ? '/login' : '/'" in auth_content, \
+        "handleLogout in auth.js must redirect standalone PWA to /login and browser to /"
+
+    # 3. syncAppAuthView in auth.js must never set display:none on app-shell when landingView is missing
+    assert 'if (!landingView) {' in auth_content, \
+        "syncAppAuthView must check for existence of landingView before modifying app-shell"
+
+    # 4. app.html unauthenticated guard must redirect cleanly
+    assert "window.location.replace(isStandalone ? '/login' : '/login?redirect='" in app_content, \
+        "app.html auth guard must handle standalone PWA redirect to /login"
+
+    # 5. tracker_sync.js logout must also handle standalone PWA and past expires
+    assert 'expires=Thu, 01 Jan 1970 00:00:00 GMT' in tracker_sync_content, \
+        "tracker_sync.js must wipe cookies with past expires timestamp"
+    assert "isStandalone ? '/login' : '/'" in tracker_sync_content, \
+        "tracker_sync.js __handleLogout must route standalone PWA to /login"
+
+    # 6. index.html must not bounce to /app based on unvalidated raw cookies
+    assert r"document.cookie.match(new RegExp('(^| )session_token=([^;]+)'))" not in index_content, \
+        "index.html must not redirect to /app on unvalidated raw cookie (server already validates)"
+
+    print("✅ Signout and PWA standalone navigation verified (no black screen, clean /login and / routing)!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -754,6 +793,7 @@ if __name__ == "__main__":
     test_event_studio_mobile_dropdown_role_restriction()
     test_gps_coordinate_precision_parity()
     test_landing_page_community_ethos_and_neutrality()
+    test_signout_and_pwa_standalone_navigation()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

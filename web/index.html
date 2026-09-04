@@ -42,10 +42,6 @@
         }
 
         var token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token');
-        if (!token) {
-          var match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
-          if (match) token = match[2];
-        }
         if (token && !new URLSearchParams(window.location.search).has('public')) {
           window.location.replace('/app');
         }

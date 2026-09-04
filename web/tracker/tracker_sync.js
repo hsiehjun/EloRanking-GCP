@@ -91,8 +91,13 @@
     originalRemoveItem('elo_auth_token');
     originalRemoveItem('native_session_token');
     originalRemoveItem('native_user_profile');
-    sessionStorage.removeItem('elo_auth_token');
-    document.cookie = 'session_token=; path=/; max-age=0';
+    originalRemoveItem('bcp_session_token');
+    originalRemoveItem('bcp_user_profile');
+    try { sessionStorage.removeItem('elo_auth_token'); } catch (e) {}
+    try { sessionStorage.removeItem('native_session_token'); } catch (e) {}
+    document.cookie = 'session_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax';
+    document.cookie = 'session_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+    document.cookie = 'session_token=; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT';
     currentUser = null;
   }
 
@@ -666,7 +671,9 @@
       });
     } catch (e) {}
     clearAuthToken();
-    window.location.href = '/';
+    const isStandalone = ('standalone' in window.navigator && window.navigator.standalone) ||
+                         (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+    window.location.replace(isStandalone ? '/login' : '/');
   };
 
   // 3. Initialize Match Room / Play / Setup / Landing
