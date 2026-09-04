@@ -481,12 +481,6 @@ window.api = {
     return this._fetchJson(`/api/predict?${params}`);
   },
 
-  // Faction vs Faction Match Predictor
-  async predictFactionMatchup(f1, f2) {
-    const params = new URLSearchParams({ f1, f2 });
-    return this._fetchJson(`/api/predict/faction?${params}`);
-  },
-
   // Autocomplete Search Players
   async searchPlayers(query, limit = 10) {
     const params = new URLSearchParams({ q: query, limit });
