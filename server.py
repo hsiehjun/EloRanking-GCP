@@ -264,9 +264,14 @@ async def serve_11th_root(request: Request):
 @app.get("/manifest.webmanifest", include_in_schema=False)
 async def serve_pwa_manifest():
     manifest_file = web_dir / "manifest.json"
+    manifest_headers = {
+        "Content-Type": "application/manifest+json",
+        "Cache-Control": "no-cache, no-store, must-revalidate"
+    }
     if manifest_file.exists():
-        return FileResponse(str(manifest_file), media_type="application/manifest+json")
+        return FileResponse(str(manifest_file), media_type="application/manifest+json", headers=manifest_headers)
     return JSONResponse(
+        headers=manifest_headers,
         content={
             "name": "OmniTactica - 40K Tactical Suite",
             "short_name": "OmniTactica",
@@ -304,8 +309,7 @@ async def serve_pwa_manifest():
                     "purpose": "maskable"
                 }
             ]
-        },
-        headers={"Content-Type": "application/manifest+json"}
+        }
     )
 
 @app.get("/assets/{file:path}", include_in_schema=False)

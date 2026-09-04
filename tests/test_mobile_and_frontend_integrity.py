@@ -1,4 +1,5 @@
 """Comprehensive verification test for mobile experience fixes and frontend integrity."""
+import json
 import re
 from pathlib import Path
 
@@ -491,6 +492,45 @@ def test_custom_timeframe_calendar_picker():
     print("✅ Custom timeframe calendar picker visibility, styling, and picker handlers verified!")
 
 
+def test_pwa_landscape_orientation():
+    """Verify that PWA manifest, HTML viewports, JS orientation unlocks, and CSS landscape safe-areas support mobile rotation."""
+    manifest_path = root_dir / "web" / "manifest.json"
+    assert manifest_path.exists(), "web/manifest.json not found"
+    manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest_data.get("orientation") == "any", f"manifest.json orientation should be 'any', got: {manifest_data.get('orientation')}"
+
+    server_content = (root_dir / "server.py").read_text(encoding="utf-8")
+    assert '"orientation": "any"' in server_content, "server.py fallback manifest orientation must be 'any'"
+    assert 'Cache-Control' in server_content and 'no-cache' in server_content, "server.py manifest endpoint must set Cache-Control: no-cache"
+
+    html_targets = [
+        root_dir / "web" / "index.html",
+        root_dir / "web" / "eventstudio.html",
+        root_dir / "web" / "scorecard.html",
+        root_dir / "web" / "tracker" / "play.html",
+        root_dir / "web" / "tracker" / "lobby.html",
+        root_dir / "web" / "tracker" / "login.html"
+    ]
+    for html_file in html_targets:
+        assert html_file.exists(), f"{html_file.name} missing"
+        html_text = html_file.read_text(encoding="utf-8")
+        assert "user-scalable=no" not in html_text, f"{html_file.name} has user-scalable=no, which freezes landscape rotation in iOS WebClip PWAs"
+        assert "maximum-scale=1" not in html_text, f"{html_file.name} has maximum-scale constraint freezing orientation"
+        assert 'name="viewport"' in html_text, f"{html_file.name} missing viewport meta tag"
+        assert 'viewport-fit=cover' in html_text, f"{html_file.name} missing viewport-fit=cover"
+
+    app_js_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
+    assert "screen.orientation.unlock" in app_js_content, "web/js/app.js missing screen.orientation.unlock()"
+    assert "orientationchange" in app_js_content, "web/js/app.js missing orientationchange handler"
+
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert "(orientation: landscape) and (max-height: 520px)" in styles_content, "styles.css missing landscape phone media query"
+    assert "@media (orientation: landscape)" in styles_content, "styles.css missing @media (orientation: landscape) for standalone PWA"
+    assert "env(safe-area-inset-left" in styles_content and "env(safe-area-inset-right" in styles_content, "styles.css missing landscape notch clearance"
+
+    print("✅ PWA landscape rotation, viewport meta tags, orientation unlock, and safe-area reflow verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -506,6 +546,7 @@ if __name__ == "__main__":
     test_universal_ios_safe_area_coverage()
     test_teams_leaderboard_pagination()
     test_custom_timeframe_calendar_picker()
+    test_pwa_landscape_orientation()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

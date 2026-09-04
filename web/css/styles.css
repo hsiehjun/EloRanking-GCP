@@ -855,8 +855,8 @@ input, select, textarea {
   }
 }
 
-/* Mobile Devices (<= 768px) */
-@media (max-width: 768px) {
+/* Mobile Devices (<= 768px or Landscape Mobile Phones) */
+@media (max-width: 768px), (orientation: landscape) and (max-height: 520px) {
   #app-shell {
     width: 100% !important;
     display: flex !important;
@@ -3410,24 +3410,51 @@ html.is-ios .es-app-container {
   padding-top: max(0.5rem, env(safe-area-inset-top, 0px)) !important;
 }
 
-/* For iOS Standalone PWA / Webclip mode, enforce at least 44px top clearance */
-html.is-ios-standalone .landing-nav {
-  padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
+/* For iOS Standalone PWA / Webclip mode: Portrait Status Bar clearance (44px floor) */
+@media (orientation: portrait) {
+  html.is-ios-standalone .landing-nav {
+    padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
+  }
+
+  html.is-ios-standalone #app-header {
+    padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
+  }
+
+  html.is-ios-standalone .modal-backdrop,
+  html.is-ios-standalone #modal-add-player,
+  html.is-ios-standalone #modal-swap-players,
+  html.is-ios-standalone #modal-tournament-register {
+    padding-top: max(2.5rem, calc(1rem + env(safe-area-inset-top, 0px))) !important;
+  }
+
+  html.is-ios-standalone .es-app-container {
+    padding-top: max(44px, env(safe-area-inset-top, 0px)) !important;
+  }
 }
 
-html.is-ios-standalone #app-header {
-  padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
-}
+/* For iOS Standalone PWA / Webclip mode: Landscape Side-Notch & Dynamic Island clearance */
+@media (orientation: landscape) {
+  html.is-ios-standalone .landing-nav,
+  html.is-ios-standalone #app-header {
+    padding-top: max(env(safe-area-inset-top, 0px), 0.5rem) !important;
+    padding-left: max(env(safe-area-inset-left, 0px), 1rem) !important;
+    padding-right: max(env(safe-area-inset-right, 0px), 1rem) !important;
+  }
 
-html.is-ios-standalone .modal-backdrop,
-html.is-ios-standalone #modal-add-player,
-html.is-ios-standalone #modal-swap-players,
-html.is-ios-standalone #modal-tournament-register {
-  padding-top: max(2.5rem, calc(1rem + env(safe-area-inset-top, 0px))) !important;
-}
+  html.is-ios-standalone .modal-backdrop,
+  html.is-ios-standalone #modal-add-player,
+  html.is-ios-standalone #modal-swap-players,
+  html.is-ios-standalone #modal-tournament-register {
+    padding-top: max(1rem, env(safe-area-inset-top, 0px)) !important;
+    padding-left: max(env(safe-area-inset-left, 0px), 1.5rem) !important;
+    padding-right: max(env(safe-area-inset-right, 0px), 1.5rem) !important;
+  }
 
-html.is-ios-standalone .es-app-container {
-  padding-top: max(44px, env(safe-area-inset-top, 0px)) !important;
+  html.is-ios-standalone .es-app-container {
+    padding-top: max(0.5rem, env(safe-area-inset-top, 0px)) !important;
+    padding-left: max(env(safe-area-inset-left, 0px), 1rem) !important;
+    padding-right: max(env(safe-area-inset-right, 0px), 1rem) !important;
+  }
 }
 
 /* Touch & tap-target optimization for iOS navigation buttons */

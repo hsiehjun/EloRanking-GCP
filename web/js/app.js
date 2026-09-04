@@ -2,6 +2,23 @@
    APP.JS - Main App Router, Navigation & Initialization (v6.0)
    ========================================================================== */
 
+// Ensure installed PWA and mobile browser unlock screen orientation for portrait & landscape rotation
+try {
+  if (typeof window !== 'undefined' && window.screen && window.screen.orientation && typeof window.screen.orientation.unlock === 'function') {
+    window.screen.orientation.unlock().catch(function() {});
+  }
+} catch (e) {}
+
+// Handle smooth reflow on orientation changes for iOS standalone WebClips and Android PWAs
+if (typeof window !== 'undefined') {
+  window.addEventListener('orientationchange', function() {
+    window.dispatchEvent(new Event('resize'));
+    setTimeout(function() {
+      window.scrollTo(0, 0);
+    }, 150);
+  });
+}
+
 let activeTab = 'my-hub';
 
 function switchTab(tabName) {
