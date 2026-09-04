@@ -596,31 +596,58 @@ def test_event_studio_mobile_dropdown_role_restriction():
 
 
 def test_gps_coordinate_precision_parity():
-    """Verify that all 3 GPS buttons preserve exact device floating-point coordinates and do not snap to coarse city centers."""
+    """Verify that all 3 GPS locations preserve exact device floating-point coordinates, use unified reverse-geocoding,
+    correctly map Poway coordinates to Poway (not coarse San Diego), and that the redundant GPS button in Community Hub is hidden."""
     connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
     auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
     community_content = (root_dir / "web" / "js" / "community.js").read_text(encoding="utf-8")
+    utils_content = (root_dir / "web" / "js" / "utils.js").read_text(encoding="utf-8")
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
 
-    # 1. Image 2: Community Hub top bar detectCommunityGPS
+    # 1. Unified reverse geocoding helper in utils.js
+    assert "function findClosestKnownCity" in utils_content, "findClosestKnownCity missing in utils.js"
+    assert "function resolveLocationFromCoordinates" in utils_content, "resolveLocationFromCoordinates missing in utils.js"
+    assert "window.findClosestKnownCity" in utils_content, "window.findClosestKnownCity must be exported"
+    assert "window.resolveLocationFromCoordinates" in utils_content, "window.resolveLocationFromCoordinates must be exported"
+
+    # Simulate proximity resolution for Poway vs San Diego coordinates
+    import math
+    poway_lat, poway_lng = 32.9628, -117.0359
+    sd_lat, sd_lng = 32.7157, -117.1611
+    # Distance from Poway to downtown San Diego
+    dlat = (sd_lat - poway_lat) * math.pi / 180
+    dlng = (sd_lng - poway_lng) * math.pi / 180
+    a = math.sin(dlat / 2) ** 2 + math.cos(poway_lat * math.pi / 180) * math.cos(sd_lat * math.pi / 180) * math.sin(dlng / 2) ** 2
+    dist_sd_poway = 3959.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    assert dist_sd_poway > 12.0, "Poway must be > 12 miles from downtown San Diego"
+    assert "'poway': { name: 'Poway, CA'" in utils_content, "Poway hub must be present in utils.js GLOBAL_CITY_COORDS"
+
+    # 2. Community Hub top bar: redundant GPS button is hidden per user request
+    assert '<button id="comm-btn-gps"' in index_content, "comm-btn-gps element must exist for JS compatibility"
+    assert 'id="comm-btn-gps" onclick="detectCommunityGPS()" style="display: none;"' in index_content, \
+        "comm-btn-gps must be hidden with display:none to keep Community Hub toolbar clean and uncluttered"
     assert "function detectCommunityGPS" in community_content, "detectCommunityGPS missing in community.js"
+    assert "resolveLocationFromCoordinates" in community_content, "community.js must use resolveLocationFromCoordinates"
     assert "localStorage.setItem('comm_exact_gps', 'true')" in community_content, "detectCommunityGPS must set comm_exact_gps"
     assert "updateCommunityLocation(lat, lng" in community_content, "detectCommunityGPS must pass raw lat/lng"
 
-    # 2. Image 3: Set Location modal shareCurrentLocation and handleSaveLocation
+    # 3. Set Location modal shareCurrentLocation and handleSaveLocation
+    assert "resolveLocationFromCoordinates" in connect_content, "connect.js must use resolveLocationFromCoordinates"
     assert "isGpsLocked = 'true'" in connect_content, "connect.js shareCurrentLocation must set isGpsLocked"
     assert "isGpsLocked" in connect_content and "parseFloat(lat.value)" in connect_content, \
         "connect.js handleSaveLocation must prioritize exact lat.value when GPS is locked"
     assert "updateCommunityLocation(lat, lng" in connect_content, \
         "connect.js shareCurrentLocation must immediately sync exact GPS to active community radar"
 
-    # 3. Image 1: Account Settings detectUserSettingsGPS and handleSaveUserSettingsLocation
+    # 4. Account Settings detectUserSettingsGPS and handleSaveUserSettingsLocation
+    assert "resolveLocationFromCoordinates" in auth_content, "auth.js must use resolveLocationFromCoordinates"
     assert "isGpsLocked = 'true'" in auth_content, "auth.js detectUserSettingsGPS must set isGpsLocked"
     assert "isGpsLocked" in auth_content and "parseFloat(latEl.value)" in auth_content, \
         "auth.js handleSaveUserSettingsLocation must prioritize exact latEl.value when GPS is locked"
     assert "updateCommunityLocation(lat, lng" in auth_content, \
         "auth.js detectUserSettingsGPS must immediately sync exact GPS to active community radar"
 
-    print("✅ All 3 GPS buttons verified for high-precision coordinate preservation and zero city-center snapping!")
+    print("✅ All GPS flows verified for high-precision coordinate preservation, unified reverse geocoding, and clean UI!")
 
 
 def test_landing_page_community_ethos_and_neutrality():

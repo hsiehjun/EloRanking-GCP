@@ -149,55 +149,15 @@ async function shareCurrentLocation(inModalOnly = false) {
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
 
-      let city = 'Local Tabletop';
-      let state = '';
-      let country = 'United States';
-      let venueName = 'Current Location';
+      // Unified multi-tier reverse geocoding with instant hub resolution, backend parity, and metro distance checks
+      const resolved = (typeof resolveLocationFromCoordinates === 'function')
+        ? await resolveLocationFromCoordinates(lat, lng)
+        : null;
 
-      // 1. Try reverse geocode with Google Maps Geocoder if loaded
-      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
-        try {
-          const geocoder = new google.maps.Geocoder();
-          const response = await new Promise((resolve) => {
-            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-              if (status === 'OK' && results && results[0]) {
-                resolve(results[0]);
-              } else {
-                resolve(null);
-              }
-            });
-          });
-
-          if (response && response.address_components) {
-            for (const comp of response.address_components) {
-              const types = comp.types || [];
-              if (types.includes('locality')) city = comp.long_name;
-              if (types.includes('administrative_area_level_1')) state = comp.short_name || comp.long_name;
-              if (types.includes('country')) country = comp.long_name;
-            }
-            venueName = state ? `${city}, ${state}` : city;
-          }
-        } catch (e) {
-          console.warn("Google geocode notice:", e);
-        }
-      }
-
-      // 2. Server-side reverse geocode fallback
-      if (city === 'Local Tabletop') {
-        try {
-          if (typeof window.api?.reverseGeocode === 'function') {
-            const rev = await window.api.reverseGeocode(lat, lng);
-            if (rev) {
-              city = rev.city || 'Nearby Area';
-              state = rev.state || '';
-              country = rev.country || 'United States';
-              venueName = rev.formatted || (state ? `${city}, ${state}` : city);
-            }
-          }
-        } catch (e) {
-          console.warn("Reverse geocode notice:", e);
-        }
-      }
+      const city = resolved?.city || 'Local Tabletop';
+      const state = resolved?.state || '';
+      const country = resolved?.country || 'United States';
+      const venueName = resolved?.formatted || (state ? `${city}, ${state}` : city);
 
       // Fill in modal inputs if modal exists
       const modal = document.getElementById('edit-location-modal');

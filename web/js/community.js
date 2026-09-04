@@ -384,48 +384,12 @@ function detectCommunityGPS(showAlerts = true) {
 
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      let locName = `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+      // Unified multi-tier reverse geocoding with instant hub resolution, backend parity, and metro distance checks
+      const resolved = (typeof resolveLocationFromCoordinates === 'function')
+        ? await resolveLocationFromCoordinates(lat, lng)
+        : null;
 
-      // 1. Attempt reverse geocoding with Google Geocoder if available
-      if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
-        try {
-          const geocoder = new google.maps.Geocoder();
-          const response = await new Promise((resolve) => {
-            geocoder.geocode({ location: { lat, lng } }, (results, status) => {
-              if (status === 'OK' && results && results[0]) {
-                resolve(results[0]);
-              } else {
-                resolve(null);
-              }
-            });
-          });
-          if (response && response.address_components) {
-            let city = '', state = '';
-            for (const comp of response.address_components) {
-              if (comp.types.includes('locality')) city = comp.long_name;
-              if (comp.types.includes('administrative_area_level_1')) state = comp.short_name;
-            }
-            if (city && state) locName = `${city}, ${state}`;
-            else if (city) locName = city;
-          }
-        } catch (e) {
-          console.warn("Geocoder notice:", e);
-        }
-      }
-
-      // 2. Server-side reverse geocoding (fast, cached, robust with no CORS blocks)
-      if (!locName || locName.startsWith('GPS (')) {
-        try {
-          if (typeof window.api?.reverseGeocode === 'function') {
-            const rev = await window.api.reverseGeocode(lat, lng);
-            if (rev && rev.formatted) {
-              locName = rev.formatted;
-            }
-          }
-        } catch (e) {
-          console.warn("Server reverse geocode notice:", e);
-        }
-      }
+      const locName = resolved?.formatted || `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
 
       localStorage.setItem('comm_exact_gps', 'true');
       localStorage.removeItem('comm_manual_override');

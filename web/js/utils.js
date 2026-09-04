@@ -310,6 +310,175 @@ function lookupCityCoordinates(raw) {
   return null;
 }
 
+/**
+ * Finds the closest known community hub within maxMiles (default 6.0 miles).
+ * Uses spherical haversine formula matching backend database.py reverse_geocode_coordinates.
+ */
+function findClosestKnownCity(lat, lng, maxMiles = 6.0) {
+  if (lat == null || lng == null) return null;
+  const numLat = parseFloat(lat);
+  const numLng = parseFloat(lng);
+  if (isNaN(numLat) || isNaN(numLng)) return null;
+
+  const dict = (typeof window !== 'undefined' && window.GLOBAL_CITY_COORDS) ? window.GLOBAL_CITY_COORDS : GLOBAL_CITY_COORDS;
+  let closest = null;
+  let minDist = maxMiles;
+  const R = 3959.0; // Earth radius in miles
+
+  for (const [key, val] of Object.entries(dict)) {
+    if (val.lat != null && val.lng != null) {
+      const dLat = (val.lat - numLat) * Math.PI / 180;
+      const dLng = (val.lng - numLng) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(numLat * Math.PI / 180) * Math.cos(val.lat * Math.PI / 180) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+      const dist = R * c;
+      if (dist < minDist) {
+        minDist = dist;
+        closest = { ...val, key, distMiles: dist };
+      }
+    }
+  }
+  return closest;
+}
+
+/**
+ * Unified reverse geocoder for GPS coordinates.
+ * Ensures exact parity between client auto-populate and backend overview resolution:
+ * 1. Fast local hub proximity check (< 6 miles, e.g. Poway vs San Diego).
+ * 2. Backend authoritative reverse geocode (/api/community/reverse_geocode).
+ * 3. Google Maps Geocoder with sublocality prioritization and metropolitan distance check (> 12 miles).
+ * 4. Safe fallback to formatted lat/lng.
+ */
+async function resolveLocationFromCoordinates(lat, lng) {
+  if (lat == null || lng == null) {
+    return { city: '', state: '', country: 'United States', formatted: 'Current Location', lat: 0, lng: 0 };
+  }
+  const numLat = parseFloat(lat);
+  const numLng = parseFloat(lng);
+  if (isNaN(numLat) || isNaN(numLng)) {
+    return { city: '', state: '', country: 'United States', formatted: 'Current Location', lat: 0, lng: 0 };
+  }
+
+  // 1. Instant local proximity check against known community hubs (< 6 miles)
+  const localHub = findClosestKnownCity(numLat, numLng, 6.0);
+  let resolvedCity = '';
+  let resolvedState = '';
+  let resolvedCountry = 'United States';
+  let formatted = '';
+
+  if (localHub && localHub.name) {
+    formatted = localHub.name;
+    const parts = localHub.name.split(',');
+    resolvedCity = parts[0]?.trim() || localHub.name;
+    resolvedState = parts[1]?.trim() || '';
+  }
+
+  // 2. Authoritative backend reverse geocode query (if not resolved by hub)
+  if (!formatted && typeof window !== 'undefined' && typeof window.api?.reverseGeocode === 'function') {
+    try {
+      const rev = await window.api.reverseGeocode(numLat, numLng);
+      if (rev && rev.formatted && !rev.formatted.startsWith('GPS (')) {
+        formatted = rev.formatted;
+        resolvedCity = rev.city || (rev.formatted.split(',')[0]?.trim()) || '';
+        resolvedState = rev.state || (rev.formatted.split(',')[1]?.trim()) || '';
+        resolvedCountry = rev.country || 'United States';
+      }
+    } catch (e) {
+      console.warn('Backend reverse-geocode notice:', e);
+    }
+  }
+
+  // 3. Google Maps Geocoder fallback / enrichment with sublocality prioritization
+  if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
+    try {
+      const geocoder = new google.maps.Geocoder();
+      const gRes = await new Promise((resolve) => {
+        geocoder.geocode({ location: { lat: numLat, lng: numLng } }, (results, status) => {
+          if (status === 'OK' && results && results[0]) resolve(results[0]);
+          else resolve(null);
+        });
+      });
+      if (gRes && gRes.address_components) {
+        let gSublocality = '', gLocality = '', gState = '', gCountry = 'United States';
+        for (const comp of gRes.address_components) {
+          const types = comp.types || [];
+          if (types.includes('sublocality') || types.includes('sublocality_level_1') || types.includes('postal_town')) {
+            gSublocality = comp.long_name;
+          }
+          if (types.includes('locality')) {
+            gLocality = comp.long_name;
+          }
+          if (types.includes('administrative_area_level_1')) {
+            gState = comp.short_name || comp.long_name;
+          }
+          if (types.includes('country')) {
+            gCountry = comp.long_name;
+          }
+        }
+
+        // Check if locality is coarse metropolitan center far away (> 12 miles)
+        let isCoarseMetro = false;
+        if (gLocality && typeof lookupCityCoordinates === 'function') {
+          const metroCoord = lookupCityCoordinates(gLocality);
+          if (metroCoord && metroCoord.lat != null) {
+            const dlat = (metroCoord.lat - numLat) * 69.0;
+            const dlng = (metroCoord.lng - numLng) * 55.0;
+            const distMetro = Math.sqrt(dlat * dlat + dlng * dlng);
+            if (distMetro > 12.0) {
+              isCoarseMetro = true;
+            }
+          }
+        }
+
+        if (!formatted) {
+          const chosenCity = (!isCoarseMetro && gSublocality) ? gSublocality :
+                             (isCoarseMetro && gSublocality ? gSublocality :
+                             (isCoarseMetro ? '' : gLocality));
+          if (chosenCity) {
+            resolvedCity = chosenCity;
+            resolvedState = gState;
+            resolvedCountry = gCountry;
+            formatted = gState ? `${chosenCity}, ${gState}` : chosenCity;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Google reverse geocode notice:', e);
+    }
+  }
+
+  // 4. Secondary backend check if Google Geocoder could not resolve
+  if (!formatted && typeof window !== 'undefined' && typeof window.api?.reverseGeocode === 'function') {
+    try {
+      const rev = await window.api.reverseGeocode(numLat, numLng);
+      if (rev && rev.formatted && !rev.formatted.startsWith('GPS (')) {
+        formatted = rev.formatted;
+        resolvedCity = rev.city || (rev.formatted.split(',')[0]?.trim()) || '';
+        resolvedState = rev.state || (rev.formatted.split(',')[1]?.trim()) || '';
+        resolvedCountry = rev.country || 'United States';
+      }
+    } catch (e) {
+      console.warn('Backend reverse-geocode fallback notice:', e);
+    }
+  }
+
+  // 5. Final fallback
+  if (!formatted) {
+    formatted = resolvedCity ? (resolvedState ? `${resolvedCity}, ${resolvedState}` : resolvedCity) : `GPS (${numLat.toFixed(4)}, ${numLng.toFixed(4)})`;
+  }
+
+  return {
+    city: resolvedCity,
+    state: resolvedState,
+    country: resolvedCountry,
+    formatted: formatted,
+    lat: numLat,
+    lng: numLng
+  };
+}
+
 function handlePlayerChatClick(playerId, playerName, accountUserId) {
   const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
   if (!token) {
@@ -339,6 +508,8 @@ function openDatePicker(id) {
 if (typeof window !== 'undefined') {
   window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
   window.lookupCityCoordinates = lookupCityCoordinates;
+  window.findClosestKnownCity = findClosestKnownCity;
+  window.resolveLocationFromCoordinates = resolveLocationFromCoordinates;
   window.escapeHtml = escapeHtml;
   window.formatNumber = formatNumber;
   window.getEloBadgeClass = getEloBadgeClass;
