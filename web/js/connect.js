@@ -1,5 +1,5 @@
 /* ==========================================================================
-   OMNICONNECT: LOCAL SPARRING RADAR & MATCH CHAT (TAB MODULE)
+   COMMUNITY HUB: LOCAL SPARRING RADAR & MATCH CHAT (TAB MODULE)
    ========================================================================== */
 
 const connectState = {
@@ -1265,7 +1265,7 @@ async function respondToRequest(requestId, action, message = '') {
 window.respondToRequest = respondToRequest;
 
 /* --------------------------------------------------------------------------
-   REAL-TIME CLOUD FIRESTORE INTEGRATION FOR OMNICONNECT CHATS & USER SYNC
+   REAL-TIME CLOUD FIRESTORE INTEGRATION FOR COMMUNITY HUB CHATS & USER SYNC
    -------------------------------------------------------------------------- */
 let connectFirestoreDb = null;
 function getConnectFirestoreDb() {
@@ -1278,7 +1278,7 @@ function getConnectFirestoreDb() {
       connectFirestoreDb = firebase.firestore();
       return connectFirestoreDb;
     } catch (e) {
-      console.warn("Notice initializing Firestore for OmniConnect:", e);
+      console.warn("Notice initializing Firestore for Community Hub:", e);
     }
   }
   return null;

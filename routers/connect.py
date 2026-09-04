@@ -1,4 +1,4 @@
-"""OmniConnect LFG, Sparring Radar & Real-Time Chat Router."""
+"""Community Hub LFG, Sparring Radar & Real-Time Chat Router."""
 import os
 import math
 import json
@@ -24,7 +24,7 @@ from core import (
     TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
 )
 
-router = APIRouter(tags=["OmniConnect & Sparring Radar"])
+router = APIRouter(tags=["Community Hub & Sparring Radar"])
 
 class LfgProfilePayload(BaseModel):
     is_active: bool = False
@@ -61,7 +61,7 @@ class ChatMessagePayload(BaseModel):
 
 
 # =========================================================================
-# OMNICONNECT & LOCAL SPARRING RADAR ENDPOINTS
+# COMMUNITY HUB & LOCAL SPARRING RADAR ENDPOINTS
 # =========================================================================
 
 @router.get("/api/connect/profile", summary="Get user LFG profile")

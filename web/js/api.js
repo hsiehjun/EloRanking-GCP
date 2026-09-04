@@ -848,14 +848,14 @@ window.api = {
     });
   },
 
-  // OmniConnect: Get Profile
+  // Community Hub: Get Profile
   async getConnectProfile() {
     return this._fetchJson('/api/connect/profile', {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
     });
   },
 
-  // OmniConnect: Save Profile
+  // Community Hub: Save Profile
   async saveConnectProfile(profileData) {
     return this._fetchJson('/api/connect/profile', {
       method: 'POST',
@@ -864,7 +864,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Search Nearby Players
+  // Community Hub: Search Nearby Players
   async searchConnectPlayers(lat = null, lng = null, radius = 50, playStyle = '') {
     const params = new URLSearchParams();
     if (lat !== null && lat !== undefined) params.append('lat', lat);
@@ -876,7 +876,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Get Requests & Chats
+  // Community Hub: Get Requests & Chats
   async getConnectRequests() {
     return this._fetchJson(`/api/connect/requests?_t=${Date.now()}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` },
@@ -884,7 +884,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Create Match Request
+  // Community Hub: Create Match Request
   async createConnectRequest(receiverId, venue = '', points = 2000, date = '', note = '') {
     return this._fetchJson('/api/connect/request', {
       method: 'POST',
@@ -899,7 +899,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Respond to Request
+  // Community Hub: Respond to Request
   async respondConnectRequest(requestId, action, message = '') {
     return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/respond`, {
       method: 'POST',
@@ -908,7 +908,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Get Thread Messages
+  // Community Hub: Get Thread Messages
   async getConnectMessages(requestId) {
     return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/messages?_t=${Date.now()}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` },
@@ -916,7 +916,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Send Message
+  // Community Hub: Send Message
   async sendConnectMessage(requestId, text, roomKey = null, messageId = null) {
     return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/message`, {
       method: 'POST',
@@ -925,7 +925,7 @@ window.api = {
     });
   },
 
-  // OmniConnect: Get Unread Count
+  // Community Hub: Get Unread Count
   async getConnectUnreadCount() {
     return this._fetchJson(`/api/connect/unread-count?_t=${Date.now()}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` },

@@ -3094,7 +3094,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   line-height: 1.55;
 }
 
-/* OmniConnect Dedicated Landing Showcase */
+/* Community Hub Dedicated Landing Showcase */
 .landing-connect-showcase {
   max-width: 1320px;
   margin: 4rem auto;
@@ -3478,7 +3478,7 @@ html.is-ios .landing-btn-register {
 }
 
 /* ==========================================================================
-   OMNICONNECT (SPARRING RADAR, TOURNAMENT RADAR & MATCH CHAT)
+   COMMUNITY HUB (SPARRING RADAR, TOURNAMENT RADAR & MATCH CHAT)
    ========================================================================== */
 .oc-subtabs {
   display: flex;

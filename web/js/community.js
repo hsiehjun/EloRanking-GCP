@@ -1128,7 +1128,7 @@ function renderCompetitorCard(c) {
 }
 
 /**
- * Trigger match challenge or redirect to OmniConnect
+ * Trigger match challenge or redirect to Community Hub
  */
 function challengeCompetitor(playerId, playerName) {
   if (typeof currentUser !== 'undefined' && !currentUser) {
@@ -2094,7 +2094,7 @@ function renderStoreCard(store) {
           </button>
         ` : ''}
 
-        <button onclick="setStoreAsMatchmakingLocation('${escapeHtml(store.id)}')" class="comm-store-btn" style="margin-left: auto; color: #38bdf8;" title="Set this store as your primary matchmaking location in OmniConnect">
+        <button onclick="setStoreAsMatchmakingLocation('${escapeHtml(store.id)}')" class="comm-store-btn" style="margin-left: auto; color: #38bdf8;" title="Set this store as your primary matchmaking location in the Community Hub">
           <span>📍</span> <span>Set Location</span>
         </button>
       </div>

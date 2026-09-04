@@ -4189,7 +4189,7 @@ class PostgresDatabase:
                 return cursor.rowcount > 0
 
     # ---------------------------------------------------------
-    # OMNICONNECT & LOCAL SPARRING RADAR
+    # COMMUNITY HUB & LOCAL SPARRING RADAR
     # ---------------------------------------------------------
 
     def get_lfg_profile(self, user_id: str) -> Dict[str, Any]:
