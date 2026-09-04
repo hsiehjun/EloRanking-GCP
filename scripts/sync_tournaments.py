@@ -35,6 +35,16 @@ def run_tournament_sync():
     engine = get_elo_engine()
     recon_res = engine.reconstruct_incremental()
     logger.info(f"🏆 Elo Reconstruction complete: {recon_res}")
+
+    # Programmatic sweep of expired Firestore documents across rooms, connect_chats, and connect_user_sync
+    try:
+        from firestore_db import get_firestore_engine
+        fs_engine = get_firestore_engine()
+        cleaned = fs_engine.cleanup_expired_documents()
+        logger.info(f"🧹 Cleaned up expired Firestore documents: {cleaned}")
+    except Exception as e:
+        logger.warning(f"Notice during Firestore cleanup: {e}")
+
     logger.info("🎉 Cloud Run Job finished successfully!")
 
 if __name__ == "__main__":

@@ -85,9 +85,23 @@ if (web_dir / "css").exists():
 if (web_dir / "js").exists():
     app.mount("/js", StaticFiles(directory=str(web_dir / "js")), name="js")
 
+async def _periodic_firestore_cleanup():
+    """Background task to periodically clean up expired documents across rooms, connect_chats, and connect_user_sync."""
+    while True:
+        try:
+            await asyncio.sleep(60)  # Wait 60s after startup before first run
+            fs_engine = get_firestore_engine()
+            res = fs_engine.cleanup_expired_documents()
+            if any(v > 0 for v in res.values()):
+                logger.info(f"🧹 Periodic Firestore cleanup pruned expired docs: {res}")
+        except Exception as e:
+            logger.warning(f"Notice during periodic Firestore cleanup: {e}")
+        await asyncio.sleep(12 * 3600)  # Run every 12 hours
+
 @app.on_event("startup")
 async def on_server_startup():
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
+    asyncio.create_task(_periodic_firestore_cleanup())
 
 # Mount Modular Domain APIRouters
 app.include_router(admin.router)
