@@ -60,7 +60,6 @@ function renderTopBarOptions(profile) {
   const text = document.getElementById('user-status-text');
   const btn = document.getElementById('btn-toggle-lfg');
   const locText = document.getElementById('user-location-text');
-  const prefSelect = document.getElementById('user-pref-style');
 
   const isActive = Boolean(profile.is_active);
   if (isActive) {
@@ -75,10 +74,6 @@ function renderTopBarOptions(profile) {
       btn.style.borderColor = 'rgba(16,185,129,0.35)';
       btn.title = 'Click to switch to Off Duty';
     }
-    if (prefSelect) {
-      prefSelect.style.opacity = '1';
-      prefSelect.title = `Looking for: ${profile.play_style || 'Competitive'} matches`;
-    }
   } else {
     if (dot) {
       dot.style.background = '#64748b';
@@ -91,14 +86,6 @@ function renderTopBarOptions(profile) {
       btn.style.borderColor = 'rgba(100,116,139,0.3)';
       btn.title = 'Click to broadcast you are looking for games';
     }
-    if (prefSelect) {
-      prefSelect.style.opacity = '0.75';
-      prefSelect.title = `(Off Duty) Match preference: ${profile.play_style || 'Competitive'}`;
-    }
-  }
-
-  if (prefSelect && profile.play_style) {
-    prefSelect.value = profile.play_style;
   }
 
   if (locText) {

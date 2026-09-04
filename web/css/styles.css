@@ -1000,7 +1000,6 @@ input, select, textarea {
   }
 
   #btn-toggle-lfg,
-  #user-pref-style,
   #comm-radius-select,
   #comm-btn-gps {
     font-size: 0.72rem !important;
@@ -4186,22 +4185,6 @@ body.is-authenticated #floating-chat-widget {
   width: 100%;
 }
 
-#user-pref-style {
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #38bdf8;
-  background: #070b14;
-  border: 1px solid rgba(56,189,248,0.35);
-  border-radius: 8px;
-  padding: 0.4rem 0.65rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-#user-pref-style:hover {
-  border-color: rgba(56,189,248,0.6);
-  background: rgba(56,189,248,0.08);
-}
 
 .comm-bcp-banner {
   padding: 0.9rem 1.25rem;

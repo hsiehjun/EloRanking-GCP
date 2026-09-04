@@ -333,16 +333,6 @@
                 <span id="demo-user-status-text">Available</span>
               </button>
 
-              <!-- Match Preference Selector (Right next to Available for Games) -->
-              <div style="display: inline-flex; align-items: center;">
-                <select id="demo-user-pref-style" class="form-input" style="font-size: 0.76rem; font-weight: 700; color: #38bdf8; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.38rem 0.65rem; cursor: pointer;" onchange="changeDemoMatchPreference(this.value)" title="Set what kind of match you are looking for">
-                  <option value="all">✨ All Play Styles (3 Players)</option>
-                  <option value="Tournament Prep">🏆 Tournament Prep (Marcus)</option>
-                  <option value="Competitive">⚔️ Competitive 2k (Tara)</option>
-                  <option value="Casual">🎲 Casual / Practice (Dave)</option>
-                </select>
-              </div>
-
               <!-- Location Pill -->
               <div style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; padding: 0.38rem 0.75rem; border-radius: 8px; border: 1px solid rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06);">
                 <span>📍</span>
@@ -356,6 +346,22 @@
                 <option value="50" selected>50 Miles</option>
                 <option value="100">100 Miles</option>
               </select>
+            </div>
+          </div>
+
+          <!-- Radar Sub-toolbar matching actual app comm-subview-toolbar -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8;">⚔️ Play Style:</span>
+              <select id="demo-user-pref-style" class="form-input" style="font-size: 0.76rem; font-weight: 700; color: #38bdf8; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.38rem 0.65rem; cursor: pointer;" onchange="changeDemoMatchPreference(this.value)" title="Filter sparring radar by play style">
+                <option value="all">All Play Styles</option>
+                <option value="Tournament Prep">Competitive / Tournament Prep (Marcus)</option>
+                <option value="Competitive">Competitive 2k (Tara)</option>
+                <option value="Casual">Casual / Practice (Dave)</option>
+              </select>
+            </div>
+            <div style="font-size: 0.76rem; color: #94a3b8;">
+              <span id="demo-radar-summary">3 active players • 50 mi</span>
             </div>
           </div>
 
@@ -1581,17 +1587,6 @@
               <span id="user-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
               <span id="user-status-text">Available</span>
             </button>
-
-            <!-- Match Preference Selector (Right next to Available for Games) -->
-            <div id="user-pref-container" style="display: inline-flex; align-items: center;">
-              <select id="user-pref-style" class="form-input" style="font-size: 0.78rem; font-weight: 700; color: #38bdf8; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.65rem; cursor: pointer;" onchange="changeUserMatchPreference(this.value)" title="Set what kind of match you are looking for">
-                <option value="Competitive">⚔️ Competitive (2k)</option>
-                <option value="Casual">🎲 Casual / Practice</option>
-                <option value="Narrative">📜 Narrative / Crusade</option>
-                <option value="Tournament Prep">🏆 Tournament Prep</option>
-                <option value="Any">✨ Any Game Style</option>
-              </select>
-            </div>
 
             <!-- Location Pill -->
             <button onclick="openCommunityLocationModal()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
