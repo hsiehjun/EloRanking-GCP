@@ -64,6 +64,7 @@ def test_html_assets_exist():
     """Verify that all CSS, JS, and image assets referenced in HTML files actually exist."""
     html_files = [
         root_dir / "web" / "index.html",
+        root_dir / "web" / "app.html",
         root_dir / "web" / "eventstudio.html",
         root_dir / "web" / "tracker" / "index.html"
     ]
@@ -133,6 +134,7 @@ def test_layout_width_and_mobile_stacking():
     theme_content = (root_dir / "web" / "css" / "theme.css").read_text(encoding="utf-8")
     styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
     index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
     auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
     connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
 
@@ -151,12 +153,12 @@ def test_layout_width_and_mobile_stacking():
     assert "max-width: 1440px;" in main_match.group(1), "main should have max-width: 1440px matching header"
 
     # 3. Community and EventStudio container width consistency
-    assert 'max-width: 1360px' not in index_content, "index.html still has conflicting max-width: 1360px"
-    assert 'class="comm-container" style="width: 100%; max-width: 100%;' in index_content, "comm-container not full-width"
-    assert 'class="es-app-container" style="width: 100%; max-width: 100%;' in index_content, "es-app-container not full-width"
+    assert 'max-width: 1360px' not in app_content, "app.html still has conflicting max-width: 1360px"
+    assert 'class="comm-container" style="width: 100%; max-width: 100%;' in app_content, "comm-container not full-width"
+    assert 'class="es-app-container" style="width: 100%; max-width: 100%;' in app_content, "es-app-container not full-width"
 
     # 4. Anti-FOUC guard and auth.js column enforcement
-    assert '#app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; }' in index_content, "anti-fouc guard in index.html missing column enforcement"
+    assert '#app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; }' in app_content, "anti-fouc guard in app.html missing column enforcement"
     assert '#app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; }' in auth_content, "auth.js syncAppAuthView missing column enforcement"
 
     # 5. Radar paused/empty cards should not shrink to 680px island
@@ -169,11 +171,11 @@ def test_floating_chat_back_navigation():
     """Verify that floating chat compact back button and auto-selection logic function correctly."""
     styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
     connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
-    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
 
-    # 1. Verify index.html chat-back-btn exists with onclick backToChatList
-    assert 'id="chat-back-btn"' in index_content, "chat-back-btn ID missing in index.html"
-    assert 'onclick="backToChatList(); return false;"' in index_content, "backToChatList onclick missing in index.html"
+    # 1. Verify app.html chat-back-btn exists with onclick backToChatList
+    assert 'id="chat-back-btn"' in app_content, "chat-back-btn ID missing in app.html"
+    assert 'onclick="backToChatList(); return false;"' in app_content, "backToChatList onclick missing in app.html"
 
     # 2. Verify connect.js exports backToChatList to window
     assert 'window.backToChatList = backToChatList;' in connect_content, "window.backToChatList export missing in connect.js"
@@ -198,11 +200,11 @@ def test_floating_chat_back_navigation():
 
 def test_mobile_nav_dropdown_no_chat():
     """Verify that mobile nav dropdown does not include redundant Chat option now that it is a persistent bubble."""
-    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
 
     # Locate mobile-nav-select block
-    select_match = re.search(r'<select id="mobile-nav-select"[^>]*>(.*?)</select>', index_content, re.DOTALL)
-    assert select_match is not None, "mobile-nav-select not found in index.html"
+    select_match = re.search(r'<select id="mobile-nav-select"[^>]*>(.*?)</select>', app_content, re.DOTALL)
+    assert select_match is not None, "mobile-nav-select not found in app.html"
     select_inner = select_match.group(1)
 
     # Assert chat is NOT in mobile-nav options
@@ -210,7 +212,7 @@ def test_mobile_nav_dropdown_no_chat():
     assert 'mobile-opt-chat' not in select_inner, "mobile-nav-select still contains mobile-opt-chat"
 
     # Assert redundant top-header chat button is removed from desktop browser header
-    assert 'id="nav-btn-chat"' not in index_content, "index.html top header still contains redundant nav-btn-chat"
+    assert 'id="nav-btn-chat"' not in app_content, "app.html top header still contains redundant nav-btn-chat"
 
     # Assert standard tabs exist
     assert 'value="my-hub"' in select_inner, "my-hub missing in mobile-nav-select"
@@ -219,7 +221,7 @@ def test_mobile_nav_dropdown_no_chat():
     assert 'value="leaderboard"' in select_inner, "leaderboard missing in mobile-nav-select"
 
     # Assert persistent floating chat bubble exists
-    assert 'id="floating-chat-bubble"' in index_content, "floating-chat-bubble missing in index.html"
+    assert 'id="floating-chat-bubble"' in app_content, "floating-chat-bubble missing in app.html"
 
     print("✅ Header and mobile nav dropdown verified free of redundant Chat buttons (chat handled exclusively via bubble)!")
 
@@ -263,33 +265,34 @@ def test_landing_page_and_chat_notification_fixes():
 def test_meta_intel_and_search_filter_cleanups():
     """Verify that Meta Intel is a dedicated top-level section and search filters are streamlined."""
     index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_html_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
     app_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
     lead_content = (root_dir / "web" / "js" / "leaderboard.js").read_text(encoding="utf-8")
     teams_content = (root_dir / "web" / "js" / "teams.js").read_text(encoding="utf-8")
 
-    # 1. Desktop and Mobile Navigation for Meta Intel
-    assert 'id="nav-btn-meta-intel"' in index_content, "nav-btn-meta-intel missing in header nav"
-    assert 'onclick="switchTab(\'meta-intel\')"' in index_content, "switchTab('meta-intel') missing in nav-btn"
-    assert '<option value="meta-intel">📊 Meta Intel</option>' in index_content, "meta-intel option missing in mobile-nav-select"
+    # 1. Desktop and Mobile Navigation for Meta Intel in App Shell
+    assert 'id="nav-btn-meta-intel"' in app_html_content, "nav-btn-meta-intel missing in header nav"
+    assert 'onclick="switchTab(\'meta-intel\')"' in app_html_content, "switchTab('meta-intel') missing in nav-btn"
+    assert '<option value="meta-intel">📊 Meta Intel</option>' in app_html_content, "meta-intel option missing in mobile-nav-select"
     # Meta Intel is prominently featured in the landing capabilities grid (landing header is kept clean without link bloat)
     assert 'id="meta-intel"' in index_content, "meta-intel card missing in landing features"
     assert 'class="landing-nav-links"' not in index_content, "landing header must be streamlined without bloated anchor links"
 
-    # 2. Dedicated Section Architecture
-    assert '<section id="tab-meta-intel" class="tab-panel">' in index_content, "tab-meta-intel section missing in index.html"
-    assert 'id="meta-subtab-factions"' in index_content, "meta-subtab-factions missing in index.html"
-    assert 'id="meta-subtab-predictor"' in index_content, "meta-subtab-predictor missing in index.html"
+    # 2. Dedicated Section Architecture in App Shell
+    assert '<section id="tab-meta-intel" class="tab-panel">' in app_html_content, "tab-meta-intel section missing in app.html"
+    assert 'id="meta-subtab-factions"' in app_html_content, "meta-subtab-factions missing in app.html"
+    assert 'id="meta-subtab-predictor"' in app_html_content, "meta-subtab-predictor missing in app.html"
     
     # Verify Leaderboard strictly has players and teams subtabs
-    assert 'id="lead-subtab-players"' in index_content, "lead-subtab-players missing"
-    assert 'id="lead-subtab-teams"' in index_content, "lead-subtab-teams missing"
-    assert 'id="lead-subtab-factions"' not in index_content, "lead-subtab-factions should be moved out of tab-leaderboard"
-    assert 'id="lead-subtab-predictor"' not in index_content, "lead-subtab-predictor should be moved out of tab-leaderboard"
+    assert 'id="lead-subtab-players"' in app_html_content, "lead-subtab-players missing"
+    assert 'id="lead-subtab-teams"' in app_html_content, "lead-subtab-teams missing"
+    assert 'id="lead-subtab-factions"' not in app_html_content, "lead-subtab-factions should be moved out of tab-leaderboard"
+    assert 'id="lead-subtab-predictor"' not in app_html_content, "lead-subtab-predictor should be moved out of tab-leaderboard"
 
     # 3. Search Filters Streamlined
-    assert 'id="dir-faction-filter"' not in index_content, "dir-faction-filter should be removed from player search"
-    assert 'id="dir-min-matches-filter"' not in index_content, "dir-min-matches-filter should be removed from player search"
-    assert 'id="teams-min-roster-filter"' not in index_content, "teams-min-roster-filter should be removed from teams search"
+    assert 'id="dir-faction-filter"' not in app_html_content, "dir-faction-filter should be removed from player search"
+    assert 'id="dir-min-matches-filter"' not in app_html_content, "dir-min-matches-filter should be removed from player search"
+    assert 'id="teams-min-roster-filter"' not in app_html_content, "teams-min-roster-filter should be removed from teams search"
 
     # 4. JS Routing & Subtab Switching
     assert 'switchMetaSubtab' in lead_content, "switchMetaSubtab missing in leaderboard.js"
@@ -392,17 +395,17 @@ def test_universal_ios_safe_area_coverage():
 
 def test_teams_leaderboard_pagination():
     """Verify that Teams Leaderboard has complete pagination controls, offset ranks, and API parameters."""
-    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
     api_content = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
     lead_content = (root_dir / "web" / "js" / "leaderboard.js").read_text(encoding="utf-8")
-    app_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
+    app_js_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
     router_content = (root_dir / "routers" / "leaderboard.py").read_text(encoding="utf-8")
 
     # 1. HTML pagination container in Teams Leaderboard view
-    assert 'id="lead-teams-pagination"' in index_content, \
-        "lead-teams-pagination container missing in index.html"
-    assert '<div id="lead-teams-pagination" class="pagination-bar"></div>' in index_content, \
-        "lead-teams-pagination markup missing in index.html"
+    assert 'id="lead-teams-pagination"' in app_content, \
+        "lead-teams-pagination container missing in app.html"
+    assert '<div id="lead-teams-pagination" class="pagination-bar"></div>' in app_content, \
+        "lead-teams-pagination markup missing in app.html"
 
     # 2. api.js getLeaderboardTeams signature and query parameters
     assert 'getLeaderboardTeams(minRoster = 1, page = 1, pageSize = 25' in api_content, \
@@ -433,7 +436,7 @@ def test_teams_leaderboard_pagination():
         "prefetchNextLeaderboardTeamsPage missing in leaderboard.js"
 
     # 6. Tab switching trigger in app.js
-    assert 'loadLeaderboardTeams();' in app_content, \
+    assert 'loadLeaderboardTeams();' in app_js_content, \
         "app.js must trigger loadLeaderboardTeams when switching to teams subtab"
 
     # 7. Backend router defaults min_roster to 1
@@ -447,7 +450,7 @@ def test_custom_timeframe_calendar_picker():
     """Verify high-visibility calendar picker icons, dark color-scheme, and openDatePicker helpers."""
     theme_content = (root_dir / "web" / "css" / "theme.css").read_text(encoding="utf-8")
     styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
-    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
     utils_content = (root_dir / "web" / "js" / "utils.js").read_text(encoding="utf-8")
     fac_content = (root_dir / "web" / "js" / "factions.js").read_text(encoding="utf-8")
 
@@ -471,14 +474,14 @@ def test_custom_timeframe_calendar_picker():
     assert '.custom-date-input' in styles_content, \
         "styles.css must define .custom-date-input"
 
-    # 3. HTML markup in index.html
-    assert 'id="faction-custom-date-container"' in index_content, \
-        "faction-custom-date-container missing in index.html"
-    assert 'openDatePicker(\'faction-start-date\')' in index_content, \
+    # 3. HTML markup in app.html
+    assert 'id="faction-custom-date-container"' in app_content, \
+        "faction-custom-date-container missing in app.html"
+    assert 'openDatePicker(\'faction-start-date\')' in app_content, \
         "openDatePicker call missing for faction-start-date"
-    assert 'openDatePicker(\'faction-end-date\')' in index_content, \
+    assert 'openDatePicker(\'faction-end-date\')' in app_content, \
         "openDatePicker call missing for faction-end-date"
-    assert '<svg viewBox="0 0 24 24"' in index_content, \
+    assert '<svg viewBox="0 0 24 24"' in app_content, \
         "SVG calendar icon missing in custom date range bar"
 
     # 4. JavaScript helpers & auto-initialization
@@ -507,6 +510,7 @@ def test_pwa_landscape_orientation():
 
     html_targets = [
         root_dir / "web" / "index.html",
+        root_dir / "web" / "app.html",
         root_dir / "web" / "eventstudio.html",
         root_dir / "web" / "scorecard.html",
         root_dir / "web" / "tracker" / "play.html",
@@ -535,13 +539,13 @@ def test_pwa_landscape_orientation():
 
 def test_event_studio_mobile_dropdown_role_restriction():
     """Verify that Event Studio only shows in mobile dropdown for users signed in as TO or higher (Admin)."""
-    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_html_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
     auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
     app_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
 
-    # 1. Verify index.html static markup does NOT have event-studio in mobile-nav-select
-    select_match = re.search(r'<select id="mobile-nav-select"[^>]*>(.*?)</select>', index_content, re.DOTALL)
-    assert select_match is not None, "mobile-nav-select not found in index.html"
+    # 1. Verify app.html static markup does NOT have event-studio in mobile-nav-select
+    select_match = re.search(r'<select id="mobile-nav-select"[^>]*>(.*?)</select>', app_html_content, re.DOTALL)
+    assert select_match is not None, "mobile-nav-select not found in app.html"
     select_inner = select_match.group(1)
     assert 'value="event-studio"' not in select_inner, \
         "event-studio must NOT be in initial mobile-nav-select static HTML (prevents iOS Safari native picker leak)"
@@ -550,9 +554,9 @@ def test_event_studio_mobile_dropdown_role_restriction():
     assert 'id="mobile-opt-divider"' in select_inner, \
         "mobile-opt-divider anchor missing in mobile-nav-select"
 
-    # 2. Verify inline handleMobileNavChange in index.html guards event-studio
-    assert "val === 'event-studio'" in index_content, "index.html handleMobileNavChange missing event-studio guard"
-    assert "isUserTO" in index_content, "index.html handleMobileNavChange missing isUserTO check"
+    # 2. Verify inline handleMobileNavChange in app.html guards event-studio
+    assert "val === 'event-studio'" in app_html_content, "app.html handleMobileNavChange missing event-studio guard"
+    assert "isUserTO" in app_html_content, "app.html handleMobileNavChange missing isUserTO check"
 
     # 3. Verify auth.js defines isUserTO and syncMobileNavDropdown
     assert "function isUserTO(user)" in auth_content, "auth.js missing isUserTO function"
@@ -604,7 +608,7 @@ def test_gps_coordinate_precision_parity():
     auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
     community_content = (root_dir / "web" / "js" / "community.js").read_text(encoding="utf-8")
     utils_content = (root_dir / "web" / "js" / "utils.js").read_text(encoding="utf-8")
-    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
 
     # 1. Unified reverse geocoding helper in utils.js
     assert "function findClosestKnownCity" in utils_content, "findClosestKnownCity missing in utils.js"
@@ -625,8 +629,8 @@ def test_gps_coordinate_precision_parity():
     assert "'poway': { name: 'Poway, CA'" in utils_content, "Poway hub must be present in utils.js GLOBAL_CITY_COORDS"
 
     # 2. Community Hub top bar: redundant GPS button is hidden per user request
-    assert '<button id="comm-btn-gps"' in index_content, "comm-btn-gps element must exist for JS compatibility"
-    assert 'id="comm-btn-gps" onclick="detectCommunityGPS()" style="display: none;"' in index_content, \
+    assert '<button id="comm-btn-gps"' in app_content, "comm-btn-gps element must exist for JS compatibility"
+    assert 'id="comm-btn-gps" onclick="detectCommunityGPS()" style="display: none;"' in app_content, \
         "comm-btn-gps must be hidden with display:none to keep Community Hub toolbar clean and uncluttered"
     assert "function detectCommunityGPS" in community_content, "detectCommunityGPS missing in community.js"
     assert "resolveLocationFromCoordinates" in community_content, "community.js must use resolveLocationFromCoordinates"
@@ -657,7 +661,9 @@ def test_landing_page_community_ethos_and_neutrality():
     index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
 
     # Extract landing page HTML block
-    landing_match = re.search(r'<div id="landing-page-view">(.*?)<!-- =+.*?APPLICATION SHELL', index_content, re.DOTALL)
+    landing_match = re.search(r'<div id="landing-page-view">(.*?)</div>\s*<!-- Landing Page Interactive', index_content, re.DOTALL)
+    if not landing_match:
+        landing_match = re.search(r'<div id="landing-page-view">(.*?)<!--', index_content, re.DOTALL)
     assert landing_match is not None, "landing-page-view not found in index.html"
     landing_html = landing_match.group(1)
 
@@ -674,7 +680,7 @@ def test_landing_page_community_ethos_and_neutrality():
         ("Player & Team Leaderboards", 'id="leaderboard"'),
         ("Meta Intel & Balance Matrix", 'id="meta-intel"'),
         ("Tournament Radar", 'id="tournaments"'),
-        ("Event Studio (TO Tools)", 'id="eventstudio"'),
+        ("Cross-Platform BCP Synchronization", 'id="bcp-sync"'),
         ("Interactive Challenge / Match Lobby", 'Match Lobby &bull; Live Room Creation'),
         ("1-Click Game Room Invites in Chat", 'oc-msg-room-card')
     ]
@@ -691,7 +697,7 @@ def test_landing_page_community_ethos_and_neutrality():
         "tournaments",
         "leaderboard",
         "meta-intel",
-        "eventstudio",
+        "bcp-sync",
         "features"
     ]
     for anchor_id in target_anchors:
@@ -719,6 +725,10 @@ def test_landing_page_community_ethos_and_neutrality():
     assert "An Open Platform for Every Tabletop General" in landing_html, "Missing open platform commitment heading"
     assert "Circuit Compatible" in landing_html, "Missing circuit compatibility neutrality badge"
     assert "Zero Paywalls" in landing_html, "Missing zero paywalls affirmative statement"
+
+    # 6. Event Studio completely cleaned up from landing page per user request
+    assert "eventstudio" not in landing_lower, "Landing page must have zero references to eventstudio"
+    assert "event studio" not in landing_lower, "Landing page must have zero references to event studio"
 
     print("✅ Landing page community ethos, 6-pillar feature suite, and strict neutrality verified!")
 

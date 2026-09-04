@@ -115,15 +115,30 @@ except ImportError:
     class Request: pass
     class Response: pass
     class FileResponse:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, path: str = "", *args, **kwargs):
+            self.path = path
+            self.status_code = kwargs.get("status_code", 200)
+            self.headers = kwargs.get("headers", {})
     class JSONResponse:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, content=None, status_code: int = 200, headers: dict = None, *args, **kwargs):
+            self.content = content
+            self.status_code = status_code
+            self.headers = headers or {}
     class PlainTextResponse:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, content: str = "", status_code: int = 200, *args, **kwargs):
+            self.content = content
+            self.status_code = status_code
     class RedirectResponse:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, url: str = "", status_code: int = 307, headers: dict = None, *args, **kwargs):
+            self.url = url
+            self.status_code = status_code
+            self.headers = dict(headers or {})
+            self.headers.setdefault("location", url)
     class HTMLResponse:
-        def __init__(self, *args, **kwargs): pass
+        def __init__(self, content: str = "", status_code: int = 200, headers: dict = None, *args, **kwargs):
+            self.content = content
+            self.status_code = status_code
+            self.headers = headers or {}
     class StreamingResponse:
         def __init__(self, *args, **kwargs): pass
     class StaticFiles:

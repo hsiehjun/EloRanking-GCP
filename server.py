@@ -170,14 +170,51 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
 
     raise HTTPException(status_code=404, detail="Tracker page not found")
 
-# Root Leaderboard & Competitor Hub
+def _get_request_user(request: Request, token: Optional[str] = None):
+    auth_header = request.headers.get("Authorization", "")
+    session_token = (
+        token
+        or request.cookies.get("session_token")
+        or request.cookies.get("elo_auth_token")
+        or request.cookies.get("native_session_token")
+        or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    )
+    if not session_token:
+        return None
+    try:
+        auth_mgr = get_auth_manager()
+        return auth_mgr.get_session(session_token)
+    except Exception as e:
+        logger.warning(f"Failed to validate session token: {e}")
+        return None
+
+# Root Landing Page
 @app.get("/", include_in_schema=False)
 @app.get("/index.html", include_in_schema=False)
-async def serve_index():
+async def serve_index(request: Request, token: Optional[str] = Query(None)):
+    user = _get_request_user(request, token)
+    if user and not request.query_params.get("public"):
+        return RedirectResponse(url="/app", status_code=307)
     idx_file = web_dir / "index.html"
     if idx_file.exists():
         return FileResponse(str(idx_file), media_type="text/html")
     raise HTTPException(status_code=404, detail="index.html not found")
+
+# Authenticated Application Shell
+@app.get("/app", include_in_schema=False)
+@app.get("/app.html", include_in_schema=False)
+async def serve_app(request: Request, token: Optional[str] = Query(None)):
+    user = _get_request_user(request, token)
+    if not user:
+        return RedirectResponse(url="/login?redirect=/app", status_code=307)
+    app_file = web_dir / "app.html"
+    if app_file.exists():
+        return FileResponse(
+            str(app_file),
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, must-revalidate"}
+        )
+    raise HTTPException(status_code=404, detail="app.html not found")
 
 @app.get("/tracker/tracker_sync.js", include_in_schema=False)
 @app.get("/11th/tracker/tracker_sync.js", include_in_schema=False)
@@ -212,18 +249,15 @@ async def serve_login(redirect: Optional[str] = Query(None)):
 @app.get("/connect", include_in_schema=False)
 @app.get("/sparring", include_in_schema=False)
 async def serve_connect_page():
-    return RedirectResponse(url="/#connect", status_code=303)
+    return RedirectResponse(url="/app#community", status_code=303)
 
 @app.get("/my-hub", include_in_schema=False)
 @app.get("/hub", include_in_schema=False)
 async def serve_my_hub(request: Request, token: Optional[str] = Query(None)):
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = _get_request_user(request, token)
     if not user:
-        return RedirectResponse(url="/login?redirect=/#my-hub", status_code=303)
-    return RedirectResponse(url="/#my-hub", status_code=303)
+        return RedirectResponse(url="/login?redirect=/app#my-hub", status_code=303)
+    return RedirectResponse(url="/app#my-hub", status_code=303)
 
 @app.get("/tracker", include_in_schema=False)
 @app.get("/tracker/", include_in_schema=False)
@@ -367,12 +401,9 @@ async def serve_favicon():
 @app.get("/eventstudio", include_in_schema=False)
 @app.get("/eventstudio.html", include_in_schema=False)
 async def serve_eventstudio(request: Request, token: Optional[str] = Query(None)):
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = _get_request_user(request, token)
     if not user:
-        return RedirectResponse(url="/login?redirect=/#event-studio", status_code=303)
+        return RedirectResponse(url="/login?redirect=/eventstudio", status_code=303)
     es_file = web_dir / "eventstudio.html"
     if es_file.exists():
         return FileResponse(str(es_file), media_type="text/html")

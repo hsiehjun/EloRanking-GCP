@@ -391,7 +391,7 @@
     let isRegistrationLocked = false;
     let inviteValidateTimer = null;
     const params = new URLSearchParams(window.location.search);
-    const redirectUrl = params.get('redirect') || '/';
+    const redirectUrl = (params.get('redirect') && params.get('redirect') !== '/') ? params.get('redirect') : '/app';
 
     async function checkRegistrationStatus() {
       try {
@@ -622,15 +622,16 @@
         if (token) {
           document.cookie = `session_token=${token}; path=/; max-age=2592000; SameSite=Lax`;
           let target = redirectUrl;
+          if (target === '/' || !target) target = '/app';
           if (target.startsWith('/admin')) {
             try {
               const p = JSON.parse(localStorage.getItem('native_user_profile') || '{}');
               const email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
               if (email !== 'swimgeek751@gmail.com') {
-                target = '/';
+                target = '/app';
               }
             } catch(e) {
-              target = '/';
+              target = '/app';
             }
           }
           window.location.replace(target);

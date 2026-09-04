@@ -169,6 +169,9 @@ function syncAppAuthView() {
     if (appHeader) appHeader.style.display = 'none';
     if (chatWidget) chatWidget.style.display = 'none';
     if (typeof toggleFloatingChat === 'function') toggleFloatingChat(false);
+    if (window.location.pathname === '/app' || window.location.pathname === '/app.html') {
+      window.location.replace('/login?redirect=/app');
+    }
   }
 }
 
@@ -268,6 +271,11 @@ async function handleNativeLogin(e) {
       localStorage.setItem('native_session_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
+      document.cookie = `session_token=${res.session_token}; path=/; max-age=2592000; SameSite=Lax`;
+      if (window.location.pathname !== '/app' && window.location.pathname !== '/app.html') {
+        window.location.href = '/app';
+        return;
+      }
       syncAppAuthView();
       switchTab('my-hub');
     } else {
@@ -333,6 +341,11 @@ async function handleNativeRegister(e) {
       localStorage.setItem('native_session_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
+      document.cookie = `session_token=${res.session_token}; path=/; max-age=2592000; SameSite=Lax`;
+      if (window.location.pathname !== '/app' && window.location.pathname !== '/app.html') {
+        window.location.href = '/app';
+        return;
+      }
       syncAppAuthView();
       switchTab('my-hub');
     } else {
@@ -383,6 +396,11 @@ async function handleVerifyRegistrationCode(e) {
       localStorage.setItem('native_session_token', res.session_token);
       localStorage.setItem('native_user_profile', JSON.stringify(res.user));
       currentUser = res.user;
+      document.cookie = `session_token=${res.session_token}; path=/; max-age=2592000; SameSite=Lax`;
+      if (window.location.pathname !== '/app' && window.location.pathname !== '/app.html') {
+        window.location.href = '/app';
+        return;
+      }
       syncAppAuthView();
       alert('🎉 Welcome to OmniTactica! Your account has been verified successfully.');
       switchTab('my-hub');
@@ -555,6 +573,7 @@ async function handleLogout() {
 
   renderHeaderAuth();
   syncAppAuthView();
+  window.location.href = '/';
 }
 
 function renderHeaderAuth() {
