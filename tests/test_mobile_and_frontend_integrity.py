@@ -271,7 +271,9 @@ def test_meta_intel_and_search_filter_cleanups():
     assert 'id="nav-btn-meta-intel"' in index_content, "nav-btn-meta-intel missing in header nav"
     assert 'onclick="switchTab(\'meta-intel\')"' in index_content, "switchTab('meta-intel') missing in nav-btn"
     assert '<option value="meta-intel">📊 Meta Intel</option>' in index_content, "meta-intel option missing in mobile-nav-select"
-    assert '<a href="#meta-intel" class="landing-nav-link">📊 Meta Intel</a>' in index_content, "Meta Intel missing in landing nav links"
+    # Meta Intel is prominently featured in the landing capabilities grid (landing header is kept clean without link bloat)
+    assert 'id="meta-intel"' in index_content, "meta-intel card missing in landing features"
+    assert 'class="landing-nav-links"' not in index_content, "landing header must be streamlined without bloated anchor links"
 
     # 2. Dedicated Section Architecture
     assert '<section id="tab-meta-intel" class="tab-panel">' in index_content, "tab-meta-intel section missing in index.html"
@@ -679,23 +681,21 @@ def test_landing_page_community_ethos_and_neutrality():
     for feat_name, needle in community_features:
         assert needle in landing_html, f"Community feature '{feat_name}' ({needle}) missing in landing page"
 
-    # 3. Navigation Links and Corresponding Anchors
-    nav_links = [
-        "#community-hub-showcase",
-        "#sparring",
-        "/11th/tracker",
-        "#game-stores",
-        "#tournaments",
-        "#leaderboard",
-        "#meta-intel",
-        "#eventstudio",
-        "#features"
+    # 3. Streamlined Landing Header & Target Section Anchors
+    assert 'class="landing-nav-links"' not in landing_html, "landing header must be clean and unbloated without anchor bar"
+    target_anchors = [
+        "community-hub-showcase",
+        "sparring",
+        "tracker",
+        "game-stores",
+        "tournaments",
+        "leaderboard",
+        "meta-intel",
+        "eventstudio",
+        "features"
     ]
-    for link in nav_links:
-        assert f'href="{link}"' in landing_html, f"Nav link '{link}' missing in landing nav"
-        if link.startswith("#"):
-            anchor_id = link.lstrip("#")
-            assert f'id="{anchor_id}"' in landing_html, f"Nav link target anchor 'id=\"{anchor_id}\"' missing in landing page"
+    for anchor_id in target_anchors:
+        assert f'id="{anchor_id}"' in landing_html, f"Feature section target anchor 'id=\"{anchor_id}\"' missing in landing page"
 
     # 4. Strict Neutrality & Zero Adversarial Jabs Check
     # Ensure there are NO passive-aggressive or hostile jabs at commercial apps/paywalls
