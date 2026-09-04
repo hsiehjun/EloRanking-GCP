@@ -566,14 +566,28 @@ function renderTeamRosterRows(roster) {
 }
 
 
+let currentFactionName = '';
 let currentFactionMatches = [];
 let currentFactionPlayers = [];
 let currentFactionMatchups = [];
+let activeFactionMatchupsFilter = 'all';
+let factionMatchupsSearchQuery = '';
 
 async function openFactionModal(factionName) {
   const modal = document.getElementById('faction-modal');
   if (!modal) return;
   bringModalToFront(modal);
+
+  currentFactionName = factionName || '';
+  activeFactionMatchupsFilter = 'all';
+  factionMatchupsSearchQuery = '';
+
+  const searchInput = document.getElementById('faction-matchup-search');
+  if (searchInput) searchInput.value = '';
+  ['all', 'fav', 'even', 'unfav'].forEach(f => {
+    const chip = document.getElementById(`f-chip-${f}`);
+    if (chip) chip.classList.toggle('active', f === 'all');
+  });
 
   const titleEl = document.getElementById('modal-faction-title');
   if (titleEl) titleEl.innerText = factionName || 'Faction Meta';
@@ -714,16 +728,108 @@ function renderFactionPlayersRows(players) {
 }
 
 function renderFactionMatchupsRows(matchups) {
+  currentFactionMatchups = matchups || [];
+
+  // 1. Calculate Favorite Prey and Nemesis Army with sample qualification (>= 3 games preferred)
+  const qualMatchups = (matchups || []).filter(m => Number(m.total_matches || 0) >= 3);
+  const pool = qualMatchups.length > 0 ? qualMatchups : (matchups || []);
+  const prey = pool.length > 0 ? [...pool].sort((a, b) => (Number(b.win_rate) - Number(a.win_rate)) || (Number(b.total_matches) - Number(a.total_matches)))[0] : null;
+  const nemesis = pool.length > 0 ? [...pool].sort((a, b) => (Number(a.win_rate) - Number(b.win_rate)) || (Number(b.total_matches) - Number(a.total_matches)))[0] : null;
+
+  // 2. Render Spotlight Cards
+  const spotlightsContainer = document.getElementById('faction-matchup-spotlights');
+  if (spotlightsContainer) {
+    if (prey && nemesis && matchups.length > 0) {
+      spotlightsContainer.innerHTML = `
+        <div class="faction-modal-spotlight-card prey">
+          <div class="fms-header">
+            <span class="fms-badge">🎯 FAVORITE PREY</span>
+            <span class="fms-wr" style="color:var(--win);">${Number(prey.win_rate || 0).toFixed(1)}% WR</span>
+          </div>
+          <div class="fms-name">${escapeHtml(prey.opponent_faction)}</div>
+          <div class="fms-stats">
+            <span>Record: <b style="color:var(--win);">${prey.wins || 0}W</b> - <b style="color:var(--loss);">${prey.losses || 0}L</b></span>
+            <span>•</span>
+            <span>${prey.total_matches || 0} battles</span>
+          </div>
+          <button type="button" class="btn-simulate-matchup fms-btn" onclick="event.stopPropagation(); openFactionPredictor('${escapeHtml(currentFactionName)}', '${escapeHtml(prey.opponent_faction)}')">
+            ⚔️ Simulate Matchup
+          </button>
+        </div>
+
+        <div class="faction-modal-spotlight-card nemesis">
+          <div class="fms-header">
+            <span class="fms-badge">⚡ NEMESIS ARMY</span>
+            <span class="fms-wr" style="color:#f43f5e;">${Number(nemesis.win_rate || 0).toFixed(1)}% WR</span>
+          </div>
+          <div class="fms-name">${escapeHtml(nemesis.opponent_faction)}</div>
+          <div class="fms-stats">
+            <span>Record: <b style="color:var(--win);">${nemesis.wins || 0}W</b> - <b style="color:var(--loss);">${nemesis.losses || 0}L</b></span>
+            <span>•</span>
+            <span>${nemesis.total_matches || 0} battles</span>
+          </div>
+          <button type="button" class="btn-simulate-matchup fms-btn" onclick="event.stopPropagation(); openFactionPredictor('${escapeHtml(currentFactionName)}', '${escapeHtml(nemesis.opponent_faction)}')">
+            ⚔️ Simulate Matchup
+          </button>
+        </div>
+      `;
+      spotlightsContainer.style.display = 'grid';
+    } else {
+      spotlightsContainer.innerHTML = '';
+      spotlightsContainer.style.display = 'none';
+    }
+  }
+
+  // 3. Update filter counts
+  const cntAll = (matchups || []).length;
+  const cntFav = (matchups || []).filter(m => Number(m.win_rate || 0) > 55.0).length;
+  const cntEven = (matchups || []).filter(m => Number(m.win_rate || 0) >= 45.0 && Number(m.win_rate || 0) <= 55.0).length;
+  const cntUnfav = (matchups || []).filter(m => Number(m.win_rate || 0) < 45.0).length;
+
+  const elAll = document.getElementById('f-mu-cnt-all');
+  const elFav = document.getElementById('f-mu-cnt-fav');
+  const elEven = document.getElementById('f-mu-cnt-even');
+  const elUnfav = document.getElementById('f-mu-cnt-unfav');
+  if (elAll) elAll.innerText = cntAll;
+  if (elFav) elFav.innerText = cntFav;
+  if (elEven) elEven.innerText = cntEven;
+  if (elUnfav) elUnfav.innerText = cntUnfav;
+
+  // 4. Render Table Rows
+  renderFactionMatchupTableRows();
+}
+
+function renderFactionMatchupTableRows() {
   const tbody = document.getElementById('faction-matchups-body');
   if (!tbody) return;
   tbody.innerHTML = '';
 
-  if (!matchups || matchups.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No matchup pairings recorded yet.</td></tr>';
+  const matchups = currentFactionMatchups || [];
+  if (matchups.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No matchup pairings recorded yet.</td></tr>';
     return;
   }
 
-  matchups.forEach((m, idx) => {
+  // Apply filter chip & search
+  let filtered = matchups.filter(m => {
+    const wr = Number(m.win_rate || 0);
+    if (activeFactionMatchupsFilter === 'favorable' && wr <= 55.0) return false;
+    if (activeFactionMatchupsFilter === 'even' && (wr < 45.0 || wr > 55.0)) return false;
+    if (activeFactionMatchupsFilter === 'unfavorable' && wr >= 45.0) return false;
+
+    if (factionMatchupsSearchQuery) {
+      const opp = String(m.opponent_faction || '').toLowerCase();
+      if (!opp.includes(factionMatchupsSearchQuery)) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No matchups match the current filter or search query.</td></tr>';
+    return;
+  }
+
+  filtered.forEach((m, idx) => {
     const tr = document.createElement('tr');
     const wr = Number(m.win_rate || 0);
     const wrColor = wr >= 55.0 ? 'var(--win)' : (wr >= 45.0 ? 'var(--accent)' : 'var(--loss)');
@@ -744,10 +850,37 @@ function renderFactionMatchupsRows(matchups) {
       <td style="font-family:var(--font-mono); font-weight:600;">
         <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border);">${m.total_matches} Games</span>
       </td>
+      <td style="text-align: right;">
+        <button type="button" class="btn-simulate-matchup" onclick="event.stopPropagation(); openFactionPredictor('${escapeHtml(currentFactionName)}', '${escapeHtml(m.opponent_faction)}')">
+          ⚔️ Simulate
+        </button>
+      </td>
     `;
     tbody.appendChild(tr);
   });
 }
+
+function filterFactionMatchups(filterType) {
+  activeFactionMatchupsFilter = filterType;
+  ['all', 'fav', 'even', 'unfav'].forEach(f => {
+    const btn = document.getElementById(`f-chip-${f}`);
+    if (btn) {
+      const isActive = (f === 'all' && filterType === 'all') ||
+                       (f === 'fav' && filterType === 'favorable') ||
+                       (f === 'even' && filterType === 'even') ||
+                       (f === 'unfav' && filterType === 'unfavorable');
+      btn.classList.toggle('active', isActive);
+    }
+  });
+  renderFactionMatchupTableRows();
+}
+window.filterFactionMatchups = filterFactionMatchups;
+
+function onFactionMatchupSearch(query) {
+  factionMatchupsSearchQuery = (query || '').trim().toLowerCase();
+  renderFactionMatchupTableRows();
+}
+window.onFactionMatchupSearch = onFactionMatchupSearch;
 
 let activeScorecardMatchId = null;
 

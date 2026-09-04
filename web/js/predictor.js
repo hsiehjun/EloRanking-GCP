@@ -187,3 +187,389 @@ function renderHeadToHeadHistory(h2h) {
     tbody.appendChild(tr);
   });
 }
+
+/* ==========================================================================
+   FACTION VS FACTION PREDICTOR & HYBRID BAYESIAN SIMULATION
+   ========================================================================== */
+
+const STANDARD_FACTIONS = [
+  'Adeptus Custodes',
+  'Adeptus Mechanicus',
+  'Aeldari',
+  'Astra Militarum',
+  'Black Templars',
+  'Blood Angels',
+  'Chaos Daemons',
+  'Chaos Knights',
+  'Chaos Space Marines',
+  'Dark Angels',
+  'Death Guard',
+  'Deathwatch',
+  'Drukhari',
+  'Emperor\'s Children',
+  'Genestealer Cults',
+  'Grey Knights',
+  'Imperial Agents',
+  'Imperial Knights',
+  'Leagues of Votann',
+  'Necrons',
+  'Orks',
+  'Sisters of Battle',
+  'Space Marines',
+  'Space Wolves',
+  'T\'au Empire',
+  'Thousand Sons',
+  'Tyranids',
+  'World Eaters',
+  'Ynnari'
+];
+
+let currentPredictorMode = 'player';
+let selectedF1 = 'Space Marines';
+let selectedF2 = 'Aeldari';
+let factionPredictorInitialized = false;
+
+function switchPredictorMode(mode) {
+  currentPredictorMode = mode;
+  const btnPlayer = document.getElementById('pred-mode-btn-player');
+  const btnFaction = document.getElementById('pred-mode-btn-faction');
+  const contPlayer = document.getElementById('pred-player-container');
+  const contFaction = document.getElementById('pred-faction-container');
+
+  if (btnPlayer) btnPlayer.classList.toggle('active', mode === 'player');
+  if (btnFaction) btnFaction.classList.toggle('active', mode === 'faction');
+
+  if (contPlayer) contPlayer.style.display = (mode === 'player') ? 'block' : 'none';
+  if (contFaction) contFaction.style.display = (mode === 'faction') ? 'block' : 'none';
+
+  if (mode === 'faction') {
+    initFactionPredictor();
+  }
+}
+window.switchPredictorMode = switchPredictorMode;
+
+function initFactionPredictor() {
+  populateFactionDropdowns();
+  if (!factionPredictorInitialized) {
+    factionPredictorInitialized = true;
+    runFactionPrediction();
+  }
+}
+
+function getAvailablePredictorFactions() {
+  const factionSet = new Set(STANDARD_FACTIONS);
+  if (window.allAvailableFactions && Array.isArray(window.allAvailableFactions)) {
+    window.allAvailableFactions.forEach(f => { if (f) factionSet.add(f); });
+  }
+  return Array.from(factionSet).sort((a, b) => a.localeCompare(b));
+}
+
+function populateFactionDropdowns() {
+  const sel1 = document.getElementById('pred-f1-select');
+  const sel2 = document.getElementById('pred-f2-select');
+  if (!sel1 || !sel2) return;
+
+  const factions = getAvailablePredictorFactions();
+  
+  // Only rebuild options if empty
+  if (sel1.options.length === 0) {
+    sel1.innerHTML = factions.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+  }
+  if (sel2.options.length === 0) {
+    sel2.innerHTML = factions.map(f => `<option value="${escapeHtml(f)}">${escapeHtml(f)}</option>`).join('');
+  }
+
+  sel1.value = selectedF1;
+  sel2.value = selectedF2;
+}
+
+function onFactionPredictorChange(side) {
+  const sel = document.getElementById(`pred-${side}-select`);
+  if (!sel) return;
+  if (side === 'f1') selectedF1 = sel.value;
+  else selectedF2 = sel.value;
+  runFactionPrediction();
+}
+window.onFactionPredictorChange = onFactionPredictorChange;
+
+function setFactionPredictorSide(side, faction) {
+  if (side === 'f1') selectedF1 = faction;
+  else selectedF2 = faction;
+
+  const sel = document.getElementById(`pred-${side}-select`);
+  if (sel) sel.value = faction;
+
+  runFactionPrediction();
+}
+window.setFactionPredictorSide = setFactionPredictorSide;
+
+function swapFactionPredictor() {
+  const temp = selectedF1;
+  selectedF1 = selectedF2;
+  selectedF2 = temp;
+
+  const sel1 = document.getElementById('pred-f1-select');
+  const sel2 = document.getElementById('pred-f2-select');
+  if (sel1) sel1.value = selectedF1;
+  if (sel2) sel2.value = selectedF2;
+
+  runFactionPrediction();
+}
+window.swapFactionPredictor = swapFactionPredictor;
+
+async function runFactionPrediction() {
+  if (!selectedF1 || !selectedF2) return;
+
+  // Visual loading indication
+  const verdictEl = document.getElementById('pred-faction-verdict');
+  if (verdictEl) {
+    verdictEl.innerText = 'Analyzing match dynamics...';
+    verdictEl.className = 'matchup-verdict-pill';
+  }
+
+  const f1NameLbl = document.getElementById('pred-f1-name-lbl');
+  const f2NameLbl = document.getElementById('pred-f2-name-lbl');
+  if (f1NameLbl) f1NameLbl.innerText = selectedF1;
+  if (f2NameLbl) f2NameLbl.innerText = selectedF2;
+
+  try {
+    const data = await window.api.predictFactionMatchup(selectedF1, selectedF2);
+    if (!data || data.error) {
+      if (verdictEl) verdictEl.innerText = 'Prediction temporarily unavailable';
+      return;
+    }
+
+    renderFactionPrediction(data);
+  } catch (err) {
+    console.error('Faction prediction error:', err);
+    if (verdictEl) verdictEl.innerText = 'Unable to compute prediction';
+  }
+}
+window.runFactionPrediction = runFactionPrediction;
+
+function renderFactionPrediction(data) {
+  const f1 = data.f1 || {};
+  const f2 = data.f2 || {};
+  const pred = data.prediction || {};
+  const h2h = data.head_to_head || {};
+  const clashes = data.clashes || [];
+
+  // 1. Update Faction 1 Card
+  const f1Name = document.getElementById('f1-card-name');
+  const f1Wr = document.getElementById('f1-card-winrate');
+  const f1Avg = document.getElementById('f1-card-avg-score');
+  const f1Tot = document.getElementById('f1-card-total-matches');
+  const f1Tier = document.getElementById('f1-meta-tier-pill');
+  const f1Prey = document.getElementById('f1-spot-prey');
+  const f1Nem = document.getElementById('f1-spot-nemesis');
+
+  if (f1Name) f1Name.innerText = f1.name || selectedF1;
+  if (f1Wr) f1Wr.innerText = `${Number(f1.win_rate || 50.0).toFixed(1)}%`;
+  if (f1Avg) f1Avg.innerText = Number(f1.avg_score || 70.0).toFixed(1);
+  if (f1Tot) f1Tot.innerText = Number(f1.total_matches || 0).toLocaleString();
+  if (f1Tier) {
+    f1Tier.innerText = `TIER ${f1.tier || 'B'}`;
+    f1Tier.className = `tier-badge tier-${f1.tier || 'B'}`;
+  }
+  if (f1Prey) {
+    const p = f1.spotlight_prey;
+    f1Prey.innerText = p ? `${p.opponent_faction} (${Number(p.win_rate).toFixed(1)}%)` : 'None qualified';
+  }
+  if (f1Nem) {
+    const n = f1.spotlight_nemesis;
+    f1Nem.innerText = n ? `${n.opponent_faction} (${Number(n.win_rate).toFixed(1)}%)` : 'None qualified';
+  }
+
+  // 2. Update Faction 2 Card
+  const f2Name = document.getElementById('f2-card-name');
+  const f2Wr = document.getElementById('f2-card-winrate');
+  const f2Avg = document.getElementById('f2-card-avg-score');
+  const f2Tot = document.getElementById('f2-card-total-matches');
+  const f2Tier = document.getElementById('f2-meta-tier-pill');
+  const f2Prey = document.getElementById('f2-spot-prey');
+  const f2Nem = document.getElementById('f2-spot-nemesis');
+
+  if (f2Name) f2Name.innerText = f2.name || selectedF2;
+  if (f2Wr) f2Wr.innerText = `${Number(f2.win_rate || 50.0).toFixed(1)}%`;
+  if (f2Avg) f2Avg.innerText = Number(f2.avg_score || 70.0).toFixed(1);
+  if (f2Tot) f2Tot.innerText = Number(f2.total_matches || 0).toLocaleString();
+  if (f2Tier) {
+    f2Tier.innerText = `TIER ${f2.tier || 'B'}`;
+    f2Tier.className = `tier-badge tier-${f2.tier || 'B'}`;
+  }
+  if (f2Prey) {
+    const p = f2.spotlight_prey;
+    f2Prey.innerText = p ? `${p.opponent_faction} (${Number(p.win_rate).toFixed(1)}%)` : 'None qualified';
+  }
+  if (f2Nem) {
+    const n = f2.spotlight_nemesis;
+    f2Nem.innerText = n ? `${n.opponent_faction} (${Number(n.win_rate).toFixed(1)}%)` : 'None qualified';
+  }
+
+  // 3. Expected Win Probability Bar
+  const p1Prob = Number(pred.f1_win_prob || 50.0);
+  const p2Prob = Number(pred.f2_win_prob || 50.0);
+  const prob1El = document.getElementById('pred-f1-prob');
+  const prob2El = document.getElementById('pred-f2-prob');
+  const bar1El = document.getElementById('pred-bar-f1');
+  const bar2El = document.getElementById('pred-bar-f2');
+
+  if (prob1El) prob1El.innerText = `${p1Prob.toFixed(1)}%`;
+  if (prob2El) prob2El.innerText = `${p2Prob.toFixed(1)}%`;
+  if (bar1El) bar1El.style.width = `${p1Prob}%`;
+  if (bar2El) bar2El.style.width = `${p2Prob}%`;
+
+  // 4. Verdict Pill
+  const verdictEl = document.getElementById('pred-faction-verdict');
+  if (verdictEl) {
+    const diff = Math.abs(p1Prob - p2Prob).toFixed(1);
+    if (p1Prob >= 60.0) {
+      verdictEl.innerText = `🔥 Major Advantage: ${f1.name || selectedF1} (+${diff}%)`;
+      verdictEl.className = 'matchup-verdict-pill verdict-f1-major';
+    } else if (p1Prob >= 52.0) {
+      verdictEl.innerText = `⚔️ Slight Edge: ${f1.name || selectedF1} (+${diff}%)`;
+      verdictEl.className = 'matchup-verdict-pill verdict-f1-slight';
+    } else if (p1Prob > 48.0) {
+      verdictEl.innerText = `⚖️ Dead Heat / Even Matchup (${p1Prob.toFixed(1)}% - ${p2Prob.toFixed(1)}%)`;
+      verdictEl.className = 'matchup-verdict-pill verdict-even';
+    } else if (p1Prob > 40.0) {
+      verdictEl.innerText = `⚔️ Slight Edge: ${f2.name || selectedF2} (+${diff}%)`;
+      verdictEl.className = 'matchup-verdict-pill verdict-f2-slight';
+    } else {
+      verdictEl.innerText = `🔥 Major Advantage: ${f2.name || selectedF2} (+${diff}%)`;
+      verdictEl.className = 'matchup-verdict-pill verdict-f2-major';
+    }
+  }
+
+  // 5. Clash Metrics Cards
+  const recEl = document.getElementById('fmc-h2h-record');
+  const recSub = document.getElementById('fmc-h2h-sub');
+  const wrEl = document.getElementById('fmc-actual-wr');
+  const wrSub = document.getElementById('fmc-actual-wr-sub');
+  const diffEl = document.getElementById('fmc-score-diff');
+  const diffSub = document.getElementById('fmc-score-diff-sub');
+  const confEl = document.getElementById('fmc-confidence');
+  const confSub = document.getElementById('fmc-confidence-sub');
+
+  const totalG = Number(h2h.total_games || 0);
+  if (recEl) {
+    recEl.innerText = totalG > 0 ? `${h2h.f1_wins || 0}W - ${h2h.f2_wins || 0}L${h2h.draws ? ' - ' + h2h.draws + 'D' : ''}` : '0 - 0';
+  }
+  if (recSub) {
+    recSub.innerText = totalG > 0 ? `Across ${totalG} recorded tournament games` : 'No direct matches on record';
+  }
+
+  if (wrEl) {
+    wrEl.innerText = totalG > 0 ? `${Number(h2h.f1_actual_win_rate || 50.0).toFixed(1)}% vs ${Number(h2h.f2_actual_win_rate || 50.0).toFixed(1)}%` : '50% / 50%';
+  }
+  if (wrSub) {
+    wrSub.innerText = totalG > 0 ? `${f1.name || selectedF1} vs ${f2.name || selectedF2}` : 'Calculated from meta priors';
+  }
+
+  const scoreDiff = Number(h2h.score_differential || 0);
+  if (diffEl) {
+    diffEl.innerText = `${scoreDiff > 0 ? '+' : ''}${scoreDiff.toFixed(1)} pts`;
+    diffEl.style.color = scoreDiff > 0 ? 'var(--win)' : (scoreDiff < 0 ? 'var(--loss)' : 'var(--text-secondary)');
+  }
+  if (diffSub) {
+    diffSub.innerText = `Avg: ${Number(h2h.f1_avg_score || 0).toFixed(1)} vs ${Number(h2h.f2_avg_score || 0).toFixed(1)} pts`;
+  }
+
+  if (confEl) {
+    if (totalG >= 15) {
+      confEl.innerText = `High (N=${totalG})`;
+      confEl.style.color = 'var(--win)';
+    } else if (totalG >= 5) {
+      confEl.innerText = `Moderate (N=${totalG})`;
+      confEl.style.color = 'var(--accent)';
+    } else if (totalG >= 1) {
+      confEl.innerText = `Low (N=${totalG})`;
+      confEl.style.color = '#f59e0b';
+    } else {
+      confEl.innerText = `Prior Only (N=0)`;
+      confEl.style.color = 'var(--text-muted)';
+    }
+  }
+  if (confSub) {
+    confSub.innerText = totalG >= 5 ? 'Strong statistical significance' : 'Macro meta Bayesian weighting';
+  }
+
+  // 6. Recent Historical Clashes Table
+  renderFactionClashes(clashes, f1.name || selectedF1, f2.name || selectedF2);
+}
+
+function renderFactionClashes(clashes, f1Name, f2Name) {
+  const tbody = document.getElementById('faction-clashes-table-body');
+  const countBadge = document.getElementById('clashes-count-badge');
+  if (countBadge) countBadge.innerText = `${(clashes || []).length} Matches`;
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (!clashes || clashes.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No competitive tournament matches found between these two armies yet.</td></tr>';
+    return;
+  }
+
+  clashes.forEach(c => {
+    const tr = document.createElement('tr');
+    const isF1Win = c.winner_side === 'f1';
+    const isF2Win = c.winner_side === 'f2';
+    const isDraw = c.winner_side === 'draw';
+
+    let verdictBadge = '';
+    if (isDraw) {
+      verdictBadge = '<span class="badge badge-draw">Draw</span>';
+    } else if (isF1Win) {
+      verdictBadge = `<span class="badge badge-win">${escapeHtml(f1Name)} Win</span>`;
+    } else if (isF2Win) {
+      verdictBadge = `<span class="badge" style="background:rgba(244,63,94,0.15); color:#f43f5e; border:1px solid rgba(244,63,94,0.3);">${escapeHtml(f2Name)} Win</span>`;
+    } else {
+      verdictBadge = '<span class="badge badge-win">Completed</span>';
+    }
+
+    const p1Display = c.f1_player_id 
+      ? `<span class="player-link" onclick="openPlayerModal('${c.f1_player_id}')">${escapeHtml(c.f1_player_name || 'Pilot 1')}</span>`
+      : escapeHtml(c.f1_player_name || 'Pilot 1');
+
+    const p2Display = c.f2_player_id
+      ? `<span class="player-link" onclick="openPlayerModal('${c.f2_player_id}')">${escapeHtml(c.f2_player_name || 'Pilot 2')}</span>`
+      : escapeHtml(c.f2_player_name || 'Pilot 2');
+
+    const evtDisplay = c.event_id
+      ? `<span class="player-link" onclick="openEventModal('${c.event_id}')">${escapeHtml(c.event_name || 'Tournament')}</span>`
+      : escapeHtml(c.event_name || 'Tournament');
+
+    tr.innerHTML = `
+      <td style="font-family:var(--font-mono); font-size:0.82rem; color:var(--text-muted);">${(c.match_date || '').slice(0, 10)}</td>
+      <td style="font-weight:600; color:#fff;">${evtDisplay}</td>
+      <td style="font-family:var(--font-mono);">R${c.round || 1}</td>
+      <td>${p1Display}</td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:${isF1Win ? 'var(--win)' : 'var(--text-secondary)'};">${c.f1_score !== null && c.f1_score !== undefined ? c.f1_score : '-'}</td>
+      <td>${p2Display}</td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:${isF2Win ? 'var(--win)' : 'var(--text-secondary)'};">${c.f2_score !== null && c.f2_score !== undefined ? c.f2_score : '-'}</td>
+      <td>${verdictBadge}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function openFactionPredictor(f1, f2) {
+  if (typeof closeModal === 'function') {
+    closeModal('faction-modal');
+    closeModal('player-modal');
+  }
+  if (typeof switchTab === 'function') switchTab('meta-intel');
+  if (typeof switchMetaSubtab === 'function') switchMetaSubtab('predictor');
+  
+  switchPredictorMode('faction');
+
+  if (f1) selectedF1 = f1;
+  if (f2) selectedF2 = f2;
+
+  populateFactionDropdowns();
+  runFactionPrediction();
+
+  const el = document.getElementById('lead-view-predictor');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+window.openFactionPredictor = openFactionPredictor;

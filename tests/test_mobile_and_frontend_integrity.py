@@ -853,10 +853,85 @@ def test_matchup_spotlights_integrity():
     assert "@keyframes rowHighlightFlash" in css_content, "rowHighlightFlash animation missing in styles.css"
 
     # 3. Cache busting
-    assert "styles.css?v=83.0" in app_content, "styles.css not bumped to v=83.0"
+    assert ("styles.css?v=83.0" in app_content or "styles.css?v=84.0" in app_content), "styles.css version not current"
     assert "my_hub.js?v=76.0" in app_content, "my_hub.js not bumped to v=76.0"
 
     print("✅ Favorite Prey & Nemesis Army spotlights and mobile 50/50 layout integrity verified!")
+
+
+def test_phase2_faction_predictor_and_modal_matchups():
+    """Verify Phase 2 Meta Intel Expansion: Faction vs Faction Predictor and Enhanced Faction Modal."""
+    # 1. Backend Database and Router
+    db_content = (root_dir / "database.py").read_text(encoding="utf-8")
+    assert "def get_faction_matchup_prediction(" in db_content, "get_faction_matchup_prediction missing in database.py"
+    assert "Bayesian Predicted Win Probability" in db_content or "macro_prob_1" in db_content, "Bayesian calculation missing in database.py"
+
+    router_content = (root_dir / "routers" / "leaderboard.py").read_text(encoding="utf-8")
+    assert "/api/predict/faction" in router_content, "/api/predict/faction endpoint missing in routers/leaderboard.py"
+    assert "api_predict_faction" in router_content, "api_predict_faction function missing in routers/leaderboard.py"
+
+    # 2. Frontend API
+    api_content = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
+    assert "predictFactionMatchup(f1, f2)" in api_content, "predictFactionMatchup missing in web/js/api.js"
+    assert "/api/predict/faction?" in api_content, "/api/predict/faction query URL missing in api.js"
+
+    # 3. HTML Markup
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    assert 'id="pred-mode-btn-player"' in app_content, "pred-mode-btn-player missing in app.html"
+    assert 'id="pred-mode-btn-faction"' in app_content, "pred-mode-btn-faction missing in app.html"
+    assert 'id="pred-player-container"' in app_content, "pred-player-container missing in app.html"
+    assert 'id="pred-faction-container"' in app_content, "pred-faction-container missing in app.html"
+    assert 'id="pred-f1-select"' in app_content, "pred-f1-select missing in app.html"
+    assert 'id="pred-f2-select"' in app_content, "pred-f2-select missing in app.html"
+    assert 'id="pred-faction-verdict"' in app_content, "pred-faction-verdict missing in app.html"
+    assert 'id="fmc-h2h-record"' in app_content, "fmc-h2h-record missing in app.html"
+    assert 'id="faction-clashes-table-body"' in app_content, "faction-clashes-table-body missing in app.html"
+    assert 'id="faction-matchup-spotlights"' in app_content, "faction-matchup-spotlights missing in app.html"
+    assert 'id="faction-matchup-search"' in app_content, "faction-matchup-search missing in app.html"
+    assert 'id="f-chip-all"' in app_content, "f-chip-all filter chip missing in app.html"
+    assert 'id="f-chip-fav"' in app_content, "f-chip-fav filter chip missing in app.html"
+    assert 'id="f-chip-even"' in app_content, "f-chip-even filter chip missing in app.html"
+    assert 'id="f-chip-unfav"' in app_content, "f-chip-unfav filter chip missing in app.html"
+
+    # Cache busting versions
+    assert "styles.css?v=84.0" in app_content, "styles.css not bumped to v=84.0"
+    assert "api.js?v=79.0" in app_content, "api.js not bumped to v=79.0"
+    assert "predictor.js?v=65.0" in app_content, "predictor.js not bumped to v=65.0"
+    assert "modals.js?v=68.0" in app_content, "modals.js not bumped to v=68.0"
+
+    # 4. Predictor.js Logic
+    predictor_content = (root_dir / "web" / "js" / "predictor.js").read_text(encoding="utf-8")
+    assert "function switchPredictorMode(mode)" in predictor_content, "switchPredictorMode missing in predictor.js"
+    assert "window.switchPredictorMode = switchPredictorMode;" in predictor_content, "switchPredictorMode not exported to window"
+    assert "function runFactionPrediction()" in predictor_content, "runFactionPrediction missing in predictor.js"
+    assert "function swapFactionPredictor()" in predictor_content, "swapFactionPredictor missing in predictor.js"
+    assert "function openFactionPredictor(f1, f2)" in predictor_content, "openFactionPredictor missing in predictor.js"
+    assert "window.openFactionPredictor = openFactionPredictor;" in predictor_content, "openFactionPredictor not exported to window"
+
+    # 5. Modals.js Faction Matchups Logic
+    modals_content = (root_dir / "web" / "js" / "modals.js").read_text(encoding="utf-8")
+    assert "currentFactionName = factionName || '';" in modals_content, "currentFactionName assignment missing in openFactionModal"
+    assert "function filterFactionMatchups(filterType)" in modals_content, "filterFactionMatchups missing in modals.js"
+    assert "function onFactionMatchupSearch(query)" in modals_content, "onFactionMatchupSearch missing in modals.js"
+    assert "btn-simulate-matchup" in modals_content, "btn-simulate-matchup missing in modals.js"
+    assert "openFactionPredictor(" in modals_content, "openFactionPredictor call missing in modals.js"
+
+    # 6. CSS Styling and Responsiveness
+    css_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    assert ".predictor-mode-toggle" in css_content, ".predictor-mode-toggle missing in styles.css"
+    assert ".faction-dropdown" in css_content, ".faction-dropdown missing in styles.css"
+    assert ".faction-match-card" in css_content, ".faction-match-card missing in styles.css"
+    assert ".matchup-verdict-pill" in css_content, ".matchup-verdict-pill missing in styles.css"
+    assert ".faction-metric-cards-grid" in css_content, ".faction-metric-cards-grid missing in styles.css"
+    assert ".faction-modal-spotlights-grid" in css_content, ".faction-modal-spotlights-grid missing in styles.css"
+    assert ".btn-simulate-matchup" in css_content, ".btn-simulate-matchup missing in styles.css"
+    assert ".matchup-chip" in css_content, ".matchup-chip missing in styles.css"
+
+    # Responsive rules
+    assert ".faction-predictor-grid" in css_content, ".faction-predictor-grid missing in styles.css"
+    assert ".faction-modal-spotlights-grid" in css_content, ".faction-modal-spotlights-grid missing in styles.css"
+
+    print("✅ Phase 2 Faction vs Faction Predictor and Enhanced Faction Modal Matchups verified!")
 
 
 if __name__ == "__main__":
@@ -881,6 +956,7 @@ if __name__ == "__main__":
     test_signout_and_pwa_standalone_navigation()
     test_bcp_linking_integrity_and_landing_separation()
     test_matchup_spotlights_integrity()
+    test_phase2_faction_predictor_and_modal_matchups()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=15.0">
-  <link rel="stylesheet" href="/css/styles.css?v=83.0">
+  <link rel="stylesheet" href="/css/styles.css?v=84.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
@@ -659,119 +659,335 @@
 
       <!-- View 4: Match Predictor -->
       <div id="lead-view-predictor" style="display: none;">
-        <div class="predictor-grid">
-          <!-- Player 1 Column -->
-          <div class="predict-col">
-            <label style="font-weight: 600; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
-            <div class="search-input-group" style="max-width: 100%;">
-              <span class="search-icon">🔍</span>
-              <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name (e.g. Jack Murphy)..." oninput="searchPlayerAc(1)" autocomplete="off">
-              <div id="p1-ac-dropdown" class="autocomplete-dropdown"></div>
-            </div>
+        <!-- Predictor Mode Switcher -->
+        <div class="predictor-mode-nav" style="display: flex; justify-content: center; margin-bottom: 1.5rem;">
+          <div class="subtabs-bar predictor-mode-toggle" style="margin-bottom: 0; background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); padding: 4px; border-radius: 9999px; display: inline-flex; gap: 4px;">
+            <button type="button" id="pred-mode-btn-player" class="subtab-btn active" style="border-radius: 9999px; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="switchPredictorMode('player')">
+              👤 Player vs Player
+            </button>
+            <button type="button" id="pred-mode-btn-faction" class="subtab-btn" style="border-radius: 9999px; padding: 0.5rem 1.25rem; font-weight: 700;" onclick="switchPredictorMode('faction')">
+              🛡️ Faction vs Faction
+            </button>
+          </div>
+        </div>
 
-            <div id="p1-card" class="player-match-card p1-active">
-              <div class="pm-header">
-                <div>
-                  <div class="pm-name" id="p1-card-name">Jack Murphy</div>
-                  <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Emperor's Children</div>
+        <!-- 1. Player vs Player Container -->
+        <div id="pred-player-container">
+          <div class="predictor-grid">
+            <!-- Player 1 Column -->
+            <div class="predict-col">
+              <label style="font-weight: 600; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 1</label>
+              <div class="search-input-group" style="max-width: 100%;">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="p1-name-input" class="search-input" placeholder="Type player name (e.g. Jack Murphy)..." oninput="searchPlayerAc(1)" autocomplete="off">
+                <div id="p1-ac-dropdown" class="autocomplete-dropdown"></div>
+              </div>
+
+              <div id="p1-card" class="player-match-card p1-active">
+                <div class="pm-header">
+                  <div>
+                    <div class="pm-name" id="p1-card-name">Jack Murphy</div>
+                    <div id="p1-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Emperor's Children</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1667.8</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
+                  </div>
                 </div>
-                <div style="text-align: right;">
-                  <div class="pm-elo-display" style="color: #38bdf8;" id="p1-card-elo">1667.8</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
+                <div class="pm-stats-row">
+                  <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);">7W - 0L</span></div>
+                  <div><b>Win %:</b> <span id="p1-card-winrate">100%</span></div>
+                  <div><b>Peak:</b> <span id="p1-card-peak" style="font-family: var(--font-mono);">1667.8</span></div>
                 </div>
               </div>
-              <div class="pm-stats-row">
-                <div><b>Record:</b> <span id="p1-card-record" style="color: var(--win);">7W - 0L</span></div>
-                <div><b>Win %:</b> <span id="p1-card-winrate">100%</span></div>
-                <div><b>Peak:</b> <span id="p1-card-peak" style="font-family: var(--font-mono);">1667.8</span></div>
+            </div>
+
+            <div class="predict-vs">VS</div>
+
+            <!-- Player 2 Column -->
+            <div class="predict-col">
+              <label style="font-weight: 600; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
+              <div class="search-input-group" style="max-width: 100%;">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name (e.g. Jeremy Atkinson)..." oninput="searchPlayerAc(2)" autocomplete="off">
+                <div id="p2-ac-dropdown" class="autocomplete-dropdown"></div>
+              </div>
+
+              <div id="p2-card" class="player-match-card p2-active">
+                <div class="pm-header">
+                  <div>
+                    <div class="pm-name" id="p2-card-name">Jeremy Atkinson</div>
+                    <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Dark Angels</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1618.3</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
+                  </div>
+                </div>
+                <div class="pm-stats-row">
+                  <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);">6W - 1L</span></div>
+                  <div><b>Win %:</b> <span id="p2-card-winrate">85.7%</span></div>
+                  <div><b>Peak:</b> <span id="p2-card-peak" style="font-family: var(--font-mono);">1642.2</span></div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="predict-vs">VS</div>
-
-          <!-- Player 2 Column -->
-          <div class="predict-col">
-            <label style="font-weight: 600; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">PLAYER 2</label>
-            <div class="search-input-group" style="max-width: 100%;">
-              <span class="search-icon">🔍</span>
-              <input type="text" id="p2-name-input" class="search-input" placeholder="Type player name (e.g. Jeremy Atkinson)..." oninput="searchPlayerAc(2)" autocomplete="off">
-              <div id="p2-ac-dropdown" class="autocomplete-dropdown"></div>
+          <!-- Prediction Output Box -->
+          <div class="predict-result-box">
+            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
+            <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
+              <span style="color: #38bdf8;" id="pred-p1-prob">57.1%</span>
+              <span style="color: #f43f5e;" id="pred-p2-prob">42.9%</span>
             </div>
 
-            <div id="p2-card" class="player-match-card p2-active">
-              <div class="pm-header">
-                <div>
-                  <div class="pm-name" id="p2-card-name">Jeremy Atkinson</div>
-                  <div id="p2-card-faction" class="faction-pill" style="margin-top: 0.35rem; display: inline-block;">Dark Angels</div>
-                </div>
-                <div style="text-align: right;">
-                  <div class="pm-elo-display" style="color: #f43f5e;" id="p2-card-elo">1618.3</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
-                </div>
+            <div class="win-prob-bar">
+              <div id="pred-bar-p1" class="p1-bar" style="width: 57.1%;"></div>
+              <div id="pred-bar-p2" class="p2-bar" style="width: 42.9%;"></div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; text-align: left;">
+              <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
+                <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);">+13.7</b> (<span id="new-p1-win-elo">1681.5</span>)</div>
+                <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-loss" style="color: var(--loss);">-13.7</b> (<span id="new-p2-loss-elo">1604.6</span>)</div>
               </div>
-              <div class="pm-stats-row">
-                <div><b>Record:</b> <span id="p2-card-record" style="color: var(--win);">6W - 1L</span></div>
-                <div><b>Win %:</b> <span id="p2-card-winrate">85.7%</span></div>
-                <div><b>Peak:</b> <span id="p2-card-peak" style="font-family: var(--font-mono);">1642.2</span></div>
+
+              <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--loss); text-transform: uppercase;">IF PLAYER 2 WINS (UPSET)</div>
+                <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-upset-loss" style="color: var(--loss);">-18.3</b> (<span id="new-p1-loss-elo">1649.5</span>)</div>
+                <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-upset-win" style="color: var(--win);">+18.3</b> (<span id="new-p2-win-elo">1636.6</span>)</div>
               </div>
+
+              <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
+                <div style="font-size: 0.78rem; font-weight: 700; color: var(--draw); text-transform: uppercase;">IF MATCH DRAWS</div>
+                <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-draw">-2.3</b></div>
+                <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-draw">+2.3</b></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Head-to-Head Table -->
+          <div id="h2h-section">
+            <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">📜 Past Head-to-Head Encounters</h3>
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Tournament</th>
+                    <th>Round</th>
+                    <th>Player 1 Score</th>
+                    <th>Player 2 Score</th>
+                    <th>Outcome</th>
+                  </tr>
+                </thead>
+                <tbody id="h2h-table-body">
+                  <tr><td colspan="6" class="empty-state">Select two players to view past match records.</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
 
-        <!-- Prediction Output Box -->
-        <div class="predict-result-box">
-          <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Expected Win Probability</div>
-          <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.5rem; margin-top: 0.5rem;">
-            <span style="color: #38bdf8;" id="pred-p1-prob">57.1%</span>
-            <span style="color: #f43f5e;" id="pred-p2-prob">42.9%</span>
-          </div>
+        <!-- 2. Faction vs Faction Container -->
+        <div id="pred-faction-container" style="display: none;">
+          <div class="predictor-grid faction-predictor-grid">
+            <!-- Faction 1 Column -->
+            <div class="predict-col">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <label style="font-weight: 700; font-size: 0.82rem; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">ARMY 1 (FACTION)</label>
+                <span id="f1-meta-tier-pill" class="tier-badge tier-S" style="font-size: 0.72rem; padding: 2px 8px;">TIER S</span>
+              </div>
+              
+              <div class="faction-select-wrap">
+                <select id="pred-f1-select" class="faction-dropdown" onchange="onFactionPredictorChange('f1')">
+                  <!-- Populated via JS -->
+                </select>
+              </div>
 
-          <div class="win-prob-bar">
-            <div id="pred-bar-p1" class="p1-bar" style="width: 57.1%;"></div>
-            <div id="pred-bar-p2" class="p2-bar" style="width: 42.9%;"></div>
-          </div>
+              <!-- Quick shortcut chips -->
+              <div class="faction-shortcuts-scroll" id="f1-shortcuts">
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f1', 'Space Marines')">Space Marines</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f1', 'Aeldari')">Aeldari</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f1', 'Necrons')">Necrons</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f1', 'Orks')">Orks</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f1', 'Chaos Space Marines')">CSM</button>
+              </div>
 
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-top: 1.5rem; text-align: left;">
-            <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-              <div style="font-size: 0.78rem; font-weight: 700; color: var(--win); text-transform: uppercase;">IF PLAYER 1 WINS</div>
-              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-win" style="color: var(--win);">+13.7</b> (<span id="new-p1-win-elo">1681.5</span>)</div>
-              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-loss" style="color: var(--loss);">-13.7</b> (<span id="new-p2-loss-elo">1604.6</span>)</div>
+              <div id="f1-card" class="faction-match-card f1-active">
+                <div class="fm-header">
+                  <div>
+                    <div class="fm-name" id="f1-card-name">Space Marines</div>
+                    <div class="fm-subtitle" id="f1-card-subtitle">Global Competitive Meta</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div class="fm-stat-highlight" style="color: #38bdf8;" id="f1-card-winrate">52.4%</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Meta Win Rate</div>
+                  </div>
+                </div>
+                <div class="fm-stats-row">
+                  <div><b>Avg Score:</b> <span id="f1-card-avg-score" style="font-family: var(--font-mono); font-weight: 700;">76.8</span></div>
+                  <div><b>Total Battles:</b> <span id="f1-card-total-matches" style="font-family: var(--font-mono);">1,420</span></div>
+                </div>
+                <!-- Spotlights Mini Badges -->
+                <div class="fm-spotlights">
+                  <div class="fm-spotlight-item prey">
+                    <span class="fm-spot-label">🎯 Favored vs:</span>
+                    <span class="fm-spot-val" id="f1-spot-prey">Orks (68.0%)</span>
+                  </div>
+                  <div class="fm-spotlight-item nemesis">
+                    <span class="fm-spot-label">⚡ Hardest vs:</span>
+                    <span class="fm-spot-val" id="f1-spot-nemesis">Aeldari (41.5%)</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-              <div style="font-size: 0.78rem; font-weight: 700; color: var(--loss); text-transform: uppercase;">IF PLAYER 2 WINS (UPSET)</div>
-              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-upset-loss" style="color: var(--loss);">-18.3</b> (<span id="new-p1-loss-elo">1649.5</span>)</div>
-              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-upset-win" style="color: var(--win);">+18.3</b> (<span id="new-p2-win-elo">1636.6</span>)</div>
+            <!-- Center Swap / VS -->
+            <div class="predict-vs faction-vs-col">
+              <div class="vs-text">VS</div>
+              <button type="button" class="swap-factions-btn" onclick="swapFactionPredictor()" title="Swap Factions" aria-label="Swap Factions">
+                ⇄
+              </button>
             </div>
 
-            <div style="background: var(--bg-card); padding: 1.15rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-              <div style="font-size: 0.78rem; font-weight: 700; color: var(--draw); text-transform: uppercase;">IF MATCH DRAWS</div>
-              <div style="margin-top: 0.4rem; font-family: var(--font-mono); font-size: 0.88rem;">P1 Elo: <b id="delta-p1-draw">-2.3</b></div>
-              <div style="font-family: var(--font-mono); font-size: 0.88rem;">P2 Elo: <b id="delta-p2-draw">+2.3</b></div>
+            <!-- Faction 2 Column -->
+            <div class="predict-col">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <label style="font-weight: 700; font-size: 0.82rem; color: #f43f5e; text-transform: uppercase; letter-spacing: 0.05em;">ARMY 2 (OPPONENT)</label>
+                <span id="f2-meta-tier-pill" class="tier-badge tier-S" style="font-size: 0.72rem; padding: 2px 8px;">TIER S</span>
+              </div>
+
+              <div class="faction-select-wrap">
+                <select id="pred-f2-select" class="faction-dropdown" onchange="onFactionPredictorChange('f2')">
+                  <!-- Populated via JS -->
+                </select>
+              </div>
+
+              <!-- Quick shortcut chips -->
+              <div class="faction-shortcuts-scroll" id="f2-shortcuts">
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f2', 'Aeldari')">Aeldari</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f2', 'Necrons')">Necrons</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f2', 'Tyranids')">Tyranids</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f2', 'Adeptus Custodes')">Custodes</button>
+                <button type="button" class="faction-shortcut-chip" onclick="setFactionPredictorSide('f2', 'Orks')">Orks</button>
+              </div>
+
+              <div id="f2-card" class="faction-match-card f2-active">
+                <div class="fm-header">
+                  <div>
+                    <div class="fm-name" id="f2-card-name">Aeldari</div>
+                    <div class="fm-subtitle" id="f2-card-subtitle">Global Competitive Meta</div>
+                  </div>
+                  <div style="text-align: right;">
+                    <div class="fm-stat-highlight" style="color: #f43f5e;" id="f2-card-winrate">55.1%</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Meta Win Rate</div>
+                  </div>
+                </div>
+                <div class="fm-stats-row">
+                  <div><b>Avg Score:</b> <span id="f2-card-avg-score" style="font-family: var(--font-mono); font-weight: 700;">81.2</span></div>
+                  <div><b>Total Battles:</b> <span id="f2-card-total-matches" style="font-family: var(--font-mono);">1,105</span></div>
+                </div>
+                <!-- Spotlights Mini Badges -->
+                <div class="fm-spotlights">
+                  <div class="fm-spotlight-item prey">
+                    <span class="fm-spot-label">🎯 Favored vs:</span>
+                    <span class="fm-spot-val" id="f2-spot-prey">Imperial Knights (72.0%)</span>
+                  </div>
+                  <div class="fm-spotlight-item nemesis">
+                    <span class="fm-spot-label">⚡ Hardest vs:</span>
+                    <span class="fm-spot-val" id="f2-spot-nemesis">Adeptus Custodes (44.0%)</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Head-to-Head Table -->
-        <div id="h2h-section">
-          <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">📜 Past Head-to-Head Encounters</h3>
-          <div class="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Tournament</th>
-                  <th>Round</th>
-                  <th>Player 1 Score</th>
-                  <th>Player 2 Score</th>
-                  <th>Outcome</th>
-                </tr>
-              </thead>
-              <tbody id="h2h-table-body">
-                <tr><td colspan="6" class="empty-state">Select two players to view past match records.</td></tr>
-              </tbody>
-            </table>
+          <!-- Faction Prediction Result Box -->
+          <div class="predict-result-box faction-result-box">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                ⚔️ Expected Matchup Win Probability (Bayesian Blend)
+              </div>
+              <div id="pred-faction-verdict" class="matchup-verdict-pill">
+                Analyzing Matchup...
+              </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 1.6rem; margin-top: 0.75rem;">
+              <div>
+                <span style="color: #38bdf8;" id="pred-f1-prob">50.0%</span>
+                <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-left: 0.4rem;" id="pred-f1-name-lbl">Space Marines</span>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); margin-right: 0.4rem;" id="pred-f2-name-lbl">Aeldari</span>
+                <span style="color: #f43f5e;" id="pred-f2-prob">50.0%</span>
+              </div>
+            </div>
+
+            <div class="win-prob-bar" style="margin-top: 0.5rem; height: 14px; border-radius: 7px;">
+              <div id="pred-bar-f1" class="p1-bar" style="width: 50%;"></div>
+              <div id="pred-bar-f2" class="p2-bar" style="width: 50%;"></div>
+            </div>
+
+            <!-- Faction Head-to-Head Clash Metrics Grid -->
+            <div class="faction-metric-cards-grid">
+              <div class="faction-metric-card">
+                <div class="fmc-label">EMPIRICAL H2H RECORD</div>
+                <div class="fmc-value" id="fmc-h2h-record">--</div>
+                <div class="fmc-sub" id="fmc-h2h-sub">Historical tournament clashes</div>
+              </div>
+
+              <div class="faction-metric-card">
+                <div class="fmc-label">ACTUAL H2H WIN RATE</div>
+                <div class="fmc-value" id="fmc-actual-wr">--</div>
+                <div class="fmc-sub" id="fmc-actual-wr-sub">F1 vs F2 recorded win rate</div>
+              </div>
+
+              <div class="faction-metric-card">
+                <div class="fmc-label">AVG SCORE DIFFERENTIAL</div>
+                <div class="fmc-value" id="fmc-score-diff">--</div>
+                <div class="fmc-sub" id="fmc-score-diff-sub">Points margin per battle</div>
+              </div>
+
+              <div class="faction-metric-card">
+                <div class="fmc-label">CONFIDENCE INDEX</div>
+                <div class="fmc-value" id="fmc-confidence">--</div>
+                <div class="fmc-sub" id="fmc-confidence-sub">Sample size reliability</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Historical Army Clashes Table -->
+          <div id="faction-clashes-section" style="margin-top: 1.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+              <h3 style="font-size: 1rem; font-weight: 700; color: #fff; margin: 0;">
+                📜 Recorded Army Clashes &amp; Tournament Pilot Games
+              </h3>
+              <span id="clashes-count-badge" class="badge" style="background: var(--bg-card); border: 1px solid var(--border);">
+                0 Matches
+              </span>
+            </div>
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Tournament</th>
+                    <th>Round</th>
+                    <th>Army 1 Pilot</th>
+                    <th>Score</th>
+                    <th>Army 2 Pilot</th>
+                    <th>Score</th>
+                    <th>Outcome</th>
+                  </tr>
+                </thead>
+                <tbody id="faction-clashes-table-body">
+                  <tr><td colspan="8" class="empty-state">Select two factions to analyze historical clashes.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -2189,6 +2405,33 @@
 
         <!-- View 3: Matchups -->
         <div id="faction-view-matchups" style="display: none;">
+          <!-- Prey & Nemesis Spotlight Cards -->
+          <div id="faction-matchup-spotlights" class="faction-modal-spotlights-grid" style="margin-bottom: 1.25rem;">
+            <!-- Populated via JS: Favorite Prey card & Nemesis Army card -->
+          </div>
+
+          <!-- Matchup Controls: Filter Chips & Search -->
+          <div class="faction-matchup-controls" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+            <div class="faction-matchup-filter-chips" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+              <button type="button" class="matchup-chip active" id="f-chip-all" onclick="filterFactionMatchups('all')">
+                All (<span id="f-mu-cnt-all">0</span>)
+              </button>
+              <button type="button" class="matchup-chip chip-favorable" id="f-chip-fav" onclick="filterFactionMatchups('favorable')">
+                🎯 Favorable &gt;55% (<span id="f-mu-cnt-fav">0</span>)
+              </button>
+              <button type="button" class="matchup-chip chip-even" id="f-chip-even" onclick="filterFactionMatchups('even')">
+                ⚖️ Even 45-55% (<span id="f-mu-cnt-even">0</span>)
+              </button>
+              <button type="button" class="matchup-chip chip-unfavorable" id="f-chip-unfav" onclick="filterFactionMatchups('unfavorable')">
+                ⚡ Unfavorable &lt;45% (<span id="f-mu-cnt-unfav">0</span>)
+              </button>
+            </div>
+            <div class="search-input-group" style="max-width: 220px; width: 100%;">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="faction-matchup-search" class="search-input" placeholder="Search opponent..." oninput="onFactionMatchupSearch(this.value)" autocomplete="off">
+            </div>
+          </div>
+
           <div class="table-container" style="max-height: 420px;">
             <table>
               <thead>
@@ -2198,6 +2441,7 @@
                   <th>Win Rate</th>
                   <th>Record (W-L-D)</th>
                   <th>Sample Size</th>
+                  <th style="text-align: right;">Action</th>
                 </tr>
               </thead>
               <tbody id="faction-matchups-body"></tbody>
@@ -2215,14 +2459,14 @@
 
   <!-- Modular Scripts -->
   <script src="/js/utils.js?v=68.0"></script>
-  <script src="/js/api.js?v=78.0"></script>
+  <script src="/js/api.js?v=79.0"></script>
   <script src="/js/leaderboard.js?v=76.0"></script>
   <script src="/js/teams.js?v=65.0"></script>
   <script src="/js/players.js?v=66.0"></script>
   <script src="/js/tournaments.js?v=65.0"></script>
   <script src="/js/factions.js?v=65.0"></script>
-  <script src="/js/predictor.js?v=64.0"></script>
-  <script src="/js/modals.js?v=67.0"></script>
+  <script src="/js/predictor.js?v=65.0"></script>
+  <script src="/js/modals.js?v=68.0"></script>
   <script src="/js/auth.js?v=86.0"></script>
   <script src="/js/my_hub.js?v=76.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>

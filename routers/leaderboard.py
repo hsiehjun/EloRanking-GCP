@@ -842,6 +842,25 @@ async def api_predict(
     if not p1_name or not p2_name:
         raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
     return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip())
+ 
+ # API: Faction vs Faction Matchup Predictor
+@router.get("/api/predict/faction", summary="Calculate faction vs faction win probability, head-to-head metrics, and clashes")
+async def api_predict_faction(
+    f1: Optional[str] = Query(None),
+    f2: Optional[str] = Query(None),
+    faction1: Optional[str] = Query(None),
+    faction2: Optional[str] = Query(None)
+):
+    f1_name = f1 or faction1 or ""
+    f2_name = f2 or faction2 or ""
+    if not f1_name or not f2_name:
+        raise HTTPException(status_code=400, detail="Missing f1 (faction1) or f2 (faction2) parameters")
+    try:
+        return get_database().get_faction_matchup_prediction(f1_name.strip(), f2_name.strip())
+    except Exception as e:
+        logger.error(f"Error predicting faction matchup {f1_name} vs {f2_name}: {e}")
+        return {"error": str(e)}
+
 
 
 

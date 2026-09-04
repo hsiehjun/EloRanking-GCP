@@ -119,6 +119,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
         raw_path = self.path.split("?")[0]
         query_str = self.path.split("?")[1] if "?" in self.path else ""
         clean_path = raw_path.strip("/")
+        import urllib.parse
+        query_params = urllib.parse.parse_qs(query_str)
 
         # 1. API routes
         if clean_path in ("api/auth/me", "api/auth/session"):
@@ -237,6 +239,246 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({"players": [], "events": [], "teams": [], "count": 0}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/predict/faction"):
+            f1_val = query_params.get("f1", ["Space Marines"])[0]
+            f2_val = query_params.get("f2", ["Aeldari"])[0]
+            # Mock Bayesian Prediction data
+            res = {
+                "f1": {
+                    "name": f1_val,
+                    "win_rate": 52.4,
+                    "tier": "S",
+                    "avg_score": 76.8,
+                    "total_matches": 1420,
+                    "spotlight_prey": {"opponent_faction": "Orks", "win_rate": 68.0, "total_matches": 25, "wins": 17, "losses": 8},
+                    "spotlight_nemesis": {"opponent_faction": "Aeldari", "win_rate": 41.5, "total_matches": 31, "wins": 13, "losses": 18}
+                },
+                "f2": {
+                    "name": f2_val,
+                    "win_rate": 55.1,
+                    "tier": "S",
+                    "avg_score": 81.2,
+                    "total_matches": 1105,
+                    "spotlight_prey": {"opponent_faction": "Imperial Knights", "win_rate": 72.0, "total_matches": 18, "wins": 13, "losses": 5},
+                    "spotlight_nemesis": {"opponent_faction": "Adeptus Custodes", "win_rate": 44.0, "total_matches": 22, "wins": 10, "losses": 12}
+                },
+                "prediction": {
+                    "f1_win_prob": 44.2,
+                    "f2_win_prob": 55.8,
+                    "favorite": f2_val,
+                    "advantage_pts": 11.6
+                },
+                "head_to_head": {
+                    "total_games": 31,
+                    "f1_wins": 13,
+                    "f2_wins": 18,
+                    "draws": 0,
+                    "f1_actual_win_rate": 41.9,
+                    "f2_actual_win_rate": 58.1,
+                    "f1_avg_score": 73.5,
+                    "f2_avg_score": 82.1,
+                    "score_differential": -8.6
+                },
+                "clashes": [
+                    {
+                        "id": "m_clash_1",
+                        "event_id": "e_lgt_2026",
+                        "event_name": "LGT Masters 2026",
+                        "round": 5,
+                        "match_date": "2026-08-28",
+                        "f1_player_id": "p_jack_m",
+                        "f1_player_name": "Jack Murphy",
+                        "f1_score": 68,
+                        "f2_player_id": "p_elena_r",
+                        "f2_player_name": "Elena Rostova",
+                        "f2_score": 84,
+                        "winner_side": "f2"
+                    },
+                    {
+                        "id": "m_clash_2",
+                        "event_id": "e_nova_2026",
+                        "event_name": "Nova Open 2026",
+                        "round": 3,
+                        "match_date": "2026-08-15",
+                        "f1_player_id": "p_marcus_v",
+                        "f1_player_name": "Marcus Vance",
+                        "f1_score": 88,
+                        "f2_player_id": "p_yriel_s",
+                        "f2_player_name": "Yriel Swiftwind",
+                        "f2_score": 75,
+                        "winner_side": "f1"
+                    },
+                    {
+                        "id": "m_clash_3",
+                        "event_id": "e_crucible_2026",
+                        "event_name": "Crucible GT 2026",
+                        "round": 2,
+                        "match_date": "2026-07-20",
+                        "f1_player_id": "p_dev_commander",
+                        "f1_player_name": "Commander",
+                        "f1_score": 52,
+                        "f2_player_id": "p_elena_r",
+                        "f2_player_name": "Elena Rostova",
+                        "f2_score": 78,
+                        "winner_side": "f2"
+                    }
+                ]
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/predict"):
+            p1_id = query_params.get("p1", ["p1"])[0]
+            p2_id = query_params.get("p2", ["p2"])[0]
+            res = {
+                "p1_win_prob": 56.4,
+                "p2_win_prob": 43.6,
+                "deltas": {
+                    "p1_win": 13.8,
+                    "p2_win": 18.2,
+                    "p1_draw": -2.2,
+                    "p2_draw": 2.2
+                },
+                "head_to_head": []
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/factions/meta"):
+            factions_list = [
+                {"faction": "Aeldari", "win_rate": 55.1, "tier": "S", "total_matches": 1105, "avg_score": 81.2},
+                {"faction": "Space Marines", "win_rate": 52.4, "tier": "S", "total_matches": 1420, "avg_score": 76.8},
+                {"faction": "Necrons", "win_rate": 51.8, "tier": "A", "total_matches": 1280, "avg_score": 78.4},
+                {"faction": "Adeptus Custodes", "win_rate": 51.2, "tier": "A", "total_matches": 950, "avg_score": 75.6},
+                {"faction": "Chaos Space Marines", "win_rate": 50.5, "tier": "A", "total_matches": 1120, "avg_score": 74.2},
+                {"faction": "Tyranids", "win_rate": 49.6, "tier": "B", "total_matches": 980, "avg_score": 72.1},
+                {"faction": "Orks", "win_rate": 48.2, "tier": "B", "total_matches": 890, "avg_score": 69.8},
+                {"faction": "Imperial Knights", "win_rate": 47.5, "tier": "B", "total_matches": 650, "avg_score": 71.0},
+                {"faction": "World Eaters", "win_rate": 46.8, "tier": "C", "total_matches": 540, "avg_score": 68.5},
+                {"faction": "Drukhari", "win_rate": 45.9, "tier": "C", "total_matches": 490, "avg_score": 70.2}
+            ]
+            monthly_trends = []
+            for f in factions_list:
+                monthly_trends.append({"faction": f["faction"], "matches_in_month": f["total_matches"], "month": "2026-08", "win_rate": f["win_rate"]})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"factions": factions_list, "monthly_trends": monthly_trends}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/faction/"):
+            raw_fac = clean_path.replace("api/faction/", "").strip("/")
+            import urllib.parse
+            fac_name = urllib.parse.unquote(raw_fac)
+            res = {
+                "faction": fac_name,
+                "matches": [
+                    {
+                        "id": "m_fac_1",
+                        "event_id": "e_lgt_2026",
+                        "event_name": "LGT Masters 2026",
+                        "round": 1,
+                        "outcome": "W",
+                        "player_score": 85,
+                        "opponent_score": 52,
+                        "match_date": "2026-08-28",
+                        "player_name": "Commander",
+                        "opponent_name": "Marcus Vance",
+                        "opponent_faction": "Orks"
+                    },
+                    {
+                        "id": "m_fac_2",
+                        "event_id": "e_nova_2026",
+                        "event_name": "Nova Open 2026",
+                        "round": 2,
+                        "outcome": "L",
+                        "player_score": 60,
+                        "opponent_score": 84,
+                        "match_date": "2026-08-15",
+                        "player_name": "Commander",
+                        "opponent_name": "Elena Rostova",
+                        "opponent_faction": "Aeldari"
+                    }
+                ],
+                "top_players": [
+                    {
+                        "player_id": "p_dev_commander",
+                        "player_name": "Commander",
+                        "team": "Iron Hands Veterans",
+                        "current_elo": 1845.5,
+                        "peak_elo": 1890.0,
+                        "wins": 27,
+                        "losses": 13,
+                        "win_rate": 67.5
+                    }
+                ],
+                "matchups": [
+                    {
+                        "opponent_faction": "Orks",
+                        "total_matches": 25,
+                        "wins": 17,
+                        "losses": 8,
+                        "draws": 0,
+                        "win_rate": 68.0
+                    },
+                    {
+                        "opponent_faction": "Necrons",
+                        "total_matches": 20,
+                        "wins": 13,
+                        "losses": 7,
+                        "draws": 0,
+                        "win_rate": 65.0
+                    },
+                    {
+                        "opponent_faction": "Tyranids",
+                        "total_matches": 15,
+                        "wins": 9,
+                        "losses": 6,
+                        "draws": 0,
+                        "win_rate": 60.0
+                    },
+                    {
+                        "opponent_faction": "Chaos Space Marines",
+                        "total_matches": 18,
+                        "wins": 9,
+                        "losses": 9,
+                        "draws": 0,
+                        "win_rate": 50.0
+                    },
+                    {
+                        "opponent_faction": "Adeptus Custodes",
+                        "total_matches": 14,
+                        "wins": 6,
+                        "losses": 8,
+                        "draws": 0,
+                        "win_rate": 42.9
+                    },
+                    {
+                        "opponent_faction": "Aeldari",
+                        "total_matches": 31,
+                        "wins": 13,
+                        "losses": 18,
+                        "draws": 0,
+                        "win_rate": 41.9
+                    }
+                ]
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
         if clean_path in ("api/user/dashboard",):
