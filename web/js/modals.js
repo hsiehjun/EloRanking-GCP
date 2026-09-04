@@ -177,24 +177,34 @@ async function openPlayerModal(playerId) {
     }
 
     const teamDiv = document.getElementById('modal-player-team');
+
     if (teamDiv) {
-      const teamsList = Array.isArray(p.teams_history) && p.teams_history.length > 0 
+      const rawTeams = Array.isArray(p.teams_history) && p.teams_history.length > 0 
         ? p.teams_history 
         : ((p.all_teams || p.team || '').split(',').map(t => t.trim()).filter(Boolean));
 
+      // Deduplicate while preserving original casing
+      const seenTeams = new Set();
+      const teamsList = [];
+      rawTeams.forEach(t => {
+        const lower = t.toLowerCase();
+        if (!seenTeams.has(lower)) {
+          seenTeams.add(lower);
+          teamsList.push(t);
+        }
+      });
+
       if (teamsList.length > 0) {
+        hasTeams = true;
         teamDiv.style.display = 'inline-flex';
-        teamDiv.style.flexWrap = 'wrap';
-        teamDiv.style.gap = '0.4rem';
-        teamDiv.style.alignItems = 'center';
         teamDiv.innerHTML = '';
 
         const currentTeam = p.team ? p.team.trim() : (teamsList[0] || '');
+        const currentIdx = teamsList.findIndex(t => t.toLowerCase() === currentTeam.toLowerCase());
+        const activeTeamName = currentIdx >= 0 ? teamsList[currentIdx] : teamsList[0];
+        const pastTeams = teamsList.filter((_, idx) => (currentIdx >= 0 ? idx !== currentIdx : idx !== 0));
 
-        teamsList.forEach((tm, idx) => {
-          const isCurrent = currentTeam 
-            ? (tm.toLowerCase() === currentTeam.toLowerCase()) 
-            : (idx === 0);
+        function createTeamBadge(tm, isCurrent) {
           const badge = document.createElement('span');
           badge.className = 'faction-pill';
           badge.style.cursor = 'pointer';
@@ -202,26 +212,137 @@ async function openPlayerModal(playerId) {
           badge.style.background = isCurrent ? 'rgba(56, 189, 248, 0.12)' : 'rgba(15, 23, 42, 0.6)';
           badge.style.color = isCurrent ? '#38bdf8' : 'var(--text-secondary)';
           badge.style.fontWeight = isCurrent ? '700' : '500';
-          badge.title = isCurrent ? `${tm} (Current Active Team)` : `${tm} (Past Team)`;
+          badge.title = isCurrent ? `${tm} (Current Active Team) - Click to view team` : `${tm} (Past Team) - Click to view team`;
           badge.innerHTML = `🛡️ ${escapeHtml(tm)}${isCurrent && teamsList.length > 1 ? ' <span style="font-size:0.68rem; opacity:0.85; margin-left:0.2rem;">(Current)</span>' : ''}`;
           badge.onclick = (e) => { e.stopPropagation(); closeModal('player-modal'); openTeamModal(tm); };
-          teamDiv.appendChild(badge);
-        });
+          return badge;
+        }
+
+        // Always render current active team first
+        teamDiv.appendChild(createTeamBadge(activeTeamName, true));
+
+        // If only 1 past team (2 teams total), render it directly (clean & compact)
+        if (pastTeams.length === 1) {
+          teamDiv.appendChild(createTeamBadge(pastTeams[0], false));
+        } else if (pastTeams.length > 1) {
+          // Many past teams (e.g. 6 past teams like Folger Pyles): collapse by default
+          const pastContainer = document.createElement('span');
+          pastContainer.style.display = 'none';
+          pastContainer.style.alignItems = 'center';
+          pastContainer.style.gap = '0.35rem';
+          pastContainer.style.flexWrap = 'wrap';
+
+          pastTeams.forEach(tm => {
+            pastContainer.appendChild(createTeamBadge(tm, false));
+          });
+
+          const toggleBtn = document.createElement('button');
+          toggleBtn.type = 'button';
+          toggleBtn.className = 'modal-expand-pill';
+          toggleBtn.innerHTML = `+${pastTeams.length} past teams ▾`;
+          toggleBtn.title = `Click to view ${pastTeams.length} past teams: ${pastTeams.join(', ')}`;
+
+          let isExpanded = false;
+          toggleBtn.onclick = (e) => {
+            e.stopPropagation();
+            isExpanded = !isExpanded;
+            if (isExpanded) {
+              pastContainer.style.display = 'inline-flex';
+              toggleBtn.innerHTML = `▴ Less`;
+              toggleBtn.classList.add('active');
+            } else {
+              pastContainer.style.display = 'none';
+              toggleBtn.innerHTML = `+${pastTeams.length} past teams ▾`;
+              toggleBtn.classList.remove('active');
+            }
+          };
+
+          teamDiv.appendChild(pastContainer);
+          teamDiv.appendChild(toggleBtn);
+        }
       } else {
         teamDiv.style.display = 'none';
       }
     }
 
     const factionsDiv = document.getElementById('modal-player-factions');
+    let hasFactions = false;
+
     if (factionsDiv) {
       factionsDiv.innerHTML = '';
-      const factionsList = (p.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
-      factionsList.forEach(fac => {
-        const badge = document.createElement('span');
-        badge.className = 'faction-pill';
-        badge.innerText = fac;
-        factionsDiv.appendChild(badge);
+      const rawFactions = (p.top_faction || '').split(',').map(f => f.trim()).filter(Boolean);
+      const seenFac = new Set();
+      const factionsList = [];
+      rawFactions.forEach(f => {
+        const lower = f.toLowerCase();
+        if (!seenFac.has(lower)) {
+          seenFac.add(lower);
+          factionsList.push(f);
+        }
       });
+
+      if (factionsList.length > 0) {
+        hasFactions = true;
+        factionsDiv.style.display = 'inline-flex';
+
+        function createFactionBadge(fac) {
+          const badge = document.createElement('span');
+          badge.className = 'faction-pill';
+          badge.innerText = fac;
+          return badge;
+        }
+
+        // If 3 or fewer factions: show all directly
+        if (factionsList.length <= 3) {
+          factionsList.forEach(fac => {
+            factionsDiv.appendChild(createFactionBadge(fac));
+          });
+        } else {
+          // Many factions: show top 2 + toggle for remaining
+          const initialFactions = factionsList.slice(0, 2);
+          const extraFactions = factionsList.slice(2);
+
+          initialFactions.forEach(fac => {
+            factionsDiv.appendChild(createFactionBadge(fac));
+          });
+
+          const extraContainer = document.createElement('span');
+          extraContainer.style.display = 'none';
+          extraContainer.style.alignItems = 'center';
+          extraContainer.style.gap = '0.35rem';
+          extraContainer.style.flexWrap = 'wrap';
+
+          extraFactions.forEach(fac => {
+            extraContainer.appendChild(createFactionBadge(fac));
+          });
+
+          const toggleBtn = document.createElement('button');
+          toggleBtn.type = 'button';
+          toggleBtn.className = 'modal-expand-pill';
+          toggleBtn.innerHTML = `+${extraFactions.length} more ▾`;
+          toggleBtn.title = `Click to view all ${factionsList.length} factions: ${factionsList.join(', ')}`;
+
+          let isExpanded = false;
+          toggleBtn.onclick = (e) => {
+            e.stopPropagation();
+            isExpanded = !isExpanded;
+            if (isExpanded) {
+              extraContainer.style.display = 'inline-flex';
+              toggleBtn.innerHTML = `▴ Less`;
+              toggleBtn.classList.add('active');
+            } else {
+              extraContainer.style.display = 'none';
+              toggleBtn.innerHTML = `+${extraFactions.length} more ▾`;
+              toggleBtn.classList.remove('active');
+            }
+          };
+
+          factionsDiv.appendChild(extraContainer);
+          factionsDiv.appendChild(toggleBtn);
+        }
+      } else {
+        factionsDiv.style.display = 'none';
+      }
     }
 
     document.getElementById('modal-elo').innerText = Number(p.current_elo || 1500).toFixed(1);

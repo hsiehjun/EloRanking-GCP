@@ -1649,17 +1649,17 @@
   <!-- Player Win Path Modal -->
   <div id="player-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window">
-      <div class="modal-header">
-        <div>
-          <h2 id="modal-player-name" style="font-size: 1.35rem; font-weight: 700; color: #fff;">Player Profile</h2>
-          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.25rem;">
-            <div id="modal-player-team" class="faction-pill" style="display: none; background: rgba(168, 85, 247, 0.12); color: #c084fc; border-color: rgba(168, 85, 247, 0.3); font-weight: 600; cursor: pointer;"></div>
-            <div id="modal-player-factions" class="faction-pill-group"></div>
+      <div class="modal-header player-modal-header">
+        <div class="player-modal-top-row">
+          <h2 id="modal-player-name" class="player-modal-name">Player Profile</h2>
+          <div class="player-modal-actions">
+            <div id="modal-player-chat-container"></div>
+            <button class="modal-close" onclick="closeModal('player-modal')" aria-label="Close modal">✕</button>
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 0.65rem;">
-          <div id="modal-player-chat-container"></div>
-          <button class="modal-close" onclick="closeModal('player-modal')">✕</button>
+        <div id="modal-player-submeta" class="player-modal-submeta">
+          <div id="modal-player-team" class="player-modal-teams"></div>
+          <div id="modal-player-factions" class="player-modal-factions faction-pill-group"></div>
         </div>
       </div>
 

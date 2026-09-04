@@ -145,6 +145,100 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "exists": True, "is_finished": False}).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/player/"):
+            import urllib.parse
+            pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
+            if "john" in pid.lower():
+                res = {
+                    "player": {
+                        "player_id": "p_john_doe",
+                        "player_name": "John Doe",
+                        "team": "Team Zero Comp",
+                        "teams_history": ["Team Zero Comp"],
+                        "top_faction": "Adeptus Astartes, Necrons",
+                        "current_elo": 1650.0,
+                        "peak_elo": 1680.0,
+                        "wins": 45,
+                        "losses": 20,
+                        "draws": 1,
+                        "win_rate": 68.2,
+                        "total_matches": 66
+                    },
+                    "has_account": False,
+                    "longest_win_streak": 8,
+                    "history": []
+                }
+            else:
+                # Default to Folger Pyles profile matching the user's test scenario
+                res = {
+                    "player": {
+                        "player_id": "p_folger_pyles",
+                        "player_name": "Folger Pyles",
+                        "team": "Art of War",
+                        "teams_history": [
+                            "Art of War",
+                            "Team USA",
+                            "Gem Wargaming",
+                            "Battle Brothers Wargaming",
+                            "Bookery Battle Brothers",
+                            "Gemhammer",
+                            "Watchers in the dark"
+                        ],
+                        "top_faction": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
+                        "current_elo": 2495.2,
+                        "peak_elo": 2495.2,
+                        "wins": 290,
+                        "losses": 30,
+                        "draws": 2,
+                        "win_rate": 90.1,
+                        "total_matches": 322
+                    },
+                    "has_account": False,
+                    "longest_win_streak": 36,
+                    "history": [
+                        {
+                            "match_date": "2022-04-16",
+                            "event_name": "GemHammer RTT April 2022",
+                            "round": "R1",
+                            "result": "W",
+                            "player_score": 69,
+                            "opponent_score": 63,
+                            "player_faction": "Adeptus Custodes",
+                            "opponent_name": "GemHammer RTT April 2022",
+                            "opponent_elo": 1820.0,
+                            "delta_elo": 12.4,
+                            "new_elo": 2495.2
+                        },
+                        {
+                            "match_date": "2022-04-16",
+                            "event_name": "GemHammer RTT April 2022",
+                            "round": "R2",
+                            "result": "L",
+                            "player_score": 61,
+                            "opponent_score": 72,
+                            "player_faction": "Adeptus Custodes",
+                            "opponent_name": "Opponent",
+                            "opponent_elo": 1900.0,
+                            "delta_elo": -8.1,
+                            "new_elo": 2487.1
+                        }
+                    ]
+                }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path in ("api/leaderboard", "api/players", "api/events", "api/teams", "api/community/feed", "api/notifications/unread-count"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"players": [], "events": [], "teams": [], "count": 0}).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/tracker/"):
             room_id = clean_path.replace("api/tracker/", "").replace("room/", "").strip("/")
             data = ROOMS_DB.get(room_id, {})
@@ -153,6 +247,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({"success": True, "match_id": room_id or "WH40K-DEV1", "data": data, "state": None}).encode("utf-8"))
+            return
+
+        if clean_path in ("app", "app.html"):
+            self._serve_html_with_auth(WEB_DIR / "app.html", is_head)
             return
 
         # 2. Redirects to /11th/tracker/play

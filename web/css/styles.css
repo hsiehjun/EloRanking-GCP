@@ -627,6 +627,106 @@ tbody tr:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* Player Modal Responsive Compact Header */
+.player-modal-header {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.5rem !important;
+  padding: 1.15rem 1.4rem 0.95rem !important;
+  border-bottom: 1px solid var(--border) !important;
+  box-sizing: border-box !important;
+}
+
+.player-modal-top-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  width: 100% !important;
+  gap: 0.75rem !important;
+}
+
+.player-modal-name {
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+  margin: 0 !important;
+  line-height: 1.25 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.player-modal-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  flex-shrink: 0 !important;
+}
+
+.player-modal-submeta {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.65rem !important;
+  flex-wrap: wrap !important;
+  width: 100% !important;
+  margin-top: 0.1rem !important;
+}
+
+.player-modal-teams {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.35rem !important;
+  flex-wrap: wrap !important;
+}
+
+.player-modal-factions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.35rem !important;
+  flex-wrap: wrap !important;
+}
+
+/* Expand / Collapse Toggle Pills */
+.modal-expand-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  padding: 0.15rem 0.5rem !important;
+  background: rgba(148, 163, 184, 0.08) !important;
+  border: 1px dashed rgba(148, 163, 184, 0.35) !important;
+  border-radius: var(--radius-sm) !important;
+  font-size: 0.72rem !important;
+  color: var(--text-secondary) !important;
+  cursor: pointer !important;
+  font-weight: 600 !important;
+  transition: all 0.15s ease-in-out !important;
+  line-height: 1.2 !important;
+  user-select: none !important;
+}
+.modal-expand-pill:hover {
+  background: rgba(56, 189, 248, 0.15) !important;
+  border-color: #38bdf8 !important;
+  color: #38bdf8 !important;
+}
+.modal-expand-pill.active {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border: 1px solid rgba(56, 189, 248, 0.45) !important;
+  color: #38bdf8 !important;
+}
+
+@media (max-width: 640px) {
+  .player-modal-header {
+    padding: 0.85rem 1rem 0.75rem !important;
+    gap: 0.4rem !important;
+  }
+  .player-modal-name {
+    font-size: 1.15rem !important;
+  }
+  .player-modal-submeta {
+    gap: 0.4rem !important;
+  }
+}
 .modal-body {
   padding: 1.5rem;
   overflow-y: auto;
