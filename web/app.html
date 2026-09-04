@@ -317,7 +317,7 @@
         <!-- SUBVIEW 2: REGIONAL TOURNAMENTS -->
         <div id="comm-subview-tournaments" class="comm-subview" style="display: none;">
           <div class="comm-subview-toolbar">
-            <div class="comm-toolbar-left" id="comm-tournaments-filters">
+            <div class="comm-toolbar-left" id="comm-tournaments-filters" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <button class="comm-filter-chip active" id="filter-chip-events-all" data-filter="all" onclick="setCommunityEventsFilter('all')">
                 All Events (<span id="count-events-all">0</span>)
               </button>
@@ -327,6 +327,10 @@
               <button class="comm-filter-chip" id="filter-chip-events-recent" data-filter="recent" onclick="setCommunityEventsFilter('recent')">
                 📜 Recent Results (<span id="count-events-recent">0</span>)
               </button>
+              <div style="position: relative; min-width: 170px; max-width: 250px;">
+                <input type="text" id="comm-tournaments-search" placeholder="Search tournaments..." oninput="filterCommunityTournaments(this.value)" class="form-input" style="width: 100%; box-sizing: border-box; padding: 0.28rem 0.6rem 0.28rem 1.75rem; font-size: 0.78rem; height: 30px; border-radius: 6px; background: rgba(0,0,0,0.3); border: 1px solid var(--border);" />
+                <span style="position: absolute; left: 7px; top: 50%; transform: translateY(-50%); font-size: 0.72rem; color: #64748b; pointer-events: none;">🔍</span>
+              </div>
             </div>
 
             <div class="comm-toolbar-right">
@@ -1270,56 +1274,6 @@
           </div>
         </div>
 
-        <!-- MODAL: Tournament Registration -->
-        <div id="modal-tournament-register" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
-          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 20px 40px rgba(0,0,0,0.5);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-              <div>
-                <h3 style="color: #fff; margin: 0; font-size: 1.2rem;">⚡ Tournament Registration</h3>
-                <div id="register-event-title" style="font-size: 0.82rem; color: #38bdf8; margin-top: 0.2rem;">Tournament Name</div>
-              </div>
-              <button class="modal-close" onclick="closeTournamentRegistrationModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">✕</button>
-            </div>
-            <form id="form-tournament-register" onsubmit="submitTournamentRegistration(event)">
-              <div style="display: flex; flex-direction: column; gap: 0.85rem;">
-                <div>
-                  <label class="form-label">Full Name *</label>
-                  <input type="text" id="reg-player-name" class="form-input" placeholder="e.g. John Hsieh" required>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                  <div>
-                    <label class="form-label">Faction / Army *</label>
-                    <input type="text" id="reg-player-faction" class="form-input" placeholder="e.g. Necrons" required>
-                  </div>
-                  <div>
-                    <label class="form-label">Detachment</label>
-                    <input type="text" id="reg-player-detachment" class="form-input" placeholder="e.g. Hypercrypt Legion">
-                  </div>
-                </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
-                  <div>
-                    <label class="form-label">Team / Club</label>
-                    <input type="text" id="reg-player-team" class="form-input" placeholder="e.g. Team Zero Comp">
-                  </div>
-                  <div>
-                    <label class="form-label">Email (for confirmation)</label>
-                    <input type="email" id="reg-player-email" class="form-input" placeholder="competitor@example.com">
-                  </div>
-                </div>
-                <div>
-                  <label class="form-label">Army List (Text / Waha / Battlescribe / NewRecruit)</label>
-                  <textarea id="reg-player-armylist" class="form-input" rows="3" placeholder="Paste roster or list link here..."></textarea>
-                </div>
-                <div id="reg-status-message" style="display: none; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.8rem;"></div>
-              </div>
-              <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
-                <button type="button" class="btn btn-outline" onclick="closeTournamentRegistrationModal()">Cancel</button>
-                <button type="submit" id="btn-submit-registration" class="btn btn-primary" style="background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981;">Complete Registration</button>
-              </div>
-            </form>
-          </div>
-        </div>
-
       </div>
     </section>
 
@@ -1934,6 +1888,85 @@
     </div>
   </div>
 
+  <!-- MODAL: Tournament Self-Registration -->
+  <div id="modal-tournament-register" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1300; align-items: center; justify-content: center; backdrop-filter: blur(5px);" onclick="if(event.target === this) closeTournamentRegistrationModal()">
+    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 20px 45px rgba(0,0,0,0.6); position: relative;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <div>
+          <h3 style="color: #fff; margin: 0; font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+            <span>⚡</span> <span>Tournament Registration</span>
+          </h3>
+          <div id="register-event-title" style="font-size: 0.82rem; color: #38bdf8; margin-top: 0.2rem; font-weight: 600;">Tournament Name</div>
+        </div>
+        <button class="modal-close" onclick="closeTournamentRegistrationModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.3rem; line-height: 1; padding: 4px;" title="Close">✕</button>
+      </div>
+      <form id="form-tournament-register" onsubmit="submitTournamentRegistration(event)">
+        <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Full Name *</label>
+            <input type="text" id="reg-player-name" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. John Hsieh" required>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Faction / Army *</label>
+              <input type="text" id="reg-player-faction" list="factions-datalist" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Necrons" required>
+              <datalist id="factions-datalist">
+                <option value="Adepta Sororitas"></option>
+                <option value="Adeptus Custodes"></option>
+                <option value="Adeptus Mechanicus"></option>
+                <option value="Aeldari"></option>
+                <option value="Astra Militarum"></option>
+                <option value="Black Templars"></option>
+                <option value="Blood Angels"></option>
+                <option value="Chaos Daemons"></option>
+                <option value="Chaos Knights"></option>
+                <option value="Chaos Space Marines"></option>
+                <option value="Dark Angels"></option>
+                <option value="Death Guard"></option>
+                <option value="Deathwatch"></option>
+                <option value="Drukhari"></option>
+                <option value="Genestealer Cults"></option>
+                <option value="Grey Knights"></option>
+                <option value="Imperial Knights"></option>
+                <option value="Leagues of Votann"></option>
+                <option value="Necrons"></option>
+                <option value="Orks"></option>
+                <option value="Space Marines"></option>
+                <option value="Space Wolves"></option>
+                <option value="T'au Empire"></option>
+                <option value="Thousand Sons"></option>
+                <option value="Tyranids"></option>
+                <option value="World Eaters"></option>
+              </datalist>
+            </div>
+            <div>
+              <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Detachment</label>
+              <input type="text" id="reg-player-detachment" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Hypercrypt Legion">
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div>
+              <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Team / Club</label>
+              <input type="text" id="reg-player-team" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Team Zero Comp">
+            </div>
+            <div>
+              <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Email (for Confirmation)</label>
+              <input type="email" id="reg-player-email" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="competitor@example.com">
+            </div>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army List (Text / Waha / Battlescribe / NewRecruit)</label>
+            <textarea id="reg-player-armylist" class="form-input" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;" placeholder="Paste army list text or roster link here..."></textarea>
+          </div>
+          <div id="reg-status-message" style="display: none; padding: 0.65rem 0.85rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; line-height: 1.4;"></div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+          <button type="button" class="btn btn-outline" onclick="closeTournamentRegistrationModal()">Cancel</button>
+          <button type="submit" id="btn-submit-registration" class="btn btn-primary" style="background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; font-weight: 700;">Complete Registration</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Team Roster Modal -->
   <div id="team-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">

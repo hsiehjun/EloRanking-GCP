@@ -570,6 +570,16 @@ function renderCommunityEvents() {
   let displayedUpcoming = upcoming;
   let displayedRecent = recent;
 
+  if (communityState.tournamentsSearchQuery) {
+    const sq = communityState.tournamentsSearchQuery.trim().toLowerCase();
+    const matchesSearch = (ev) => {
+      const hay = `${ev.name || ''} ${ev.venue || ''} ${ev.venue_name || ''} ${ev.city || ''} ${ev.state || ''} ${ev.country || ''}`.toLowerCase();
+      return hay.includes(sq);
+    };
+    displayedUpcoming = displayedUpcoming.filter(matchesSearch);
+    displayedRecent = displayedRecent.filter(matchesSearch);
+  }
+
   let venueFilterBanner = '';
   if (communityState.tournamentsVenueFilter) {
     const vf = communityState.tournamentsVenueFilter.toLowerCase();
@@ -776,10 +786,15 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
       </div>
 
       <!-- Actions -->
-      <div style="display: flex; gap: 0.5rem; margin-top: auto;">
+      <div style="display: flex; gap: 0.5rem; margin-top: auto; align-items: center;">
         <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false, 'elo')">
           📋 Roster & Details
         </button>
+        ${isUpcoming ? `
+          <button class="btn" style="background: linear-gradient(135deg, #059669, #10b981); border: 1px solid #10b981; color: #fff; font-size: 0.78rem; padding: 0.45rem 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; cursor: pointer; white-space: nowrap;" onclick="event.stopPropagation(); openTournamentRegistrationModal('${escapeHtml(ev.id)}', '${escapeHtml(ev.name || '').replace(/'/g, "\\'")}')" title="Register for this tournament">
+            ⚡ Register
+          </button>
+        ` : ''}
         <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
           🔗 BCP
         </a>
@@ -2430,6 +2445,14 @@ function clearTournamentsVenueFilter() {
 }
 
 /**
+ * Filter community tournaments in real-time as user types in the search bar
+ */
+function filterCommunityTournaments(query) {
+  communityState.tournamentsSearchQuery = (query || '').trim();
+  renderCommunityEvents();
+}
+
+/**
  * Opens the Store Tournaments popup modal and loads verified tournaments
  */
 async function openStoreTournamentsModal(storeId) {
@@ -2678,6 +2701,7 @@ window.renderStoreTournamentsModalList = renderStoreTournamentsModalList;
 window.filterStoreTournamentsModal = filterStoreTournamentsModal;
 window.filterTournamentsByVenue = filterTournamentsByVenue;
 window.clearTournamentsVenueFilter = clearTournamentsVenueFilter;
+window.filterCommunityTournaments = filterCommunityTournaments;
 window.hydrateUpcomingFieldStats = hydrateUpcomingFieldStats;
 window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;
 

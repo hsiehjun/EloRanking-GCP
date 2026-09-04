@@ -1368,6 +1368,7 @@ class PostgresDatabase:
                 cursor.execute("""
                 SELECT id, name, event_date, end_date, city, state, country,
                        total_players, num_rounds, current_round, is_ended, raw_json,
+                       roster, organizer_id, organizer_bcp_id,
                        COALESCE(started, false) as started,
                        COALESCE(pairings_status, 'draft') as pairings_status
                 FROM events
@@ -1556,6 +1557,52 @@ class PostgresDatabase:
                             "opponents": []
                         }
 
+                # Also include registered competitors from event roster if present
+                raw_roster = res.get("roster") or []
+                roster_list = raw_roster if isinstance(raw_roster, list) else []
+                if isinstance(raw_roster, str):
+                    try:
+                        roster_list = json.loads(raw_roster)
+                    except Exception:
+                        roster_list = []
+                if isinstance(roster_list, list):
+                    for r_entry in roster_list:
+                        if not isinstance(r_entry, dict):
+                            continue
+                        r_id = str(r_entry.get("id") or "")
+                        r_name = str(r_entry.get("name") or r_entry.get("full_name") or "Player").strip()
+                        r_norm = r_name.lower()
+                        if (r_id and r_id in player_stats) or (r_norm and r_norm in existing_names):
+                            continue
+                        r_fac = r_entry.get("faction") or r_entry.get("army") or "Unknown"
+                        r_team = r_entry.get("team") or ""
+                        r_elo = float(r_entry.get("currentElo") or r_entry.get("elo") or 1500.0)
+                        entry_id = r_id or f"roster-{len(player_stats) + 1}"
+                        player_stats[entry_id] = {
+                            "player_id": entry_id,
+                            "full_name": r_name,
+                            "faction": r_fac,
+                            "team": r_team,
+                            "dropped": bool(r_entry.get("dropped", False)),
+                            "checked_in": bool(r_entry.get("checkedIn") or r_entry.get("checked_in", True)),
+                            "pod_num": None,
+                            "placement": None,
+                            "official_placement": None,
+                            "current_elo": r_elo,
+                            "peak_elo": r_elo,
+                            "global_win_rate": 0.0,
+                            "event_wins": 0,
+                            "event_losses": 0,
+                            "event_draws": 0,
+                            "event_matches_count": 0,
+                            "event_battle_points": 0,
+                            "event_mov": 0,
+                            "round_wins": {},
+                            "opponents": []
+                        }
+                        if r_norm:
+                            existing_names[r_norm] = entry_id
+
                 # Determine total rounds in tournament
                 max_rounds = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 6)
                 if max_rounds <= 0:
@@ -1696,8 +1743,9 @@ class PostgresDatabase:
                     p["placement"] = p.get("official_placement") or rank_idx
 
                 res["players"] = final_players
+                res["roster"] = roster_list
                 res["matches"] = matches
-                res["total_players"] = res.get("total_players") or len(final_players)
+                res["total_players"] = max(res.get("total_players") or 0, len(final_players))
                 res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
                 if final_players:
                     elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]

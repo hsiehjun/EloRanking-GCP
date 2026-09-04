@@ -557,6 +557,9 @@ tbody tr:hover {
   z-index: 1200 !important;
   overflow-x: hidden !important;
 }
+#modal-tournament-register {
+  z-index: 1300 !important;
+}
 #user-settings-modal .modal-card {
   width: 100%;
   max-width: 520px;

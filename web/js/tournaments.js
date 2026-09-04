@@ -314,12 +314,27 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
     if (regBtn) {
       const isConcluded = Boolean(ev.concluded || ev.is_concluded || (ev.status && ev.status.toLowerCase() === 'concluded'));
       const currentUser = (typeof authState !== 'undefined' && authState.user) ? authState.user : (window.currentUser || null);
-      const currentUserName = currentUser ? (currentUser.name || currentUser.full_name || currentUser.username || '').toLowerCase() : '';
-      const currentUserEmail = currentUser ? (currentUser.email || '').toLowerCase() : '';
+      const currentUserName = currentUser ? String(currentUser.name || currentUser.full_name || currentUser.username || '').trim().toLowerCase() : '';
+      const currentUserEmail = currentUser ? String(currentUser.email || '').trim().toLowerCase() : '';
+      const currentUserPlayerId = currentUser ? String(currentUser.player_id || '').trim().toLowerCase() : '';
+      const currentUserBcpId = currentUser ? String(currentUser.bcp_user_id || '').trim().toLowerCase() : '';
+
+      const checkMatch = (p) => {
+        if (!p) return false;
+        const pEmail = String(p.email || '').trim().toLowerCase();
+        if (currentUserEmail && pEmail && pEmail === currentUserEmail) return true;
+        const pName = String(p.name || p.full_name || p.player_name || '').trim().toLowerCase();
+        if (currentUserName && pName && (pName === currentUserName || currentUserName.includes(pName) || pName.includes(currentUserName))) return true;
+        const pId = String(p.id || p.player_id || '').trim().toLowerCase();
+        if (currentUserPlayerId && pId && pId === currentUserPlayerId) return true;
+        const pUserId = String(p.userId || p.bcp_user_id || '').trim().toLowerCase();
+        if (currentUserBcpId && (pId === currentUserBcpId || pUserId === currentUserBcpId)) return true;
+        return false;
+      };
 
       const isRegistered = Boolean(
-        (ev.roster || []).some(p => (currentUserEmail && (p.email || '').toLowerCase() === currentUserEmail) || (currentUserName && (p.name || '').toLowerCase() === currentUserName)) ||
-        (ev.players || []).some(p => (currentUserEmail && (p.email || '').toLowerCase() === currentUserEmail) || (currentUserName && (p.player_name || p.name || '').toLowerCase() === currentUserName))
+        (ev.roster || []).some(checkMatch) ||
+        (ev.players || []).some(checkMatch)
       );
 
       if (isConcluded) {
@@ -330,8 +345,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
         regBtn.style.background = 'rgba(16, 185, 129, 0.15)';
         regBtn.style.color = '#10b981';
         regBtn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-        regBtn.disabled = true;
+        regBtn.disabled = false;
+        regBtn.title = 'You are registered for this event. Click to view or update your army list.';
         regBtn.innerHTML = '<span>✓ Registered</span>';
+        regBtn.onclick = () => openTournamentRegistrationModal(eventId, ev.name);
       } else {
         regBtn.style.display = 'inline-flex';
         regBtn.className = 'btn btn-primary';
@@ -339,6 +356,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
         regBtn.style.color = '#fff';
         regBtn.style.borderColor = '#10b981';
         regBtn.disabled = false;
+        regBtn.title = 'Register for this tournament';
         regBtn.innerHTML = '<span>⚡ Register</span>';
         regBtn.onclick = () => openTournamentRegistrationModal(eventId, ev.name);
       }
@@ -657,7 +675,7 @@ function openTournamentRegistrationModal(eventId, eventName) {
   if (!modal) return;
 
   const titleEl = document.getElementById('register-event-title');
-  if (titleEl) titleEl.textContent = eventName || 'Tournament Registration';
+  if (titleEl) titleEl.textContent = eventName || (currentEventData && currentEventData.name) || 'Tournament Registration';
 
   const form = document.getElementById('form-tournament-register');
   if (form) form.reset();
@@ -666,16 +684,57 @@ function openTournamentRegistrationModal(eventId, eventName) {
   const msg = document.getElementById('reg-status-message');
   if (msg) msg.style.display = 'none';
 
-  // Pre-fill user data if authenticated
+  // Pre-fill user data if authenticated or already registered
   const currentUser = (typeof authState !== 'undefined' && authState.user) ? authState.user : (window.currentUser || null);
+  let existingReg = null;
+  if (currentEventData) {
+    const cName = currentUser ? String(currentUser.name || currentUser.full_name || currentUser.username || '').trim().toLowerCase() : '';
+    const cEmail = currentUser ? String(currentUser.email || '').trim().toLowerCase() : '';
+    const cPid = currentUser ? String(currentUser.player_id || '').trim().toLowerCase() : '';
+    const cBcp = currentUser ? String(currentUser.bcp_user_id || '').trim().toLowerCase() : '';
+    const allPlayers = [...(currentEventData.roster || []), ...(currentEventData.players || [])];
+    existingReg = allPlayers.find(p => {
+      if (!p) return false;
+      const pEmail = String(p.email || '').trim().toLowerCase();
+      if (cEmail && pEmail && pEmail === cEmail) return true;
+      const pName = String(p.name || p.full_name || p.player_name || '').trim().toLowerCase();
+      if (cName && pName && (pName === cName || cName.includes(pName) || pName.includes(cName))) return true;
+      const pId = String(p.id || p.player_id || '').trim().toLowerCase();
+      if (cPid && pId && pId === cPid) return true;
+      const pUserId = String(p.userId || p.bcp_user_id || '').trim().toLowerCase();
+      if (cBcp && (pId === cBcp || pUserId === cBcp)) return true;
+      return false;
+    });
+  }
+
+  const nameInput = document.getElementById('reg-player-name');
+  const factionInput = document.getElementById('reg-player-faction');
+  const detachmentInput = document.getElementById('reg-player-detachment');
+  const teamInput = document.getElementById('reg-player-team');
+  const emailInput = document.getElementById('reg-player-email');
+  const listInput = document.getElementById('reg-player-armylist');
+  const submitBtn = document.getElementById('btn-submit-registration');
+
   if (currentUser) {
-    const nameInput = document.getElementById('reg-player-name');
-    const emailInput = document.getElementById('reg-player-email');
-    if (nameInput && !nameInput.value) nameInput.value = currentUser.name || currentUser.full_name || currentUser.username || '';
-    if (emailInput && !emailInput.value) emailInput.value = currentUser.email || '';
+    if (nameInput) nameInput.value = currentUser.name || currentUser.full_name || currentUser.username || '';
+    if (emailInput) emailInput.value = currentUser.email || '';
+  }
+  if (existingReg) {
+    if (nameInput && (existingReg.name || existingReg.full_name)) nameInput.value = existingReg.name || existingReg.full_name;
+    if (factionInput && existingReg.faction && existingReg.faction !== 'Unassigned' && existingReg.faction !== 'Unknown') factionInput.value = existingReg.faction;
+    if (detachmentInput && existingReg.detachment && existingReg.detachment !== 'Standard') detachmentInput.value = existingReg.detachment;
+    if (teamInput && existingReg.team) teamInput.value = existingReg.team;
+    if (emailInput && existingReg.email) emailInput.value = existingReg.email;
+    if (listInput && (existingReg.army_list || existingReg.armyList)) listInput.value = existingReg.army_list || existingReg.armyList;
+    if (submitBtn) submitBtn.textContent = 'Update Registration';
+  } else if (submitBtn) {
+    submitBtn.textContent = 'Complete Registration';
   }
 
   modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  }
 }
 
 function closeTournamentRegistrationModal() {
@@ -710,7 +769,7 @@ async function submitTournamentRegistration(e) {
 
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Registering...';
+    btn.innerHTML = '<span class="spinner-mini" style="display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:middle;"></span> Processing...';
   }
 
   try {
@@ -729,8 +788,9 @@ async function submitTournamentRegistration(e) {
         msg.style.display = 'block';
         msg.style.background = 'rgba(16, 185, 129, 0.15)';
         msg.style.color = '#10b981';
-        const bcpNote = res.bcp_registered ? ' and synced to Best Coast Pairings' : '';
-        msg.textContent = `✅ Successfully registered for ${res.event?.name || 'the event'}${bcpNote}! Current Elo: ${res.player?.currentElo || 1500}`;
+        const bcpNote = (res.bcp_registered || res.bcp_synced) ? ' and synced with Best Coast Pairings' : '';
+        const notice = res.bcp_notice ? ` (${res.bcp_notice})` : '';
+        msg.textContent = `✅ Successfully registered for ${res.event?.name || 'the tournament'}${bcpNote}! Current Elo: ${res.player?.currentElo || 1500}${notice}`;
       }
       setTimeout(() => {
         closeTournamentRegistrationModal();

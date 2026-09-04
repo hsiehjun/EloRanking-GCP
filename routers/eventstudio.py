@@ -101,6 +101,8 @@ class RegisterPlayerPayload(BaseModel):
     army_list: Optional[str] = None
     checked_in: Optional[bool] = True
     bcp_token: Optional[str] = None
+    bcp_user_id: Optional[str] = None
+    player_id: Optional[str] = None
 
 class SwapPairingPayload(BaseModel):
     round: int = 1
@@ -1043,17 +1045,60 @@ async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayer
                     player_elo = float(p_row[1] or 1500.0)
 
     if not player_id:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT player_id FROM event_participants WHERE event_id = %s AND LOWER(full_name) = LOWER(%s) LIMIT 1;", (event_id, full_name))
+                ep_row = cur.fetchone()
+                if ep_row and ep_row[0]:
+                    player_id = str(ep_row[0])
+
+    if not player_id:
         player_id = f"PL-{secrets.token_hex(4).upper()}"
 
-    # Reflect registration on Best Coast Pairings API
+    # Link player_id to authenticated user profile if missing
+    if user and not user.get("player_id") and player_id:
+        try:
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE users SET player_id = %s WHERE id = %s AND (player_id IS NULL OR player_id = '');", (player_id, user_id))
+                conn.commit()
+        except Exception as ue:
+            logger.debug(f"User player_id link notice: {ue}")
+
+    # Reflect registration on Best Coast Pairings API using TO Organizer authority
     bcp_registered = False
     bcp_err = None
     if not event_id.startswith("ES-"):
-        bcp_token = payload.bcp_token
-        if not bcp_token and user_id:
-            bcp_token = auth_mgr.get_valid_bcp_token(user_id)
-        if not bcp_token and ev.get("organizer_id"):
-            bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
+        # We need the TO / Organizer's token to perform manual player registration on BCP
+        to_user_id = ev.get("organizer_id")
+        to_bcp_token = None
+
+        # 1. Check if the event's organizer ID is an OmniTactica user
+        if to_user_id:
+            to_bcp_token = auth_mgr.get_valid_bcp_token(to_user_id)
+
+        # 2. If not, check if any OmniTactica user matches organizer_bcp_id
+        if not to_bcp_token and ev.get("organizer_bcp_id"):
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM users WHERE bcp_user_id = %s LIMIT 1;", (ev.get("organizer_bcp_id"),))
+                    urow = cur.fetchone()
+                    if urow and urow[0]:
+                        to_user_id = urow[0]
+                        to_bcp_token = auth_mgr.get_valid_bcp_token(to_user_id)
+
+        # 3. If still not found, check if payload provided explicit token or if calling user is TO/Admin
+        if not to_bcp_token:
+            if payload.bcp_token:
+                to_bcp_token = payload.bcp_token
+            elif user_id and (user.get("role") in ("ORGANIZER", "ADMIN") or user_id == ev.get("organizer_id")):
+                to_bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+                to_user_id = user_id
+
+        # 4. Fallback to caller's token
+        if not to_bcp_token and user_id:
+            to_bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+            to_user_id = user_id
 
         player_data_for_bcp = {
             "first_name": fn,
@@ -1068,16 +1113,20 @@ async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayer
             "checked_in": checked_in,
             "armyList": army_list,
             "army_list": army_list,
-            "userId": user.get("bcp_user_id") if user else None
+            "userId": (user.get("bcp_user_id") if user else None) or payload.bcp_user_id,
+            "bcp_user_id": (user.get("bcp_user_id") if user else None) or payload.bcp_user_id
         }
 
-        bcp_registered, bcp_err, bcp_resp = bcp_adapter.register_player(
-            event_id,
-            player_data_for_bcp,
-            user_id=user_id,
-            explicit_token=bcp_token,
-            is_team=bool(ev.get("team_size", 1) > 1 or ev.get("event_type") in ("Teams Event", "Doubles Event"))
-        )
+        if to_bcp_token:
+            bcp_registered, bcp_err, bcp_resp = bcp_adapter.register_player(
+                event_id,
+                player_data_for_bcp,
+                user_id=to_user_id,
+                explicit_token=to_bcp_token,
+                is_team=bool(ev.get("team_size", 1) > 1 or ev.get("event_type") in ("Teams Event", "Doubles Event"))
+            )
+        else:
+            bcp_err = "Registration recorded in OmniTactica. BCP sync requires linked Tournament Organizer credentials."
 
     # Update OmniTactica roster
     roster = list(ev.get("roster") or [])
@@ -1128,14 +1177,19 @@ async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayer
     except Exception as pe:
         logger.warning(f"Error upserting participant: {pe}")
 
-    if hasattr(api_events_recommended, "_roster_cache") and event_id in api_events_recommended._roster_cache:
-        del api_events_recommended._roster_cache[event_id]
+    try:
+        from routers.leaderboard import api_events_recommended
+        if hasattr(api_events_recommended, "_roster_cache") and event_id in api_events_recommended._roster_cache:
+            del api_events_recommended._roster_cache[event_id]
+    except Exception:
+        pass
 
     return {
         "success": True,
         "event_id": event_id,
         "player": player_record,
         "total_players": len(roster),
+        "bcp_registered": bcp_registered,
         "bcp_synced": bcp_registered,
         "bcp_notice": bcp_err if not bcp_registered and not event_id.startswith("ES-") else None,
         "event": saved,

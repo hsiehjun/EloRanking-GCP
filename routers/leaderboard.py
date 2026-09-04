@@ -697,17 +697,25 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
     # Check existing data in DB
     event_details = db.get_event_details(event_id_str)
+    is_native_studio = event_id_str.startswith("ES-")
+    if not event_details and is_native_studio:
+        studio_ev = db.get_studio_event(event_id_str)
+        if studio_ev:
+            event_details = studio_ev
 
     # Auto-query BCP if:
-    # 1) User explicitly requested force_sync
-    # 2) Event is not yet in DB
-    # 3) Event is ongoing/in-progress (is_ended is False)
-    # 4) Event has 0 participants or matches scraped
+    # 1) Not a native Event Studio tournament
+    # 2) User explicitly requested force_sync
+    # 3) Event is not yet in DB
+    # 4) Event is ongoing/in-progress (is_ended is False)
+    # 5) Event has 0 participants or matches scraped
     has_data = bool(event_details and event_details.get("players") and event_details.get("matches"))
     needs_roster_sync = (
-        force_sync or 
-        not has_data or 
-        (event_details and all(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
+        not is_native_studio and (
+            force_sync or 
+            not has_data or 
+            (event_details and all(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
+        )
     )
 
     # If event details exist in DB, NEVER block HTTP response! Return immediately (<15ms)
@@ -728,7 +736,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 finally:
                     _active_event_syncs.discard(eid)
             threading.Thread(target=bg_roster_sync, args=(event_id_str, not has_data), daemon=True).start()
-        elif not event_details.get("is_ended", True) and not is_syncing:
+        elif not is_native_studio and not event_details.get("is_ended", True) and not is_syncing:
             # Background refresh for live ongoing tournament
             _active_event_syncs.add(event_id_str)
             is_syncing = True
@@ -744,6 +752,9 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
         event_details["sync_in_progress"] = is_syncing
         return event_details
+
+    if is_native_studio:
+        raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
 
     # Event is not yet in database: do initial fetch/scrape synchronously so we have data
     try:

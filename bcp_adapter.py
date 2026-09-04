@@ -170,20 +170,19 @@ class BcpAdapter:
             "checkedIn": checked_in,
         }
 
+        fn = player_data.get("first_name") or player_data.get("firstName") or ""
+        ln = player_data.get("last_name") or player_data.get("lastName") or ""
+        if not fn and not ln and player_data.get("name"):
+            parts = str(player_data["name"]).strip().split(" ", 1)
+            fn = parts[0]
+            ln = parts[1] if len(parts) > 1 else ""
+        bcp_payload["user"] = {
+            "firstName": fn or "Competitor",
+            "lastName": ln or "",
+            "email": player_data.get("email") or ""
+        }
         if bcp_user_id:
             bcp_payload["userId"] = str(bcp_user_id)
-        else:
-            fn = player_data.get("first_name") or player_data.get("firstName") or ""
-            ln = player_data.get("last_name") or player_data.get("lastName") or ""
-            if not fn and not ln and player_data.get("name"):
-                parts = player_data["name"].strip().split(" ", 1)
-                fn = parts[0]
-                ln = parts[1] if len(parts) > 1 else ""
-            bcp_payload["user"] = {
-                "firstName": fn or "Competitor",
-                "lastName": ln or "",
-                "email": player_data.get("email") or ""
-            }
 
         faction = player_data.get("faction") or player_data.get("army")
         if faction:
