@@ -73,7 +73,12 @@ function switchTab(tabName) {
 
   // Trigger lazy loading of view data
   if (tabName === 'leaderboard') {
-    loadLeaderboard();
+    const teamsBtn = document.getElementById('lead-subtab-teams');
+    if (teamsBtn && teamsBtn.classList.contains('active')) {
+      if (typeof loadLeaderboardTeams === 'function') loadLeaderboardTeams();
+    } else {
+      if (typeof loadLeaderboard === 'function') loadLeaderboard();
+    }
   } else if (tabName === 'meta-intel') {
     if (typeof switchMetaSubtab === 'function') {
       switchMetaSubtab(metaSubtab || 'factions');

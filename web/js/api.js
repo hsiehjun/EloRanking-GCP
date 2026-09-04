@@ -403,8 +403,8 @@ window.api = {
   },
 
   // Leaderboard (Teams)
-  async getLeaderboardTeams(minRoster = 5, limit = 100) {
-    const params = new URLSearchParams({ min_roster: minRoster, limit });
+  async getLeaderboardTeams(minRoster = 1, page = 1, pageSize = 25, sortBy = 'power_rating', order = 'DESC') {
+    const params = new URLSearchParams({ min_roster: minRoster, page, page_size: pageSize, sort_by: sortBy, order });
     return this._fetchJson(`/api/teams?${params}`);
   },
 

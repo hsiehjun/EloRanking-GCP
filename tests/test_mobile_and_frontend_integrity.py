@@ -387,6 +387,59 @@ def test_universal_ios_safe_area_coverage():
     print("✅ Universal iOS safe-area clearance verified across Landing, App Shell, Login, Tracker, and Event Studio!")
 
 
+def test_teams_leaderboard_pagination():
+    """Verify that Teams Leaderboard has complete pagination controls, offset ranks, and API parameters."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    api_content = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
+    lead_content = (root_dir / "web" / "js" / "leaderboard.js").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
+    router_content = (root_dir / "routers" / "leaderboard.py").read_text(encoding="utf-8")
+
+    # 1. HTML pagination container in Teams Leaderboard view
+    assert 'id="lead-teams-pagination"' in index_content, \
+        "lead-teams-pagination container missing in index.html"
+    assert '<div id="lead-teams-pagination" class="pagination-bar"></div>' in index_content, \
+        "lead-teams-pagination markup missing in index.html"
+
+    # 2. api.js getLeaderboardTeams signature and query parameters
+    assert 'getLeaderboardTeams(minRoster = 1, page = 1, pageSize = 25' in api_content, \
+        "api.js getLeaderboardTeams must support minRoster, page, pageSize"
+    assert 'page_size: pageSize' in api_content, \
+        "api.js getLeaderboardTeams must pass page_size parameter"
+    assert 'min_roster: minRoster' in api_content, \
+        "api.js getLeaderboardTeams must pass min_roster parameter"
+
+    # 3. leaderboard.js state and pagination functions
+    assert 'leaderboardTeamsPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };' in lead_content, \
+        "leaderboardTeamsPagination state missing in leaderboard.js"
+    assert 'window.setLeaderboardTeamsPage = setLeaderboardTeamsPage;' in lead_content, \
+        "setLeaderboardTeamsPage must be exported to window"
+    assert 'window.setLeaderboardTeamsPageSize = setLeaderboardTeamsPageSize;' in lead_content, \
+        "setLeaderboardTeamsPageSize must be exported to window"
+    assert "renderPaginationBar('lead-teams-pagination', leaderboardTeamsPagination, 'setLeaderboardTeamsPage', 'setLeaderboardTeamsPageSize');" in lead_content, \
+        "renderPaginationBar call missing for lead-teams-pagination"
+
+    # 4. Correct rank offset calculation in renderLeaderboardTeamsRows
+    assert 'const offset = (page - 1) * pageSize;' in lead_content, \
+        "renderLeaderboardTeamsRows must compute offset from page and pageSize"
+    assert 'const rank = offset + idx + 1;' in lead_content, \
+        "renderLeaderboardTeamsRows must use offset + idx + 1 for rank"
+
+    # 5. Prefetch support
+    assert 'prefetchNextLeaderboardTeamsPage' in lead_content, \
+        "prefetchNextLeaderboardTeamsPage missing in leaderboard.js"
+
+    # 6. Tab switching trigger in app.js
+    assert 'loadLeaderboardTeams();' in app_content, \
+        "app.js must trigger loadLeaderboardTeams when switching to teams subtab"
+
+    # 7. Backend router defaults min_roster to 1
+    assert 'min_roster: int = Query(1, ge=1)' in router_content, \
+        "routers/leaderboard.py api_teams must default min_roster to 1"
+
+    print("✅ Teams leaderboard pagination controls, ranking offset, and API wiring verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -400,5 +453,7 @@ if __name__ == "__main__":
     test_meta_intel_and_search_filter_cleanups()
     test_ios_landing_header_safe_area()
     test_universal_ios_safe_area_coverage()
+    test_teams_leaderboard_pagination()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
+
 

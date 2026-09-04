@@ -45,22 +45,40 @@ window.switchMetaSubtab = switchMetaSubtab;
 const leaderboardCache = new Map();
 const leaderboardTeamsCache = new Map();
 let leaderboardPrefetchTimer = null;
+let leaderboardTeamsPrefetchTimer = null;
 
 let leaderboardData = [];
 let leaderboardTeamsData = [];
 let leaderboardPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
+let leaderboardTeamsPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
 let leaderboardSortState = { field: 'current_elo', asc: false };
+let leaderboardTeamsSortState = { field: 'power_rating', asc: false };
 
 function setLeaderboardPage(newPage) {
   leaderboardPagination.page = newPage;
   loadLeaderboard();
 }
+window.setLeaderboardPage = setLeaderboardPage;
 
 function setLeaderboardPageSize(newSize) {
   leaderboardPagination.pageSize = newSize;
   leaderboardPagination.page = 1;
   loadLeaderboard();
 }
+window.setLeaderboardPageSize = setLeaderboardPageSize;
+
+function setLeaderboardTeamsPage(newPage) {
+  leaderboardTeamsPagination.page = newPage;
+  loadLeaderboardTeams();
+}
+window.setLeaderboardTeamsPage = setLeaderboardTeamsPage;
+
+function setLeaderboardTeamsPageSize(newSize) {
+  leaderboardTeamsPagination.pageSize = newSize;
+  leaderboardTeamsPagination.page = 1;
+  loadLeaderboardTeams();
+}
+window.setLeaderboardTeamsPageSize = setLeaderboardTeamsPageSize;
 
 function prefetchNextLeaderboardPage(faction, nextPage, pageSize, sortState) {
   if (leaderboardPrefetchTimer) clearTimeout(leaderboardPrefetchTimer);
@@ -75,6 +93,26 @@ function prefetchNextLeaderboardPage(faction, nextPage, pageSize, sortState) {
       );
       if (res && res.items) {
         leaderboardCache.set(cacheKey, res);
+      }
+    } catch (e) {
+      // Non-critical background prefetch
+    }
+  }, 450);
+}
+
+function prefetchNextLeaderboardTeamsPage(minRoster, nextPage, pageSize, sortState) {
+  if (leaderboardTeamsPrefetchTimer) clearTimeout(leaderboardTeamsPrefetchTimer);
+  const cacheKey = `lb_teams_${minRoster}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}`;
+  if (leaderboardTeamsCache.has(cacheKey)) return;
+
+  leaderboardTeamsPrefetchTimer = setTimeout(async () => {
+    try {
+      const res = await window.api.getLeaderboardTeams(
+        minRoster, nextPage, pageSize,
+        sortState.field, sortState.asc ? 'ASC' : 'DESC'
+      );
+      if (res && res.items) {
+        leaderboardTeamsCache.set(cacheKey, res);
       }
     } catch (e) {
       // Non-critical background prefetch
@@ -225,33 +263,73 @@ function renderLeaderboardRows() {
   });
 }
 
-async function loadLeaderboardTeams() {
-  const minRoster = 5;
+async function loadLeaderboardTeams(isPrefetch = false) {
+  const minRoster = 1;
   const tbody = document.getElementById('lead-teams-body');
-  const cacheKey = `lb_teams_${minRoster}_100`;
+  const cacheKey = `lb_teams_${minRoster}_${leaderboardTeamsPagination.page}_${leaderboardTeamsPagination.pageSize}_${leaderboardTeamsSortState.field}_${leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'}`;
 
+  // 1. Stale-While-Revalidate: Instant cache hit rendering
   const cached = leaderboardTeamsCache.get(cacheKey);
-  if (cached) {
-    leaderboardTeamsData = cached;
+  if (cached && !isPrefetch) {
+    leaderboardTeamsData = cached.items || [];
+    leaderboardTeamsPagination.total = cached.total || 0;
+    leaderboardTeamsPagination.page = cached.page || leaderboardTeamsPagination.page;
+    leaderboardTeamsPagination.pageSize = cached.page_size || leaderboardTeamsPagination.pageSize;
+    leaderboardTeamsPagination.totalPages = cached.total_pages || 1;
+
     renderLeaderboardTeamsRows();
-  } else if (tbody && leaderboardTeamsData && leaderboardTeamsData.length > 0) {
+    renderPaginationBar('lead-teams-pagination', leaderboardTeamsPagination, 'setLeaderboardTeamsPage', 'setLeaderboardTeamsPageSize');
+  }
+
+  // 2. Visual indication: if rows exist, dim with opacity instead of blanking out table
+  if (!cached && tbody && leaderboardTeamsData && leaderboardTeamsData.length > 0 && !isPrefetch) {
     tbody.style.opacity = '0.45';
     tbody.style.pointerEvents = 'none';
     tbody.style.transition = 'opacity 0.15s ease';
-  } else if (tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0)) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team rankings...</div></td></tr>';
+  } else if (!cached && tbody && (!leaderboardTeamsData || leaderboardTeamsData.length === 0) && !isPrefetch) {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading team standings...</div></td></tr>';
   }
 
   try {
-    const data = await window.api.getLeaderboardTeams(minRoster, 100);
-    const items = (data && Array.isArray(data.items)) ? data.items : (Array.isArray(data) ? data : []);
-    leaderboardTeamsCache.set(cacheKey, items);
-    leaderboardTeamsData = items;
-    if (tbody) {
-      tbody.style.opacity = '1';
-      tbody.style.pointerEvents = '';
+    const res = await window.api.getLeaderboardTeams(
+      minRoster,
+      leaderboardTeamsPagination.page,
+      leaderboardTeamsPagination.pageSize,
+      leaderboardTeamsSortState.field,
+      leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'
+    );
+    if (res && res.items) {
+      leaderboardTeamsCache.set(cacheKey, res);
+
+      if (!isPrefetch) {
+        leaderboardTeamsData = res.items;
+        leaderboardTeamsPagination.total = res.total || 0;
+        leaderboardTeamsPagination.page = res.page || 1;
+        leaderboardTeamsPagination.pageSize = res.page_size || 25;
+        leaderboardTeamsPagination.totalPages = res.total_pages || 1;
+
+        if (tbody) {
+          tbody.style.opacity = '1';
+          tbody.style.pointerEvents = '';
+        }
+        renderLeaderboardTeamsRows();
+        renderPaginationBar('lead-teams-pagination', leaderboardTeamsPagination, 'setLeaderboardTeamsPage', 'setLeaderboardTeamsPageSize');
+      }
+    } else {
+      leaderboardTeamsData = Array.isArray(res) ? res : [];
+      leaderboardTeamsPagination.total = leaderboardTeamsData.length;
+      if (tbody) {
+        tbody.style.opacity = '1';
+        tbody.style.pointerEvents = '';
+      }
+      renderLeaderboardTeamsRows();
+      renderPaginationBar('lead-teams-pagination', leaderboardTeamsPagination, 'setLeaderboardTeamsPage', 'setLeaderboardTeamsPageSize');
     }
-    renderLeaderboardTeamsRows();
+
+    // 3. Prefetch next page during idle time
+    if (!isPrefetch && leaderboardTeamsPagination.page < leaderboardTeamsPagination.totalPages) {
+      prefetchNextLeaderboardTeamsPage(minRoster, leaderboardTeamsPagination.page + 1, leaderboardTeamsPagination.pageSize, leaderboardTeamsSortState);
+    }
   } catch (err) {
     console.error('Error loading team rankings:', err);
     if (tbody && !cached) {
@@ -261,6 +339,7 @@ async function loadLeaderboardTeams() {
     }
   }
 }
+window.loadLeaderboardTeams = loadLeaderboardTeams;
 
 function renderLeaderboardTeamsRows() {
   const tbody = document.getElementById('lead-teams-body');
@@ -271,15 +350,19 @@ function renderLeaderboardTeamsRows() {
 
   const list = Array.isArray(leaderboardTeamsData) ? leaderboardTeamsData : (leaderboardTeamsData && Array.isArray(leaderboardTeamsData.items) ? leaderboardTeamsData.items : []);
   if (!list || list.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No teams found matching roster threshold.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-state">No teams found.</td></tr>';
     return;
   }
+
+  const page = (leaderboardTeamsPagination && leaderboardTeamsPagination.page) ? Math.max(1, Number(leaderboardTeamsPagination.page)) : 1;
+  const pageSize = (leaderboardTeamsPagination && leaderboardTeamsPagination.pageSize) ? Number(leaderboardTeamsPagination.pageSize) : 25;
+  const offset = (page - 1) * pageSize;
 
   list.forEach((t, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openTeamModal(t.team);
 
-    const rank = idx + 1;
+    const rank = offset + idx + 1;
     let rankClass = '';
     if (rank === 1) rankClass = 'rank-top-1';
     else if (rank === 2) rankClass = 'rank-top-2';
