@@ -52,6 +52,9 @@ try:
     PSYCOPG2_AVAILABLE = True
 except ImportError:
     PSYCOPG2_AVAILABLE = False
+    class _DummyExtras:
+        RealDictCursor = None
+    extras = _DummyExtras()
 
 logger = logging.getLogger("elo.db_postgres")
 
@@ -1241,8 +1244,15 @@ class PostgresDatabase:
                     """
                     count_params = [f"%{faction}%", f"%{faction}%"]
                     if query:
-                        count_sql += " AND (r.player_name ILIKE %s OR fpm.p_id = %s)"
-                        count_params.extend([f"%{query}%", query])
+                        q_str = str(query).strip()
+                        tokens = [t for t in q_str.split() if t]
+                        if len(tokens) > 1:
+                            sub = " AND ".join(["r.player_name ILIKE %s" for _ in tokens])
+                            count_sql += f" AND (({sub}) OR fpm.p_id = %s)"
+                            count_params.extend([f"%{t}%" for t in tokens] + [q_str])
+                        else:
+                            count_sql += " AND (r.player_name ILIKE %s OR fpm.p_id = %s)"
+                            count_params.extend([f"%{q_str}%", q_str])
                     count_sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s ) SELECT COUNT(*) as total_count FROM qualifying_players;"
                     count_params.append(min_matches)
 
@@ -1299,8 +1309,15 @@ class PostgresDatabase:
                     """
                     params = [f"%{faction}%", f"%{faction}%", faction]
                     if query:
-                        sql += " AND (fpm.p_name ILIKE %s OR fpm.p_id = %s)"
-                        params.extend([f"%{query}%", query])
+                        q_str = str(query).strip()
+                        tokens = [t for t in q_str.split() if t]
+                        if len(tokens) > 1:
+                            sub = " AND ".join(["fpm.p_name ILIKE %s" for _ in tokens])
+                            sql += f" AND (({sub}) OR fpm.p_id = %s)"
+                            params.extend([f"%{t}%" for t in tokens] + [q_str])
+                        else:
+                            sql += " AND (fpm.p_name ILIKE %s OR fpm.p_id = %s)"
+                            params.extend([f"%{q_str}%", q_str])
                     sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s"
                     params.append(min_matches)
                     sql += f" ORDER BY {col} {dir_str} NULLS LAST LIMIT %s OFFSET %s;"
@@ -1322,8 +1339,15 @@ class PostgresDatabase:
                 where_clauses = ["r.matches_played >= %s"]
                 params = [min_matches]
                 if query:
-                    where_clauses.append("(r.player_name ILIKE %s OR r.player_id = %s)")
-                    params.extend([f"%{query}%", query])
+                    q_str = str(query).strip()
+                    tokens = [t for t in q_str.split() if t]
+                    if len(tokens) > 1:
+                        sub = " AND ".join(["r.player_name ILIKE %s" for _ in tokens])
+                        where_clauses.append(f"(({sub}) OR r.player_id = %s)")
+                        params.extend([f"%{t}%" for t in tokens] + [q_str])
+                    else:
+                        where_clauses.append("(r.player_name ILIKE %s OR r.player_id = %s)")
+                        params.extend([f"%{q_str}%", q_str])
 
                 where_sql = "WHERE " + " AND ".join(where_clauses)
                 
@@ -2444,13 +2468,26 @@ class PostgresDatabase:
         """Searches players for prediction autocomplete."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction
-                FROM player_ratings
-                WHERE player_name ILIKE %s OR player_id = %s
-                ORDER BY matches_played DESC, current_elo DESC
-                LIMIT %s;
-                """, (f"%{query}%", query, limit))
+                q_str = (query or "").strip()
+                tokens = [t for t in q_str.split() if t]
+                if len(tokens) > 1:
+                    sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
+                    params = [f"%{t}%" for t in tokens] + [q_str, limit]
+                    cursor.execute(f"""
+                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction
+                    FROM player_ratings
+                    WHERE ({sub}) OR player_id = %s
+                    ORDER BY matches_played DESC, current_elo DESC
+                    LIMIT %s;
+                    """, tuple(params))
+                else:
+                    cursor.execute("""
+                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction
+                    FROM player_ratings
+                    WHERE player_name ILIKE %s OR player_id = %s
+                    ORDER BY matches_played DESC, current_elo DESC
+                    LIMIT %s;
+                    """, (f"%{q_str}%", q_str, limit))
                 return [dict(r) for r in cursor.fetchall()]
 
     def get_head_to_head(self, p1_id: str, p2_id: str) -> List[Dict[str, Any]]:
@@ -2458,11 +2495,11 @@ class PostgresDatabase:
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 # 1. Resolve player IDs if names were passed
-                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p1_id, p1_id))
+                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;", (p1_id, f"%{p1_id}%"))
                 p1_row = cursor.fetchone()
                 p1_real_id = p1_row["player_id"] if p1_row else p1_id
 
-                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p2_id, p2_id))
+                cursor.execute("SELECT player_id FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s ORDER BY matches_played DESC LIMIT 1;", (p2_id, f"%{p2_id}%"))
                 p2_row = cursor.fetchone()
                 p2_real_id = p2_row["player_id"] if p2_row else p2_id
 
