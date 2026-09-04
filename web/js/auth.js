@@ -476,7 +476,31 @@ async function handleResendVerificationCode() {
 
 function openBcpLinkModal() {
   const modal = document.getElementById('bcp-link-modal');
-  if (modal) modal.classList.add('active');
+  if (!modal) return;
+
+  const errorDiv = document.getElementById('bcp-link-error');
+  if (errorDiv) {
+    errorDiv.innerText = '';
+    errorDiv.style.display = 'none';
+  }
+
+  const isConnected = !!(currentUser && (currentUser.bcp_connected || currentUser.bcp_email || currentUser.bcp_user_id));
+  const connectedView = document.getElementById('bcp-connected-view');
+  const formView = document.getElementById('bcp-form-credentials');
+  const connectedEmail = document.getElementById('bcp-connected-email');
+
+  if (isConnected && connectedView && formView) {
+    if (connectedEmail) {
+      connectedEmail.innerText = currentUser.bcp_email || currentUser.display_name || 'Linked BCP Account';
+    }
+    connectedView.style.display = 'block';
+    formView.style.display = 'none';
+  } else {
+    if (connectedView) connectedView.style.display = 'none';
+    if (formView) formView.style.display = 'block';
+  }
+
+  modal.classList.add('active');
 }
 
 function closeBcpLinkModal() {
@@ -484,7 +508,12 @@ function closeBcpLinkModal() {
   if (modal) modal.classList.remove('active');
 }
 
-
+function showBcpCredentialsForm() {
+  const connectedView = document.getElementById('bcp-connected-view');
+  const formView = document.getElementById('bcp-form-credentials');
+  if (connectedView) connectedView.style.display = 'none';
+  if (formView) formView.style.display = 'block';
+}
 
 async function handleConnectBcp(e) {
   if (e) e.preventDefault();
@@ -522,6 +551,7 @@ async function handleConnectBcp(e) {
       if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
       if (typeof loadStudioEvents === 'function') await loadStudioEvents();
       if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+      if (typeof loadCommunityHub === 'function') loadCommunityHub();
       alert("🎉 Best Coast Pairings account connected successfully!");
     } else {
       if (errorDiv) {
@@ -537,16 +567,31 @@ async function handleConnectBcp(e) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.innerText = 'Connect with BCP Credentials';
+      submitBtn.innerText = 'Connect Best Coast Pairings';
     }
   }
 }
 
 async function handleDisconnectBcp() {
   if (!confirm('Are you sure you want to disconnect your Best Coast Pairings account?')) return;
-  await window.api.disconnectBcpAccount();
+  try {
+    await window.api.disconnectBcpAccount();
+  } catch (e) {
+    console.warn('Disconnect BCP error:', e);
+  }
+  if (currentUser) {
+    currentUser.bcp_connected = false;
+    currentUser.bcp_email = null;
+    currentUser.bcp_user_id = null;
+    localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+  }
+  closeBcpLinkModal();
   await initAuth();
+  if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+  if (typeof loadStudioEvents === 'function') await loadStudioEvents();
   if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+  if (typeof loadCommunityHub === 'function') loadCommunityHub();
+  alert("Best Coast Pairings account disconnected.");
 }
 
 async function handleLogout() {
@@ -693,7 +738,7 @@ function openUserSettingsModal() {
     }
     if (bcpVal) {
       if (currentUser.bcp_connected || currentUser.bcp_user_id) {
-        bcpVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🟢 Connected</span> (${escapeHtml(currentUser.bcp_email || 'Linked')})`;
+        bcpVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🟢 Connected</span> (${escapeHtml(currentUser.bcp_email || 'Linked')}) <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:4px;">Manage</button>`;
       } else {
         bcpVal.innerHTML = `<span style="color:#94a3b8;">⚪ Not Linked</span> <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:4px;">Link now</button>`;
       }
@@ -1543,5 +1588,10 @@ window.openInviteModal = openInviteModal;
 window.closeInviteModal = closeInviteModal;
 window.refreshUserInviteCode = refreshUserInviteCode;
 window.copyInviteLink = copyInviteLink;
+window.openBcpLinkModal = openBcpLinkModal;
+window.closeBcpLinkModal = closeBcpLinkModal;
+window.showBcpCredentialsForm = showBcpCredentialsForm;
+window.handleConnectBcp = handleConnectBcp;
+window.handleDisconnectBcp = handleDisconnectBcp;
 
 

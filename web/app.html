@@ -846,23 +846,23 @@
         <div id="es-bcp-account-banner" style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1.15rem; margin-bottom: 1.25rem; font-size: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.65rem;">
             <span id="es-bcp-status-dot" style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
-            <span id="es-bcp-status-text" style="color: #cbd5e1;">Tournament Director Suite &bull; <strong id="es-bcp-user-display" style="color: #10b981;">Active Organizer</strong></span>
+            <span id="es-bcp-status-text" style="color: #cbd5e1;">Connected to Best Coast Pairings as <strong id="es-bcp-user-display" style="color: #10b981;">BCP User</strong></span>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <button id="btn-sync-bcp-events" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.32rem 0.75rem;" onclick="syncBcpOrganizerEvents()">🔄 Refresh Tournaments</button>
+            <button id="btn-sync-bcp-events" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.32rem 0.75rem;" onclick="syncBcpOrganizerEvents()">🔄 Sync BCP Events</button>
             <button id="btn-studio-create-tourney" class="btn btn-primary es-create-tourney-btn" style="font-size: 0.76rem; padding: 0.32rem 0.85rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
           </div>
         </div>
 
-        <!-- LOCKED GATE: Displayed when TO access is not verified -->
+        <!-- LOCKED GATE: Displayed when BCP is not connected -->
         <div id="es-locked-gate" style="display: none; max-width: 640px; margin: 2rem auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 2.5rem 1.75rem; text-align: center; box-shadow: var(--shadow-lg);">
           <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔒</div>
-          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Tournament Organizer Access Required</h3>
+          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Best Coast Pairings Link Required</h3>
           <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
-            Event Studio is the dedicated Tournament Director suite for tabletop events. Organize tournaments, manage competitor rosters, generate Swiss pairings, and record live match scores.
+            Event Studio is the dedicated Tournament Director suite for Best Coast Pairings. Link your BCP account to organize official tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
           </p>
           <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Circuit Compatibility</button>
+            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Link BCP Account</button>
             <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
           </div>
         </div>
@@ -2165,7 +2165,7 @@
   <script src="/js/factions.js?v=65.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=66.0"></script>
-  <script src="/js/auth.js?v=83.0"></script>
+  <script src="/js/auth.js?v=84.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
   <script src="/js/connect.js?v=12.0"></script>
@@ -2336,45 +2336,75 @@
     </div>
   </div>
 
-      <!-- TOURNAMENT CIRCUIT COMPATIBILITY MODAL -->
+      <!-- BCP ACCOUNT LINKING MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
-    <div class="modal-card" style="max-width: 500px; padding: 1.75rem;">
+    <div class="modal-card" style="max-width: 460px; padding: 1.75rem;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
-          <span style="font-size: 1.5rem;">🛡️</span>
+          <span style="font-size: 1.5rem;">🔗</span>
           <div>
-            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Circuit &amp; Ecosystem Compatibility</h3>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">Independent, open platform for tabletop organizers and players</div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Connect Best Coast Pairings</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Link your BCP account to auto-sync events and match records</div>
           </div>
         </div>
         <button class="modal-close-btn" onclick="closeBcpLinkModal()">✕</button>
       </div>
 
-      <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.6; display: flex; flex-direction: column; gap: 0.85rem;">
-        <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.85rem 1rem;">
-          <strong style="color: #38bdf8;">🔒 Privacy &amp; Credential Protection:</strong> OmniTactica never asks for or stores third-party account credentials or passwords. All organizer access is managed securely through your OmniTactica account.
+      <!-- VIEW 1: Already Connected State -->
+      <div id="bcp-connected-view" style="display: none;">
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.4rem;">✅</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 0.78rem; color: #10b981; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;">BCP Account Linked</div>
+            <div id="bcp-connected-email" style="font-size: 0.95rem; font-weight: 700; color: #fff; word-break: break-all;">user@example.com</div>
+          </div>
         </div>
-        <div>
-          <strong>📊 Standard Export &amp; Interoperability:</strong> Event Studio allows Tournament Directors to run Swiss pairings, record round match results, and export tournament data in open standard formats (CSV / JSON) compatible with tabletop circuits and community leaderboards.
-        </div>
-        <div>
-          <strong>⚡ 100% Free for Organizers:</strong> Zero platform cuts or subscription fees for clubs, game stores, and tournament directors.
+
+        <p style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.55; margin: 0 0 1.25rem;">
+          Your Best Coast Pairings account is actively linked. Tournament registrations, verified match history, and Tournament Director events synchronize automatically with OmniTactica.
+        </p>
+
+        <div style="display: flex; flex-direction: column; gap: 0.6rem;">
+          <div style="display: flex; gap: 0.6rem;">
+            <button type="button" onclick="closeBcpLinkModal(); if(typeof syncBcpOrganizerEvents === 'function') syncBcpOrganizerEvents();" class="btn btn-primary" style="flex: 1; justify-content: center; font-size: 0.86rem; padding: 0.55rem 0.85rem;">
+              🔄 Sync BCP Events
+            </button>
+            <button type="button" onclick="showBcpCredentialsForm()" class="btn btn-outline" style="font-size: 0.84rem; padding: 0.55rem 0.85rem;">
+              Switch Account
+            </button>
+          </div>
+          <button type="button" onclick="handleDisconnectBcp()" class="btn btn-outline" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35); font-size: 0.82rem; padding: 0.5rem 0.75rem; justify-content: center;">
+            Unlink BCP Account
+          </button>
         </div>
       </div>
 
-      <!-- Preserved DOM IDs for JS safety (hidden) -->
-      <form id="bcp-form-credentials" onsubmit="handleConnectBcp(event)" style="display: none;">
-        <input type="hidden" id="bcp-link-email" value="">
-        <input type="hidden" id="bcp-link-password" value="">
-        <div id="bcp-link-error" style="display: none;"></div>
-        <button type="button" id="bcp-link-submit-btn" style="display: none;"></button>
+      <!-- VIEW 2: Credentials Form -->
+      <form id="bcp-form-credentials" onsubmit="handleConnectBcp(event)">
+        <div style="margin-bottom: 1rem;">
+          <label for="bcp-link-email" style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">BCP Email Address</label>
+          <input type="email" id="bcp-link-email" class="search-input" style="width: 100%; font-size: 0.9rem; box-sizing: border-box;" placeholder="e.g. your-email@domain.com" required autocomplete="username">
+        </div>
+        <div style="margin-bottom: 1.25rem;">
+          <label for="bcp-link-password" style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">BCP Password</label>
+          <input type="password" id="bcp-link-password" class="search-input" style="width: 100%; font-size: 0.9rem; box-sizing: border-box;" placeholder="••••••••••••" required autocomplete="current-password">
+        </div>
+        
+        <div id="bcp-link-error" style="display: none; color: #ef4444; font-size: 0.82rem; margin-bottom: 1rem; padding: 0.55rem 0.75rem; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25); border-radius: 6px;"></div>
+
+        <div style="display: flex; gap: 0.6rem; align-items: center; margin-top: 1rem;">
+          <button type="button" onclick="closeBcpLinkModal()" class="btn btn-outline" style="padding: 0.65rem 1rem; font-size: 0.88rem;">
+            Cancel
+          </button>
+          <button type="submit" id="bcp-link-submit-btn" class="bcp-login-btn" style="flex: 1; justify-content: center; padding: 0.65rem 1rem; font-size: 0.9rem;">
+            Connect Best Coast Pairings
+          </button>
+        </div>
+
+        <div style="font-size: 0.74rem; color: var(--text-muted); text-align: center; margin-top: 1rem; line-height: 1.45;">
+          Your credentials authenticate securely with Best Coast Pairings to establish a persistent session token. Registered tournaments and verified records sync automatically.
+        </div>
       </form>
-
-      <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
-        <button type="button" onclick="closeBcpLinkModal()" class="btn btn-primary" style="padding: 0.55rem 1.25rem; font-weight: 700;">
-          Got It
-        </button>
-      </div>
     </div>
   </div>
 

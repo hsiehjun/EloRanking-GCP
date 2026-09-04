@@ -774,6 +774,56 @@ def test_signout_and_pwa_standalone_navigation():
     print("✅ Signout and PWA standalone navigation verified (no black screen, clean /login and / routing)!")
 
 
+def test_bcp_linking_integrity_and_landing_separation():
+    """Verify authentic BCP account linking logic is present in app shell while landing page has 0 BCP references."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8").lower()
+    app_content = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    es_content = (root_dir / "web" / "eventstudio.html").read_text(encoding="utf-8")
+    auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+
+    # 1. Landing page must have ZERO references to BCP or Best Coast or Event Studio
+    assert "bcp" not in index_content, "Landing page (index.html) must not mention BCP"
+    assert "best coast" not in index_content, "Landing page (index.html) must not mention Best Coast"
+    assert "event studio" not in index_content, "Landing page (index.html) must not mention Event Studio"
+    assert "eventstudio" not in index_content, "Landing page (index.html) must not mention eventstudio"
+
+    # 2. App shell (web/app.html) must have authentic BCP linking modal with real inputs
+    assert 'id="bcp-link-modal"' in app_content, "bcp-link-modal missing in app.html"
+    assert 'id="bcp-connected-view"' in app_content, "bcp-connected-view missing in app.html"
+    assert 'id="bcp-connected-email"' in app_content, "bcp-connected-email missing in app.html"
+    assert 'id="bcp-form-credentials"' in app_content, "bcp-form-credentials missing in app.html"
+    assert 'id="bcp-link-email"' in app_content, "bcp-link-email input missing in app.html"
+    assert 'id="bcp-link-password"' in app_content, "bcp-link-password input missing in app.html"
+    assert 'id="bcp-link-error"' in app_content, "bcp-link-error div missing in app.html"
+    assert 'id="bcp-link-submit-btn"' in app_content, "bcp-link-submit-btn button missing in app.html"
+    assert 'onsubmit="handleConnectBcp(event)"' in app_content, "handleConnectBcp(event) missing in app.html form"
+    assert 'Best Coast Pairings Link Required' in app_content, "BCP locked gate heading missing in app.html Event Studio"
+    assert 'id="btn-sync-bcp-events"' in app_content, "btn-sync-bcp-events missing in app.html"
+
+    # 3. Event Studio standalone (web/eventstudio.html) must also have bcp-link-modal
+    assert 'id="bcp-link-modal"' in es_content, "bcp-link-modal missing in eventstudio.html"
+    assert 'id="bcp-link-email"' in es_content, "bcp-link-email missing in eventstudio.html"
+    assert 'id="bcp-link-password"' in es_content, "bcp-link-password missing in eventstudio.html"
+
+    # 4. Auth.js must implement the complete BCP connection and disconnection lifecycle
+    assert 'function openBcpLinkModal()' in auth_content, "openBcpLinkModal missing in auth.js"
+    assert 'function closeBcpLinkModal()' in auth_content, "closeBcpLinkModal missing in auth.js"
+    assert 'function showBcpCredentialsForm()' in auth_content, "showBcpCredentialsForm missing in auth.js"
+    assert 'async function handleConnectBcp(e)' in auth_content, "handleConnectBcp missing in auth.js"
+    assert 'async function handleDisconnectBcp()' in auth_content, "handleDisconnectBcp missing in auth.js"
+    assert 'window.api.connectBcpAccount(' in auth_content, "window.api.connectBcpAccount call missing in auth.js"
+    assert 'window.api.disconnectBcpAccount()' in auth_content, "window.api.disconnectBcpAccount call missing in auth.js"
+
+    # 5. Auth.js must export BCP helpers to window
+    assert 'window.openBcpLinkModal = openBcpLinkModal;' in auth_content, "openBcpLinkModal not exported to window"
+    assert 'window.closeBcpLinkModal = closeBcpLinkModal;' in auth_content, "closeBcpLinkModal not exported to window"
+    assert 'window.showBcpCredentialsForm = showBcpCredentialsForm;' in auth_content, "showBcpCredentialsForm not exported to window"
+    assert 'window.handleConnectBcp = handleConnectBcp;' in auth_content, "handleConnectBcp not exported to window"
+    assert 'window.handleDisconnectBcp = handleDisconnectBcp;' in auth_content, "handleDisconnectBcp not exported to window"
+
+    print("✅ Authentic BCP account linking logic verified in app shell & 100% clean landing page separation verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -794,6 +844,7 @@ if __name__ == "__main__":
     test_gps_coordinate_precision_parity()
     test_landing_page_community_ethos_and_neutrality()
     test_signout_and_pwa_standalone_navigation()
+    test_bcp_linking_integrity_and_landing_separation()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 
