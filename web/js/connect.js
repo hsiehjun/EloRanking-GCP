@@ -1935,7 +1935,7 @@ function stopChatPolling() {
 async function updateUnreadCountBadge() {
   try {
     if (typeof currentUser !== 'undefined' && !currentUser) {
-      ['badge-unread-count', 'badge-chat-direct-unread', 'nav-badge-chat', 'badge-chat-bubble-unread'].forEach(id => {
+      ['badge-unread-count', 'badge-chat-direct-unread', 'badge-chat-bubble-unread'].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.textContent = '0';
@@ -1951,9 +1951,8 @@ async function updateUnreadCountBadge() {
     const count = (res && res.unread_count) ? parseInt(res.unread_count, 10) : 0;
     const badge = document.getElementById('badge-unread-count');
     const directBadge = document.getElementById('badge-chat-direct-unread');
-    const navBadge = document.getElementById('nav-badge-chat');
     const bubbleBadge = document.getElementById('badge-chat-bubble-unread');
-    [badge, directBadge, navBadge, bubbleBadge].forEach(b => {
+    [badge, directBadge, bubbleBadge].forEach(b => {
       if (b) {
         if (count > 0) {
           b.textContent = count > 99 ? '99+' : count;

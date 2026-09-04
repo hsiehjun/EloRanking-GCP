@@ -467,11 +467,6 @@ function renderHeaderAuth() {
     feedbackBtn.style.display = currentUser ? 'inline-flex' : 'none';
   }
 
-  const chatNavBtn = document.getElementById('nav-btn-chat');
-  if (chatNavBtn) {
-    chatNavBtn.style.display = currentUser ? 'inline-flex' : 'none';
-  }
-
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
   }

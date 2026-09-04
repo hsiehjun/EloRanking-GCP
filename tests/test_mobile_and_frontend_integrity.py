@@ -204,9 +204,12 @@ def test_mobile_nav_dropdown_no_chat():
     assert select_match is not None, "mobile-nav-select not found in index.html"
     select_inner = select_match.group(1)
 
-    # Assert chat is NOT in options
+    # Assert chat is NOT in mobile-nav options
     assert 'value="chat"' not in select_inner, "mobile-nav-select still contains value='chat'"
     assert 'mobile-opt-chat' not in select_inner, "mobile-nav-select still contains mobile-opt-chat"
+
+    # Assert redundant top-header chat button is removed from desktop browser header
+    assert 'id="nav-btn-chat"' not in index_content, "index.html top header still contains redundant nav-btn-chat"
 
     # Assert standard tabs exist
     assert 'value="my-hub"' in select_inner, "my-hub missing in mobile-nav-select"
@@ -217,7 +220,7 @@ def test_mobile_nav_dropdown_no_chat():
     # Assert persistent floating chat bubble exists
     assert 'id="floating-chat-bubble"' in index_content, "floating-chat-bubble missing in index.html"
 
-    print("✅ Mobile nav dropdown verified free of redundant Chat option (chat handled via bubble)!")
+    print("✅ Header and mobile nav dropdown verified free of redundant Chat buttons (chat handled exclusively via bubble)!")
 
 
 def test_landing_page_and_chat_notification_fixes():
