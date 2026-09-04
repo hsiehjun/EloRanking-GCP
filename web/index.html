@@ -191,7 +191,7 @@
           <span style="background: linear-gradient(135deg, #38bdf8 0%, #10b981 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">For The Tabletop Community.</span>
         </h1>
         <p class="landing-subtitle">
-          OmniTactica is an independent digital platform built by players and tournament organizers for the tabletop community. Discover your local scene in the <strong>Community Hub</strong>, find nearby sparring partners on the <strong>Sparring Radar</strong>, coordinate games via <strong>real-time push chat</strong>, score matches with our 11th edition <strong>Live Game Tracker</strong>, find friendly local game stores, and follow transparent <strong>Elo Leaderboards</strong> across <strong>92,100+</strong> competitors—<strong>100% free and open to everyone</strong>.
+          OmniTactica is an independent digital platform built by players and tournament organizers for the tabletop community. Discover your local scene in the <strong>Community Hub</strong>, find nearby sparring partners on the <strong>Sparring Radar</strong>, coordinate games via <strong>real-time push chat</strong>, score matches with our 11th edition <strong>Live Game Tracker</strong>, find friendly local game stores, and follow transparent <strong>Elo Leaderboards</strong> across <strong>tabletop competitors and gaming clubs worldwide</strong>—<strong>100% free and open to everyone</strong>.
         </p>
 
         <!-- Hero CTAs -->
@@ -319,28 +319,70 @@
             <div>
               <h4 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-bottom: 0.2rem; display: flex; align-items: center; gap: 8px;">
                 <span>🎯 Hyperlocal Sparring Radar</span>
-                <span style="font-size: 0.7rem; font-weight: 700; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px;">Active Within 50 Miles</span>
+                <span id="demo-radar-status-badge" style="font-size: 0.7rem; font-weight: 700; background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 2px 8px; border-radius: 6px;">3 Active Within 50 Miles</span>
               </h4>
               <p style="font-size: 0.82rem; color: #94a3b8; margin: 0;">
                 Generals are sorted by availability, FLGS venue, and proximity. Click <strong>⚔️ Propose Sparring Match</strong> on any card to test the app's challenge flow!
               </p>
             </div>
-            <!-- Mock Controls Toolbar matching the actual Community Hub banner -->
-            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-              <span style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.74rem; padding: 4px 10px; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px;">
-                <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
-                <span>Available for Games</span>
-              </span>
-              <button onclick="setRadarFilter('all', this)" class="hub-loc-chip active" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; border: none;">⚔️ All Play Styles</button>
-              <button onclick="setRadarFilter('gt', this)" class="hub-loc-chip" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; border: none;">🏆 Tournament Prep</button>
-              <button onclick="setRadarFilter('50mi', this)" class="hub-loc-chip" style="font-size: 0.74rem; padding: 4px 10px; cursor: pointer; border: none;">📍 50 Miles (Metro)</button>
+            <!-- Authentic Controls Toolbar matching the actual Community Hub banner -->
+            <div class="comm-header-controls" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <!-- Status Toggle (Interactive: Click to test pausing radar) -->
+              <button id="demo-btn-toggle-lfg" onclick="toggleDemoLfgStatus()" class="btn" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.35); font-weight: 700; font-size: 0.76rem; padding: 0.38rem 0.8rem; cursor: pointer; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;" title="Click to toggle Available vs Off Duty">
+                <span id="demo-user-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; box-shadow: 0 0 7px #10b981;"></span>
+                <span id="demo-user-status-text">Available</span>
+              </button>
+
+              <!-- Match Preference Selector (Right next to Available for Games) -->
+              <div style="display: inline-flex; align-items: center;">
+                <select id="demo-user-pref-style" class="form-input" style="font-size: 0.76rem; font-weight: 700; color: #38bdf8; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.38rem 0.65rem; cursor: pointer;" onchange="changeDemoMatchPreference(this.value)" title="Set what kind of match you are looking for">
+                  <option value="all">✨ All Play Styles (3 Players)</option>
+                  <option value="Tournament Prep">🏆 Tournament Prep (Marcus)</option>
+                  <option value="Competitive">⚔️ Competitive 2k (Tara)</option>
+                  <option value="Casual">🎲 Casual / Practice (Dave)</option>
+                </select>
+              </div>
+
+              <!-- Location Pill -->
+              <div style="display: inline-flex; align-items: center; gap: 5px; font-size: 0.76rem; padding: 0.38rem 0.75rem; border-radius: 8px; border: 1px solid rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06);">
+                <span>📍</span>
+                <span style="font-weight: 600;">Poway, CA</span>
+                <span style="font-size: 0.68rem; color: #10b981; font-weight: 700;">● GPS Locked</span>
+              </div>
+
+              <!-- Radius Dropdown -->
+              <select id="demo-radius-select" class="form-input" style="font-size: 0.76rem; font-weight: 700; color: #fff; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.38rem 0.65rem; cursor: pointer;" onchange="changeDemoRadius(this.value)">
+                <option value="25">25 Miles</option>
+                <option value="50" selected>50 Miles</option>
+                <option value="100">100 Miles</option>
+              </select>
             </div>
           </div>
 
+          <!-- Paused / Off Duty State (matches app exactly when radar is paused) -->
+          <div id="demo-radar-paused-view" style="display: none; text-align: center; padding: 3rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 100%; box-sizing: border-box; margin-bottom: 1.5rem;">
+            <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(100, 116, 139, 0.15); border: 1px solid rgba(100, 116, 139, 0.3); display: inline-flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto 0.85rem;">
+              📡
+            </div>
+            <div style="display: inline-block; padding: 3px 12px; border-radius: 9999px; background: rgba(100, 116, 139, 0.2); color: #94a3b8; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.65rem;">
+              Status: Off Duty (Hidden)
+            </div>
+            <h3 style="color: #fff; font-size: 1.2rem; font-weight: 800; margin: 0 0 0.4rem;">
+              Sparring Radar Is Paused
+            </h3>
+            <p style="color: #94a3b8; font-size: 0.86rem; line-height: 1.5; max-width: 500px; margin: 0 auto 1.25rem;">
+              You are currently marked as <strong>Off Duty</strong>. Your profile is hidden from local matchmaking and the live radar is turned off.<br><br>
+              Enable <strong>Available for Games</strong> to discover nearby sparring partners within <span style="color: #38bdf8; font-weight: 700;">50 miles</span> and allow opponents to challenge you.
+            </p>
+            <button onclick="toggleDemoLfgStatus()" class="btn btn-primary" style="padding: 0.6rem 1.4rem; font-size: 0.88rem; font-weight: 800; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25); cursor: pointer;">
+              <span>⚡</span> <span>Enable "Available for Games"</span>
+            </button>
+          </div>
+
           <!-- Cards Grid Mockup matching actual oc-player-card format from connect.js -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.15rem;">
+          <div id="demo-radar-cards-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 1.15rem;">
             <!-- Player Card 1: Marcus Vance -->
-            <div class="oc-player-card" style="background: #090f1d; border-color: rgba(56, 189, 248, 0.28); display: flex; flex-direction: column; justify-content: space-between;">
+            <div id="demo-card-marcus" class="oc-player-card" style="background: #090f1d; border-color: rgba(56, 189, 248, 0.28); display: flex; flex-direction: column; justify-content: space-between;">
               <div>
                 <div class="oc-player-header">
                   <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -382,7 +424,7 @@
                 </div>
               </div>
 
-              <div>
+              <div id="demo-btn-container-marcus">
                 <button onclick="setOmniChallenge('marcus')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
                   ⚔️ Propose Sparring Match
                 </button>
@@ -390,7 +432,7 @@
             </div>
 
             <!-- Player Card 2: Tara Lindqvist -->
-            <div class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; justify-content: space-between;">
+            <div id="demo-card-tara" class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; justify-content: space-between;">
               <div>
                 <div class="oc-player-header">
                   <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -429,7 +471,7 @@
                 </div>
               </div>
 
-              <div>
+              <div id="demo-btn-container-tara">
                 <button onclick="setOmniChallenge('tara')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
                   ⚔️ Propose Sparring Match
                 </button>
@@ -437,7 +479,7 @@
             </div>
 
             <!-- Player Card 3: Dave Ramirez -->
-            <div class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; justify-content: space-between;">
+            <div id="demo-card-dave" class="oc-player-card" style="background: #090f1d; border-color: rgba(255, 255, 255, 0.1); display: flex; flex-direction: column; justify-content: space-between;">
               <div>
                 <div class="oc-player-header">
                   <div style="display: flex; align-items: center; gap: 0.75rem;">
@@ -463,7 +505,7 @@
                   </div>
                   <div style="display: flex; justify-content: space-between;">
                     <span style="color: #94a3b8;">Match Preference:</span>
-                    <span style="font-weight: 600; color: #38bdf8;">Casual / Practice • 1,000–2,000 pts</span>
+                    <span style="font-weight: 600; color: #38bdf8;">Casual / Practice • 1,500 pts</span>
                   </div>
                   <div style="display: flex; justify-content: space-between;">
                     <span style="color: #94a3b8;">Army / Faction:</span>
@@ -476,7 +518,7 @@
                 </div>
               </div>
 
-              <div>
+              <div id="demo-btn-container-dave">
                 <button onclick="setOmniChallenge('dave')" class="btn btn-primary" style="width: 100%; padding: 0.55rem; font-weight: 700; font-size: 0.82rem; display: flex; align-items: center; justify-content: center; gap: 6px;">
                   ⚔️ Propose Sparring Match
                 </button>
@@ -525,7 +567,7 @@
             <!-- Message / Introduction Field -->
             <div style="margin-bottom: 1rem;">
               <label style="display: block; font-size: 0.76rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Message / Introduction *</label>
-              <textarea id="demo-proposal-target-note" class="search-input" style="width: 100%; min-height: 70px; resize: vertical; box-sizing: border-box; font-size: 0.82rem; line-height: 1.4; color: #cbd5e1;" readonly>Hey Marcus! Bringing my Space Marine Gladius Task Force for tournament test games. Let's do Thursday 6:30 PM at Game Haven!</textarea>
+              <textarea id="demo-proposal-target-note" class="search-input" style="width: 100%; min-height: 70px; resize: vertical; box-sizing: border-box; font-size: 0.82rem; line-height: 1.4; color: #cbd5e1;">Hey Marcus! Bringing my Space Marine Gladius Task Force for tournament test games. Let's do Thursday 6:30 PM at Game Haven!</textarea>
             </div>
 
             <!-- Optional Sparring Details Box -->
@@ -538,7 +580,7 @@
               <div style="margin-bottom: 0.75rem;">
                 <label style="display: block; font-size: 0.74rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.25rem;">Proposed Store / Club Venue</label>
                 <div style="position: relative;">
-                  <input type="text" id="demo-proposal-target-venue" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 34px; font-size: 0.82rem;" value="Game Haven FLGS" readonly>
+                  <input type="text" id="demo-proposal-target-venue" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 34px; font-size: 0.82rem;" value="Game Haven FLGS">
                   <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; opacity: 0.8;">📍</span>
                 </div>
               </div>
@@ -546,11 +588,11 @@
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                 <div>
                   <label style="display: block; font-size: 0.74rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.25rem;">Points Limit</label>
-                  <input type="text" id="demo-proposal-target-points" class="search-input" style="width: 100%; font-size: 0.82rem; box-sizing: border-box;" value="2,000 pts" readonly>
+                  <input type="text" id="demo-proposal-target-points" class="search-input" style="width: 100%; font-size: 0.82rem; box-sizing: border-box;" value="2,000 pts">
                 </div>
                 <div>
                   <label style="display: block; font-size: 0.74rem; font-weight: 600; color: #94a3b8; margin-bottom: 0.25rem;">Target Date / Time</label>
-                  <input type="text" id="demo-proposal-target-date" class="search-input" style="width: 100%; font-size: 0.82rem; box-sizing: border-box;" value="Thursday 6:30 PM" readonly>
+                  <input type="text" id="demo-proposal-target-date" class="search-input" style="width: 100%; font-size: 0.82rem; box-sizing: border-box;" value="Thursday 6:30 PM">
                 </div>
               </div>
             </div>
@@ -560,7 +602,7 @@
               <button onclick="setOmniStage(1)" class="btn btn-outline" style="padding: 0.55rem 1rem; font-size: 0.8rem; border-radius: 7px; color: #94a3b8;">
                 Back to Radar
               </button>
-              <button onclick="setOmniStage(3)" class="btn btn-primary" style="padding: 0.55rem 1.3rem; font-size: 0.82rem; font-weight: 800; border-radius: 7px; box-shadow: 0 4px 15px rgba(56,189,248,0.35);">
+              <button onclick="sendDemoProposal()" class="btn btn-primary" style="padding: 0.55rem 1.3rem; font-size: 0.82rem; font-weight: 800; border-radius: 7px; box-shadow: 0 4px 15px rgba(56,189,248,0.35);">
                 💬 Send Chat Request &amp; Launch Chat ➔
               </button>
             </div>
@@ -589,13 +631,13 @@
             <!-- Mock Chat Header -->
             <div style="background: #0f172a; padding: 0.85rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-between; align-items: center;">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <div class="oc-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">MV</div>
+                <div class="oc-player-avatar" id="demo-chat-player-avatar" style="width: 36px; height: 36px; font-size: 0.85rem; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);">MV</div>
                 <div>
                   <div style="font-size: 0.88rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 6px;">
-                    <span>Marcus "Grim" Vance</span>
+                    <span id="demo-chat-player-name">Marcus "Grim" Vance</span>
                     <span style="font-size: 0.72rem; color: #22c55e;">● online</span>
                   </div>
-                  <div style="font-size: 0.74rem; color: #94a3b8;">Aeldari &bull; 1,842 Elo &bull; Game Haven FLGS</div>
+                  <div id="demo-chat-player-sub" style="font-size: 0.74rem; color: #94a3b8;">Aeldari (Craftworlds) &bull; Game Haven FLGS</div>
                 </div>
               </div>
               <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -606,7 +648,7 @@
             </div>
 
             <!-- Messages List -->
-            <div style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-height: 280px; background: radial-gradient(circle at 50% 20%, rgba(56,189,248,0.03) 0%, transparent 60%), #070b14;">
+            <div id="demo-chat-messages-container" style="padding: 1.25rem; display: flex; flex-direction: column; gap: 1rem; min-height: 280px; max-height: 380px; overflow-y: auto; background: radial-gradient(circle at 50% 20%, rgba(56,189,248,0.03) 0%, transparent 60%), #070b14;">
               <!-- Message Incoming -->
               <div class="oc-msg-bubble oc-msg-in" style="max-width: 75%;">
                 <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; 6:15 PM</div>
@@ -640,13 +682,23 @@
               </div>
             </div>
 
-            <!-- Mock Input Bar -->
+            <!-- Active Interactive Input Bar -->
             <div style="padding: 0.75rem 1.25rem; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 0.5rem; align-items: center;">
-              <input type="text" disabled placeholder="Type a message or coordinate match details..." style="flex: 1; background: #090f1d; border: 1px solid rgba(255,255,255,0.12); color: #94a3b8; padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.82rem; cursor: not-allowed;">
-              <button disabled style="background: #0284c7; color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; opacity: 0.7; cursor: not-allowed;">
+              <input type="text" id="demo-chat-input" placeholder="Type a message or match details and press Enter..." onkeydown="if(event.key==='Enter') sendDemoChatMessage()" style="flex: 1; background: #090f1d; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.82rem;">
+              <button type="button" onclick="sendDemoChatMessage()" style="background: #0284c7; color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; cursor: pointer;">
                 Send
               </button>
             </div>
+          </div>
+
+          <!-- Bottom Navigation inside Stage 3 -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+            <button onclick="setOmniStage(1)" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 1rem; border-radius: 6px; color: #38bdf8; border-color: rgba(56,189,248,0.4);">
+              ↺ Test Another Opponent on Radar
+            </button>
+            <a href="#game-tracker-showcase" class="btn btn-primary" style="padding: 0.55rem 1.25rem; font-size: 0.82rem; font-weight: 800; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 4px 14px rgba(56,189,248,0.3);">
+              🎲 Jump to Live Scorecard Demo ↓
+            </a>
           </div>
         </div>
       </div>
@@ -1318,12 +1370,12 @@
         <!-- Feature 3: Player & Team Elo Leaderboards -->
         <div class="landing-feat-card" id="leaderboard">
           <div class="landing-feat-icon">👑</div>
-          <h3 class="landing-feat-title">92,100+ Player &amp; Team Elo Leaderboards</h3>
+          <h3 class="landing-feat-title">Global &amp; Local Tabletop Elo Leaderboards</h3>
           <p class="landing-feat-desc">
-            Transparent Elo ratings and skill trajectories calculated across more than 150,000 sanctioned tournament matches. Explore individual rankings, regional club standings, career win percentages, peak ratings, and faction performance histories.
+            Transparent Elo ratings and skill trajectories calculated across community, club, and tournament matches. Explore individual rankings, regional club standings, career win percentages, peak ratings, and faction performance histories.
           </p>
           <a href="/login?redirect=/#leaderboard" style="display: inline-flex; align-items: center; gap: 5px; color: #38bdf8; font-size: 0.82rem; font-weight: 700; text-decoration: none; margin-top: 0.75rem;">
-            Sign In to Browse 92k+ Competitors ↗
+            Sign In to Browse Leaderboards ↗
           </a>
         </div>
 
@@ -1399,7 +1451,7 @@
             <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem;">
               <div style="font-size: 1.25rem; margin-bottom: 0.3rem;">🤝</div>
               <div style="font-weight: 700; font-size: 0.88rem; color: #fff;">Circuit Compatible</div>
-              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 3px;">Complements official tournament systems, BCP circuits, and local FLGS events.</div>
+              <div style="font-size: 0.76rem; color: #94a3b8; margin-top: 3px;">Complements official tournament systems, community circuits, and local FLGS events.</div>
             </div>
             <div style="background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem;">
               <div style="font-size: 1.25rem; margin-bottom: 0.3rem;">💬</div>
@@ -1419,8 +1471,11 @@
     <!-- Footer -->
     <footer class="landing-footer">
       <div style="font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem;">OMNITACTICA &bull; Tabletop Community &amp; Tactical Suite</div>
-      <div style="color: #64748b; font-size: 0.75rem; max-width: 620px; margin: 0 auto; line-height: 1.55;">
-        An independent competitive platform built by the community, for the community. 100% free and open for every tabletop player, gaming club, and tournament organizer. Not affiliated with Games Workshop or Best Coast Pairings.
+      <div style="color: #94a3b8; font-size: 0.78rem; max-width: 720px; margin: 0 auto 0.6rem; line-height: 1.55;">
+        An independent competitive platform built by the community, for the community. 100% free and open for every tabletop player, gaming club, and tournament organizer.
+      </div>
+      <div style="color: #64748b; font-size: 0.72rem; max-width: 740px; margin: 0 auto; line-height: 1.5; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 0.6rem;">
+        OmniTactica is an independent tool and is not affiliated with, authorized, or endorsed by Best Coast Pairings LLC or Games Workshop Ltd. Warhammer 40,000 and all associated marks, names, and characters are trademarks or registered trademarks of Games Workshop Limited. Best Coast Pairings and BCP are trademarks or registered trademarks of Best Coast Pairings LLC. All rights reserved by their respective owners.
       </div>
     </footer>
   </div>
@@ -2149,27 +2204,27 @@
     <section id="tab-event-studio" class="tab-panel">
       <div class="es-app-container" style="width: 100%; max-width: 100%; margin: 0; padding: 0.5rem 0 2rem 0; box-sizing: border-box;">
         
-        <!-- BCP Account Connection Status Highlight Banner -->
+        <!-- Tournament Director Status Highlight Banner -->
         <div id="es-bcp-account-banner" style="display: flex; align-items: center; justify-content: space-between; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1.15rem; margin-bottom: 1.25rem; font-size: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.65rem;">
             <span id="es-bcp-status-dot" style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981;"></span>
-            <span id="es-bcp-status-text" style="color: #cbd5e1;">Connected to Best Coast Pairings as <strong id="es-bcp-user-display" style="color: #10b981;">BCP User</strong></span>
+            <span id="es-bcp-status-text" style="color: #cbd5e1;">Tournament Director Suite &bull; <strong id="es-bcp-user-display" style="color: #10b981;">Active Organizer</strong></span>
           </div>
           <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <button id="btn-sync-bcp-events" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.32rem 0.75rem;" onclick="syncBcpOrganizerEvents()">🔄 Sync BCP Events</button>
+            <button id="btn-sync-bcp-events" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.32rem 0.75rem;" onclick="syncBcpOrganizerEvents()">🔄 Refresh Tournaments</button>
             <button id="btn-studio-create-tourney" class="btn btn-primary es-create-tourney-btn" style="font-size: 0.76rem; padding: 0.32rem 0.85rem;" onclick="switchStudioTab('create')">➕ Create Tournament</button>
           </div>
         </div>
 
-        <!-- LOCKED GATE: Displayed when BCP is not connected -->
+        <!-- LOCKED GATE: Displayed when TO access is not verified -->
         <div id="es-locked-gate" style="display: none; max-width: 640px; margin: 2rem auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 2.5rem 1.75rem; text-align: center; box-shadow: var(--shadow-lg);">
           <div style="font-size: 3rem; margin-bottom: 0.75rem;">🔒</div>
-          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Best Coast Pairings Link Required</h3>
+          <h3 style="color: #fff; font-size: 1.35rem; margin: 0 0 0.5rem; font-family: var(--font-heading);">Tournament Organizer Access Required</h3>
           <p style="color: var(--text-secondary); font-size: 0.88rem; line-height: 1.6; max-width: 480px; margin: 0 auto 1.5rem;">
-            Event Studio is the dedicated Tournament Director suite for Best Coast Pairings. Link your BCP account to organize official tournaments, manage competitor rosters, generate Swiss pairings, and sync match scores.
+            Event Studio is the dedicated Tournament Director suite for tabletop events. Organize tournaments, manage competitor rosters, generate Swiss pairings, and record live match scores.
           </p>
           <div style="display: flex; justify-content: center; gap: 0.75rem; flex-wrap: wrap;">
-            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Link BCP Account</button>
+            <button class="btn btn-primary" style="font-size: 0.88rem; padding: 0.55rem 1.25rem;" onclick="openBcpLinkModal()">🔗 Circuit Compatibility</button>
             <button class="btn btn-outline" style="font-size: 0.88rem; padding: 0.55rem 1.15rem;" onclick="switchTab('leaderboard')">🏆 View Leaderboard</button>
           </div>
         </div>
@@ -2179,7 +2234,7 @@
           <div class="es-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
             <div>
               <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Your Managed Tournaments</h3>
-              <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Tournaments organized by your BCP account or created in Event Studio</span>
+              <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Tournaments organized by your account or created in Event Studio</span>
             </div>
           </div>
           <div class="es-events-grid" id="es-events-list">
@@ -2187,18 +2242,18 @@
               <div style="font-size: 2.8rem; margin-bottom: 0.75rem;">⚔️</div>
               <h3 style="color: #fff; margin: 0 0 0.5rem; font-size: 1.3rem;">No Tournaments Directing Yet</h3>
               <p style="color: var(--text-secondary); font-size: 0.9rem; max-width: 520px; margin: 0 auto; line-height: 1.6;">
-                Create a new tournament to publish listings to Best Coast Pairings and manage player registrations.
+                Create a new tournament to publish listings and manage player registrations.
               </p>
             </div>
           </div>
         </div>
 
-        <!-- VIEW 2: Create Tournament Wizard (Full BCP Replication) -->
+        <!-- VIEW 2: Create Tournament Wizard -->
         <div id="es-view-create" class="es-tab-view" style="display: none;">
           <div class="es-form-card" style="max-width: 840px; margin: 0 auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.75rem; box-shadow: var(--shadow-lg);">
             <div class="es-form-header" style="margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.75rem;">
               <h3 style="margin: 0; font-size: 1.35rem; color: #fff;">Create New Tournament</h3>
-              <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Create a tournament in Event Studio and automatically register the listing on Best Coast Pairings.</p>
+              <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Create a tournament in Event Studio with full Swiss &amp; scoring controls and circuit export.</p>
             </div>
             <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
               <!-- Game System Picker (Locked to Warhammer 40k Only) -->
@@ -2372,7 +2427,7 @@
 
             <div class="es-form-actions" style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1rem;">
               <button class="btn btn-outline" onclick="switchStudioTab('events')">Cancel</button>
-              <button class="btn btn-primary" id="btn-submit-create-event" onclick="submitCreateTournament()">🚀 Create & Register on BCP</button>
+              <button class="btn btn-primary" id="btn-submit-create-event" onclick="submitCreateTournament()">🚀 Create Tournament</button>
             </div>
           </div>
         </div>
@@ -2388,7 +2443,7 @@
                   <span id="manage-event-tier-badge" class="badge badge-accent">GRAND TOURNAMENT</span>
                   <span id="manage-event-format-badge" class="badge" style="background: rgba(147, 51, 234, 0.15); color: #c084fc; border: 1px solid rgba(147, 51, 234, 0.4);">SINGLES</span>
                   <span id="manage-event-circuit-badges" style="display: inline-flex; gap: 0.35rem;"></span>
-                  <span id="manage-event-bcp-badge" class="badge badge-online">BCP SYNCED</span>
+                  <span id="manage-event-bcp-badge" class="badge badge-online">TOURNAMENT VERIFIED</span>
                   <span id="manage-event-status-badge" class="badge" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3);">🟡 REGISTRATION OPEN</span>
                 </div>
                 <h2 id="manage-event-name" style="color: #fff; margin: 0 0 0.4rem; font-size: 1.4rem; font-family: var(--font-heading);">Tournament Name</h2>
@@ -2408,7 +2463,7 @@
                 </div>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openCircuitsModal()">🏆 Circuits</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openEditTournamentModal()">⚙️ Edit Details</button>
-                <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Open on BCP</a>
+                <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Public Listing ↗</a>
                 <button id="manage-event-end-btn" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.4);" onclick="endAndArchiveTournament()">🏆 End Event</button>
               </div>
             </div>
@@ -2462,7 +2517,7 @@
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <button class="btn btn-accent" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="triggerGenerateSwissPairings()">🎲 Generate Pairings</button>
                 <button class="btn btn-outline" id="btn-add-table" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="addPairingTable()">➕ Add Table</button>
-                <button class="btn" id="btn-apply-pairings-bcp" style="font-size: 0.8rem; padding: 0.42rem 0.95rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8;" onclick="applyPairingsToBcp()">🚀 Apply to BCP</button>
+                <button class="btn" id="btn-apply-pairings-bcp" style="font-size: 0.8rem; padding: 0.42rem 0.95rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8;" onclick="applyPairingsToBcp()">⚡ Sync Pairings</button>
                 <button id="btn-publish-pairings" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="togglePublishPairings()">📢 Publish Pairings</button>
                 <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="finalizeCurrentRound()">🏁 Finalize Round & Advance</button>
                 <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.75rem; color: var(--text-muted);" onclick="resetCurrentRound()">🔄 Reset</button>
@@ -2702,7 +2757,7 @@
             <span id="settings-role-display" style="color: #fff;">-</span>
           </div>
           <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--text-muted);">BCP Status:</span>
+            <span style="color: var(--text-muted);">Circuit Sync Status:</span>
             <span id="settings-bcp-status" style="color: #fff;">-</span>
           </div>
         </div>
@@ -3130,11 +3185,11 @@
           <button id="modal-event-register-btn" style="display: none; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; cursor: pointer; align-items: center; gap: 4px; transition: all 0.2s;" title="Register for this tournament">
             <span>⚡ Register</span>
           </button>
-          <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.28); color: #38bdf8; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;" onmouseover="this.style.background='rgba(56,189,248,0.18)'; this.style.borderColor='#38bdf8';" onmouseout="this.style.background='rgba(56,189,248,0.08)'; this.style.borderColor='rgba(56,189,248,0.28)';" title="Open this event on Best Coast Pairings">
-            <span>BCP ↗</span>
+          <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.28); color: #38bdf8; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;" onmouseover="this.style.background='rgba(56,189,248,0.18)'; this.style.borderColor='#38bdf8';" onmouseout="this.style.background='rgba(56,189,248,0.08)'; this.style.borderColor='rgba(56,189,248,0.28)';" title="Open external tournament listing">
+            <span>Listing ↗</span>
           </a>
           <span id="modal-event-sync-status" style="display: none;"></span>
-          <button id="modal-event-refresh-btn" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='var(--text-secondary)';" onclick="refreshCurrentEventModal(event)" title="Live sync latest pairings and match scores from Best Coast Pairings">
+          <button id="modal-event-refresh-btn" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='var(--text-secondary)';" onclick="refreshCurrentEventModal(event)" title="Refresh latest pairings and match scores">
             <span>🔄 Refresh Live</span>
           </button>
           <button class="modal-close" onclick="closeModal('event-modal')">✕</button>
@@ -3636,38 +3691,45 @@
     </div>
   </div>
 
-      <!-- BCP ACCOUNT LINKING MODAL -->
+      <!-- TOURNAMENT CIRCUIT COMPATIBILITY MODAL -->
   <div id="bcp-link-modal" class="modal-backdrop" onclick="if(event.target === this) closeBcpLinkModal()">
-    <div class="modal-card" style="max-width: 480px; padding: 1.75rem;">
+    <div class="modal-card" style="max-width: 500px; padding: 1.75rem;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
         <div style="display: flex; align-items: center; gap: 0.6rem;">
-          <span style="font-size: 1.5rem;">🔗</span>
+          <span style="font-size: 1.5rem;">🛡️</span>
           <div>
-            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Connect Best Coast Pairings</h3>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">Link your BCP account to publish and sync tournaments</div>
+            <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Circuit &amp; Ecosystem Compatibility</h3>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Independent, open platform for tabletop organizers and players</div>
           </div>
         </div>
         <button class="modal-close-btn" onclick="closeBcpLinkModal()">✕</button>
       </div>
 
-      <!-- Direct BCP Credentials Form -->
-      <form id="bcp-form-credentials" onsubmit="handleConnectBcp(event)">
-        <div style="margin-bottom: 1rem;">
-          <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">BCP Email Address</label>
-          <input type="email" id="bcp-link-email" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="e.g. organizer@example.com" required>
+      <div style="font-size: 0.84rem; color: #cbd5e1; line-height: 1.6; display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.85rem 1rem;">
+          <strong style="color: #38bdf8;">🔒 Privacy &amp; Credential Protection:</strong> OmniTactica never asks for or stores third-party account credentials or passwords. All organizer access is managed securely through your OmniTactica account.
         </div>
-        <div style="margin-bottom: 1.25rem;">
-          <label style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">BCP Password</label>
-          <input type="password" id="bcp-link-password" class="search-input" style="width: 100%; font-size: 0.9rem;" placeholder="••••••••••••" required>
+        <div>
+          <strong>📊 Standard Export &amp; Interoperability:</strong> Event Studio allows Tournament Directors to run Swiss pairings, record round match results, and export tournament data in open standard formats (CSV / JSON) compatible with tabletop circuits and community leaderboards.
         </div>
-        <div id="bcp-link-error" style="display: none; color: var(--loss); font-size: 0.82rem; margin-bottom: 1rem; padding: 0.5rem; background: rgba(239,68,68,0.1); border-radius: 6px;"></div>
-        <button type="submit" id="bcp-link-submit-btn" class="bcp-login-btn" style="width: 100%; justify-content: center; padding: 0.7rem; font-size: 0.92rem;">
-          Connect with BCP Credentials
-        </button>
-        <div style="font-size: 0.74rem; color: var(--text-muted); text-align: center; margin-top: 0.85rem; line-height: 1.4;">
-          ✨ Securely links to Best Coast Pairings to sync your tournaments, pairings, and results.
+        <div>
+          <strong>⚡ 100% Free for Organizers:</strong> Zero platform cuts or subscription fees for clubs, game stores, and tournament directors.
         </div>
+      </div>
+
+      <!-- Preserved DOM IDs for JS safety (hidden) -->
+      <form id="bcp-form-credentials" onsubmit="handleConnectBcp(event)" style="display: none;">
+        <input type="hidden" id="bcp-link-email" value="">
+        <input type="hidden" id="bcp-link-password" value="">
+        <div id="bcp-link-error" style="display: none;"></div>
+        <button type="button" id="bcp-link-submit-btn" style="display: none;"></button>
       </form>
+
+      <div style="display: flex; justify-content: flex-end; margin-top: 1.5rem;">
+        <button type="button" onclick="closeBcpLinkModal()" class="btn btn-primary" style="padding: 0.55rem 1.25rem; font-weight: 700;">
+          Got It
+        </button>
+      </div>
     </div>
   </div>
 
@@ -3679,7 +3741,7 @@
           <span style="font-size: 1.5rem;">⚙️</span>
           <div>
             <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Edit Tournament Details</h3>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">Updates OmniTactica and syncs with Best Coast Pairings</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Update tournament configuration, rounds, and venue</div>
           </div>
         </div>
         <button class="modal-close-btn" onclick="closeEditTournamentModal()">✕</button>
@@ -3771,7 +3833,7 @@
           <span style="font-size: 1.5rem;">🏆</span>
           <div>
             <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0;">Tournament Circuits & Leagues</h3>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">Submit results directly to ranking circuits on Best Coast Pairings</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">Submit results and export pairings for regional ranking circuits and leagues</div>
           </div>
         </div>
         <button class="modal-close-btn" onclick="closeCircuitsModal()">✕</button>
@@ -3931,7 +3993,7 @@
           </div>
           <div>
             <label style="display: block; font-size: 0.8rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.3rem;">Organizer Experience & Event Details</label>
-            <textarea id="req-to-details" class="form-input" rows="3" placeholder="Tell us about your tournaments (frequency, format, BCP organizer link)..." style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.6rem 0.85rem; background: #070b14; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #fff; resize: vertical;"></textarea>
+            <textarea id="req-to-details" class="form-input" rows="3" placeholder="Tell us about your tournaments (frequency, format, organizer background, circuit or FLGS link)..." style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.6rem 0.85rem; background: #070b14; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #fff; resize: vertical;"></textarea>
           </div>
           <div id="req-to-status" style="display: none; padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600;"></div>
         </div>
@@ -4162,6 +4224,218 @@
         btns.forEach(function(b) { b.classList.remove('active'); });
       }
       btnEl.classList.add('active');
+    }
+
+    var demoLfgActive = true;
+
+    function toggleDemoLfgStatus() {
+      demoLfgActive = !demoLfgActive;
+      var dot = document.getElementById('demo-user-status-dot');
+      var text = document.getElementById('demo-user-status-text');
+      var btn = document.getElementById('demo-btn-toggle-lfg');
+      var grid = document.getElementById('demo-radar-cards-grid');
+      var paused = document.getElementById('demo-radar-paused-view');
+      var badge = document.getElementById('demo-radar-status-badge');
+
+      if (!demoLfgActive) {
+        if (dot) { dot.style.background = '#94a3b8'; dot.style.boxShadow = 'none'; }
+        if (text) text.textContent = 'Off Duty';
+        if (btn) {
+          btn.style.background = 'rgba(100,116,139,0.15)';
+          btn.style.color = '#94a3b8';
+          btn.style.borderColor = 'rgba(100,116,139,0.35)';
+        }
+        if (grid) grid.style.display = 'none';
+        if (paused) paused.style.display = 'block';
+        if (badge) {
+          badge.textContent = 'Radar Paused (Off Duty)';
+          badge.style.color = '#94a3b8';
+          badge.style.borderColor = 'rgba(100,116,139,0.35)';
+        }
+      } else {
+        if (dot) { dot.style.background = '#10b981'; dot.style.boxShadow = '0 0 7px #10b981'; }
+        if (text) text.textContent = 'Available';
+        if (btn) {
+          btn.style.background = 'rgba(16,185,129,0.15)';
+          btn.style.color = '#10b981';
+          btn.style.borderColor = 'rgba(16,185,129,0.35)';
+        }
+        if (grid) grid.style.display = 'grid';
+        if (paused) paused.style.display = 'none';
+        var sel = document.getElementById('demo-user-pref-style');
+        changeDemoMatchPreference(sel ? sel.value : 'all');
+      }
+    }
+
+    function changeDemoMatchPreference(val) {
+      if (!demoLfgActive) {
+        toggleDemoLfgStatus();
+      }
+      var marcus = document.getElementById('demo-card-marcus');
+      var tara = document.getElementById('demo-card-tara');
+      var dave = document.getElementById('demo-card-dave');
+      var badge = document.getElementById('demo-radar-status-badge');
+
+      if (val === 'Tournament Prep') {
+        if (marcus) marcus.style.display = 'flex';
+        if (tara) tara.style.display = 'none';
+        if (dave) dave.style.display = 'none';
+        if (badge) {
+          badge.textContent = '1 Active • Tournament Prep';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = 'rgba(56,189,248,0.3)';
+        }
+      } else if (val === 'Competitive') {
+        if (marcus) marcus.style.display = 'none';
+        if (tara) tara.style.display = 'flex';
+        if (dave) dave.style.display = 'none';
+        if (badge) {
+          badge.textContent = '1 Active • Competitive 2k';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = 'rgba(56,189,248,0.3)';
+        }
+      } else if (val === 'Casual') {
+        if (marcus) marcus.style.display = 'none';
+        if (tara) tara.style.display = 'none';
+        if (dave) dave.style.display = 'flex';
+        if (badge) {
+          badge.textContent = '1 Active • Casual / Practice';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = 'rgba(56,189,248,0.3)';
+        }
+      } else {
+        if (marcus) marcus.style.display = 'flex';
+        if (tara) tara.style.display = 'flex';
+        if (dave) dave.style.display = 'flex';
+        if (badge) {
+          badge.textContent = '3 Active Within 50 Miles';
+          badge.style.color = '#38bdf8';
+          badge.style.borderColor = 'rgba(56,189,248,0.3)';
+        }
+      }
+    }
+
+    function changeDemoRadius(val) {
+      if (!demoLfgActive) return;
+      var badge = document.getElementById('demo-radar-status-badge');
+      var marcus = document.getElementById('demo-card-marcus');
+      var tara = document.getElementById('demo-card-tara');
+      var dave = document.getElementById('demo-card-dave');
+      var r = parseInt(val, 10);
+      if (r <= 25) {
+        if (marcus) marcus.style.display = 'flex';
+        if (tara) tara.style.display = 'flex';
+        if (dave) dave.style.display = 'none';
+        if (badge) badge.textContent = '2 Active Within 25 Miles';
+      } else {
+        var sel = document.getElementById('demo-user-pref-style');
+        changeDemoMatchPreference(sel ? sel.value : 'all');
+      }
+    }
+
+    function escapeHtmlDemo(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function sendDemoProposal() {
+      var nameEl = document.getElementById('demo-proposal-target-name');
+      var armyEl = document.getElementById('demo-proposal-target-army');
+      var avatarEl = document.getElementById('demo-proposal-target-avatar');
+      var venueEl = document.getElementById('demo-proposal-target-venue');
+      var pointsEl = document.getElementById('demo-proposal-target-points');
+      var dateEl = document.getElementById('demo-proposal-target-date');
+      var noteEl = document.getElementById('demo-proposal-target-note');
+
+      var targetName = nameEl ? nameEl.textContent : 'Marcus "Grim" Vance';
+      var targetArmy = armyEl ? armyEl.textContent : 'Aeldari';
+      var targetAvatar = avatarEl ? avatarEl.textContent : 'MV';
+      var venue = venueEl ? ('value' in venueEl ? venueEl.value : venueEl.textContent) : 'Game Haven FLGS';
+      var points = pointsEl ? ('value' in pointsEl ? pointsEl.value : pointsEl.textContent) : '2,000 pts';
+      var date = dateEl ? ('value' in dateEl ? dateEl.value : dateEl.textContent) : 'Thursday 6:30 PM';
+      var note = noteEl ? ('value' in noteEl ? noteEl.value : noteEl.textContent) : 'Challenge proposal sent!';
+
+      var chatName = document.getElementById('demo-chat-player-name');
+      var chatAvatar = document.getElementById('demo-chat-player-avatar');
+      var chatSub = document.getElementById('demo-chat-player-sub');
+      if (chatName) chatName.textContent = targetName;
+      if (chatAvatar) chatAvatar.textContent = targetAvatar;
+      if (chatSub) chatSub.textContent = targetArmy + ' • ' + venue;
+
+      var container = document.getElementById('demo-chat-messages-container');
+      if (container) {
+        var proposalBubble = document.createElement('div');
+        proposalBubble.className = 'oc-msg-bubble oc-msg-out';
+        proposalBubble.style.maxWidth = '82%';
+        proposalBubble.style.alignSelf = 'flex-end';
+        proposalBubble.style.background = '#0c182c';
+        proposalBubble.style.border = '1px solid rgba(56, 189, 248, 0.4)';
+        proposalBubble.style.borderRadius = '12px';
+        proposalBubble.style.padding = '0.95rem';
+        proposalBubble.style.marginTop = '0.5rem';
+        proposalBubble.innerHTML =
+          '<div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; margin-bottom: 0.35rem; text-transform: uppercase;">⚔️ Sparring Match Proposal Sent</div>' +
+          '<div style="font-size: 0.82rem; color: #f1f5f9; margin-bottom: 0.6rem; line-height: 1.4;">' + escapeHtmlDemo(note) + '</div>' +
+          '<div style="background: rgba(0,0,0,0.4); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.76rem; display: flex; flex-direction: column; gap: 0.25rem;">' +
+            '<div style="color: #cbd5e1;">📍 <strong>Venue:</strong> ' + escapeHtmlDemo(venue) + '</div>' +
+            '<div style="color: #cbd5e1;">🎲 <strong>Rules / Limit:</strong> 11th Ed. &bull; ' + escapeHtmlDemo(points) + '</div>' +
+            '<div style="color: #cbd5e1;">📅 <strong>Target Time:</strong> ' + escapeHtmlDemo(date) + '</div>' +
+          '</div>';
+        container.appendChild(proposalBubble);
+        container.scrollTop = container.scrollHeight;
+      }
+
+      setOmniStage(3);
+    }
+
+    function sendDemoChatMessage() {
+      var input = document.getElementById('demo-chat-input');
+      if (!input) return;
+      var text = input.value.trim();
+      if (!text) return;
+
+      var container = document.getElementById('demo-chat-messages-container');
+      if (container) {
+        var bubble = document.createElement('div');
+        bubble.className = 'oc-msg-bubble oc-msg-out';
+        bubble.style.maxWidth = '75%';
+        bubble.style.alignSelf = 'flex-end';
+        bubble.style.background = 'linear-gradient(135deg, #0284c7, #0369a1)';
+        bubble.style.color = '#fff';
+        bubble.style.padding = '0.65rem 0.95rem';
+        bubble.style.borderRadius = '10px 10px 2px 10px';
+        bubble.style.fontSize = '0.82rem';
+        bubble.style.marginTop = '0.5rem';
+        bubble.innerHTML =
+          '<div style="font-size: 0.7rem; color: #bae6fd; margin-bottom: 2px; text-align: right;">You &bull; Just now</div>' +
+          '<div>' + escapeHtmlDemo(text) + '</div>';
+        container.appendChild(bubble);
+        container.scrollTop = container.scrollHeight;
+      }
+      input.value = '';
+
+      setTimeout(function() {
+        if (!container) return;
+        var reply = document.createElement('div');
+        reply.className = 'oc-msg-bubble oc-msg-in';
+        reply.style.maxWidth = '75%';
+        reply.style.alignSelf = 'flex-start';
+        reply.style.background = '#1e293b';
+        reply.style.color = '#fff';
+        reply.style.padding = '0.65rem 0.95rem';
+        reply.style.borderRadius = '10px 10px 10px 2px';
+        reply.style.fontSize = '0.82rem';
+        reply.style.marginTop = '0.5rem';
+        reply.innerHTML =
+          '<div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 2px;">Marcus Vance &bull; Just now</div>' +
+          '<div>Sounds great! Table 4 is confirmed. Looking forward to our 11th edition showdown! 🔥</div>';
+        container.appendChild(reply);
+        container.scrollTop = container.scrollHeight;
+      }, 900);
     }
 
     // 2. Game Tracker Demo Controller (Authentic 11th Edition Scoring Engine)
