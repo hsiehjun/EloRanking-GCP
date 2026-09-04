@@ -154,12 +154,16 @@ function renderLeaderboardRows() {
     return;
   }
 
+  const page = (leaderboardPagination && leaderboardPagination.page) ? Math.max(1, Number(leaderboardPagination.page)) : 1;
+  const pageSize = (leaderboardPagination && leaderboardPagination.pageSize) ? Number(leaderboardPagination.pageSize) : 25;
+  const offset = (page - 1) * pageSize;
+
   const list = Array.isArray(leaderboardData) ? leaderboardData : (leaderboardData && Array.isArray(leaderboardData.items) ? leaderboardData.items : []);
   list.forEach((p, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openPlayerModal(p.player_id);
 
-    const rank = idx + 1;
+    const rank = offset + idx + 1;
     let rankClass = '';
     if (rank === 1) rankClass = 'rank-top-1';
     else if (rank === 2) rankClass = 'rank-top-2';
