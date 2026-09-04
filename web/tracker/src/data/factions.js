@@ -111,6 +111,26 @@ const SPACE_MARINE_DETACHMENTS = [
   detachment("Vanguard Spearhead", "recon", 2)
 ];
 
+// Generic Space Marine detachments available to Codex chapters and divergent chapters
+const CHAPTER_SPECIFIC_SM_NAMES = [
+  "Blade of Ultramar",
+  "Emperor’s Shield",
+  "Forgefather’s Seekers",
+  "Hammer of Avernii",
+  "Reclamation Force",
+  "Shadowmark Talon",
+  "Spearpoint Task Force"
+];
+
+const CORE_SPACE_MARINE_DETACHMENTS = SPACE_MARINE_DETACHMENTS.filter(
+  d => !CHAPTER_SPECIFIC_SM_NAMES.includes(d.name)
+);
+
+// Black Templars cannot take Librarius Conclave (no psykers) or 1st Company Task Force
+const BLACK_TEMPLARS_CORE_DETACHMENTS = CORE_SPACE_MARINE_DETACHMENTS.filter(
+  d => d.name !== "Librarius Conclave" && d.name !== "1st Company Task Force"
+);
+
 export const DETACHMENTS_BY_FACTION = {
   "space-marines": SPACE_MARINE_DETACHMENTS,
   "imperial-fists": SPACE_MARINE_DETACHMENTS,
@@ -127,7 +147,8 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Inner Circle Task Force", "priority", 2),
     detachment("Lion’s Blade Task Force", "purge", 2),
     detachment("Unforgiven Task Force", "hold", 2),
-    detachment("Wrath of the Rock", "priority", 3)
+    detachment("Wrath of the Rock", "priority", 3),
+    ...CORE_SPACE_MARINE_DETACHMENTS
   ],
   "blood-angels": [
     detachment("Encarmine Speartip", "disruption", 1),
@@ -137,7 +158,8 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Liberator Assault Group", "hold", 3),
     detachment("Rage-cursed Onslaught", "purge", 3),
     detachment("The Angelic Host", "disruption", 2),
-    detachment("The Lost Brethren", "purge", 2)
+    detachment("The Lost Brethren", "purge", 2),
+    ...CORE_SPACE_MARINE_DETACHMENTS
   ],
   "space-wolves": [
     detachment("Champions of Fenris", "priority", 1),
@@ -146,7 +168,8 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Saga of the Beastslayer", "purge", 2),
     detachment("Saga of the Bold", "priority", 2),
     detachment("Saga of the Great Wolf", "hold", 2),
-    detachment("Saga of the Hunter", "disruption", 2)
+    detachment("Saga of the Hunter", "disruption", 2),
+    ...CORE_SPACE_MARINE_DETACHMENTS
   ],
   "black-templars": [
     detachment("Marshal's Household", "priority", 1),
@@ -154,10 +177,12 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Wrathful Procession", "hold", 1),
     detachment("Companions of Vehemence", "purge", 2),
     detachment("Godhammer Assault Force", "purge", 2),
-    detachment("Vindication Task Force", "priority", 2)
+    detachment("Vindication Task Force", "priority", 2),
+    ...BLACK_TEMPLARS_CORE_DETACHMENTS
   ],
   deathwatch: [
-    detachment("Black Spear Task Force", "purge", 3)
+    detachment("Black Spear Task Force", "purge", 3),
+    ...CORE_SPACE_MARINE_DETACHMENTS
   ],
   "grey-knights": [
     detachment("Argent Assault", "priority", 1),
@@ -179,7 +204,7 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Grizzled Company", "priority", 3),
     detachment("Hammer of the Emperor", "purge", 2),
     detachment("Mechanised Assault", "recon", 2),
-    detachment("Recon Element", "recon", 3),
+    detachment("Recon Element", "recon", 2),
     detachment("Siege Regiment", "disruption", 2),
     detachment("Steel Hammer", "purge", 2)
   ],
@@ -218,9 +243,9 @@ export const DETACHMENTS_BY_FACTION = {
   "adeptus-custodes": [
     detachment("Might of the Moritoi", "hold", 1),
     detachment("Silent Hunters", "recon", 1),
-    detachment("Tharanatoi Hammerblow", "priority", 1),
+    detachment("Tharanatoi Hammerblow", "disruption", 1),
     detachment("Auric Champions", "priority", 2),
-    detachment("Lions of the Emperor", "disruption", 2),
+    detachment("Lions of the Emperor", "hold", 3),
     detachment("Null Maiden Vigil", "recon", 2),
     detachment("Shield Host", "purge", 2),
     detachment("Solar Spearhead", "hold", 2),
@@ -243,7 +268,7 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Deceptors", "disruption", 2),
     detachment("Dread Talons", "disruption", 2),
     detachment("Fellhammer Siege-host", "hold", 2),
-    detachment("Huron’s Marauders", "disruption", 3),
+    detachment("Huron’s Marauders", "purge", 3),
     detachment("Nightmare Hunt", "disruption", 2),
     detachment("Pactbound Zealots", "priority", 3),
     detachment("Renegade Raiders", "recon", 3),
@@ -317,7 +342,7 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Lords of the Warp", "hold", 1),
     detachment("Warptide", "recon", 1),
     detachment("Blood Legion", "purge", 2),
-    detachment("Daemonic Incursion", "disruption", 3),
+    detachment("Daemonic Incursion", "hold", 3),
     detachment("Legion of Excess", "priority", 2),
     detachment("Plague Legion", "hold", 2),
     detachment("Scintillating Legion", "priority", 2),
@@ -328,7 +353,7 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Fateful Performance", "disruption", 1),
     detachment("Path of the Outcast", "recon", 1),
     detachment("Twilight Flickers", "hold", 1),
-    detachment("Aspect Host", "disruption", 3),
+    detachment("Aspect Host", "priority", 3),
     detachment("Corsair Coterie", "priority", 2),
     detachment("Devoted of Ynnead", "priority", 2),
     detachment("Eldritch Raiders", "purge", 2),
@@ -389,19 +414,21 @@ export const DETACHMENTS_BY_FACTION = {
     detachment("Starshatter Arsenal", "priority", 3)
   ],
   orks: [
-    detachment("Equatorial Hordes", "disruption", 1),
-    detachment("More Dakka!", "disruption", 1),
-    detachment("Rollin' Deff", "priority", 1),
-    detachment("Taktikal Brigade", "recon", 1),
-    detachment("Blitz Brigade", "recon", 2),
-    detachment("Bully Boyz", "purge", 2),
-    detachment("Da Big Hunt", "purge", 2),
-    detachment("Dread Mob", "priority", 2),
-    detachment("Freebooter Krew", "hold", 2),
-    detachment("Green Tide", "hold", 3),
-    detachment("Kult of Speed", "disruption", 2),
-    detachment("Speedwaaagh!", "recon", 2),
-    detachment("War Horde", "hold", 3)
+    detachment("Blitz Brigade", "hold", 1),
+    detachment("Brute Bosses", "purge", 1),
+    detachment("Bully Boyz", "purge", 1),
+    detachment("Da Big Hunt", "purge", 1),
+    detachment("Dread Mob", "purge", 1),
+    detachment("Flyboyz", "recon", 1),
+    detachment("Green Tide", "hold", 1),
+    detachment("Kult of Speed", "recon", 1),
+    detachment("Madcap Meks", "disruption", 1),
+    detachment("Runt Swarm", "priority", 1),
+    detachment("Shoota Boyz", "purge", 1),
+    detachment("Taktikal Brigade", "hold", 1),
+    detachment("War Horde", "hold", 3),
+    detachment("Wreckas", "priority", 1),
+    detachment("Wurrband", "disruption", 1)
   ],
   "tau-empire": [
     detachment("Advanced Acquisition Cadre", "recon", 1),
