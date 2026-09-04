@@ -211,9 +211,18 @@ async function shareCurrentLocation(inModalOnly = false) {
       const countryEl = document.getElementById('modal-lfg-country');
       const badge = document.getElementById('modal-loc-badge');
 
-      if (venueInput) venueInput.value = venueName;
-      if (latEl) latEl.value = lat;
-      if (lngEl) lngEl.value = lng;
+      if (venueInput) {
+        venueInput.value = venueName;
+        venueInput.dataset.placesSelected = 'true';
+        venueInput.dataset.placeLat = String(lat);
+        venueInput.dataset.placeLng = String(lng);
+        venueInput.dataset.placeName = venueName;
+        venueInput.dataset.isGpsLocked = 'true';
+        venueInput.dataset.userEdited = 'false';
+        venueInput.dataset.origValue = venueName;
+      }
+      if (latEl) latEl.value = String(lat);
+      if (lngEl) lngEl.value = String(lng);
       if (cityEl) cityEl.value = city;
       if (stateEl) stateEl.value = state;
       if (countryEl) countryEl.value = country;
@@ -229,6 +238,13 @@ async function shareCurrentLocation(inModalOnly = false) {
       if (btnModal) {
         btnModal.disabled = false;
         btnModal.textContent = '✓ GPS Locked';
+      }
+
+      // Immediately sync exact GPS to active community radar
+      localStorage.setItem('comm_exact_gps', 'true');
+      localStorage.removeItem('comm_manual_override');
+      if (typeof updateCommunityLocation === 'function') {
+        updateCommunityLocation(lat, lng, venueName);
       }
 
       // If called from the top bar (not purely modal editing), auto-save and refresh!
@@ -456,8 +472,17 @@ async function handleSaveLocation(e) {
   let targetLng = null;
   let chosenLocName = rawInput || 'San Diego, CA';
 
-  // 1. If Google Places item was explicitly selected from autocomplete
-  if (venue && venue.dataset.placesSelected === 'true' && venue.dataset.placeLat && venue.dataset.placeLng) {
+  // 0. If GPS was locked via "Use Current GPS" in modal
+  const badge = document.getElementById('modal-loc-badge');
+  const isGpsLocked = (venue && venue.dataset.isGpsLocked === 'true') ||
+                      (badge && badge.textContent && badge.textContent.includes('GPS Locked'));
+
+  if (isGpsLocked && lat && lat.value && lng && lng.value && !isNaN(parseFloat(lat.value)) && !isNaN(parseFloat(lng.value))) {
+    targetLat = parseFloat(lat.value);
+    targetLng = parseFloat(lng.value);
+    localStorage.setItem('comm_exact_gps', 'true');
+    localStorage.removeItem('comm_manual_override');
+  } else if (venue && venue.dataset.placesSelected === 'true' && venue.dataset.placeLat && venue.dataset.placeLng) {
     targetLat = parseFloat(venue.dataset.placeLat);
     targetLng = parseFloat(venue.dataset.placeLng);
   } else if (rawInput && venue && rawInput === venue.dataset.origValue && lat && lat.value && lng && lng.value) {

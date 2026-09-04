@@ -595,6 +595,34 @@ def test_event_studio_mobile_dropdown_role_restriction():
     print("✅ Event Studio mobile dropdown role-restriction, DOM lifecycle, and TO/Admin guards verified!")
 
 
+def test_gps_coordinate_precision_parity():
+    """Verify that all 3 GPS buttons preserve exact device floating-point coordinates and do not snap to coarse city centers."""
+    connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+    auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+    community_content = (root_dir / "web" / "js" / "community.js").read_text(encoding="utf-8")
+
+    # 1. Image 2: Community Hub top bar detectCommunityGPS
+    assert "function detectCommunityGPS" in community_content, "detectCommunityGPS missing in community.js"
+    assert "localStorage.setItem('comm_exact_gps', 'true')" in community_content, "detectCommunityGPS must set comm_exact_gps"
+    assert "updateCommunityLocation(lat, lng" in community_content, "detectCommunityGPS must pass raw lat/lng"
+
+    # 2. Image 3: Set Location modal shareCurrentLocation and handleSaveLocation
+    assert "isGpsLocked = 'true'" in connect_content, "connect.js shareCurrentLocation must set isGpsLocked"
+    assert "isGpsLocked" in connect_content and "parseFloat(lat.value)" in connect_content, \
+        "connect.js handleSaveLocation must prioritize exact lat.value when GPS is locked"
+    assert "updateCommunityLocation(lat, lng" in connect_content, \
+        "connect.js shareCurrentLocation must immediately sync exact GPS to active community radar"
+
+    # 3. Image 1: Account Settings detectUserSettingsGPS and handleSaveUserSettingsLocation
+    assert "isGpsLocked = 'true'" in auth_content, "auth.js detectUserSettingsGPS must set isGpsLocked"
+    assert "isGpsLocked" in auth_content and "parseFloat(latEl.value)" in auth_content, \
+        "auth.js handleSaveUserSettingsLocation must prioritize exact latEl.value when GPS is locked"
+    assert "updateCommunityLocation(lat, lng" in auth_content, \
+        "auth.js detectUserSettingsGPS must immediately sync exact GPS to active community radar"
+
+    print("✅ All 3 GPS buttons verified for high-precision coordinate preservation and zero city-center snapping!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -612,6 +640,7 @@ if __name__ == "__main__":
     test_custom_timeframe_calendar_picker()
     test_pwa_landscape_orientation()
     test_event_studio_mobile_dropdown_role_restriction()
+    test_gps_coordinate_precision_parity()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

@@ -922,10 +922,12 @@ function detectUserSettingsGPS() {
         locInput.dataset.placeLng = String(lng);
         locInput.dataset.placeName = locInput.value;
         locInput.dataset.placesSelected = 'true';
+        locInput.dataset.isGpsLocked = 'true';
         locInput.dataset.userEdited = 'false';
+        locInput.dataset.origVal = locInput.value;
       }
-      if (latEl) latEl.value = lat;
-      if (lngEl) lngEl.value = lng;
+      if (latEl) latEl.value = String(lat);
+      if (lngEl) lngEl.value = String(lng);
       if (cityEl) cityEl.value = city;
       if (stateEl) stateEl.value = state;
       if (countryEl) countryEl.value = country;
@@ -938,6 +940,13 @@ function detectUserSettingsGPS() {
       if (btn) {
         btn.disabled = false;
         btn.innerHTML = '<span>✓</span> <span>GPS Locked</span>';
+      }
+
+      // Immediately sync exact GPS to active community radar
+      localStorage.setItem('comm_exact_gps', 'true');
+      localStorage.removeItem('comm_manual_override');
+      if (typeof updateCommunityLocation === 'function') {
+        updateCommunityLocation(lat, lng, locInput ? locInput.value : venueName);
       }
     },
     (err) => {
@@ -986,8 +995,17 @@ async function handleSaveUserSettingsLocation(e) {
   let chosenCountry = countryEl ? countryEl.value.trim() : 'United States';
   let chosenLocName = rawInput;
 
-  // 1. Google Places dataset coords if explicitly selected from autocomplete or GPS
-  if (locInput && locInput.dataset.placesSelected === 'true' && locInput.dataset.placeLat && locInput.dataset.placeLng) {
+  // 0. If GPS was locked via "Use Device GPS" in settings
+  const badge = document.getElementById('settings-loc-badge');
+  const isGpsLocked = (locInput && locInput.dataset.isGpsLocked === 'true') ||
+                      (badge && badge.textContent && badge.textContent.includes('GPS Locked'));
+
+  if (isGpsLocked && latEl && latEl.value && lngEl && lngEl.value && !isNaN(parseFloat(latEl.value)) && !isNaN(parseFloat(lngEl.value))) {
+    targetLat = parseFloat(latEl.value);
+    targetLng = parseFloat(lngEl.value);
+    localStorage.setItem('comm_exact_gps', 'true');
+    localStorage.removeItem('comm_manual_override');
+  } else if (locInput && locInput.dataset.placesSelected === 'true' && locInput.dataset.placeLat && locInput.dataset.placeLng) {
     targetLat = parseFloat(locInput.dataset.placeLat);
     targetLng = parseFloat(locInput.dataset.placeLng);
   } else if (rawInput && latEl && latEl.value && lngEl && lngEl.value && locInput && locInput.dataset.origVal === rawInput) {
@@ -1091,6 +1109,10 @@ async function handleSaveUserSettingsLocation(e) {
         if (typeof renderTopBarOptions === 'function') renderTopBarOptions(window.connectState.userProfile);
       }
       localStorage.setItem('native_user_lfg_profile', JSON.stringify(payload));
+      if (isGpsLocked) {
+        localStorage.setItem('comm_exact_gps', 'true');
+        localStorage.removeItem('comm_manual_override');
+      }
       if (typeof updateCommunityLocation === 'function') {
         updateCommunityLocation(payload.latitude, payload.longitude, payload.home_venue_name || payload.city, payload.radius_miles);
       }
