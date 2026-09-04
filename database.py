@@ -796,6 +796,75 @@ class PostgresDatabase:
             except Exception:
                 pass
 
+    def sync_player_latest_teams(self, force: bool = False) -> Dict[str, Any]:
+        """Synchronizes player_ratings.team and players.team to each player's latest active team
+        determined from their most recent tournament in event_participants.
+        Also invalidates all caches so changes take effect immediately across Search, Leaderboard, and Teams.
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    if not force:
+                        cursor.execute("SELECT value FROM system_settings WHERE key = 'team_recency_sync_v1';")
+                        row = cursor.fetchone()
+                        if row and row[0] == 'true':
+                            return {"success": True, "already_synced": True, "updated_ratings": 0, "updated_players": 0}
+
+                    # 1. Update player_ratings with latest active team from event_participants
+                    cursor.execute("""
+                    WITH latest_player_teams AS (
+                        SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as latest_team
+                        FROM event_participants ep
+                        LEFT JOIN events e ON ep.event_id = e.id
+                        WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                          AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                        ORDER BY ep.player_id, e.event_date DESC NULLS LAST
+                    )
+                    UPDATE player_ratings pr
+                    SET team = lpt.latest_team
+                    FROM latest_player_teams lpt
+                    WHERE pr.player_id = lpt.player_id
+                      AND (pr.team IS DISTINCT FROM lpt.latest_team);
+                    """)
+                    updated_ratings = cursor.rowcount
+
+                    # 2. Update players table
+                    cursor.execute("""
+                    WITH latest_player_teams AS (
+                        SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as latest_team
+                        FROM event_participants ep
+                        LEFT JOIN events e ON ep.event_id = e.id
+                        WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                          AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                        ORDER BY ep.player_id, e.event_date DESC NULLS LAST
+                    )
+                    UPDATE players p
+                    SET team = lpt.latest_team
+                    FROM latest_player_teams lpt
+                    WHERE p.id = lpt.player_id
+                      AND (p.team IS DISTINCT FROM lpt.latest_team);
+                    """)
+                    updated_players = cursor.rowcount
+
+                    cursor.execute("""
+                    INSERT INTO system_settings (key, value, updated_at)
+                    VALUES ('team_recency_sync_v1', 'true', NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW();
+                    """)
+                conn.commit()
+
+            PostgresDatabase.invalidate_all_caches()
+            logger.info(f"🛡️ Synced latest player teams: updated {updated_ratings} player_ratings, {updated_players} players.")
+            return {
+                "success": True,
+                "already_synced": False,
+                "updated_ratings": updated_ratings,
+                "updated_players": updated_players
+            }
+        except Exception as e:
+            logger.error(f"Error syncing latest player teams: {e}")
+            return {"success": False, "error": str(e)}
+
     def ensure_tracker_table(self):
         """Guarantees that tracker_games table and all required columns exist."""
         try:
@@ -2474,7 +2543,7 @@ class PostgresDatabase:
                     sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
                     params = [f"%{t}%" for t in tokens] + [q_str, limit]
                     cursor.execute(f"""
-                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction
+                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team
                     FROM player_ratings
                     WHERE ({sub}) OR player_id = %s
                     ORDER BY matches_played DESC, current_elo DESC
@@ -2482,7 +2551,7 @@ class PostgresDatabase:
                     """, tuple(params))
                 else:
                     cursor.execute("""
-                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction
+                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team
                     FROM player_ratings
                     WHERE player_name ILIKE %s OR player_id = %s
                     ORDER BY matches_played DESC, current_elo DESC

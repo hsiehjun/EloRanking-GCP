@@ -202,14 +202,30 @@ class EloEngine:
 
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                # 1. Fetch latest active team from event_participants ordered by event recency
                 cur.execute("""
-                SELECT id as player_id, team FROM players WHERE team IS NOT NULL AND TRIM(team) != ''
-                UNION
-                SELECT player_id, team FROM event_participants WHERE team IS NOT NULL AND TRIM(team) != '';
+                SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as team
+                FROM event_participants ep
+                LEFT JOIN events e ON ep.event_id = e.id
+                WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                  AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                ORDER BY ep.player_id, e.event_date DESC NULLS LAST;
                 """)
                 for r in cur.fetchall():
                     if r.get("player_id") and r.get("team"):
                         existing_teams[r["player_id"]] = r["team"]
+
+                # 2. Fallback to players table
+                cur.execute("""
+                SELECT id as player_id, TRIM(team) as team
+                FROM players
+                WHERE team IS NOT NULL AND TRIM(team) != ''
+                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
+                """)
+                for r in cur.fetchall():
+                    pid = r.get("player_id")
+                    if pid and r.get("team") and pid not in existing_teams:
+                        existing_teams[pid] = r["team"]
 
                 cur.execute("""
                 SELECT player_id, player_name, current_elo, peak_elo,
@@ -228,7 +244,7 @@ class EloEngine:
                         "draws": int(r.get("draws") or 0),
                         "last_active_date": r.get("last_active_date")
                     }
-                    if r.get("team"):
+                    if r.get("team") and pid not in existing_teams:
                         existing_teams[pid] = r["team"]
                     if r.get("top_faction"):
                         for fac in r["top_faction"].split(", "):
@@ -360,7 +376,7 @@ class EloEngine:
                     draws = EXCLUDED.draws,
                     win_rate = EXCLUDED.win_rate,
                     top_faction = EXCLUDED.top_faction,
-                    team = COALESCE(player_ratings.team, EXCLUDED.team),
+                    team = COALESCE(EXCLUDED.team, player_ratings.team),
                     last_active_date = EXCLUDED.last_active_date,
                     updated_at = EXCLUDED.updated_at;
                 """
@@ -429,16 +445,42 @@ class EloEngine:
         # 1. Fetch existing teams from permanent players & participants tables
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                # 1. Most recent active team from event_participants by event_date
                 cur.execute("""
-                SELECT id as player_id, team FROM players WHERE team IS NOT NULL AND TRIM(team) != ''
-                UNION
-                SELECT player_id, team FROM event_participants WHERE team IS NOT NULL AND TRIM(team) != ''
-                UNION
-                SELECT player_id, team FROM player_ratings WHERE team IS NOT NULL AND TRIM(team) != '';
+                SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as team
+                FROM event_participants ep
+                LEFT JOIN events e ON ep.event_id = e.id
+                WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                  AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                ORDER BY ep.player_id, e.event_date DESC NULLS LAST;
                 """)
                 for r in cur.fetchall():
                     if r.get("player_id") and r.get("team"):
                         existing_teams[r["player_id"]] = r["team"]
+
+                # 2. Fallback to players table for players without event team
+                cur.execute("""
+                SELECT id as player_id, TRIM(team) as team
+                FROM players
+                WHERE team IS NOT NULL AND TRIM(team) != ''
+                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
+                """)
+                for r in cur.fetchall():
+                    pid = r.get("player_id")
+                    if pid and r.get("team") and pid not in existing_teams:
+                        existing_teams[pid] = r["team"]
+
+                # 3. Fallback to existing player_ratings for players not covered above
+                cur.execute("""
+                SELECT player_id, TRIM(team) as team
+                FROM player_ratings
+                WHERE team IS NOT NULL AND TRIM(team) != ''
+                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
+                """)
+                for r in cur.fetchall():
+                    pid = r.get("player_id")
+                    if pid and r.get("team") and pid not in existing_teams:
+                        existing_teams[pid] = r["team"]
 
                 if not existing_teams:
                     print("      🔍 Scanning matches raw JSON for team affiliations...")
@@ -798,7 +840,7 @@ class EloEngine:
                     FROM event_participants ep
                     LEFT JOIN events e ON ep.event_id = e.id
                     WHERE ep.player_id = %s AND ep.team IS NOT NULL AND TRIM(ep.team) != '' 
-                      AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                      AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                     GROUP BY TRIM(ep.team)
                     ORDER BY last_seen DESC NULLS LAST;
                     """, (player_id,))

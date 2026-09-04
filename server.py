@@ -102,6 +102,10 @@ async def _periodic_firestore_cleanup():
 async def on_server_startup():
     logger.info("Warhammer 40,000 Elo Backend online and ready.")
     asyncio.create_task(_periodic_firestore_cleanup())
+    try:
+        get_database().sync_player_latest_teams(force=False)
+    except Exception as e:
+        logger.warning(f"Notice during startup team sync: {e}")
 
 # Mount Modular Domain APIRouters
 app.include_router(admin.router)

@@ -189,10 +189,12 @@ async function openPlayerModal(playerId) {
         teamDiv.style.alignItems = 'center';
         teamDiv.innerHTML = '';
 
-        const currentTeam = p.team ? p.team.trim() : teamsList[0];
+        const currentTeam = p.team ? p.team.trim() : (teamsList[0] || '');
 
         teamsList.forEach((tm, idx) => {
-          const isCurrent = (tm.toLowerCase() === currentTeam.toLowerCase()) || (idx === 0);
+          const isCurrent = currentTeam 
+            ? (tm.toLowerCase() === currentTeam.toLowerCase()) 
+            : (idx === 0);
           const badge = document.createElement('span');
           badge.className = 'faction-pill';
           badge.style.cursor = 'pointer';
