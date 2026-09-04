@@ -45,8 +45,11 @@ function syncAppAuthView() {
     mobEsOpt.style.display = (currentUser && canAccessTO) ? '' : 'none';
   }
 
+  const chatWidget = document.getElementById('floating-chat-widget');
+
   if (currentUser) {
-    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; } #app-header { display: block !important; width: 100% !important; }';
+    document.body.classList.add('is-authenticated');
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; } #app-header { display: block !important; width: 100% !important; } #floating-chat-widget { display: block !important; }';
     if (landingView) landingView.style.display = 'none';
     if (appShell) {
       appShell.style.display = 'flex';
@@ -57,12 +60,16 @@ function syncAppAuthView() {
       appHeader.style.display = 'block';
       appHeader.style.width = '100%';
     }
+    if (chatWidget) chatWidget.style.display = 'block';
     if (typeof renderHeaderAuth === 'function') renderHeaderAuth();
   } else {
-    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';
+    document.body.classList.remove('is-authenticated');
+    if (foucGuard) foucGuard.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; } #floating-chat-widget { display: none !important; }';
     if (landingView) landingView.style.display = 'block';
     if (appShell) appShell.style.display = 'none';
     if (appHeader) appHeader.style.display = 'none';
+    if (chatWidget) chatWidget.style.display = 'none';
+    if (typeof toggleFloatingChat === 'function') toggleFloatingChat(false);
   }
 }
 

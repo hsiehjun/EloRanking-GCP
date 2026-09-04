@@ -875,11 +875,11 @@ input, select, textarea {
     box-sizing: border-box !important;
   }
 
-  .logo-group {
+  #app-header .logo-group {
     display: none !important;
   }
 
-  .header-actions-group {
+  #app-header .header-actions-group {
     display: none !important;
   }
 
@@ -2590,6 +2590,13 @@ input, select, textarea {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.landing-nav .logo-group {
+  display: flex !important;
+  align-items: center;
+  gap: 0.65rem;
+  text-decoration: none;
+}
+
 .landing-nav-inner {
   max-width: 1320px;
   margin: 0 auto;
@@ -3008,12 +3015,35 @@ input, select, textarea {
 }
 
 @media (max-width: 768px) {
+  .landing-nav {
+    display: block !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 100 !important;
+    width: 100% !important;
+  }
   .landing-nav-inner {
-    padding: 0.75rem 1rem;
-    gap: 0.5rem;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 0.65rem 0.9rem !important;
+    gap: 0.5rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .landing-nav-inner .logo-group {
+    display: flex !important;
+    align-items: center !important;
+    min-width: 0 !important;
   }
   .landing-nav-inner .logo-subtitle {
-    display: none;
+    display: none !important;
+  }
+  .landing-nav-actions {
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.4rem !important;
+    flex-shrink: 0 !important;
   }
   .landing-hero {
     padding: 2.25rem 1rem 1.75rem;
@@ -3214,6 +3244,17 @@ input, select, textarea {
 #floating-chat-widget {
   position: relative;
   z-index: 9995;
+  display: none;
+}
+
+body.is-authenticated #floating-chat-widget {
+  display: block;
+}
+
+/* Strictly hide floating chat widget when landing page view is active or for guests */
+#landing-page-view:not([style*="display: none"]) ~ #floating-chat-widget,
+#landing-page-view:not([style*="display: none"]) + #floating-chat-widget {
+  display: none !important;
 }
 
 /* Floating Chat Launcher Bubble */

@@ -220,6 +220,42 @@ def test_mobile_nav_dropdown_no_chat():
     print("✅ Mobile nav dropdown verified free of redundant Chat option (chat handled via bubble)!")
 
 
+def test_landing_page_and_chat_notification_fixes():
+    """Verify that chat bubble is hidden on landing page, landing header displays on mobile, and notifications clear immediately."""
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+    connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+
+    # 1. Chat bubble hidden on landing page
+    assert '#floating-chat-widget { display: none !important; }' in index_content, \
+        "anti-fouc guard in index.html must hide floating-chat-widget when unauthenticated"
+    assert '#floating-chat-widget { display: none !important; }' in auth_content, \
+        "syncAppAuthView in auth.js must hide floating-chat-widget when unauthenticated"
+    assert '#landing-page-view:not([style*="display: none"]) ~ #floating-chat-widget' in styles_content, \
+        "styles.css must hide floating-chat-widget when landing page is visible"
+
+    # 2. Mobile landing page header visibility (logo-group should NOT be hidden globally)
+    assert '#app-header .logo-group {\n    display: none !important;\n  }' in styles_content, \
+        "Mobile logo-group hiding must be scoped to #app-header, not global .logo-group"
+    assert '.landing-nav .logo-group' in styles_content, \
+        ".landing-nav .logo-group must be explicitly styled"
+    assert '.landing-nav-inner .logo-group {\n    display: flex !important;' in styles_content, \
+        ".landing-nav-inner .logo-group must be display: flex on mobile"
+
+    # 3. Responsive chat notification clearing
+    assert 'markCurrentChatAsRead' in connect_content, \
+        "connect.js must define markCurrentChatAsRead"
+    assert 'localReq.unread_count = 0;' in connect_content, \
+        "connect.js must immediately clear local unread_count upon reading"
+    assert 'updateUnreadCountBadge();' in connect_content, \
+        "connect.js must call updateUnreadCountBadge after reading messages"
+    assert 'window.addEventListener(\'focus\'' in connect_content, \
+        "connect.js must have focus event listener for instant notification sync"
+
+    print("✅ Landing page chat hiding, mobile header restoration, and responsive notification clearing verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -229,4 +265,5 @@ if __name__ == "__main__":
     test_layout_width_and_mobile_stacking()
     test_floating_chat_back_navigation()
     test_mobile_nav_dropdown_no_chat()
+    test_landing_page_and_chat_notification_fixes()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")

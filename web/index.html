@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=14.0">
-  <link rel="stylesheet" href="/css/styles.css?v=76.0">
+  <link rel="stylesheet" href="/css/styles.css?v=77.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
@@ -97,9 +97,11 @@
         var style = document.createElement('style');
         style.id = 'auth-fouc-guard';
         if (isAuthenticated) {
-          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; } #app-header { display: block !important; width: 100% !important; }';
+          style.innerHTML = '#landing-page-view { display: none !important; } #app-shell { display: flex !important; flex-direction: column !important; width: 100% !important; } #app-header { display: block !important; width: 100% !important; } #floating-chat-widget { display: block !important; }';
+          document.documentElement.classList.add('is-authenticated');
         } else {
-          style.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; }';
+          style.innerHTML = '#landing-page-view { display: block !important; } #app-shell { display: none !important; } #app-header { display: none !important; } #floating-chat-widget { display: none !important; }';
+          document.documentElement.classList.remove('is-authenticated');
         }
         document.head.appendChild(style);
       } catch (e) {}
@@ -2846,12 +2848,12 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=66.0"></script>
-  <script src="/js/auth.js?v=78.0"></script>
+  <script src="/js/auth.js?v=79.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
-  <script src="/js/connect.js?v=8.0"></script>
+  <script src="/js/connect.js?v=9.0"></script>
   <script src="/js/community.js?v=3.2"></script>
-  <script src="/js/app.js?v=78.0"></script>
+  <script src="/js/app.js?v=79.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

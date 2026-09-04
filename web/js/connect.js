@@ -44,7 +44,7 @@ async function initConnectTab() {
   updateUnreadCountBadge();
   if (!connectState.initialized) {
     connectState.initialized = true;
-    setInterval(updateUnreadCountBadge, 15000);
+    setInterval(updateUnreadCountBadge, 5000);
   }
 }
 
@@ -1065,6 +1065,9 @@ async function loadUserRequests() {
     const myId = res?.current_user_id || (typeof currentUser !== 'undefined' && currentUser?.id) || '';
     connectState.requestsList = requests;
     renderRequestsList(requests, myId);
+    if (typeof updateUnreadCountBadge === 'function') {
+      updateUnreadCountBadge();
+    }
   } catch (err) {
     console.warn("Failed to load requests:", err);
   }
@@ -1298,6 +1301,32 @@ function detachChatSnapshot() {
   }
 }
 
+let markReadDebounceTimer = null;
+function markCurrentChatAsRead(requestId = connectState.activeRequestId) {
+  if (!requestId) return;
+  const localReq = connectState.requestsList ? connectState.requestsList.find(r => r.id === requestId) : null;
+  if (localReq) {
+    localReq.unread_count = 0;
+  }
+  const convoItem = document.querySelector(`.oc-convo-item[data-request-id="${requestId}"]`);
+  if (convoItem) {
+    const unreadBadge = convoItem.querySelector('.oc-badge-danger');
+    if (unreadBadge) unreadBadge.remove();
+  }
+
+  if (markReadDebounceTimer) clearTimeout(markReadDebounceTimer);
+  markReadDebounceTimer = setTimeout(async () => {
+    try {
+      if (!requestId || connectState.activeRequestId !== requestId) return;
+      await window.api.getConnectMessages(requestId);
+      await updateUnreadCountBadge();
+    } catch (e) {
+      console.warn("Notice marking chat as read:", e);
+    }
+  }, 100);
+}
+window.markCurrentChatAsRead = markCurrentChatAsRead;
+
 function attachChatSnapshot(requestId) {
   detachChatSnapshot();
   const fsDb = getConnectFirestoreDb();
@@ -1312,6 +1341,11 @@ function attachChatSnapshot(requestId) {
       if (data && Array.isArray(data.messages)) {
         connectState.activeMessages = data.messages;
         renderChatMessages(data.messages, true);
+
+        const win = document.getElementById('floating-chat-window');
+        if (win && win.style.display !== 'none' && !document.hidden) {
+          markCurrentChatAsRead(requestId);
+        }
       }
     }, (err) => {
       console.warn("Firestore chat snapshot notice:", err);
@@ -1423,6 +1457,7 @@ function toggleFloatingChat(forceState) {
     if (typeof updateUnreadCountBadge === 'function') updateUnreadCountBadge();
 
     if (connectState.activeRequestId) {
+      markCurrentChatAsRead(connectState.activeRequestId);
       if (typeof attachChatSnapshot === 'function') {
         attachChatSnapshot(connectState.activeRequestId);
       }
@@ -1508,6 +1543,9 @@ async function selectConversation(requestId) {
     });
   }
 
+  // Immediately clear unread status on click
+  markCurrentChatAsRead(requestId);
+
   if (connectState.activeRequestId === requestId && connectState.chatSnapshotUnsub) {
     return;
   }
@@ -1523,6 +1561,7 @@ async function selectConversation(requestId) {
   const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
   const localReq = connectState.requestsList.find(r => r.id === requestId);
   if (localReq) {
+    localReq.unread_count = 0;
     const isMeSender = (localReq.sender_id === myId);
     const otherName = isMeSender ? localReq.receiver_name : localReq.sender_name;
     const otherElo = Math.round(isMeSender ? localReq.receiver_elo : localReq.sender_elo);
@@ -1541,6 +1580,9 @@ async function selectConversation(requestId) {
 
   // Durable sync from backend (seeds Firestore if newly opened & updates request details)
   await refreshActiveMessages(false);
+  if (typeof updateUnreadCountBadge === 'function') {
+    updateUnreadCountBadge();
+  }
 }
 
 function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
@@ -1644,6 +1686,18 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
     if (!connectState.chatSnapshotUnsub || !connectState.activeMessages || connectState.activeMessages.length <= messages.length) {
       connectState.activeMessages = messages;
       renderChatMessages(messages, scrollOnlyIfNearBottom);
+    }
+
+    const localReq = connectState.requestsList ? connectState.requestsList.find(r => r.id === connectState.activeRequestId) : null;
+    if (localReq) localReq.unread_count = 0;
+    const convoItem = document.querySelector(`.oc-convo-item[data-request-id="${connectState.activeRequestId}"]`);
+    if (convoItem) {
+      const b = convoItem.querySelector('.oc-badge-danger');
+      if (b) b.remove();
+    }
+
+    if (typeof updateUnreadCountBadge === 'function') {
+      updateUnreadCountBadge();
     }
 
   } catch (err) {
@@ -1880,6 +1934,19 @@ function stopChatPolling() {
 
 async function updateUnreadCountBadge() {
   try {
+    if (typeof currentUser !== 'undefined' && !currentUser) {
+      ['badge-unread-count', 'badge-chat-direct-unread', 'nav-badge-chat', 'badge-chat-bubble-unread'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.textContent = '0';
+          el.style.display = 'none';
+        }
+      });
+      const bubbleBtn = document.getElementById('floating-chat-bubble');
+      if (bubbleBtn) bubbleBtn.classList.remove('has-unread');
+      return;
+    }
+
     const res = await window.api.getConnectUnreadCount();
     const count = (res && res.unread_count) ? parseInt(res.unread_count, 10) : 0;
     const badge = document.getElementById('badge-unread-count');
@@ -1892,6 +1959,7 @@ async function updateUnreadCountBadge() {
           b.textContent = count > 99 ? '99+' : count;
           b.style.display = 'inline-flex';
         } else {
+          b.textContent = '0';
           b.style.display = 'none';
         }
       }
@@ -1907,6 +1975,16 @@ async function updateUnreadCountBadge() {
     }
   } catch (e) {}
 }
+
+window.addEventListener('focus', () => {
+  if (typeof updateUnreadCountBadge === 'function') {
+    updateUnreadCountBadge();
+  }
+  const win = document.getElementById('floating-chat-window');
+  if (win && win.style.display !== 'none' && connectState.activeRequestId) {
+    markCurrentChatAsRead(connectState.activeRequestId);
+  }
+});
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {

@@ -389,7 +389,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Periodic check for chat unread notifications badge
   if (typeof updateUnreadCountBadge === 'function') {
     updateUnreadCountBadge();
-    setInterval(updateUnreadCountBadge, 15000);
+    setInterval(updateUnreadCountBadge, 5000);
   }
   if (currentUser && typeof attachUserSyncSnapshot === 'function') {
     attachUserSyncSnapshot();
