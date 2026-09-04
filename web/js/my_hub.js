@@ -151,9 +151,10 @@ function renderMyHub(data) {
             ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.82rem; padding: 0.2rem 0.6rem;">World Rank #${rankings.global_rank}</span>` : ''}
             ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.82rem; padding: 0.2rem 0.6rem;">${escapeHtml(p.top_faction || '')} Rank #${rankings.faction_rank}</span>` : ''}
           </div>
-          <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.35rem;">
-            Primary Army: <b style="color: var(--accent);">${escapeHtml(p.top_faction || 'General')}</b> 
-            ${p.team ? ` • Gaming Club: <b style="color: #fff;">${escapeHtml(p.team)}</b>` : ''}
+          <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.35rem; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+            <span>Primary Army: <b style="color: var(--accent);">${escapeHtml(p.top_faction || (window.connectState?.userProfile?.factions) || 'General (Any Army)')}</b></span>
+            <button onclick="openUserSettingsModal()" style="background: transparent; border: none; color: #38bdf8; font-size: 0.76rem; cursor: pointer; text-decoration: underline; font-weight: 600; padding: 0 4px;" title="Set your primary Warhammer 40k army and sparring preferences">✏️ Edit</button>
+            ${p.team ? `<span>• Gaming Club: <b style="color: #fff;">${escapeHtml(p.team)}</b></span>` : ''}
           </div>
 
           <!-- BCP Linked Account Status Badge -->

@@ -60,6 +60,7 @@ function renderTopBarOptions(profile) {
   const text = document.getElementById('user-status-text');
   const btn = document.getElementById('btn-toggle-lfg');
   const locText = document.getElementById('user-location-text');
+  const prefSelect = document.getElementById('user-pref-style');
 
   const isActive = Boolean(profile.is_active);
   if (isActive) {
@@ -74,6 +75,10 @@ function renderTopBarOptions(profile) {
       btn.style.borderColor = 'rgba(16,185,129,0.35)';
       btn.title = 'Click to switch to Off Duty';
     }
+    if (prefSelect) {
+      prefSelect.style.opacity = '1';
+      prefSelect.title = `Looking for: ${profile.play_style || 'Competitive'} matches`;
+    }
   } else {
     if (dot) {
       dot.style.background = '#64748b';
@@ -86,6 +91,14 @@ function renderTopBarOptions(profile) {
       btn.style.borderColor = 'rgba(100,116,139,0.3)';
       btn.title = 'Click to broadcast you are looking for games';
     }
+    if (prefSelect) {
+      prefSelect.style.opacity = '0.75';
+      prefSelect.title = `(Off Duty) Match preference: ${profile.play_style || 'Competitive'}`;
+    }
+  }
+
+  if (prefSelect && profile.play_style) {
+    prefSelect.value = profile.play_style;
   }
 
   if (locText) {
@@ -93,6 +106,43 @@ function renderTopBarOptions(profile) {
     locText.textContent = venue;
   }
 }
+
+async function changeUserMatchPreference(newStyle) {
+  if (!connectState.userProfile) {
+    connectState.userProfile = { is_active: true, radius_miles: 50, play_style: newStyle, preferred_points: 2000 };
+  } else {
+    connectState.userProfile.play_style = newStyle;
+  }
+
+  const payload = {
+    ...connectState.userProfile,
+    play_style: newStyle
+  };
+
+  // Sync modal and settings inputs if open
+  const modalStyle = document.getElementById('modal-lfg-style');
+  if (modalStyle) modalStyle.value = newStyle;
+  const settingsStyle = document.getElementById('settings-play-style');
+  if (settingsStyle) settingsStyle.value = newStyle;
+
+  // Optimistically refresh nearby players if radar is visible
+  const radarVisible = document.getElementById('players-grid') || (typeof communityState !== 'undefined' && communityState.activeSubtab === 'radar') || connectState.activeSubtab === 'players';
+  if (radarVisible) {
+    loadNearbyPlayers();
+  }
+
+  try {
+    const res = await window.api.saveConnectProfile(payload);
+    if (res && res.success) {
+      if (typeof showToast === 'function') {
+        showToast(`🎯 Looking for: ${newStyle} matches`);
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to save match preference:", err);
+  }
+}
+window.changeUserMatchPreference = changeUserMatchPreference;
 
 async function toggleUserLfgStatus() {
   if (!connectState.userProfile) {
@@ -392,7 +442,10 @@ function openEditLocationModal() {
   if (lng) lng.value = currentLng;
   if (rad) rad.value = (typeof communityState !== 'undefined' && communityState.radiusMiles) ? communityState.radiusMiles : (p.radius_miles || 50);
   if (pts) pts.value = p.preferred_points || 2000;
-  if (style) style.value = p.play_style || 'Competitive';
+  const styleEl = document.getElementById('modal-lfg-style') || style;
+  if (styleEl) styleEl.value = p.play_style || 'Competitive';
+  const facEl = document.getElementById('modal-lfg-faction');
+  if (facEl) facEl.value = p.factions || p.top_faction || '';
 
   const badge = document.getElementById('modal-loc-badge');
   if (badge) {
@@ -509,6 +562,10 @@ async function handleSaveLocation(e) {
     targetLng = -117.1611;
   }
 
+  const styleEl = document.getElementById('modal-lfg-style') || style;
+  const facEl = document.getElementById('modal-lfg-faction');
+  const ptsEl = document.getElementById('modal-lfg-points') || pts;
+
   const payload = {
     ...(connectState.userProfile || {}),
     is_active: connectState.userProfile ? connectState.userProfile.is_active : true,
@@ -520,8 +577,9 @@ async function handleSaveLocation(e) {
     latitude: targetLat,
     longitude: targetLng,
     radius_miles: unifiedRadius,
-    preferred_points: pts ? parseInt(pts.value, 10) : 2000,
-    play_style: style ? style.value : 'Competitive'
+    preferred_points: ptsEl ? parseInt(ptsEl.value, 10) : 2000,
+    play_style: styleEl ? styleEl.value : 'Competitive',
+    factions: facEl ? facEl.value.trim() : (connectState.userProfile?.factions || '')
   };
 
   // Optimistic UI updates - close modal and update location/header immediately (0ms delay)
@@ -763,12 +821,12 @@ async function loadNearbyPlayers() {
                 <span style="font-weight: 600; color: #cbd5e1; max-width: 170px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(venueStr)}</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-muted);">Faction:</span>
-                <span style="font-weight: 600; color: #38bdf8;">${escapeHtml(player.top_faction || player.factions || 'Competitive 40k')}</span>
+                <span style="color: var(--text-muted);">Match Preference:</span>
+                <span style="font-weight: 600; color: #38bdf8;">${escapeHtml(player.play_style || 'Competitive')} • ${player.preferred_points || 2000} pts</span>
               </div>
               <div style="display: flex; justify-content: space-between;">
-                <span style="color: var(--text-muted);">Format:</span>
-                <span style="font-weight: 600; color: #cbd5e1;">${player.preferred_points || 2000} pts • ${escapeHtml(player.play_style || 'Competitive')}</span>
+                <span style="color: var(--text-muted);">Army / Faction:</span>
+                <span style="font-weight: 600; color: #cbd5e1;">${escapeHtml(player.factions || player.top_faction || 'Various / Any Faction')}</span>
               </div>
             </div>
 

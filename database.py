@@ -4360,8 +4360,9 @@ class PostgresDatabase:
         ]
 
         if play_style and play_style.strip() and play_style.lower() != 'all':
-            query += " AND LOWER(p.play_style) = %s"
-            params.append(play_style.strip().lower())
+            st = play_style.strip().lower()
+            query += " AND (LOWER(p.play_style) = %s OR LOWER(p.play_style) LIKE %s)"
+            params.extend([st, f"%{st}%"])
 
         query += " ORDER BY distance_miles ASC, current_elo DESC LIMIT 50;"
 

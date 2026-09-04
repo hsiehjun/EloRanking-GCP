@@ -1243,6 +1243,17 @@
               <span id="user-status-text">Available</span>
             </button>
 
+            <!-- Match Preference Selector (Right next to Available for Games) -->
+            <div id="user-pref-container" style="display: inline-flex; align-items: center;">
+              <select id="user-pref-style" class="form-input" style="font-size: 0.78rem; font-weight: 700; color: #38bdf8; background: #070b14; border: 1px solid rgba(56,189,248,0.35); border-radius: 8px; padding: 0.4rem 0.65rem; cursor: pointer;" onchange="changeUserMatchPreference(this.value)" title="Set what kind of match you are looking for">
+                <option value="Competitive">⚔️ Competitive (2k)</option>
+                <option value="Casual">🎲 Casual / Practice</option>
+                <option value="Narrative">📜 Narrative / Crusade</option>
+                <option value="Tournament Prep">🏆 Tournament Prep</option>
+                <option value="Any">✨ Any Game Style</option>
+              </select>
+            </div>
+
             <!-- Location Pill -->
             <button onclick="openCommunityLocationModal()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
               <span>📍</span>
@@ -2483,12 +2494,57 @@
               </div>
             </div>
 
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
+              <div>
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
+                  Match Preference:
+                </label>
+                <select id="settings-play-style" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                  <option value="Competitive">⚔️ Competitive (2k)</option>
+                  <option value="Casual">🎲 Casual / Practice</option>
+                  <option value="Narrative">📜 Narrative / Crusade</option>
+                  <option value="Tournament Prep">🏆 Tournament Prep</option>
+                  <option value="Any">✨ Any Game Style</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
+                  Primary Army / Faction:
+                </label>
+                <select id="settings-primary-faction" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                  <option value="">Various / Any Army</option>
+                  <option value="Space Marines">Space Marines</option>
+                  <option value="Adeptus Custodes">Adeptus Custodes</option>
+                  <option value="Adepta Sororitas">Adepta Sororitas</option>
+                  <option value="Astra Militarum">Astra Militarum</option>
+                  <option value="Grey Knights">Grey Knights</option>
+                  <option value="Imperial Knights">Imperial Knights</option>
+                  <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
+                  <option value="Imperial Agents">Imperial Agents</option>
+                  <option value="Chaos Space Marines">Chaos Space Marines</option>
+                  <option value="World Eaters">World Eaters</option>
+                  <option value="Death Guard">Death Guard</option>
+                  <option value="Thousand Sons">Thousand Sons</option>
+                  <option value="Chaos Daemons">Chaos Daemons</option>
+                  <option value="Chaos Knights">Chaos Knights</option>
+                  <option value="Tyranids">Tyranids</option>
+                  <option value="Genestealer Cults">Genestealer Cults</option>
+                  <option value="Necrons">Necrons</option>
+                  <option value="Orks">Orks</option>
+                  <option value="T'au Empire">T'au Empire</option>
+                  <option value="Aeldari">Aeldari</option>
+                  <option value="Drukhari">Drukhari</option>
+                  <option value="Leagues of Votann">Leagues of Votann</option>
+                </select>
+              </div>
+            </div>
+
             <div style="display: flex; gap: 0.5rem; align-items: center;">
               <button type="button" onclick="detectUserSettingsGPS()" id="btn-settings-gps" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.5rem 0.75rem; white-space: nowrap; display: flex; align-items: center; gap: 5px;">
                 <span>🛰️</span> <span>Use Device GPS</span>
               </button>
               <button type="submit" id="btn-save-settings-loc" class="btn btn-primary" style="flex: 1; font-size: 0.82rem; font-weight: 700; padding: 0.5rem 0.85rem;">
-                Save Home Location
+                Save Location &amp; Preferences
               </button>
             </div>
           </form>
@@ -3176,18 +3232,62 @@
           <input type="hidden" id="modal-lfg-lng" value="-117.1611">
         </div>
 
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.85rem;">
+          <div>
+            <label class="form-label">Match Preference</label>
+            <select id="modal-lfg-style" class="search-input" style="width: 100%;">
+              <option value="Competitive">⚔️ Competitive (2k)</option>
+              <option value="Casual">🎲 Casual / Practice</option>
+              <option value="Narrative">📜 Narrative / Crusade</option>
+              <option value="Tournament Prep">🏆 Tournament Prep</option>
+              <option value="Any">✨ Any Game Style</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
+              <span>Preferred Points</span>
+              <span style="font-size: 0.72rem; color: #94a3b8;">Std: 2,000 pts</span>
+            </label>
+            <input type="number" id="modal-lfg-points" class="search-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000" step="250">
+          </div>
+        </div>
+
         <div style="margin-bottom: 1.25rem;">
           <label class="form-label" style="display: flex; justify-content: space-between; align-items: center;">
-            <span>Preferred Army Points</span>
-            <span style="font-size: 0.72rem; color: #94a3b8;">Standard: 2,000 pts</span>
+            <span>Primary Army / Faction</span>
+            <span style="font-size: 0.72rem; color: #94a3b8;">Tabletop Army</span>
           </label>
-          <input type="number" id="modal-lfg-points" class="search-input" style="width: 100%; box-sizing: border-box;" value="2000" min="500" max="3000" step="250">
+          <select id="modal-lfg-faction" class="search-input" style="width: 100%;">
+            <option value="">Various / Any Army</option>
+            <option value="Space Marines">Space Marines</option>
+            <option value="Adeptus Custodes">Adeptus Custodes</option>
+            <option value="Adepta Sororitas">Adepta Sororitas</option>
+            <option value="Astra Militarum">Astra Militarum</option>
+            <option value="Grey Knights">Grey Knights</option>
+            <option value="Imperial Knights">Imperial Knights</option>
+            <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
+            <option value="Imperial Agents">Imperial Agents</option>
+            <option value="Chaos Space Marines">Chaos Space Marines</option>
+            <option value="World Eaters">World Eaters</option>
+            <option value="Death Guard">Death Guard</option>
+            <option value="Thousand Sons">Thousand Sons</option>
+            <option value="Chaos Daemons">Chaos Daemons</option>
+            <option value="Chaos Knights">Chaos Knights</option>
+            <option value="Tyranids">Tyranids</option>
+            <option value="Genestealer Cults">Genestealer Cults</option>
+            <option value="Necrons">Necrons</option>
+            <option value="Orks">Orks</option>
+            <option value="T'au Empire">T'au Empire</option>
+            <option value="Aeldari">Aeldari</option>
+            <option value="Drukhari">Drukhari</option>
+            <option value="Leagues of Votann">Leagues of Votann</option>
+          </select>
           <input type="hidden" id="modal-lfg-radius" value="50">
         </div>
 
         <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
           <button type="button" onclick="closeEditLocationModal()" class="btn btn-outline">Cancel</button>
-          <button type="submit" class="btn btn-primary" style="padding: 0.55rem 1.25rem;">Save Location</button>
+          <button type="submit" class="btn btn-primary" style="padding: 0.55rem 1.25rem;">Save Preferences</button>
         </div>
       </form>
     </div>

@@ -733,6 +733,10 @@ async function loadUserSettingsLocation() {
     if (prof.country && countryEl) countryEl.value = prof.country;
     if (prof.radius_miles && radSelect) radSelect.value = String(prof.radius_miles);
     if (prof.is_active !== undefined && activeSelect) activeSelect.value = prof.is_active ? 'true' : 'false';
+    const playStyleSelect = document.getElementById('settings-play-style');
+    const factionSelect = document.getElementById('settings-primary-faction');
+    if (prof.play_style && playStyleSelect) playStyleSelect.value = prof.play_style;
+    if ((prof.factions || prof.top_faction) && factionSelect) factionSelect.value = prof.factions || prof.top_faction;
 
     if (badge && (prof.latitude != null || name)) {
       badge.textContent = '✓ Saved Location';
@@ -1051,6 +1055,8 @@ async function handleSaveUserSettingsLocation(e) {
 
   const radius = radSelect ? parseInt(radSelect.value, 10) : 50;
   const isActive = activeSelect ? (activeSelect.value === 'true') : true;
+  const playStyleSelect = document.getElementById('settings-play-style');
+  const factionSelect = document.getElementById('settings-primary-faction');
 
   const existing = (window.connectState && window.connectState.userProfile) ? window.connectState.userProfile : {};
   const payload = {
@@ -1062,7 +1068,9 @@ async function handleSaveUserSettingsLocation(e) {
     country: chosenCountry || 'United States',
     latitude: targetLat,
     longitude: targetLng,
-    radius_miles: radius
+    radius_miles: radius,
+    play_style: playStyleSelect ? playStyleSelect.value : (existing.play_style || 'Competitive'),
+    factions: factionSelect ? factionSelect.value.trim() : (existing.factions || '')
   };
 
   try {
