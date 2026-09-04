@@ -516,9 +516,11 @@ function openCommunityLocationModal() {
  * Switch Community Hub Subtab
  */
 function switchCommunitySubtab(subtabName) {
-  // If user requests chat or messages, forward to top-level tab
+  // If user requests chat or messages, open floating chat widget
   if (subtabName === 'chat' || subtabName === 'messages' || subtabName === 'chats') {
-    if (typeof switchTab === 'function') {
+    if (typeof toggleFloatingChat === 'function') {
+      toggleFloatingChat(true);
+    } else if (typeof switchTab === 'function') {
       switchTab('chat');
     }
     return;

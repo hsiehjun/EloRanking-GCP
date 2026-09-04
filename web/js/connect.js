@@ -567,7 +567,10 @@ function switchConnectSubtab(tabName) {
   connectState.activeSubtab = tabName;
 
   if (tabName === 'chats' || tabName === 'chat' || tabName === 'messages') {
-    if (typeof switchTab === 'function') {
+    if (typeof toggleFloatingChat === 'function') {
+      toggleFloatingChat(true);
+      return;
+    } else if (typeof switchTab === 'function') {
       switchTab('chat');
       return;
     }
@@ -1358,12 +1361,93 @@ function attachUserSyncSnapshot(userId = null) {
 }
 window.attachUserSyncSnapshot = attachUserSyncSnapshot;
 
+let isFloatingChatWide = false;
+
+function toggleFloatingChatWide(forceState) {
+  const win = document.getElementById('floating-chat-window');
+  const btn = document.getElementById('floating-chat-wide-btn');
+  if (!win) return;
+  isFloatingChatWide = (typeof forceState === 'boolean') ? forceState : !isFloatingChatWide;
+  win.classList.toggle('is-wide', isFloatingChatWide);
+  if (btn) {
+    btn.innerHTML = isFloatingChatWide ? `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="4 14 10 14 10 20"></polyline>
+        <polyline points="20 10 14 10 14 4"></polyline>
+        <line x1="14" y1="10" x2="21" y2="3"></line>
+        <line x1="3" y1="21" x2="10" y2="14"></line>
+      </svg>
+    ` : `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 3 21 3 21 9"></polyline>
+        <polyline points="9 21 3 21 3 15"></polyline>
+        <line x1="21" y1="3" x2="14" y2="10"></line>
+        <line x1="3" y1="21" x2="10" y2="14"></line>
+      </svg>
+    `;
+    btn.title = isFloatingChatWide ? 'Contract to compact view' : 'Expand to side-by-side view';
+  }
+}
+window.toggleFloatingChatWide = toggleFloatingChatWide;
+
+function toggleFloatingChat(forceState) {
+  const widget = document.getElementById('floating-chat-widget');
+  const win = document.getElementById('floating-chat-window');
+  const bubble = document.getElementById('floating-chat-bubble');
+  if (!win || !bubble) return;
+
+  const isCurrentlyOpen = (win.style.display !== 'none');
+  const shouldOpen = (typeof forceState === 'boolean') ? forceState : !isCurrentlyOpen;
+
+  if (shouldOpen) {
+    if (!currentUser) {
+      window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
+      return;
+    }
+
+    win.style.display = 'flex';
+    bubble.classList.add('active');
+    if (widget) widget.classList.add('is-open');
+
+    if (window.innerWidth <= 768) {
+      document.body.classList.add('chat-mode-active');
+    }
+
+    if (typeof loadUserRequests === 'function') loadUserRequests();
+    if (typeof attachUserSyncSnapshot === 'function') attachUserSyncSnapshot();
+    if (typeof startChatPolling === 'function') startChatPolling();
+    if (typeof updateUnreadCountBadge === 'function') updateUnreadCountBadge();
+
+    if (connectState.activeRequestId) {
+      if (typeof attachChatSnapshot === 'function') {
+        attachChatSnapshot(connectState.activeRequestId);
+      }
+      setTimeout(() => {
+        const msgContainer = document.getElementById('chat-messages-container');
+        if (msgContainer) msgContainer.scrollTop = msgContainer.scrollHeight;
+        const input = document.getElementById('chat-input-text');
+        if (input && window.innerWidth > 768) input.focus();
+      }, 80);
+    }
+  } else {
+    win.style.display = 'none';
+    bubble.classList.remove('active');
+    if (widget) widget.classList.remove('is-open');
+
+    document.body.classList.remove('chat-mode-active');
+
+    if (typeof stopChatPolling === 'function') stopChatPolling();
+    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
+  }
+}
+window.toggleFloatingChat = toggleFloatingChat;
+
 function backToChatList() {
   const layout = document.querySelector('.oc-chat-layout');
   if (layout) {
     layout.classList.remove('is-viewing-chat');
   }
-  if (window.innerWidth <= 768) {
+  if (!isFloatingChatWide || window.innerWidth <= 768) {
     connectState.activeRequestId = null;
     detachChatSnapshot();
   }
@@ -1373,10 +1457,10 @@ function backToChatList() {
 
 function openChatWithRequest(requestId) {
   connectState.activeRequestId = requestId;
-  if (typeof switchTab === 'function') {
+  if (typeof toggleFloatingChat === 'function') {
+    toggleFloatingChat(true);
+  } else if (typeof switchTab === 'function') {
     switchTab('chat');
-  } else {
-    switchConnectSubtab('chats');
   }
   selectConversation(requestId);
 }
@@ -1772,16 +1856,26 @@ async function updateUnreadCountBadge() {
     const badge = document.getElementById('badge-unread-count');
     const directBadge = document.getElementById('badge-chat-direct-unread');
     const navBadge = document.getElementById('nav-badge-chat');
-    [badge, directBadge, navBadge].forEach(b => {
+    const bubbleBadge = document.getElementById('badge-chat-bubble-unread');
+    [badge, directBadge, navBadge, bubbleBadge].forEach(b => {
       if (b) {
         if (count > 0) {
-          b.textContent = count;
-          b.style.display = 'inline-block';
+          b.textContent = count > 99 ? '99+' : count;
+          b.style.display = 'inline-flex';
         } else {
           b.style.display = 'none';
         }
       }
     });
+
+    const bubbleBtn = document.getElementById('floating-chat-bubble');
+    if (bubbleBtn) {
+      if (count > 0) {
+        bubbleBtn.classList.add('has-unread');
+      } else {
+        bubbleBtn.classList.remove('has-unread');
+      }
+    }
 
     const mobOptChat = document.getElementById('mobile-opt-chat');
     if (mobOptChat) {
@@ -1789,6 +1883,15 @@ async function updateUnreadCountBadge() {
     }
   } catch (e) {}
 }
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const win = document.getElementById('floating-chat-window');
+    if (win && win.style.display !== 'none') {
+      toggleFloatingChat(false);
+    }
+  }
+});
 
 /* --------------------------------------------------------------------------
    GOOGLE PLACES AUTOCOMPLETE

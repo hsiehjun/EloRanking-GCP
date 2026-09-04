@@ -128,6 +128,8 @@ async function openPlayerModal(playerId) {
           closeModal('player-modal');
           if (typeof openChatWithRequest === 'function') {
             openChatWithRequest(data.existing_request_id);
+          } else if (typeof toggleFloatingChat === 'function') {
+            toggleFloatingChat(true);
           } else if (typeof switchTab === 'function') {
             switchTab('chat');
           }
@@ -143,7 +145,9 @@ async function openPlayerModal(playerId) {
         btn.title = isSender ? 'Your chat request is pending their response' : 'They sent you a chat request! Click to view in Messages';
         btn.onclick = () => {
           closeModal('player-modal');
-          if (typeof switchTab === 'function') {
+          if (typeof toggleFloatingChat === 'function') {
+            toggleFloatingChat(true);
+          } else if (typeof switchTab === 'function') {
             switchTab('chat');
           }
         };

@@ -8,7 +8,10 @@ function switchTab(tabName) {
   // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
   if (tabName === 'chat' || tabName === 'community-chat' || tabName === 'messages' || tabName === 'chats' || tabName === 'direct-chat') {
-    tabName = 'chat';
+    if (typeof toggleFloatingChat === 'function') {
+      toggleFloatingChat(true);
+    }
+    return;
   } else if (tabName === 'connect' || tabName === 'omniconnect' || tabName === 'sparring' || tabName === 'radar') {
     tabName = 'community';
     communitySubtab = 'radar';
@@ -25,13 +28,6 @@ function switchTab(tabName) {
   if (tabName === 'myhub') tabName = 'my-hub';
 
   activeTab = tabName;
-
-  // Stop chat polling if leaving chat tab
-  if (tabName !== 'chat') {
-    if (typeof stopChatPolling === 'function') stopChatPolling();
-    if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
-    if (typeof detachUserSyncSnapshot === 'function') detachUserSyncSnapshot();
-  }
 
   // Update top navigation button states
   document.querySelectorAll('.nav-btn').forEach(b => {
@@ -57,14 +53,8 @@ function switchTab(tabName) {
   if (activePanel) activePanel.classList.add('active');
 
   const mainEl = document.querySelector('main');
-  if (mainEl) {
-    mainEl.classList.toggle('main-chat-mode', tabName === 'chat');
-  }
-  document.body.classList.toggle('chat-mode-active', tabName === 'chat');
-  if (tabName !== 'chat') {
-    if (mainEl) mainEl.scrollTop = 0;
-    window.scrollTo({ top: 0, behavior: 'instant' });
-  }
+  if (mainEl) mainEl.scrollTop = 0;
+  window.scrollTo({ top: 0, behavior: 'instant' });
 
   // Update URL hash history and clean away any query parameters
   if (window.history && window.history.replaceState) {
@@ -87,18 +77,6 @@ function switchTab(tabName) {
     } else if (typeof initConnectTab === 'function') {
       initConnectTab();
     }
-  } else if (tabName === 'chat') {
-    if (!currentUser) {
-      window.location.href = '/login?redirect=' + encodeURIComponent('/#chat');
-      return;
-    }
-    if (typeof loadUserRequests === 'function') loadUserRequests();
-    if (typeof attachUserSyncSnapshot === 'function') attachUserSyncSnapshot();
-    if (typeof startChatPolling === 'function') startChatPolling();
-    if (typeof attachChatSnapshot === 'function' && typeof connectState !== 'undefined' && connectState.activeRequestId) {
-      attachChatSnapshot(connectState.activeRequestId);
-    }
-    if (typeof updateUnreadCountBadge === 'function') updateUnreadCountBadge();
   } else if (tabName === 'event-studio') {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
@@ -130,6 +108,12 @@ function handleMobileNavChange(val) {
   if (!val) return;
   if (val === 'tracker') {
     window.location.href = '/11th/tracker';
+    return;
+  }
+  if (val === 'chat') {
+    if (typeof toggleFloatingChat === 'function') toggleFloatingChat(true);
+    const mob = document.getElementById('mobile-nav-select');
+    if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
     return;
   }
   if (val === 'settings') {
@@ -407,12 +391,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateUnreadCountBadge();
     setInterval(updateUnreadCountBadge, 15000);
   }
+  if (currentUser && typeof attachUserSyncSnapshot === 'function') {
+    attachUserSyncSnapshot();
+  }
 
   const hashVal = window.location.hash ? window.location.hash.replace('#', '').trim() : null;
   const params = new URLSearchParams(window.location.search);
   let targetTab = hashVal || params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
-  if (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats') targetTab = 'chat';
+  const shouldOpenChat = (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats');
+  if (shouldOpenChat) targetTab = 'my-hub';
   if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') targetTab = 'community';
   if (targetTab === 'eventstudio') targetTab = 'event-studio';
   if (targetTab === 'community-hub' || targetTab === 'communityhub') targetTab = 'community';
@@ -430,5 +418,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchTab(targetTab);
   } else {
     switchTab('my-hub');
+  }
+  if (shouldOpenChat) {
+    if (typeof toggleFloatingChat === 'function') {
+      toggleFloatingChat(true);
+    }
   }
 });
