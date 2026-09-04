@@ -2785,19 +2785,29 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .landing-nav-links {
   display: flex;
   align-items: center;
-  gap: 1.5rem;
+  gap: 1.15rem;
 }
 
 .landing-nav-link {
   color: #94a3b8;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   text-decoration: none;
   transition: color 0.2s;
+  white-space: nowrap;
 }
 
 .landing-nav-link:hover {
   color: #38bdf8;
+}
+
+@media (max-width: 1120px) {
+  .landing-nav-links {
+    gap: 0.75rem;
+  }
+  .landing-nav-link {
+    font-size: 0.76rem;
+  }
 }
 
 .landing-hero {

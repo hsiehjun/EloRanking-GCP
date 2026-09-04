@@ -623,6 +623,79 @@ def test_gps_coordinate_precision_parity():
     print("✅ All 3 GPS buttons verified for high-precision coordinate preservation and zero city-center snapping!")
 
 
+def test_landing_page_community_ethos_and_neutrality():
+    """Verify that the landing page showcases community building features, maintains strict neutrality, and has zero paywall jabs."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+
+    # Extract landing page HTML block
+    landing_match = re.search(r'<div id="landing-page-view">(.*?)<!-- =+.*?APPLICATION SHELL', index_content, re.DOTALL)
+    assert landing_match is not None, "landing-page-view not found in index.html"
+    landing_html = landing_match.group(1)
+
+    # 1. Community-First Ethos
+    assert "Built By The Community" in landing_html, "Missing 'Built By The Community' in landing page"
+    assert "By The Community, For The Community" in landing_html, "Missing 'By The Community, For The Community' eyebrow"
+    assert "100% FREE &amp; OPEN" in landing_html or "100% FREE & OPEN" in landing_html, "Missing '100% FREE & OPEN' tag"
+
+    # 2. Core Community-Building Features Present
+    community_features = [
+        ("Sparring Radar / Player Finding", 'id="sparring"'),
+        ("Game Tracker (11th Ed)", 'id="tracker"'),
+        ("Local Game Store (FLGS) Directory", 'id="game-stores"'),
+        ("Player & Team Leaderboards", 'id="leaderboard"'),
+        ("Meta Intel & Balance Matrix", 'id="meta-intel"'),
+        ("Tournament Radar", 'id="tournaments"'),
+        ("Event Studio (TO Tools)", 'id="eventstudio"'),
+        ("Interactive Challenge / Match Lobby", 'Match Lobby &bull; Live Room Creation'),
+        ("1-Click Game Room Invites in Chat", 'oc-msg-room-card')
+    ]
+    for feat_name, needle in community_features:
+        assert needle in landing_html, f"Community feature '{feat_name}' ({needle}) missing in landing page"
+
+    # 3. Navigation Links and Corresponding Anchors
+    nav_links = [
+        "#community-hub-showcase",
+        "#sparring",
+        "/11th/tracker",
+        "#game-stores",
+        "#tournaments",
+        "#leaderboard",
+        "#meta-intel",
+        "#eventstudio",
+        "#features"
+    ]
+    for link in nav_links:
+        assert f'href="{link}"' in landing_html, f"Nav link '{link}' missing in landing nav"
+        if link.startswith("#"):
+            anchor_id = link.lstrip("#")
+            assert f'id="{anchor_id}"' in landing_html, f"Nav link target anchor 'id=\"{anchor_id}\"' missing in landing page"
+
+    # 4. Strict Neutrality & Zero Adversarial Jabs Check
+    # Ensure there are NO passive-aggressive or hostile jabs at commercial apps/paywalls
+    adversarial_terms = [
+        "corporate greed",
+        "greedy",
+        "cash grab",
+        "monopol",
+        "unlike bcp",
+        "bcp paywall",
+        "rip off",
+        "ripoff",
+        "scam",
+        "predatory"
+    ]
+    landing_lower = landing_html.lower()
+    for term in adversarial_terms:
+        assert term not in landing_lower, f"Landing page must maintain neutrality: found forbidden adversarial term '{term}'"
+
+    # 5. Affirmative, Welcoming Positioning
+    assert "An Open Platform for Every Tabletop General" in landing_html, "Missing open platform commitment heading"
+    assert "Circuit Compatible" in landing_html, "Missing circuit compatibility neutrality badge"
+    assert "Zero Paywalls" in landing_html, "Missing zero paywalls affirmative statement"
+
+    print("✅ Landing page community ethos, 6-pillar feature suite, and strict neutrality verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -641,6 +714,7 @@ if __name__ == "__main__":
     test_pwa_landscape_orientation()
     test_event_studio_mobile_dropdown_role_restriction()
     test_gps_coordinate_precision_parity()
+    test_landing_page_community_ethos_and_neutrality()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 
