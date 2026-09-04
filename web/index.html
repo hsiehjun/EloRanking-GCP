@@ -133,6 +133,7 @@
           <a href="/11th/tracker" class="landing-nav-link">🎲 Game Tracker</a>
           <a href="#tournaments" class="landing-nav-link">Tournament Radar</a>
           <a href="#leaderboard" class="landing-nav-link">🏆 Leaderboard</a>
+          <a href="#meta-intel" class="landing-nav-link">📊 Meta Intel</a>
           <a href="#eventstudio" class="landing-nav-link">Event Studio</a>
           <a href="#features" class="landing-nav-link">Features</a>
         </div>
@@ -905,6 +906,9 @@
         <button class="nav-btn active" id="nav-btn-leaderboard" onclick="switchTab('leaderboard')">
           🏆 Leaderboard
         </button>
+        <button class="nav-btn" id="nav-btn-meta-intel" onclick="switchTab('meta-intel')">
+          📊 Meta Intel
+        </button>
         <button class="nav-btn" id="nav-btn-search" onclick="switchTab('search')">
           🔍 Search
         </button>
@@ -921,6 +925,7 @@
             <option value="community">👥 Community Hub</option>
             <option value="tracker">🎲 Game Tracker</option>
             <option value="leaderboard" selected>🏆 Leaderboard</option>
+            <option value="meta-intel">📊 Meta Intel</option>
             <option value="search">🔍 Search Directory</option>
             <option value="event-studio" id="mobile-opt-event-studio" style="display: none;">🛠️ Event Studio (TO)</option>
             <option disabled>──────────</option>
@@ -1186,21 +1191,15 @@
     <!-- TAB: DEDICATED SPARRING & MATCH CHAT (Transformed to Persistent Floating Chat Widget) -->
     <section id="tab-chat" class="tab-panel" style="display: none !important;" aria-hidden="true"></section>
 
-    <!-- TAB 2: LEADERBOARD & META INTELLIGENCE -->
+    <!-- TAB 2: COMPETITIVE LEADERBOARDS -->
     <section id="tab-leaderboard" class="tab-panel active">
-      <!-- Subtabs Bar: Individual, Teams, Faction Meta, Match Predictor -->
+      <!-- Subtabs Bar: Individual Standings, Team Rankings -->
       <div class="subtabs-bar" style="margin-bottom: 1.25rem;">
         <button id="lead-subtab-players" class="subtab-btn active" onclick="switchLeaderboardSubtab('players')">
           <span>👑 Individual Standings</span>
         </button>
         <button id="lead-subtab-teams" class="subtab-btn" onclick="switchLeaderboardSubtab('teams')">
           <span>🛡️ Team Rankings</span>
-        </button>
-        <button id="lead-subtab-factions" class="subtab-btn" onclick="switchLeaderboardSubtab('factions')">
-          <span>📊 Faction Meta</span>
-        </button>
-        <button id="lead-subtab-predictor" class="subtab-btn" onclick="switchLeaderboardSubtab('predictor')">
-          <span>🎯 Match Predictor</span>
         </button>
       </div>
 
@@ -1268,9 +1267,22 @@
           </table>
         </div>
       </div>
+    </section>
 
-      <!-- View 3: Faction Meta & Balance Zone -->
-      <div id="lead-view-factions" style="display: none;">
+    <!-- TAB 3: META INTEL (FACTION META & MATCH PREDICTOR) -->
+    <section id="tab-meta-intel" class="tab-panel">
+      <!-- Subtabs Bar: Faction Meta & Balance, Match Predictor -->
+      <div class="subtabs-bar" style="margin-bottom: 1.25rem;">
+        <button id="meta-subtab-factions" class="subtab-btn active" onclick="switchMetaSubtab('factions')">
+          <span>📊 Faction Meta &amp; Balance</span>
+        </button>
+        <button id="meta-subtab-predictor" class="subtab-btn" onclick="switchMetaSubtab('predictor')">
+          <span>🎯 Match Predictor</span>
+        </button>
+      </div>
+
+      <!-- View 1: Faction Meta & Balance Zone -->
+      <div id="lead-view-factions">
         <div class="controls-bar" style="flex-wrap: wrap; gap: 0.75rem; justify-content: space-between;">
           <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
             <span style="font-weight: 700; font-size: 0.9rem; color: #fff; margin-right: 0.2rem;">⏱️ Timeframe:</span>
@@ -1490,22 +1502,9 @@
       <!-- Search View 1: Players Directory -->
       <div id="search-view-players">
         <div class="controls-bar">
-          <div class="search-input-group">
+          <div class="search-input-group" style="flex: 1; max-width: 100%;">
             <span class="search-icon">🔍</span>
             <input type="text" id="directory-search-input" class="search-input" placeholder="Search player directory by name..." oninput="debouncePlayersSearch()">
-          </div>
-
-          <div class="filter-group">
-            <select id="dir-faction-filter" onchange="loadPlayersDirectory()">
-              <option value="All">All Factions</option>
-            </select>
-
-            <select id="dir-min-matches-filter" onchange="loadPlayersDirectory()">
-              <option value="0">All Players (0+)</option>
-              <option value="1" selected>Active Players (1+ Matches)</option>
-              <option value="3">Min 3 Matches</option>
-              <option value="5">Min 5 Matches</option>
-            </select>
           </div>
         </div>
 
@@ -1534,18 +1533,9 @@
       <!-- Search View 2: Teams Directory -->
       <div id="search-view-teams" style="display: none;">
         <div class="controls-bar">
-          <div class="search-input-group">
+          <div class="search-input-group" style="flex: 1; max-width: 100%;">
             <span class="search-icon">🔍</span>
             <input type="text" id="teams-search-input" class="search-input" placeholder="Search gaming club or team directory by name..." oninput="debounceTeamsSearch()">
-          </div>
-          <div class="filter-group">
-            <select id="teams-min-roster-filter" onchange="loadTeamsDirectory()">
-              <option value="1">All Teams (1+ Players)</option>
-              <option value="2" selected>Min 2 Players</option>
-              <option value="3">Min 3 Players</option>
-              <option value="5">Min 5 Players</option>
-              <option value="8">Min 8 Players</option>
-            </select>
           </div>
         </div>
 
@@ -1569,7 +1559,6 @@
         </div>
         <div id="teams-pagination" class="pagination-bar"></div>
       </div>
-    </section>
     </section>
 
 
@@ -2841,9 +2830,9 @@
   <!-- Modular Scripts -->
   <script src="/js/utils.js?v=66.0"></script>
   <script src="/js/api.js?v=77.0"></script>
-  <script src="/js/leaderboard.js?v=67.0"></script>
-  <script src="/js/teams.js?v=64.0"></script>
-  <script src="/js/players.js?v=65.0"></script>
+  <script src="/js/leaderboard.js?v=75.0"></script>
+  <script src="/js/teams.js?v=65.0"></script>
+  <script src="/js/players.js?v=66.0"></script>
   <script src="/js/tournaments.js?v=65.0"></script>
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
@@ -2853,7 +2842,7 @@
   <script src="/js/eventstudio.js?v=75.0"></script>
   <script src="/js/connect.js?v=9.0"></script>
   <script src="/js/community.js?v=3.2"></script>
-  <script src="/js/app.js?v=79.0"></script>
+  <script src="/js/app.js?v=80.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

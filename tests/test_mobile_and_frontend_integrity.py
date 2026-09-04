@@ -256,6 +256,44 @@ def test_landing_page_and_chat_notification_fixes():
     print("✅ Landing page chat hiding, mobile header restoration, and responsive notification clearing verified!")
 
 
+def test_meta_intel_and_search_filter_cleanups():
+    """Verify that Meta Intel is a dedicated top-level section and search filters are streamlined."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
+    lead_content = (root_dir / "web" / "js" / "leaderboard.js").read_text(encoding="utf-8")
+    teams_content = (root_dir / "web" / "js" / "teams.js").read_text(encoding="utf-8")
+
+    # 1. Desktop and Mobile Navigation for Meta Intel
+    assert 'id="nav-btn-meta-intel"' in index_content, "nav-btn-meta-intel missing in header nav"
+    assert 'onclick="switchTab(\'meta-intel\')"' in index_content, "switchTab('meta-intel') missing in nav-btn"
+    assert '<option value="meta-intel">📊 Meta Intel</option>' in index_content, "meta-intel option missing in mobile-nav-select"
+    assert '<a href="#meta-intel" class="landing-nav-link">📊 Meta Intel</a>' in index_content, "Meta Intel missing in landing nav links"
+
+    # 2. Dedicated Section Architecture
+    assert '<section id="tab-meta-intel" class="tab-panel">' in index_content, "tab-meta-intel section missing in index.html"
+    assert 'id="meta-subtab-factions"' in index_content, "meta-subtab-factions missing in index.html"
+    assert 'id="meta-subtab-predictor"' in index_content, "meta-subtab-predictor missing in index.html"
+    
+    # Verify Leaderboard strictly has players and teams subtabs
+    assert 'id="lead-subtab-players"' in index_content, "lead-subtab-players missing"
+    assert 'id="lead-subtab-teams"' in index_content, "lead-subtab-teams missing"
+    assert 'id="lead-subtab-factions"' not in index_content, "lead-subtab-factions should be moved out of tab-leaderboard"
+    assert 'id="lead-subtab-predictor"' not in index_content, "lead-subtab-predictor should be moved out of tab-leaderboard"
+
+    # 3. Search Filters Streamlined
+    assert 'id="dir-faction-filter"' not in index_content, "dir-faction-filter should be removed from player search"
+    assert 'id="dir-min-matches-filter"' not in index_content, "dir-min-matches-filter should be removed from player search"
+    assert 'id="teams-min-roster-filter"' not in index_content, "teams-min-roster-filter should be removed from teams search"
+
+    # 4. JS Routing & Subtab Switching
+    assert 'switchMetaSubtab' in lead_content, "switchMetaSubtab missing in leaderboard.js"
+    assert 'window.switchMetaSubtab = switchMetaSubtab;' in lead_content, "switchMetaSubtab not exported to window"
+    assert "tabName === 'meta-intel'" in app_content, "meta-intel handling missing in app.js switchTab"
+    assert "minRoster = minRosterSelect ? minRosterSelect.value : 1;" in teams_content, "teams.js must default minRoster to 1"
+
+    print("✅ Meta Intel dedicated section and streamlined name-only search filters verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -266,4 +304,5 @@ if __name__ == "__main__":
     test_floating_chat_back_navigation()
     test_mobile_nav_dropdown_no_chat()
     test_landing_page_and_chat_notification_fixes()
+    test_meta_intel_and_search_filter_cleanups()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")

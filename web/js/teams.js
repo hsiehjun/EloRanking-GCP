@@ -30,7 +30,7 @@ async function loadTeamsDirectory() {
   const queryInput = document.getElementById('teams-search-input');
   const query = queryInput ? queryInput.value.trim() : '';
   const minRosterSelect = document.getElementById('teams-min-roster-filter');
-  const minRoster = minRosterSelect ? minRosterSelect.value : 2;
+  const minRoster = minRosterSelect ? minRosterSelect.value : 1;
   const tbody = document.getElementById('teams-body');
 
   if (tbody && (!teamsDirectoryData || teamsDirectoryData.length === 0)) {

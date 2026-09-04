@@ -7,6 +7,7 @@ let activeTab = 'my-hub';
 function switchTab(tabName) {
   // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
+  let metaSubtab = null;
   if (tabName === 'chat' || tabName === 'community-chat' || tabName === 'messages' || tabName === 'chats' || tabName === 'direct-chat') {
     if (typeof toggleFloatingChat === 'function') {
       toggleFloatingChat(true);
@@ -23,6 +24,14 @@ function switchTab(tabName) {
     communitySubtab = 'scene';
   } else if (tabName === 'community-hub' || tabName === 'communityhub') {
     tabName = 'community';
+  } else if (tabName === 'meta' || tabName === 'meta-intel' || tabName === 'metaintel' || tabName === 'intel') {
+    tabName = 'meta-intel';
+  } else if (tabName === 'factions' || tabName === 'faction-meta' || tabName === 'meta-factions') {
+    tabName = 'meta-intel';
+    metaSubtab = 'factions';
+  } else if (tabName === 'predictor' || tabName === 'match-predictor') {
+    tabName = 'meta-intel';
+    metaSubtab = 'predictor';
   }
   if (tabName === 'eventstudio') tabName = 'event-studio';
   if (tabName === 'myhub') tabName = 'my-hub';
@@ -65,6 +74,12 @@ function switchTab(tabName) {
   // Trigger lazy loading of view data
   if (tabName === 'leaderboard') {
     loadLeaderboard();
+  } else if (tabName === 'meta-intel') {
+    if (typeof switchMetaSubtab === 'function') {
+      switchMetaSubtab(metaSubtab || 'factions');
+    } else if (typeof loadFactionMeta === 'function') {
+      loadFactionMeta();
+    }
   } else if (tabName === 'search') {
     switchSearchSubtab('players');
   } else if (tabName === 'community') {
@@ -171,12 +186,9 @@ function switchSearchSubtab(subtab) {
 }
 
 function filterByFaction(faction) {
-  switchTab('search');
-  switchSearchSubtab('players');
-  const sel = document.getElementById('dir-faction-filter');
-  if (sel) {
-    sel.value = faction;
-    loadPlayersDirectory();
+  switchTab('meta-intel');
+  if (typeof switchMetaSubtab === 'function') {
+    switchMetaSubtab('factions');
   }
 }
 

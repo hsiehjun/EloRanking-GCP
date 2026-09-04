@@ -1,34 +1,46 @@
 function switchLeaderboardSubtab(subtab) {
+  if (subtab === 'factions' || subtab === 'predictor') {
+    if (typeof switchTab === 'function') switchTab('meta-intel');
+    if (typeof switchMetaSubtab === 'function') switchMetaSubtab(subtab);
+    return;
+  }
+
   const btnPlayers = document.getElementById('lead-subtab-players');
   const btnTeams = document.getElementById('lead-subtab-teams');
-  const btnFactions = document.getElementById('lead-subtab-factions');
-  const btnPredictor = document.getElementById('lead-subtab-predictor');
-
   const viewPlayers = document.getElementById('lead-view-players');
   const viewTeams = document.getElementById('lead-view-teams');
-  const viewFactions = document.getElementById('lead-view-factions');
-  const viewPredictor = document.getElementById('lead-view-predictor');
 
   if (btnPlayers) btnPlayers.classList.toggle('active', subtab === 'players');
   if (btnTeams) btnTeams.classList.toggle('active', subtab === 'teams');
-  if (btnFactions) btnFactions.classList.toggle('active', subtab === 'factions');
-  if (btnPredictor) btnPredictor.classList.toggle('active', subtab === 'predictor');
 
   if (viewPlayers) viewPlayers.style.display = (subtab === 'players') ? 'block' : 'none';
   if (viewTeams) viewTeams.style.display = (subtab === 'teams') ? 'block' : 'none';
-  if (viewFactions) viewFactions.style.display = (subtab === 'factions') ? 'block' : 'none';
-  if (viewPredictor) viewPredictor.style.display = (subtab === 'predictor') ? 'block' : 'none';
 
   if (subtab === 'teams') {
     loadLeaderboardTeams();
-  } else if (subtab === 'factions') {
-    if (typeof loadFactionMeta === 'function') loadFactionMeta();
-  } else if (subtab === 'predictor') {
-    // Predictor ready
   } else {
     loadLeaderboard();
   }
 }
+window.switchLeaderboardSubtab = switchLeaderboardSubtab;
+
+function switchMetaSubtab(subtab) {
+  const btnFactions = document.getElementById('meta-subtab-factions');
+  const btnPredictor = document.getElementById('meta-subtab-predictor');
+  const viewFactions = document.getElementById('lead-view-factions');
+  const viewPredictor = document.getElementById('lead-view-predictor');
+
+  if (btnFactions) btnFactions.classList.toggle('active', subtab === 'factions');
+  if (btnPredictor) btnPredictor.classList.toggle('active', subtab === 'predictor');
+
+  if (viewFactions) viewFactions.style.display = (subtab === 'factions') ? 'block' : 'none';
+  if (viewPredictor) viewPredictor.style.display = (subtab === 'predictor') ? 'block' : 'none';
+
+  if (subtab === 'factions') {
+    if (typeof loadFactionMeta === 'function') loadFactionMeta();
+  }
+}
+window.switchMetaSubtab = switchMetaSubtab;
 
 const leaderboardCache = new Map();
 const leaderboardTeamsCache = new Map();
