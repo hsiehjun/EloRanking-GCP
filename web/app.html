@@ -1386,17 +1386,17 @@
       <div id="user-settings-modal-body" style="padding: 1.4rem; overflow-y: auto; overflow-x: hidden; width: 100%; box-sizing: border-box; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
         <!-- Account Info -->
         <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1rem; font-size: 0.82rem; box-sizing: border-box; width: 100%;">
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
-            <span style="color: var(--text-muted);">Email Address:</span>
-            <b id="settings-email-display" style="color: #fff;">-</b>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+            <span style="color: var(--text-muted); white-space: nowrap; flex-shrink: 0;">Email Address:</span>
+            <b id="settings-email-display" style="color: #fff; text-align: right; word-break: break-all;">-</b>
           </div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
-            <span style="color: var(--text-muted);">Account Role:</span>
-            <span id="settings-role-display" style="color: #fff;">-</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+            <span style="color: var(--text-muted); white-space: nowrap; flex-shrink: 0;">Account Role:</span>
+            <span id="settings-role-display" style="color: #fff; text-align: right;">-</span>
           </div>
-          <div style="display: flex; justify-content: space-between;">
-            <span style="color: var(--text-muted);">Circuit Sync Status:</span>
-            <span id="settings-bcp-status" style="color: #fff;">-</span>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+            <span style="color: var(--text-muted); white-space: nowrap; flex-shrink: 0; padding-top: 1px;">BCP Sync Status:</span>
+            <div id="settings-bcp-status" style="color: #fff; text-align: right; margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;">-</div>
           </div>
         </div>
 
@@ -2165,7 +2165,7 @@
   <script src="/js/factions.js?v=65.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=66.0"></script>
-  <script src="/js/auth.js?v=84.0"></script>
+  <script src="/js/auth.js?v=85.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
   <script src="/js/connect.js?v=12.0"></script>

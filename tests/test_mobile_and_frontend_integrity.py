@@ -799,6 +799,9 @@ def test_bcp_linking_integrity_and_landing_separation():
     assert 'onsubmit="handleConnectBcp(event)"' in app_content, "handleConnectBcp(event) missing in app.html form"
     assert 'Best Coast Pairings Link Required' in app_content, "BCP locked gate heading missing in app.html Event Studio"
     assert 'id="btn-sync-bcp-events"' in app_content, "btn-sync-bcp-events missing in app.html"
+    assert 'BCP Sync Status:' in app_content, "BCP Sync Status: label missing in Account Settings"
+    assert 'Circuit Sync Status' not in app_content, "Legacy Circuit Sync Status still present in Account Settings"
+    assert 'id="settings-bcp-status"' in app_content, "settings-bcp-status missing in Account Settings"
 
     # 3. Event Studio standalone (web/eventstudio.html) must also have bcp-link-modal
     assert 'id="bcp-link-modal"' in es_content, "bcp-link-modal missing in eventstudio.html"

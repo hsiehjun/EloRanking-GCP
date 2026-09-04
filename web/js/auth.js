@@ -733,14 +733,26 @@ function openUserSettingsModal() {
       if (isTO) {
         roleVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🎖️ ${escapeHtml(roleStr)}</span>`;
       } else {
-        roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:transparent; border:none; color:#f59e0b; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:6px; font-weight:600;">Request TO Access</button>`;
+        roleVal.innerHTML = `<span style="color:#94a3b8;">${escapeHtml(roleStr)}</span> <button onclick="closeUserSettingsModal(); if(typeof openRequestToModal === 'function') openRequestToModal();" style="background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; margin-left:6px; transition:all 0.15s;">Request TO Access</button>`;
       }
     }
     if (bcpVal) {
       if (currentUser.bcp_connected || currentUser.bcp_user_id) {
-        bcpVal.innerHTML = `<span style="color:#10b981; font-weight:700;">🟢 Connected</span> (${escapeHtml(currentUser.bcp_email || 'Linked')}) <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:4px;">Manage</button>`;
+        const emailLabel = currentUser.bcp_email ? `<div style="color:#94a3b8; font-size:0.75rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:210px;" title="${escapeHtml(currentUser.bcp_email)}">(${escapeHtml(currentUser.bcp_email)})</div>` : '';
+        bcpVal.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+            <span style="color:#10b981; font-weight:700;">🟢 Connected</span>
+            <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Manage</button>
+          </div>
+          ${emailLabel}
+        `;
       } else {
-        bcpVal.innerHTML = `<span style="color:#94a3b8;">⚪ Not Linked</span> <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:transparent; border:none; color:#38bdf8; font-size:11px; cursor:pointer; text-decoration:underline; margin-left:4px;">Link now</button>`;
+        bcpVal.innerHTML = `
+          <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
+            <span style="color:#94a3b8;">⚪ Not Linked</span>
+            <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Link now</button>
+          </div>
+        `;
       }
     }
   }
