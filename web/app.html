@@ -24,13 +24,22 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=15.0">
-  <link rel="stylesheet" href="/css/styles.css?v=81.0">
+  <link rel="stylesheet" href="/css/styles.css?v=82.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
     function handleMobileNavChange(val) {
       if (!val) return;
+      if (val === 'reload') {
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+          }).catch(function() {});
+        }
+        window.location.reload(true);
+        return;
+      }
       if (val === 'tracker') {
         window.location.href = '/11th/tracker';
         return;
@@ -184,6 +193,7 @@
             <option disabled id="mobile-opt-divider">──────────</option>
             <option value="feedback" id="mobile-opt-feedback">💬 Send Feedback</option>
             <option value="settings" id="mobile-opt-settings">⚙️ Account Settings</option>
+            <option value="reload" id="mobile-opt-reload">🔄 Reload App</option>
             <option value="logout" id="mobile-opt-logout">🚪 Sign Out</option>
             <option value="login" id="mobile-opt-login" style="display: none;">🔑 Sign In</option>
           </select>
@@ -1550,6 +1560,21 @@
             </button>
           </div>
         </div>
+
+        <!-- Section 6: App Diagnostics & Cache -->
+        <div style="padding-top: 1rem; border-top: 1px solid var(--border); width: 100%; box-sizing: border-box;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            <label style="font-size: 0.82rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
+              📱 App &amp; Offline Cache
+            </label>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
+            If using OmniTactica as an installed mobile app (PWA) and you experience delayed updates or cached layouts, reload to fetch the latest platform release.
+          </p>
+          <button type="button" onclick="if(window.caches) { caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); }).catch(function(){}); } window.location.reload(true);" class="btn btn-outline" style="width: 100%; box-sizing: border-box; font-size: 0.82rem; padding: 0.6rem; justify-content: center; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
+            🔄 Reload App &amp; Force Cache Refresh
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -2197,9 +2222,9 @@
   <script src="/js/tournaments.js?v=65.0"></script>
   <script src="/js/factions.js?v=65.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
-  <script src="/js/modals.js?v=66.0"></script>
+  <script src="/js/modals.js?v=67.0"></script>
   <script src="/js/auth.js?v=85.0"></script>
-  <script src="/js/my_hub.js?v=74.0"></script>
+  <script src="/js/my_hub.js?v=75.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
   <script src="/js/connect.js?v=12.0"></script>
   <script src="/js/community.js?v=4.0"></script>
