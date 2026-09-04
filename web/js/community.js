@@ -578,7 +578,7 @@ function renderCurrentSubtab() {
  */
 function setCommunityEventsFilter(filter) {
   communityState.eventsFilter = filter;
-  document.querySelectorAll('.comm-filter-chip').forEach(c => {
+  document.querySelectorAll('#comm-subview-tournaments .comm-filter-chip').forEach(c => {
     c.classList.toggle('active', c.dataset.filter === filter);
   });
   renderCommunityEvents();
@@ -627,6 +627,28 @@ function renderCommunityEvents() {
     `;
   }
 
+  // Update counts in toolbar chips
+  const countAll = document.getElementById('count-events-all');
+  if (countAll) countAll.textContent = upcoming.length + recent.length;
+  const countUpcoming = document.getElementById('count-events-upcoming');
+  if (countUpcoming) countUpcoming.textContent = upcoming.length;
+  const countRecent = document.getElementById('count-events-recent');
+  if (countRecent) countRecent.textContent = recent.length;
+
+  const sumEl = document.getElementById('comm-tournaments-summary');
+  if (sumEl) sumEl.textContent = `${upcoming.length} upcoming, ${recent.length} past • ${communityState.radiusMiles} mi`;
+
+  const badgeCount = document.getElementById('badge-events-count');
+  if (badgeCount) {
+    badgeCount.textContent = upcoming.length;
+    badgeCount.style.display = upcoming.length > 0 ? 'inline-block' : 'none';
+  }
+
+  // Sync toolbar active chip
+  document.querySelectorAll('#comm-subview-tournaments .comm-filter-chip').forEach(c => {
+    c.classList.toggle('active', c.dataset.filter === (communityState.eventsFilter || 'all'));
+  });
+
   if (communityState.eventsFilter === 'upcoming') {
     displayedRecent = [];
   } else if (communityState.eventsFilter === 'recent') {
@@ -637,33 +659,7 @@ function renderCommunityEvents() {
     ? Number(currentUser.current_elo)
     : null;
 
-  let html = `
-    <!-- Subtab Header & Event Filter Chips -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-      <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>🏆 Local Tournaments</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${upcoming.length} upcoming, ${recent.length} recent within ${communityState.radiusMiles} miles)</span>
-        </h3>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Verified tournament scenes, Field Avg Elo ratings, and registered rosters within ${communityState.radiusMiles} miles
-        </div>
-      </div>
-
-      <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
-        <button class="comm-filter-chip ${communityState.eventsFilter === 'all' ? 'active' : ''}" data-filter="all" onclick="setCommunityEventsFilter('all')">
-          All Events (${upcoming.length + recent.length})
-        </button>
-        <button class="comm-filter-chip ${communityState.eventsFilter === 'upcoming' ? 'active' : ''}" data-filter="upcoming" onclick="setCommunityEventsFilter('upcoming')">
-          Upcoming & Ongoing (${upcoming.length})
-        </button>
-        <button class="comm-filter-chip ${communityState.eventsFilter === 'recent' ? 'active' : ''}" data-filter="recent" onclick="setCommunityEventsFilter('recent')">
-          Recent Results (${recent.length})
-        </button>
-      </div>
-    </div>
-    ${venueFilterBanner}
-  `;
+  let html = venueFilterBanner;
 
   // 1. Upcoming & Ongoing Section
   if (communityState.eventsFilter !== 'recent') {
@@ -990,35 +986,15 @@ function renderCommunityCompetitors() {
   const competitors = overview?.local_competitors || [];
   const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
   const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
-  const disclaimer = overview?.disclaimer || (
-    `Competitors surfaced here based on verified tournament participation and event rosters within ${rad} miles of ${locName}. ` +
-    "Linking your BCP account enables automatic local matching and tournament tracking."
-  );
+
+  const sumEl = document.getElementById('comm-scene-summary');
+  if (sumEl) sumEl.textContent = `${competitors.length} competitors • ${rad} mi`;
 
   let html = `
-    <!-- Verified Tournament Participation Disclaimer -->
-    <div class="comm-disclaimer-card">
-      <div style="font-size: 1.4rem; line-height: 1; color: #38bdf8;">ℹ️</div>
-      <div>
-        <div style="font-weight: 800; color: #fff; font-size: 0.88rem; margin-bottom: 0.2rem;">
-          Verified Tournament Competitor Discovery
-        </div>
-        <div style="font-size: 0.82rem; color: #cbd5e1; line-height: 1.5;">
-          ${escapeHtml(disclaimer)}
-        </div>
-      </div>
-    </div>
-
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-      <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>👥 Shared Tournament Competitors</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${competitors.length} active players within ${rad} miles)</span>
-        </h3>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Tabletop players identified through tournament participation within ${rad} miles of ${escapeHtml(locName)} &bull; Sorted by account status &amp; Elo closeness
-        </div>
-      </div>
+    <!-- Compact Verified Tournament Participation Banner -->
+    <div style="margin-bottom: 1.15rem; padding: 0.65rem 0.95rem; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; font-size: 0.8rem; color: #cbd5e1; display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 1.05rem; line-height: 1;">ℹ️</span>
+      <span>Competitors identified through verified tournament participation within ${rad} miles of <strong>${escapeHtml(locName)}</strong>.</span>
     </div>
   `;
 
@@ -1255,21 +1231,11 @@ function renderCommunityTeamsLeaderboard() {
   const overview = communityState.overview;
   const teams = overview?.local_teams_leaderboard || [];
   const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
-  const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
+
+  const sumEl = document.getElementById('comm-scene-summary');
+  if (sumEl) sumEl.textContent = `${teams.length} clubs & teams • ${rad} mi`;
 
   let html = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-      <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>🛡️ Local Team Leaderboard</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${teams.length} clubs & teams within ${rad} miles)</span>
-        </h3>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Active gaming clubs and teams ranked by average competitor Elo across tournaments within ${rad} miles of ${escapeHtml(locName)}
-        </div>
-      </div>
-    </div>
-
     <div class="table-container comm-table-container">
       <table id="comm-teams-leaderboard-table" class="data-table">
         <thead>
@@ -1363,21 +1329,11 @@ function renderCommunityLeaderboard() {
   const overview = communityState.overview;
   const leaderboard = overview?.local_leaderboard || [];
   const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
-  const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
+
+  const sumEl = document.getElementById('comm-scene-summary');
+  if (sumEl) sumEl.textContent = `${leaderboard.length} ranked competitors • ${rad} mi`;
 
   let html = `
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.5rem;">
-      <div>
-        <h3 style="font-size: 1.15rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>👑 Local Player Standings</span>
-          <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">(${leaderboard.length} ranked competitors within ${rad} miles)</span>
-        </h3>
-        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">
-          Dynamic circuit ratings and match records calculated strictly from tournaments within ${rad} miles of ${escapeHtml(locName)}
-        </div>
-      </div>
-    </div>
-
     <div class="table-container comm-table-container">
       <table id="comm-leaderboard-table" class="data-table">
         <thead>
@@ -1822,6 +1778,19 @@ async function loadLocalGameStores(forceRefresh = false) {
   const query = (communityState.storesSearch || '').trim().toLowerCase();
   const cacheKey = `comm_stores_${Math.round(lat*100)/100}_${Math.round(lng*100)/100}_${radius}_${query}`;
 
+  // Instant in-memory reuse when switching tabs without force refresh
+  if (!forceRefresh && communityState.stores && communityState.stores.length > 0) {
+    updateStoresBadgesAndCounts();
+    renderStoresGrid();
+    if (communityState.storesMap && typeof google !== 'undefined') {
+      setTimeout(() => {
+        google.maps.event.trigger(communityState.storesMap, 'resize');
+      }, 50);
+    }
+    communityState.storesLoading = false;
+    return;
+  }
+
   // Instant local session cache hit
   if (!forceRefresh && (!communityState.stores || communityState.stores.length === 0)) {
     try {
@@ -1833,6 +1802,8 @@ async function loadLocalGameStores(forceRefresh = false) {
           updateStoresBadgesAndCounts();
           renderStoresGrid();
           initStoresGoogleMap(parsed);
+          communityState.storesLoading = false;
+          return;
         }
       }
     } catch (e) {}
@@ -2361,7 +2332,7 @@ function focusStoreOnMap(lat, lng, storeId) {
  */
 function setStoresFilter(filter) {
   communityState.storesFilter = filter;
-  document.querySelectorAll('.comm-store-filters .comm-filter-chip').forEach(btn => {
+  document.querySelectorAll('#comm-subview-stores .comm-store-filters .comm-filter-chip').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
   renderStoresGrid();

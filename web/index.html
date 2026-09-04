@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=72.0">
+  <link rel="stylesheet" href="/css/styles.css?v=73.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
@@ -1013,6 +1013,7 @@
         </div>
 
         <!-- Unified Community Hub Subtabs Bar -->
+        <!-- Unified Community Hub Subtabs Bar -->
         <div class="comm-subtabs">
           <button class="comm-subtab-btn active" id="comm-subtab-btn-radar" data-subtab="radar" onclick="switchCommunitySubtab('radar')">
             <span>🎯</span> <span>Sparring Radar</span>
@@ -1020,6 +1021,7 @@
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-tournaments" data-subtab="tournaments" onclick="switchCommunitySubtab('tournaments')">
             <span>🏆</span> <span>Local Tournaments</span>
+            <span id="badge-events-count" class="oc-badge" style="margin-left: 5px; display: none;">0</span>
           </button>
           <button class="comm-subtab-btn" id="comm-subtab-btn-stores" data-subtab="stores" onclick="switchCommunitySubtab('stores')">
             <span>🏪</span> <span>Game Stores</span>
@@ -1032,10 +1034,10 @@
 
         <!-- SUBVIEW 1: SPARRING RADAR -->
         <div id="comm-subview-radar" class="comm-subview" style="display: block;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; background: var(--bg-card); padding: 0.75rem 1.25rem; border-radius: var(--radius-md); border: 1px solid var(--border);">
-            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-              <span style="font-size: 0.82rem; font-weight: 700; color: #38bdf8;">⚔️ Play Style:</span>
-              <select id="filter-style" class="search-input" style="padding: 0.35rem 0.75rem; font-size: 0.82rem; width: auto;" onchange="loadNearbyPlayers()">
+          <div class="comm-subview-toolbar">
+            <div class="comm-toolbar-left">
+              <span class="comm-toolbar-label">⚔️ Play Style:</span>
+              <select id="filter-style" class="form-input comm-toolbar-select" onchange="loadNearbyPlayers()">
                 <option value="all">All Play Styles</option>
                 <option value="Competitive">Competitive / Tournament Prep</option>
                 <option value="Casual">Casual / Practice</option>
@@ -1044,9 +1046,12 @@
               <input type="hidden" id="filter-radius" value="100">
             </div>
 
-            <button onclick="loadNearbyPlayers()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.38rem 0.85rem;">
-              🔄 Refresh Radar
-            </button>
+            <div class="comm-toolbar-right">
+              <span id="comm-radar-summary" class="comm-toolbar-meta"></span>
+              <button onclick="loadNearbyPlayers()" class="btn btn-outline comm-toolbar-btn">
+                <span>🔄</span> <span>Refresh Radar</span>
+              </button>
+            </div>
           </div>
 
           <div id="players-grid" class="oc-players-grid">
@@ -1059,63 +1064,73 @@
 
         <!-- SUBVIEW 2: REGIONAL TOURNAMENTS -->
         <div id="comm-subview-tournaments" class="comm-subview" style="display: none;">
+          <div class="comm-subview-toolbar">
+            <div class="comm-toolbar-left" id="comm-tournaments-filters">
+              <button class="comm-filter-chip active" id="filter-chip-events-all" data-filter="all" onclick="setCommunityEventsFilter('all')">
+                All Events (<span id="count-events-all">0</span>)
+              </button>
+              <button class="comm-filter-chip" id="filter-chip-events-upcoming" data-filter="upcoming" onclick="setCommunityEventsFilter('upcoming')">
+                ⚡ Upcoming &amp; Ongoing (<span id="count-events-upcoming">0</span>)
+              </button>
+              <button class="comm-filter-chip" id="filter-chip-events-recent" data-filter="recent" onclick="setCommunityEventsFilter('recent')">
+                📜 Recent Results (<span id="count-events-recent">0</span>)
+              </button>
+            </div>
+
+            <div class="comm-toolbar-right">
+              <span id="comm-tournaments-summary" class="comm-toolbar-meta"></span>
+              <button onclick="if(typeof loadCommunityOverview==='function') loadCommunityOverview(); else if(typeof loadCommunityHub==='function') loadCommunityHub();" class="btn btn-outline comm-toolbar-btn">
+                <span>🔄</span> <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
           <div id="comm-tournaments-content"></div>
         </div>
 
-        <!-- SUBVIEW: LOCAL GAME STORES & CLUBS -->
+        <!-- SUBVIEW 3: LOCAL GAME STORES & CLUBS -->
         <div id="comm-subview-stores" class="comm-subview" style="display: none;">
-          <div class="comm-stores-header-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem 1.5rem; margin-bottom: 1.25rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; margin-bottom: 1rem;">
-              <div class="mobile-hidden">
-                <h3 style="font-size: 1.18rem; font-weight: 800; color: #fff; margin: 0; display: flex; align-items: center; gap: 8px;">
-                  <span>🏪 Local Warhammer 40k Game Stores &amp; Tabletop Clubs</span>
-                </h3>
-                <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 3px;">
-                  Hobby shops, official Warhammer locations, and gaming clubs with open tables within your area
-                </div>
+          <div class="comm-subview-toolbar comm-stores-toolbar">
+            <div class="comm-toolbar-row">
+              <div class="comm-toolbar-left comm-store-filters">
+                <button class="comm-filter-chip active" id="filter-chip-store-all" data-filter="all" onclick="setStoresFilter('all')">All (<span id="count-stores-all">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-tournaments" data-filter="tournaments" onclick="setStoresFilter('tournaments')">🏆 Tournament Venues (<span id="count-stores-tournaments">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-official" data-filter="official" onclick="setStoresFilter('official')">🛡️ Official GW (<span id="count-stores-official">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-top" data-filter="top_rated" onclick="setStoresFilter('top_rated')">⭐ 4.5+ (<span id="count-stores-top">0</span>)</button>
+                <button class="comm-filter-chip" id="filter-chip-store-open" data-filter="open_now" onclick="setStoresFilter('open_now')">🟢 Open Now</button>
               </div>
 
-              <!-- View Mode Buttons & Refresh -->
-              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <div class="comm-scene-toggles-bar" style="display: inline-flex; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 3px;">
+              <div class="comm-toolbar-right">
+                <div class="comm-scene-toggles-bar">
                   <button id="btn-stores-view-both" class="comm-toggle-btn active" onclick="setStoresViewMode('both')" title="Map &amp; Cards Split View">
-                    🗺️ Split View
+                    🗺️ Split
                   </button>
                   <button id="btn-stores-view-cards" class="comm-toggle-btn" onclick="setStoresViewMode('cards')" title="Cards List Only">
-                    📋 Cards Only
+                    📋 Cards
                   </button>
                   <button id="btn-stores-view-map" class="comm-toggle-btn" onclick="setStoresViewMode('map')" title="Full Map View">
-                    🗺️ Full Map
+                    🗺️ Map
                   </button>
                 </div>
 
-                <button onclick="loadLocalGameStores(true)" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 4px;">
-                  🔄 Refresh Stores
+                <button onclick="loadLocalGameStores(true)" class="btn btn-outline comm-toolbar-btn">
+                  <span>🔄</span> <span>Refresh</span>
                 </button>
               </div>
             </div>
 
-            <!-- Search & Filter Controls -->
-            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;">
-              <div style="position: relative; flex: 1; min-width: 240px;">
+            <div class="comm-toolbar-search-row" style="width: 100%;">
+              <div style="position: relative; width: 100%;">
                 <input type="text" id="stores-search-input" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 36px; padding-right: 32px; font-size: 0.82rem;" placeholder="Search stores by name, city, or address..." oninput="handleStoresSearchInput(this.value)">
                 <span style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 14px; opacity: 0.7; pointer-events: none;">🔍</span>
                 <button id="stores-search-clear" onclick="clearStoresSearch()" style="display: none; position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #94a3b8; font-size: 14px; cursor: pointer;">✕</button>
-              </div>
-
-              <div class="comm-store-filters" style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
-                <button class="comm-filter-chip active" id="filter-chip-store-all" data-filter="all" onclick="setStoresFilter('all')">All (<span id="count-stores-all">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-tournaments" data-filter="tournaments" onclick="setStoresFilter('tournaments')">🏆 Tournament Venues (<span id="count-stores-tournaments">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-official" data-filter="official" onclick="setStoresFilter('official')">🛡️ Official GW (<span id="count-stores-official">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-top" data-filter="top_rated" onclick="setStoresFilter('top_rated')">⭐ 4.5+ Rating (<span id="count-stores-top">0</span>)</button>
-                <button class="comm-filter-chip" id="filter-chip-store-open" data-filter="open_now" onclick="setStoresFilter('open_now')">🟢 Open Now</button>
               </div>
             </div>
           </div>
 
           <!-- Interactive Google Map Container -->
           <div id="comm-stores-map-wrapper" style="margin-bottom: 1.25rem; border-radius: var(--radius-lg); overflow: hidden; border: 1px solid var(--border); background: #070b14; position: relative;">
-            <div id="comm-stores-map" style="width: 100%; height: 380px;"></div>
+            <div id="comm-stores-map" style="width: 100%; height: 340px;"></div>
             <div id="comm-stores-map-fallback" style="display: none; padding: 2.5rem 1.5rem; text-align: center; color: var(--text-muted); background: var(--bg-card);">
               <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🗺️</div>
               <h4 style="color: #fff; margin-bottom: 0.35rem;">Interactive Map</h4>
@@ -1134,22 +1149,28 @@
           </div>
         </div>
 
-        <!-- SUBVIEW 3: SCENE LEADERBOARD & COMPETITORS -->
+        <!-- SUBVIEW 4: SCENE LEADERBOARD & COMPETITORS -->
         <div id="comm-subview-scene" class="comm-subview" style="display: none;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
-            <div class="comm-scene-toggles-bar" style="display: inline-flex; background: rgba(15, 23, 42, 0.8); border: 1px solid var(--border); border-radius: 8px; padding: 3px; gap: 3px;">
-              <button id="comm-scene-toggle-leaderboard" class="comm-toggle-btn active" onclick="setCommunitySceneView('leaderboard')">
-                👑 Player Standings
-              </button>
-              <button id="comm-scene-toggle-teams" class="comm-toggle-btn" onclick="setCommunitySceneView('teams')">
-                🛡️ Team Standings
-              </button>
-              <button id="comm-scene-toggle-competitors" class="comm-toggle-btn" onclick="setCommunitySceneView('competitors')">
-                👥 Shared Tournament Competitors
-              </button>
+          <div class="comm-subview-toolbar">
+            <div class="comm-toolbar-left">
+              <div class="comm-scene-toggles-bar">
+                <button id="comm-scene-toggle-leaderboard" class="comm-toggle-btn active" onclick="setCommunitySceneView('leaderboard')">
+                  👑 Player Standings
+                </button>
+                <button id="comm-scene-toggle-teams" class="comm-toggle-btn" onclick="setCommunitySceneView('teams')">
+                  🛡️ Team Standings
+                </button>
+                <button id="comm-scene-toggle-competitors" class="comm-toggle-btn" onclick="setCommunitySceneView('competitors')">
+                  👥 Shared Tournament Competitors
+                </button>
+              </div>
             </div>
-            <div style="font-size: 0.78rem; color: #94a3b8;">
-              Verified through tournament results &amp; local circuit data
+
+            <div class="comm-toolbar-right">
+              <span id="comm-scene-summary" class="comm-toolbar-meta">Verified circuit</span>
+              <button onclick="if(typeof loadCommunityOverview==='function') loadCommunityOverview(); else if(typeof loadCommunityHub==='function') loadCommunityHub();" class="btn btn-outline comm-toolbar-btn">
+                <span>🔄</span> <span>Refresh</span>
+              </button>
             </div>
           </div>
 
@@ -2908,8 +2929,8 @@
   <script src="/js/auth.js?v=76.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
-  <script src="/js/connect.js?v=4.4"></script>
-  <script src="/js/community.js?v=2.0"></script>
+  <script src="/js/connect.js?v=4.5"></script>
+  <script src="/js/community.js?v=3.0"></script>
   <script src="/js/app.js?v=76.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->

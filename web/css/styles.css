@@ -3601,8 +3601,93 @@ input, select, textarea {
   box-shadow: 0 0 14px rgba(56, 189, 248, 0.18);
 }
 
+/* ==========================================================================
+   COMMUNITY HUB: UNIFIED SUBVIEW TOOLBAR
+   Standardized layout, padding, and vertical rhythm across all 4 subtabs
+   ========================================================================== */
+.comm-subview-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.65rem 1rem;
+  margin-bottom: 1.25rem;
+  min-height: 52px;
+  box-sizing: border-box;
+}
+
+.comm-subview-toolbar.comm-stores-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.65rem;
+  padding: 0.75rem 1rem;
+}
+
+.comm-toolbar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.comm-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.comm-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.comm-toolbar-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #38bdf8;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.comm-toolbar-select {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+  border-radius: 6px;
+  background: #070b14;
+  border: 1px solid var(--border);
+  color: #fff;
+}
+
+.comm-toolbar-btn {
+  font-size: 0.78rem !important;
+  padding: 0.38rem 0.85rem !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  white-space: nowrap !important;
+}
+
+.comm-toolbar-meta {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
 .comm-filter-chip {
-  padding: 3px 10px;
+  padding: 4px 11px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(15, 23, 42, 0.5);
@@ -3611,6 +3696,15 @@ input, select, textarea {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.comm-filter-chip:hover {
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #fff;
 }
 
 .comm-filter-chip.active {
@@ -3938,14 +4032,41 @@ input, select, textarea {
    with a single fluid vertical gesture.
    ========================================================================== */
 @media (max-width: 768px) {
+  .comm-subview-toolbar {
+    padding: 0.55rem 0.75rem !important;
+    gap: 0.5rem !important;
+    margin-bottom: 0.85rem !important;
+  }
+  .comm-toolbar-left {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .comm-toolbar-right {
+    width: 100%;
+    margin-left: 0 !important;
+    justify-content: space-between;
+  }
+  .comm-toolbar-meta {
+    font-size: 0.74rem;
+  }
+  .comm-scene-toggles-bar {
+    width: 100%;
+    display: flex;
+  }
+  .comm-scene-toggles-bar .comm-toggle-btn {
+    flex: 1;
+    justify-content: center;
+    padding: 0.4rem 0.45rem !important;
+    font-size: 0.74rem !important;
+  }
   .comm-stores-grid {
     grid-template-columns: 1fr;
   }
   #comm-stores-map {
-    height: 280px !important;
+    height: 260px !important;
   }
   .comm-stores-view-map #comm-stores-map {
-    height: 460px !important;
+    height: 440px !important;
   }
 
   /* Universal elimination of inner scroll traps on mobile */

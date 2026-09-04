@@ -645,6 +645,8 @@ async function loadNearbyPlayers() {
       countBadge.textContent = 'Off';
       countBadge.style.opacity = '0.7';
     }
+    const sumEl = document.getElementById('comm-radar-summary');
+    if (sumEl) sumEl.textContent = 'Radar Paused (Off Duty)';
     container.innerHTML = `
       <div style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); max-width: 680px; margin: 0 auto; width: 100%; box-sizing: border-box;">
         <div style="width: 64px; height: 64px; border-radius: 50%; background: rgba(100, 116, 139, 0.15); border: 1px solid rgba(100, 116, 139, 0.3); display: inline-flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto 1rem;">
@@ -668,12 +670,15 @@ async function loadNearbyPlayers() {
     return;
   }
 
-  container.innerHTML = `
-    <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
-      <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🧭</div>
-      <div>Scanning local tabletop radar for active sparring partners...</div>
-    </div>
-  `;
+  const hasExistingCards = Boolean(container.querySelector('.oc-player-card'));
+  if (!hasExistingCards) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🧭</div>
+        <div>Scanning local tabletop radar for active sparring partners...</div>
+      </div>
+    `;
+  }
 
   const style = document.getElementById('filter-style')?.value || 'all';
   const lat = (typeof communityState !== 'undefined' && communityState.lat != null)
@@ -691,6 +696,10 @@ async function loadNearbyPlayers() {
     if (countBadge) {
       countBadge.textContent = players.length;
       countBadge.style.opacity = '1';
+    }
+    const sumEl = document.getElementById('comm-radar-summary');
+    if (sumEl) {
+      sumEl.textContent = `${players.length} active player${players.length === 1 ? '' : 's'} • ${radius} mi`;
     }
 
     if (players.length === 0) {
