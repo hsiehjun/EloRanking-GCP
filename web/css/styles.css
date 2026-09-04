@@ -27,6 +27,13 @@ header {
 #app-header {
   flex-shrink: 0 !important;
   width: 100% !important;
+  padding-top: constant(safe-area-inset-top);
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-left: constant(safe-area-inset-left);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: constant(safe-area-inset-right);
+  padding-right: env(safe-area-inset-right, 0px);
+  box-sizing: border-box;
 }
 .header-inner {
   max-width: 1440px;
@@ -529,6 +536,10 @@ tbody tr:hover {
   align-items: center;
   justify-content: center;
   padding: 1.5rem 1rem;
+  padding-top: max(1.5rem, calc(0.75rem + env(safe-area-inset-top, 0px)));
+  padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom, 0px)));
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
   overflow-y: auto;
   box-sizing: border-box;
 }
@@ -857,15 +868,20 @@ input, select, textarea {
     width: 100% !important;
     display: block !important;
     flex-shrink: 0 !important;
-    padding: 0 !important;
+    padding-top: constant(safe-area-inset-top) !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-bottom: 0 !important;
+    padding-left: env(safe-area-inset-left, 0px) !important;
+    padding-right: env(safe-area-inset-right, 0px) !important;
     background: rgba(10, 14, 23, 0.98);
     border-bottom: 1px solid rgba(56, 189, 248, 0.25);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
+    box-sizing: border-box !important;
   }
 
   .header-inner {
-    padding: 0.35rem 0.65rem !important;
+    padding: 0.45rem 0.75rem !important;
     display: flex !important;
     align-items: center !important;
     justify-content: stretch !important;
@@ -3161,9 +3177,9 @@ input, select, textarea {
 
 /* ==========================================================================
    iOS STATUS BAR & NOTCH / DYNAMIC ISLAND SAFE AREA CLEARANCE
-   Guarantees landing header, logo, and sign in/register buttons clear the iOS
-   status bar (camera notch, Dynamic Island, clock, wifi, battery) without
-   altering Android or desktop layouts.
+   Guarantees all headers, navigation dropdowns, modals, and buttons clear the iOS
+   status bar (camera notch, Dynamic Island, clock, wifi, battery) across all of iOS
+   without altering Android or desktop layouts.
    ========================================================================== */
 @supports (-webkit-touch-callout: none) {
   .landing-nav {
@@ -3178,13 +3194,28 @@ input, select, textarea {
     padding-left: env(safe-area-inset-left, 0px) !important;
     padding-right: env(safe-area-inset-right, 0px) !important;
   }
+  .modal-backdrop,
+  #modal-add-player,
+  #modal-swap-players,
+  #modal-tournament-register {
+    padding-top: max(1.5rem, calc(0.75rem + env(safe-area-inset-top, 0px))) !important;
+    padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom, 0px))) !important;
+  }
   .landing-btn-signin,
   .landing-btn-register {
     touch-action: manipulation;
-    min-height: 36px !important;
+    min-height: 38px !important;
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
+  }
+  .mobile-nav-select {
+    touch-action: manipulation !important;
+    min-height: 44px !important;
+    font-size: 16px !important;
+  }
+  .es-app-container {
+    padding-top: max(0.5rem, env(safe-area-inset-top, 0px)) !important;
   }
 }
 
@@ -3202,6 +3233,24 @@ html.is-ios #app-header {
   padding-right: env(safe-area-inset-right, 0px) !important;
 }
 
+html.is-ios .modal-backdrop,
+html.is-ios #modal-add-player,
+html.is-ios #modal-swap-players,
+html.is-ios #modal-tournament-register {
+  padding-top: max(1.5rem, calc(0.75rem + env(safe-area-inset-top, 0px))) !important;
+  padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom, 0px))) !important;
+}
+
+html.is-ios .mobile-nav-select {
+  touch-action: manipulation !important;
+  min-height: 44px !important;
+  font-size: 16px !important;
+}
+
+html.is-ios .es-app-container {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0px)) !important;
+}
+
 /* For iOS Standalone PWA / Webclip mode, enforce at least 44px top clearance */
 html.is-ios-standalone .landing-nav {
   padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
@@ -3211,11 +3260,22 @@ html.is-ios-standalone #app-header {
   padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
 }
 
+html.is-ios-standalone .modal-backdrop,
+html.is-ios-standalone #modal-add-player,
+html.is-ios-standalone #modal-swap-players,
+html.is-ios-standalone #modal-tournament-register {
+  padding-top: max(2.5rem, calc(1rem + env(safe-area-inset-top, 0px))) !important;
+}
+
+html.is-ios-standalone .es-app-container {
+  padding-top: max(44px, env(safe-area-inset-top, 0px)) !important;
+}
+
 /* Touch & tap-target optimization for iOS navigation buttons */
 html.is-ios .landing-btn-signin,
 html.is-ios .landing-btn-register {
   touch-action: manipulation;
-  min-height: 36px !important;
+  min-height: 38px !important;
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;

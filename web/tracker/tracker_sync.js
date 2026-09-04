@@ -275,7 +275,7 @@
 
     bar = document.createElement('div');
     bar.id = 'gt-user-status-bar';
-    bar.style.cssText = "position:fixed; top:12px; left:16px; z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
+    bar.style.cssText = "position:fixed; top:max(12px, calc(6px + env(safe-area-inset-top, 0px))); left:max(16px, env(safe-area-inset-left, 0px)); z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
     bar.innerHTML = `
       <div style="display:flex; align-items:center; gap:6px;">
         <a href="/#my-hub" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">

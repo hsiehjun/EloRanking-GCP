@@ -265,7 +265,7 @@ function showPwaInstallBanner() {
   banner.id = 'pwa-install-banner';
   banner.style.cssText = `
     position: fixed;
-    bottom: 24px;
+    bottom: max(24px, calc(16px + env(safe-area-inset-bottom, 0px)));
     right: 24px;
     z-index: 99999;
     background: rgba(11, 17, 32, 0.96);
@@ -332,7 +332,7 @@ function showIosPwaBanner() {
   banner.id = 'pwa-install-banner';
   banner.style.cssText = `
     position: fixed;
-    bottom: 20px;
+    bottom: max(20px, calc(10px + env(safe-area-inset-bottom, 0px)));
     left: 50%;
     transform: translateX(-50%);
     z-index: 99999;

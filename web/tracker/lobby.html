@@ -32,11 +32,29 @@
   <link rel="stylesheet" href="/_next/static/css/9f99d55fbe42acec.css" />
   <link rel="stylesheet" href="/_next/static/css/32ff1ff2177a7837.css" />
 
+  <!-- Synchronous iOS & Standalone PWA Safe-Area Detector -->
+  <script>
+    (function() {
+      try {
+        var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (isIos) {
+          document.documentElement.classList.add('is-ios');
+          var isStandalone = ('standalone' in window.navigator && window.navigator.standalone) ||
+                             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+          if (isStandalone) {
+            document.documentElement.classList.add('is-ios-standalone');
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+
   <!-- CLOUD FIRESTORE & MULTIPLAYER SYNC OVERLAY -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=63.0">
-  <script src="/tracker/tracker_sync.js?v=63.0"></script>
+  <link rel="stylesheet" href="/tracker/tracker_sync.css?v=64.0">
+  <script src="/tracker/tracker_sync.js?v=64.0"></script>
 
   <style>
     :root {

@@ -322,8 +322,8 @@ def test_ios_landing_header_safe_area():
     # 4. Button touch optimization for iOS
     assert "touch-action: manipulation;" in styles_content, \
         "iOS navigation buttons must have touch-action: manipulation to eliminate tap delay"
-    assert "min-height: 36px !important;" in styles_content, \
-        "iOS navigation buttons must have min-height: 36px for comfortable touch target"
+    assert "min-height: 38px !important;" in styles_content or "min-height: 36px !important;" in styles_content, \
+        "iOS navigation buttons must have min-height for comfortable touch target"
 
     # 5. Base .landing-nav on non-iOS (Android/desktop) remains clean
     base_landing_match = re.search(r'\.landing-nav\s*\{([^}]+)\}', styles_content)
@@ -331,6 +331,57 @@ def test_ios_landing_header_safe_area():
     assert "top: 0;" in base_landing_match.group(1), ".landing-nav should stick to top: 0"
 
     print("✅ iOS landing header safe-area clearance and touch targets verified (Android unaffected)!")
+
+
+def test_universal_ios_safe_area_coverage():
+    """Verify universal iOS status-bar and notch safe-area clearance across all app views."""
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    login_content = (root_dir / "web" / "tracker" / "login.html").read_text(encoding="utf-8")
+    play_content = (root_dir / "web" / "tracker" / "play.html").read_text(encoding="utf-8")
+    lobby_content = (root_dir / "web" / "tracker" / "lobby.html").read_text(encoding="utf-8")
+    tracker_sync_css = (root_dir / "web" / "tracker" / "tracker_sync.css").read_text(encoding="utf-8")
+    tracker_sync_js = (root_dir / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+    eventstudio_html = (root_dir / "web" / "eventstudio.html").read_text(encoding="utf-8")
+    eventstudio_css = (root_dir / "web" / "css" / "eventstudio.css").read_text(encoding="utf-8")
+
+    # 1. Main app header & mobile nav select safe-area coverage
+    assert "html.is-ios #app-header" in styles_content, "html.is-ios #app-header rule missing"
+    assert "html.is-ios .mobile-nav-select" in styles_content, "html.is-ios .mobile-nav-select missing"
+    assert "min-height: 44px !important;" in styles_content, "mobile-nav-select must have 44px min-height on iOS"
+    assert "font-size: 16px !important;" in styles_content, "mobile-nav-select must have font-size 16px to prevent iOS auto-zoom"
+    assert "html.is-ios .modal-backdrop" in styles_content, "html.is-ios .modal-backdrop rule missing"
+    assert "html.is-ios-standalone #app-header" in styles_content, "html.is-ios-standalone #app-header missing"
+    assert "html.is-ios-standalone .modal-backdrop" in styles_content, "html.is-ios-standalone .modal-backdrop missing"
+
+    # 2. Login view (web/tracker/login.html)
+    assert "classList.add('is-ios')" in login_content, "login.html must have synchronous iOS detector"
+    assert "classList.add('is-ios-standalone')" in login_content, "login.html must detect iOS standalone PWA"
+    assert "env(safe-area-inset-top, 0px)" in login_content, "login.html body must respect safe-area-inset-top"
+    assert "html.is-ios-standalone body" in login_content, "login.html must have standalone iOS body floor"
+
+    # 3. Game Tracker views (lobby, play, tracker_sync.css, tracker_sync.js)
+    assert "classList.add('is-ios')" in lobby_content, "lobby.html must have synchronous iOS detector"
+    assert "classList.add('is-ios')" in play_content, "play.html must have synchronous iOS detector"
+    assert "#gt-user-status-bar" in tracker_sync_css, "tracker_sync.css must style #gt-user-status-bar"
+    assert "#gt-sync-hud" in tracker_sync_css, "tracker_sync.css must style #gt-sync-hud"
+    assert "html.is-ios #gt-user-status-bar" in tracker_sync_css, "iOS #gt-user-status-bar rule missing"
+    assert "html.is-ios #gt-sync-hud" in tracker_sync_css, "iOS #gt-sync-hud rule missing"
+    assert "html.is-ios-standalone #gt-sync-hud" in tracker_sync_css, "standalone iOS #gt-sync-hud rule missing"
+    assert "env(safe-area-inset-top, 0px)" in tracker_sync_js, "tracker_sync.js bar creation must respect safe-area"
+
+    # 4. Event Studio (eventstudio.html & eventstudio.css)
+    assert "viewport-fit=cover" in eventstudio_html, "eventstudio.html must include viewport-fit=cover"
+    assert "classList.add('is-ios')" in eventstudio_html, "eventstudio.html must have synchronous iOS detector"
+    assert "html.is-ios .es-app-container" in eventstudio_css, "eventstudio.css must have html.is-ios .es-app-container rule"
+    assert "html.is-ios-standalone .es-app-container" in eventstudio_css, "eventstudio.css must have standalone rule"
+
+    # 5. CSS brace balance across all modified stylesheets
+    for p, c in [("styles.css", styles_content), ("tracker_sync.css", tracker_sync_css), ("eventstudio.css", eventstudio_css)]:
+        o = c.count("{")
+        cl = c.count("}")
+        assert o == cl, f"{p} has mismatched braces: {o} open vs {cl} close"
+
+    print("✅ Universal iOS safe-area clearance verified across Landing, App Shell, Login, Tracker, and Event Studio!")
 
 
 if __name__ == "__main__":
@@ -345,4 +396,6 @@ if __name__ == "__main__":
     test_landing_page_and_chat_notification_fixes()
     test_meta_intel_and_search_filter_cleanups()
     test_ios_landing_header_safe_area()
+    test_universal_ios_safe_area_coverage()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
+
