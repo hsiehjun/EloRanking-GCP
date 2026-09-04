@@ -164,6 +164,37 @@ def test_layout_width_and_mobile_stacking():
     print("✅ Layout container width consistency and mobile vertical stacking verified!")
 
 
+def test_floating_chat_back_navigation():
+    """Verify that floating chat compact back button and auto-selection logic function correctly."""
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    connect_content = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+
+    # 1. Verify index.html chat-back-btn exists with onclick backToChatList
+    assert 'id="chat-back-btn"' in index_content, "chat-back-btn ID missing in index.html"
+    assert 'onclick="backToChatList(); return false;"' in index_content, "backToChatList onclick missing in index.html"
+
+    # 2. Verify connect.js exports backToChatList to window
+    assert 'window.backToChatList = backToChatList;' in connect_content, "window.backToChatList export missing in connect.js"
+
+    # 3. Verify auto-selection in renderRequestsList only triggers when isFloatingChatWide is true
+    assert 'if (isFloatingChatWide && !connectState.activeRequestId && acceptedConvos.length > 0 && window.innerWidth > 768)' in connect_content, \
+        "renderRequestsList must only auto-select when isFloatingChatWide is true"
+
+    # 4. Verify backToChatList resets state and clears active selection
+    assert 'layout.classList.remove(\'is-viewing-chat\');' in connect_content, "backToChatList must remove is-viewing-chat"
+    assert 'connectState.activeRequestId = null;' in connect_content, "backToChatList must reset activeRequestId"
+    assert 'detachChatSnapshot();' in connect_content, "backToChatList must detach chat snapshot"
+
+    # 5. Verify styles.css compact mode enforces master-detail display
+    assert '.floating-chat-window:not(.is-wide) .oc-chat-layout .oc-chat-sidebar {\n  display: flex !important;' in styles_content, \
+        "Compact chat sidebar must have display: flex !important"
+    assert '.floating-chat-window:not(.is-wide) .oc-chat-layout .oc-chat-main {\n  display: none !important;' in styles_content, \
+        "Compact chat main must have display: none !important"
+
+    print("✅ Floating chat back navigation and compact master-detail architecture verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -171,4 +202,5 @@ if __name__ == "__main__":
     test_router_module_imports()
     test_document_scrolling_architecture()
     test_layout_width_and_mobile_stacking()
+    test_floating_chat_back_navigation()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")

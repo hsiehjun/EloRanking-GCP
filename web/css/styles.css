@@ -3415,7 +3415,7 @@ input, select, textarea {
 
 /* Compact Mode (default): Master-Detail List -> Chat View */
 .floating-chat-window:not(.is-wide) .oc-chat-layout .oc-chat-sidebar {
-  display: flex;
+  display: flex !important;
   flex-direction: column;
   flex: 1;
   min-height: 0;
@@ -3423,7 +3423,7 @@ input, select, textarea {
   border-right: none;
 }
 .floating-chat-window:not(.is-wide) .oc-chat-layout .oc-chat-main {
-  display: none;
+  display: none !important;
   flex-direction: column;
   flex: 1;
   min-height: 0;

@@ -1051,7 +1051,8 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
     }
   }
 
-  if (!connectState.activeRequestId && acceptedConvos.length > 0 && window.innerWidth > 768) {
+  // Auto-select first conversation ONLY when in side-by-side wide mode on desktop where both panes are visible
+  if (isFloatingChatWide && !connectState.activeRequestId && acceptedConvos.length > 0 && window.innerWidth > 768) {
     selectConversation(acceptedConvos[0].id);
   }
 }
@@ -1387,6 +1388,9 @@ function toggleFloatingChatWide(forceState) {
     `;
     btn.title = isFloatingChatWide ? 'Contract to compact view' : 'Expand to side-by-side view';
   }
+  if (isFloatingChatWide && !connectState.activeRequestId && window.innerWidth > 768) {
+    renderRequestsList();
+  }
 }
 window.toggleFloatingChatWide = toggleFloatingChatWide;
 
@@ -1447,13 +1451,38 @@ function backToChatList() {
   if (layout) {
     layout.classList.remove('is-viewing-chat');
   }
-  if (!isFloatingChatWide || window.innerWidth <= 768) {
-    connectState.activeRequestId = null;
+  connectState.activeRequestId = null;
+  if (typeof detachChatSnapshot === 'function') {
     detachChatSnapshot();
   }
+
+  const convoList = document.getElementById('chat-conversations-list');
+  if (convoList) {
+    Array.from(convoList.children).forEach(child => {
+      child.classList.remove('active');
+    });
+  }
+
+  const header = document.getElementById('chat-active-header');
+  if (header) header.style.display = 'none';
+  const inputForm = document.getElementById('chat-input-form');
+  if (inputForm) inputForm.style.display = 'none';
+
+  const msgContainer = document.getElementById('chat-messages-container');
+  if (msgContainer) {
+    msgContainer.innerHTML = `
+      <div style="text-align: center; margin: auto; color: #64748b; padding: 2rem 1rem;">
+        <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">💬</div>
+        <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">Select a sparring match</p>
+        <p style="margin: 4px 0 0; font-size: 0.78rem;">Chat with opponents to coordinate game time, points, and mission packs.</p>
+      </div>
+    `;
+  }
+
   renderRequestsList();
   loadUserRequests();
 }
+window.backToChatList = backToChatList;
 
 function openChatWithRequest(requestId) {
   connectState.activeRequestId = requestId;

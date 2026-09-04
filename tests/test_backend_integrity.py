@@ -142,7 +142,7 @@ def test_ast_undefined_names():
     print(f"✅ AST scope verification passed across all {len(files)} modules with 0 undefined variables!")
 
 def test_route_parity():
-    """Verify all 182 API routes match the canonical specification."""
+    """Verify all 183 API routes match the canonical specification."""
     sys.modules.pop("pydantic", None)
     sys.modules.pop("fastapi", None)
 
@@ -151,7 +151,7 @@ def test_route_parity():
 
     assert server.app is not None, "server.app failed to initialize"
     registered_routes = [(r[0], r[1]) for r in server.app.routes]
-    assert len(registered_routes) == 182, f"Expected 182 routes, found {len(registered_routes)}"
+    assert len(registered_routes) == 183, f"Expected 183 routes, found {len(registered_routes)}"
 
     canonical_path = Path("/tmp/canonical_routes.json")
     if canonical_path.exists():
@@ -162,7 +162,7 @@ def test_route_parity():
         extra = set(registered_routes) - set(canonical_routes)
         assert len(missing) == 0, f"Missing routes: {missing}"
         assert len(extra) == 0, f"Extra routes: {extra}"
-    print(f"✅ Route parity verified: exactly 182 routes registered with 100% path and method parity!")
+    print(f"✅ Route parity verified: exactly 183 routes registered with 100% path and method parity!")
 
 if __name__ == "__main__":
     test_py_compile()

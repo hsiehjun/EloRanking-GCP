@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=14.0">
-  <link rel="stylesheet" href="/css/styles.css?v=75.0">
+  <link rel="stylesheet" href="/css/styles.css?v=76.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
@@ -2850,7 +2850,7 @@
   <script src="/js/auth.js?v=78.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
-  <script src="/js/connect.js?v=6.0"></script>
+  <script src="/js/connect.js?v=7.0"></script>
   <script src="/js/community.js?v=3.2"></script>
   <script src="/js/app.js?v=77.0"></script>
 
@@ -3365,7 +3365,7 @@
             <div class="oc-chat-main">
               <div class="oc-chat-header" id="chat-active-header" style="display: none;">
                 <div style="display: flex; align-items: center; gap: 0.6rem; min-width: 0;">
-                  <button type="button" class="oc-chat-back-btn" onclick="backToChatList()" aria-label="Back to conversations">
+                  <button type="button" id="chat-back-btn" class="oc-chat-back-btn" onclick="backToChatList(); return false;" aria-label="Back to conversations">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
                     <span>Chats</span>
                   </button>
