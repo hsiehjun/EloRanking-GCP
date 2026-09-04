@@ -182,19 +182,17 @@ async function shareCurrentLocation(inModalOnly = false) {
         }
       }
 
-      // 2. Fallback to OpenStreetMap reverse geocode
+      // 2. Server-side reverse geocode fallback
       if (city === 'Local Tabletop') {
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
-            headers: { 'Accept': 'application/json' }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.address || {};
-            city = addr.city || addr.town || addr.village || addr.suburb || addr.county || 'Nearby Area';
-            state = addr.state || '';
-            country = addr.country || 'United States';
-            venueName = state ? `${city}, ${state}` : city;
+          if (typeof window.api?.reverseGeocode === 'function') {
+            const rev = await window.api.reverseGeocode(lat, lng);
+            if (rev) {
+              city = rev.city || 'Nearby Area';
+              state = rev.state || '';
+              country = rev.country || 'United States';
+              venueName = rev.formatted || (state ? `${city}, ${state}` : city);
+            }
           }
         } catch (e) {
           console.warn("Reverse geocode notice:", e);
@@ -283,7 +281,7 @@ async function shareCurrentLocation(inModalOnly = false) {
       }
       alert(msg);
     },
-    { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 }
 

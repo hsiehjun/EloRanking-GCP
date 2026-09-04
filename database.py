@@ -73,6 +73,7 @@ class PostgresDatabase:
     _bcp_upcoming_cache_dict = {}
     _stores_cache_dict = {}
     _place_details_cache_dict = {}
+    _geocode_cache_dict = {}
     CACHE_TTL_SECONDS = 600
 
     @classmethod
@@ -109,6 +110,7 @@ class PostgresDatabase:
         cls._bcp_upcoming_cache_dict.clear()
         cls._stores_cache_dict.clear()
         cls._place_details_cache_dict.clear()
+        cls._geocode_cache_dict.clear()
 
     def __init__(self, dsn: Optional[str] = None, db_path: Optional[str] = None, *args, **kwargs):
         if not PSYCOPG2_AVAILABLE:
@@ -4224,13 +4226,13 @@ class PostgresDatabase:
                     "is_active": False,
                     "home_venue_name": "",
                     "address": "",
-                    "city": loc.get("city") if loc else "San Diego",
-                    "state": loc.get("state") if loc else "CA",
+                    "city": loc.get("city") if loc else "",
+                    "state": loc.get("state") if loc else "",
                     "country": loc.get("country") if loc else "United States",
                     "postal_code": "",
-                    "latitude": float(loc["latitude"]) if loc and loc.get("latitude") is not None else 32.7157,
-                    "longitude": float(loc["longitude"]) if loc and loc.get("longitude") is not None else -117.1611,
-                    "radius_miles": 30,
+                    "latitude": float(loc["latitude"]) if loc and loc.get("latitude") is not None else None,
+                    "longitude": float(loc["longitude"]) if loc and loc.get("longitude") is not None else None,
+                    "radius_miles": 50,
                     "preferred_points": 2000,
                     "play_style": "Competitive",
                     "availability_notes": "",
@@ -4752,6 +4754,22 @@ class PostgresDatabase:
         "los angeles": (34.0522, -118.2437, "Los Angeles, CA"),
         "orange county": (33.7175, -117.8311, "Orange County, CA"),
         "temecula": (33.4936, -117.1484, "Temecula, CA"),
+        "murrieta": (33.5539, -117.2139, "Murrieta, CA"),
+        "menifee": (33.6803, -117.1859, "Menifee, CA"),
+        "fallbrook": (33.3764, -117.2511, "Fallbrook, CA"),
+        "oceanside": (33.1959, -117.3795, "Oceanside, CA"),
+        "carlsbad": (33.1581, -117.3506, "Carlsbad, CA"),
+        "vista": (33.2000, -117.2425, "Vista, CA"),
+        "san marcos": (33.1434, -117.1661, "San Marcos, CA"),
+        "escondido": (33.1192, -117.0864, "Escondido, CA"),
+        "encinitas": (33.0370, -117.2920, "Encinitas, CA"),
+        "poway": (32.9628, -117.0359, "Poway, CA"),
+        "lake elsinore": (33.6681, -117.3273, "Lake Elsinore, CA"),
+        "corona": (33.8753, -117.5664, "Corona, CA"),
+        "hemet": (33.7475, -116.9720, "Hemet, CA"),
+        "palm springs": (33.8303, -116.5453, "Palm Springs, CA"),
+        "chula vista": (32.6401, -117.0842, "Chula Vista, CA"),
+        "el cajon": (32.7948, -116.9625, "El Cajon, CA"),
         "pasadena": (34.1478, -118.1445, "Pasadena, CA"),
         "burbank": (34.1808, -118.3090, "Burbank, CA"),
         "anaheim": (33.8366, -117.9143, "Anaheim, CA"),
@@ -4811,6 +4829,161 @@ class PostgresDatabase:
     def get_community_regions(self) -> List[Dict[str, Any]]:
         """Returns standard regional hubs for community selection."""
         return self.COMMUNITY_REGIONS
+
+    def reverse_geocode_coordinates(self, lat: float, lng: float) -> Dict[str, Any]:
+        """
+        Reverse-geocodes exact GPS coordinates to a human-readable city, state, and location name.
+        Uses a 4-tier strategy:
+        1. Fast in-memory cache (TTL: 86400s / 24h).
+        2. Proximity check against KNOWN_COMMUNITY_HUBS (if within ~6 miles of hub center).
+        3. Nominatim OpenStreetMap API query with custom User-Agent.
+        4. Nearest tournament event city in the database (within ~25 miles).
+        5. Clean fallback to GPS (lat, lng).
+        """
+        try:
+            lat = float(lat)
+            lng = float(lng)
+        except (ValueError, TypeError):
+            return {"city": "", "state": "", "country": "United States", "formatted": "Unknown Location", "lat": 0.0, "lng": 0.0}
+
+        cache_key = (round(lat, 3), round(lng, 3))
+        cached = PostgresDatabase.get_cached(PostgresDatabase._geocode_cache_dict, cache_key, ttl=86400)
+        if cached is not None:
+            return dict(cached)
+
+        # 1. Proximity check to known community hubs (< 6 miles): find closest hub
+        R = 3959.0
+        closest_hub = None
+        min_hub_dist = 6.0
+        for hub_key, (h_lat, h_lng, h_name) in self.KNOWN_COMMUNITY_HUBS.items():
+            dlat = math.radians(h_lat - lat)
+            dlng = math.radians(h_lng - lng)
+            a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(lat)) * math.cos(math.radians(h_lat)) * math.sin(dlng / 2.0) ** 2
+            c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+            dist = R * c
+            if dist < min_hub_dist:
+                min_hub_dist = dist
+                closest_hub = (h_lat, h_lng, h_name)
+
+        if closest_hub:
+            h_lat, h_lng, h_name = closest_hub
+            parts = [p.strip() for p in h_name.split(',')]
+            city = parts[0] if parts else h_name
+            state = parts[1] if len(parts) > 1 else ""
+            res = {
+                "city": city,
+                "state": state,
+                "country": "United States",
+                "formatted": h_name,
+                "lat": lat,
+                "lng": lng
+            }
+            PostgresDatabase.set_cached(PostgresDatabase._geocode_cache_dict, cache_key, res)
+            return res
+
+        # 2. Nominatim OpenStreetMap reverse geocode
+        try:
+            url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat:.5f}&lon={lng:.5f}&zoom=14"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "OmniTactica/1.0 (contact@omnitactica.com; 40k-community-discovery)",
+                    "Accept": "application/json"
+                }
+            )
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                addr = data.get("address", {})
+                city = (
+                    addr.get("city")
+                    or addr.get("town")
+                    or addr.get("village")
+                    or addr.get("municipality")
+                    or addr.get("suburb")
+                    or addr.get("county")
+                    or ""
+                )
+                state = addr.get("state") or ""
+                state_abbrs = {
+                    "California": "CA", "Texas": "TX", "Washington": "WA", "Oregon": "OR",
+                    "Illinois": "IL", "New York": "NY", "Pennsylvania": "PA", "Massachusetts": "MA",
+                    "Georgia": "GA", "Florida": "FL", "North Carolina": "NC", "Ohio": "OH",
+                    "Arizona": "AZ", "Nevada": "NV", "Colorado": "CO", "Minnesota": "MN"
+                }
+                state = state_abbrs.get(state, state)
+                country = addr.get("country") or "United States"
+
+                formatted = ""
+                if city and state:
+                    formatted = f"{city}, {state}"
+                elif city:
+                    formatted = city
+                elif state:
+                    formatted = state
+
+                if formatted:
+                    res = {
+                        "city": city,
+                        "state": state,
+                        "country": country,
+                        "formatted": formatted,
+                        "lat": lat,
+                        "lng": lng
+                    }
+                    PostgresDatabase.set_cached(PostgresDatabase._geocode_cache_dict, cache_key, res)
+                    return res
+        except Exception as e:
+            logger.debug(f"Nominatim reverse geocode notice for ({lat}, {lng}): {e}")
+
+        # 3. Fallback: Find nearest tournament event city in events table
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    cursor.execute("""
+                        SELECT city, state, country,
+                            (3959.0 * acos(
+                                LEAST(1.0, GREATEST(-1.0,
+                                    cos(radians(%s)) * cos(radians(latitude)) * cos(radians(longitude) - radians(%s)) +
+                                    sin(radians(%s)) * sin(radians(latitude))
+                                ))
+                            )) AS dist
+                        FROM events
+                        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+                          AND NOT (latitude = 0.0 AND longitude = 0.0)
+                          AND city IS NOT NULL AND city != ''
+                        ORDER BY dist ASC
+                        LIMIT 1;
+                    """, (lat, lng, lat))
+                    nearest = cursor.fetchone()
+                    if nearest and nearest.get("dist") and float(nearest["dist"]) <= 25.0:
+                        c_city = nearest.get("city", "").strip()
+                        c_state = nearest.get("state", "").strip()
+                        c_country = nearest.get("country", "United States").strip()
+                        fmt = f"{c_city}, {c_state}" if c_state else c_city
+                        res = {
+                            "city": c_city,
+                            "state": c_state,
+                            "country": c_country,
+                            "formatted": fmt,
+                            "lat": lat,
+                            "lng": lng
+                        }
+                        PostgresDatabase.set_cached(PostgresDatabase._geocode_cache_dict, cache_key, res)
+                        return res
+        except Exception as db_err:
+            logger.debug(f"DB nearest event geocode notice: {db_err}")
+
+        # 4. Fallback: Exact coordinates format
+        res = {
+            "city": "",
+            "state": "",
+            "country": "United States",
+            "formatted": f"GPS ({lat:.2f}, {lng:.2f})",
+            "lat": lat,
+            "lng": lng
+        }
+        PostgresDatabase.set_cached(PostgresDatabase._geocode_cache_dict, cache_key, res)
+        return res
 
     def fetch_bcp_upcoming_events(
         self,
@@ -5029,39 +5202,26 @@ class PostgresDatabase:
                 user_lat = None
                 user_lng = None
 
-        # Safeguard against stale client form coordinates / city mismatches:
-        # If user_lat and user_lng are provided along with location_name:
-        if user_lat is not None and user_lng is not None and location_name:
-            loc_lower = location_name.strip().lower()
-            first_tok = loc_lower.split(',')[0].strip()
-            matched_hub = None
-            if loc_lower in self.KNOWN_COMMUNITY_HUBS:
-                matched_hub = self.KNOWN_COMMUNITY_HUBS[loc_lower]
-            elif first_tok in self.KNOWN_COMMUNITY_HUBS:
-                matched_hub = self.KNOWN_COMMUNITY_HUBS[first_tok]
-            else:
-                for k, v in self.KNOWN_COMMUNITY_HUBS.items():
-                    if k in loc_lower or loc_lower in k:
-                        matched_hub = v
-                        break
+        # Preserve exact coordinates:
+        # If user_lat and user_lng are provided, they are device GPS / exact coordinates and must NEVER be overridden!
+        # If location_name is generic, missing, or defaulted to 'San Diego' while coordinates are outside downtown San Diego (>12 mi),
+        # automatically reverse-geocode to accurately reflect the player's true city/community.
+        if user_lat is not None and user_lng is not None:
+            loc_lower = (location_name or "").strip().lower()
+            needs_reverse = False
+            if not location_name or loc_lower in ["my location", "your location", "current location", "local tabletop"] or loc_lower.startswith("gps ("):
+                needs_reverse = True
+            elif "san diego" in loc_lower or "socal" in loc_lower:
+                dlat = (32.7157 - user_lat) * 69.0
+                dlng = (-117.1611 - user_lng) * 55.0
+                dist_sd = math.sqrt(dlat * dlat + dlng * dlng)
+                if dist_sd > 12.0:
+                    needs_reverse = True
 
-            if matched_hub:
-                hub_lat, hub_lng, hub_name = matched_hub
-                # Haversine distance between client coordinates and matched hub coordinates
-                R = 3959.0
-                dlat = math.radians(hub_lat - user_lat)
-                dlng = math.radians(hub_lng - user_lng)
-                a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(hub_lat)) * math.sin(dlng / 2.0) ** 2
-                c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
-                dist_to_hub = R * c
-                if dist_to_hub > 75.0:
-                    logger.info(f"Overriding stale user coordinates ({user_lat}, {user_lng}) for '{location_name}' with hub '{hub_name}' ({hub_lat}, {hub_lng}) [dist={dist_to_hub:.1f}mi]")
-                    user_lat = hub_lat
-                    user_lng = hub_lng
-            elif abs(user_lat - 32.7157) < 0.005 and abs(user_lng - (-117.1611)) < 0.005:
-                if "san diego" not in loc_lower and "socal" not in loc_lower:
-                    user_lat = None
-                    user_lng = None
+            if needs_reverse:
+                geo = self.reverse_geocode_coordinates(user_lat, user_lng)
+                if geo and geo.get("formatted") and not geo["formatted"].startswith("GPS ("):
+                    location_name = geo["formatted"]
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -5166,8 +5326,9 @@ class PostgresDatabase:
                                 if not location_name:
                                     location_name = "San Diego, CA"
 
-                if not location_name:
-                    location_name = f"{user_lat:.2f}, {user_lng:.2f}"
+                if not location_name or location_name.strip().lower() in ["my location", "your location", "current location", "local tabletop"] or location_name.strip().lower().startswith("gps ("):
+                    geo = self.reverse_geocode_coordinates(user_lat, user_lng)
+                    location_name = geo.get("formatted") or f"{user_lat:.2f}, {user_lng:.2f}"
 
                 # Cache lookup
                 cache_key = (
@@ -5213,6 +5374,22 @@ class PostgresDatabase:
                                     WHEN 'san diego' THEN 32.7157
                                     WHEN 'los angeles' THEN 34.0522
                                     WHEN 'temecula' THEN 33.4936
+                                    WHEN 'murrieta' THEN 33.5539
+                                    WHEN 'menifee' THEN 33.6803
+                                    WHEN 'fallbrook' THEN 33.3764
+                                    WHEN 'oceanside' THEN 33.1959
+                                    WHEN 'carlsbad' THEN 33.1581
+                                    WHEN 'vista' THEN 33.2000
+                                    WHEN 'san marcos' THEN 33.1434
+                                    WHEN 'escondido' THEN 33.1192
+                                    WHEN 'encinitas' THEN 33.0370
+                                    WHEN 'poway' THEN 32.9628
+                                    WHEN 'lake elsinore' THEN 33.6681
+                                    WHEN 'corona' THEN 33.8753
+                                    WHEN 'hemet' THEN 33.7475
+                                    WHEN 'palm springs' THEN 33.8303
+                                    WHEN 'chula vista' THEN 32.6401
+                                    WHEN 'el cajon' THEN 32.7948
                                     WHEN 'pasadena' THEN 34.1478
                                     WHEN 'burbank' THEN 34.1808
                                     WHEN 'anaheim' THEN 33.8366
@@ -5247,6 +5424,22 @@ class PostgresDatabase:
                                     WHEN 'san diego' THEN -117.1611
                                     WHEN 'los angeles' THEN -118.2437
                                     WHEN 'temecula' THEN -117.1484
+                                    WHEN 'murrieta' THEN -117.2139
+                                    WHEN 'menifee' THEN -117.1859
+                                    WHEN 'fallbrook' THEN -117.2511
+                                    WHEN 'oceanside' THEN -117.3795
+                                    WHEN 'carlsbad' THEN -117.3506
+                                    WHEN 'vista' THEN -117.2425
+                                    WHEN 'san marcos' THEN -117.1661
+                                    WHEN 'escondido' THEN -117.0864
+                                    WHEN 'encinitas' THEN -117.2920
+                                    WHEN 'poway' THEN -117.0359
+                                    WHEN 'lake elsinore' THEN -117.3273
+                                    WHEN 'corona' THEN -117.5664
+                                    WHEN 'hemet' THEN -116.9720
+                                    WHEN 'palm springs' THEN -116.5453
+                                    WHEN 'chula vista' THEN -117.0842
+                                    WHEN 'el cajon' THEN -116.9625
                                     WHEN 'pasadena' THEN -118.1445
                                     WHEN 'burbank' THEN -118.3090
                                     WHEN 'anaheim' THEN -117.9143
@@ -5964,42 +6157,35 @@ class PostgresDatabase:
                 user_lat = None
                 user_lng = None
 
-        # Cross-validate against named location to prevent coordinate mismatches
-        if location_name:
-            loc_lower = location_name.strip().lower()
-            first_tok = loc_lower.split(',')[0].strip()
-            matched_hub = None
-            if loc_lower in self.KNOWN_COMMUNITY_HUBS:
-                matched_hub = self.KNOWN_COMMUNITY_HUBS[loc_lower]
-            elif first_tok in self.KNOWN_COMMUNITY_HUBS:
-                matched_hub = self.KNOWN_COMMUNITY_HUBS[first_tok]
-            else:
-                for k, v in self.KNOWN_COMMUNITY_HUBS.items():
-                    if k in loc_lower or loc_lower in k:
-                        matched_hub = v
-                        break
-            if matched_hub:
-                hub_lat, hub_lng, hub_name = matched_hub
-                if user_lat is not None and user_lng is not None:
-                    R = 3959.0
-                    dlat = math.radians(hub_lat - user_lat)
-                    dlng = math.radians(hub_lng - user_lng)
-                    a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(hub_lat)) * math.sin(dlng / 2.0) ** 2
-                    c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
-                    if (R * c) > 75.0:
-                        user_lat = hub_lat
-                        user_lng = hub_lng
+        # If user_lat and user_lng are provided, NEVER overwrite them.
+        # Only resolve coordinates from location_name if coordinates were not provided.
+        if user_lat is None or user_lng is None:
+            if location_name:
+                loc_lower = location_name.strip().lower()
+                first_tok = loc_lower.split(',')[0].strip()
+                matched_hub = None
+                if loc_lower in self.KNOWN_COMMUNITY_HUBS:
+                    matched_hub = self.KNOWN_COMMUNITY_HUBS[loc_lower]
+                elif first_tok in self.KNOWN_COMMUNITY_HUBS:
+                    matched_hub = self.KNOWN_COMMUNITY_HUBS[first_tok]
                 else:
-                    user_lat = hub_lat
-                    user_lng = hub_lng
-                if not location_name:
-                    location_name = hub_name
+                    for k, v in self.KNOWN_COMMUNITY_HUBS.items():
+                        if k in loc_lower or loc_lower in k:
+                            matched_hub = v
+                            break
+                if matched_hub:
+                    user_lat, user_lng, hub_name = matched_hub
+                    if not location_name:
+                        location_name = hub_name
 
         if user_lat is None or user_lng is None:
             user_lat = 32.7157
             user_lng = -117.1611
             if not location_name:
                 location_name = "San Diego, CA"
+        elif not location_name or location_name.strip().lower() in ["my location", "your location", "current location", "local tabletop"] or location_name.strip().lower().startswith("gps ("):
+            geo = self.reverse_geocode_coordinates(user_lat, user_lng)
+            location_name = geo.get("formatted") or f"{user_lat:.2f}, {user_lng:.2f}"
 
         clean_query = (query or "").strip()
         cache_key = (

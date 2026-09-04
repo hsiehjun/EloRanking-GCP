@@ -953,9 +953,18 @@
             <!-- Location Pill -->
             <button onclick="openCommunityLocationModal()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(56,189,248,0.35); color: #f8fafc; background: rgba(56,189,248,0.06); cursor: pointer;" title="Change search city or venue">
               <span>📍</span>
-              <span id="user-location-text" style="font-weight: 600;">San Diego, CA</span>
+              <span id="user-location-text" style="font-weight: 600;">Your Location</span>
               <span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">✏️ Set</span>
             </button>
+            <script>
+              try {
+                var _loc = localStorage.getItem('comm_loc_name');
+                if (_loc && _loc !== 'San Diego, CA') {
+                  var _el = document.getElementById('user-location-text');
+                  if (_el) _el.textContent = _loc;
+                }
+              } catch(e) {}
+            </script>
 
             <!-- Radius Dropdown -->
             <div style="display: inline-flex; align-items: center; gap: 0.35rem;">
@@ -2862,8 +2871,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Modular Scripts -->
-  <script src="/js/utils.js?v=65.0"></script>
-  <script src="/js/api.js?v=76.0"></script>
+  <script src="/js/utils.js?v=66.0"></script>
+  <script src="/js/api.js?v=77.0"></script>
   <script src="/js/leaderboard.js?v=66.0"></script>
   <script src="/js/teams.js?v=64.0"></script>
   <script src="/js/players.js?v=65.0"></script>
@@ -2871,11 +2880,11 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=65.0"></script>
-  <script src="/js/auth.js?v=74.0"></script>
-  <script src="/js/my_hub.js?v=73.0"></script>
+  <script src="/js/auth.js?v=75.0"></script>
+  <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
-  <script src="/js/connect.js?v=4.3"></script>
-  <script src="/js/community.js?v=1.9"></script>
+  <script src="/js/connect.js?v=4.4"></script>
+  <script src="/js/community.js?v=2.0"></script>
   <script src="/js/app.js?v=75.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->

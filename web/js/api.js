@@ -960,6 +960,12 @@ window.api = {
     return this._fetchJson('/api/community/regions');
   },
 
+  // Community Hub: Reverse Geocode GPS Coordinates to City / Region
+  async reverseGeocode(lat, lng) {
+    if (lat == null || lng == null) return null;
+    return this._fetchJson(`/api/community/reverse_geocode?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
+  },
+
   async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null, includeBcp = false) {
     if (typeof lat === 'string' && lng == null) {
       region = lat;

@@ -110,6 +110,15 @@ async function initCommunityHub(targetSubtab = null) {
   });
 
   await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
+
+  // If geolocation permission is already granted, refresh with true high-accuracy GPS
+  if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
+    navigator.permissions.query({ name: 'geolocation' }).then((perm) => {
+      if (perm.state === 'granted' && !localStorage.getItem('comm_manual_override')) {
+        detectCommunityGPS(false);
+      }
+    }).catch(() => {});
+  }
 }
 
 /**
@@ -351,15 +360,15 @@ function changeCommunityRadius(radius) {
 }
 
 /**
- * Detect user's GPS coordinates via browser Geolocation
+ * Detect user's GPS coordinates via browser Geolocation with high accuracy
  */
-function detectCommunityGPS() {
+function detectCommunityGPS(showAlerts = true) {
   const btn = document.getElementById('comm-btn-gps');
   const icon = document.getElementById('comm-gps-icon');
   const label = document.getElementById('comm-gps-label');
 
   if (!navigator.geolocation) {
-    alert('Geolocation is not supported by your browser.');
+    if (showAlerts) alert('Geolocation is not supported by your browser.');
     return;
   }
 
@@ -371,13 +380,13 @@ function detectCommunityGPS() {
     async (position) => {
       if (btn) btn.disabled = false;
       if (icon) icon.textContent = '🛰️';
-      if (label) label.textContent = 'Use GPS';
+      if (label) label.textContent = 'GPS';
 
       const lat = position.coords.latitude;
       const lng = position.coords.longitude;
-      let locName = `GPS (${lat.toFixed(2)}, ${lng.toFixed(2)})`;
+      let locName = `GPS (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
 
-      // Attempt reverse geocoding with Google Geocoder if available
+      // 1. Attempt reverse geocoding with Google Geocoder if available
       if (typeof google !== 'undefined' && google.maps && google.maps.Geocoder) {
         try {
           const geocoder = new google.maps.Geocoder();
@@ -404,24 +413,22 @@ function detectCommunityGPS() {
         }
       }
 
-      // 2. Fallback reverse geocoding via OpenStreetMap Nominatim if Google Geocoder wasn't available
+      // 2. Server-side reverse geocoding (fast, cached, robust with no CORS blocks)
       if (!locName || locName.startsWith('GPS (')) {
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
-            headers: { 'Accept': 'application/json' }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.address || {};
-            const city = addr.city || addr.town || addr.village || addr.suburb || addr.county;
-            const state = addr.state || '';
-            if (city && state) locName = `${city}, ${state}`;
-            else if (city) locName = city;
+          if (typeof window.api?.reverseGeocode === 'function') {
+            const rev = await window.api.reverseGeocode(lat, lng);
+            if (rev && rev.formatted) {
+              locName = rev.formatted;
+            }
           }
         } catch (e) {
-          console.warn("Nominatim reverse geocode notice:", e);
+          console.warn("Server reverse geocode notice:", e);
         }
       }
+
+      localStorage.setItem('comm_exact_gps', 'true');
+      localStorage.removeItem('comm_manual_override');
 
       updateCommunityLocation(lat, lng, locName);
     },
@@ -429,10 +436,12 @@ function detectCommunityGPS() {
       console.warn('Geolocation error:', err);
       if (btn) btn.disabled = false;
       if (icon) icon.textContent = '🛰️';
-      if (label) label.textContent = 'Use GPS';
-      alert('Could not determine your GPS location. Please click "Change Location" to search for your city or store.');
+      if (label) label.textContent = 'GPS';
+      if (showAlerts) {
+        alert('Could not determine your exact GPS location. Please check your browser location permissions or click "Set" to choose your city.');
+      }
     },
-    { timeout: 10000, maximumAge: 60000 }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 }
 
@@ -443,24 +452,13 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
   let finalLat = (lat != null && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
   let finalLng = (lng != null && !isNaN(parseFloat(lng))) ? parseFloat(lng) : null;
 
-  if (locationName && (typeof lookupCityCoordinates === 'function')) {
+  // Only resolve from city name if coordinates were NOT provided!
+  // When exact GPS coordinates are passed, NEVER overwrite them with coarse city coordinates.
+  if ((finalLat == null || finalLng == null) && locationName && (typeof lookupCityCoordinates === 'function')) {
     const resolved = lookupCityCoordinates(locationName);
     if (resolved) {
-      if (finalLat == null || finalLng == null) {
-        finalLat = resolved.lat;
-        finalLng = resolved.lng;
-      } else {
-        // Cross-validate: if passed coordinates are > 75 miles away from the named city,
-        // it's a stale coordinate mismatch! Override with resolved city coords.
-        const dLat = (resolved.lat - finalLat) * 69.0;
-        const dLng = (resolved.lng - finalLng) * 55.0;
-        const dist = Math.sqrt(dLat * dLat + dLng * dLng);
-        if (dist > 75.0) {
-          console.warn(`Location coordinate mismatch: "${locationName}" is ~${Math.round(dist)}mi away from coords (${finalLat}, ${finalLng}). Overriding with resolved city coords.`);
-          finalLat = resolved.lat;
-          finalLng = resolved.lng;
-        }
-      }
+      finalLat = resolved.lat;
+      finalLng = resolved.lng;
     }
   }
 

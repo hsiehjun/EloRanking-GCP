@@ -39,6 +39,15 @@ async def api_community_regions():
     db = get_database()
     return {"success": True, "regions": db.get_community_regions()}
 
+@router.get("/api/community/reverse_geocode", summary="Reverse Geocode GPS Coordinates to City / Region")
+async def api_community_reverse_geocode(
+    lat: float = Query(..., description="Latitude"),
+    lng: float = Query(..., description="Longitude")
+):
+    db = get_database()
+    res = db.reverse_geocode_coordinates(lat, lng)
+    return {"success": True, **res}
+
 @router.get("/api/community/overview", summary="Get Community Hub Overview, Events, and Competitors within Radius")
 async def api_community_overview(
     request: Request,

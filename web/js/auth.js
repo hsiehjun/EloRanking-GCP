@@ -781,22 +781,20 @@ function detectUserSettingsGPS() {
         }
       }
 
-      // Nominatim fallback
+      // Server-side reverse geocode fallback
       if (city === 'Local Area') {
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=12`, {
-            headers: { 'Accept': 'application/json' }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const addr = data.address || {};
-            city = addr.city || addr.town || addr.village || addr.suburb || addr.county || 'Local Area';
-            state = addr.state || '';
-            country = addr.country || 'United States';
-            venueName = state ? `${city}, ${state}` : city;
+          if (typeof window.api?.reverseGeocode === 'function') {
+            const rev = await window.api.reverseGeocode(lat, lng);
+            if (rev) {
+              city = rev.city || 'Local Area';
+              state = rev.state || '';
+              country = rev.country || 'United States';
+              venueName = rev.formatted || (state ? `${city}, ${state}` : city);
+            }
           }
         } catch (e) {
-          console.warn("Nominatim reverse geocode notice:", e);
+          console.warn("Reverse geocode notice:", e);
         }
       }
 
@@ -840,7 +838,7 @@ function detectUserSettingsGPS() {
       }
       alert("Could not detect device GPS: " + (err.message || "Permission denied or timeout."));
     },
-    { timeout: 10000, enableHighAccuracy: true }
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
   );
 }
 

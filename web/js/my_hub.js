@@ -703,6 +703,17 @@ function getDeviceCoordinates() {
       return resolve(userDeviceGeo);
     }
     try {
+      const savedLat = localStorage.getItem('comm_lat');
+      const savedLng = localStorage.getItem('comm_lng');
+      if (savedLat && savedLng) {
+        userDeviceGeo = {
+          lat: Number(parseFloat(savedLat).toFixed(4)),
+          lng: Number(parseFloat(savedLng).toFixed(4))
+        };
+        return resolve(userDeviceGeo);
+      }
+    } catch (e) {}
+    try {
       const cached = sessionStorage.getItem('omni_user_geo');
       if (cached) {
         userDeviceGeo = JSON.parse(cached);
@@ -717,7 +728,7 @@ function getDeviceCoordinates() {
           resolved = true;
           resolve(null);
         }
-      }, 3000);
+      }, 8500);
 
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -728,7 +739,11 @@ function getDeviceCoordinates() {
             lat: Number(pos.coords.latitude.toFixed(4)),
             lng: Number(pos.coords.longitude.toFixed(4))
           };
-          try { sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo)); } catch (e) {}
+          try {
+            sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo));
+            localStorage.setItem('comm_lat', String(userDeviceGeo.lat));
+            localStorage.setItem('comm_lng', String(userDeviceGeo.lng));
+          } catch (e) {}
           resolve(userDeviceGeo);
         },
         () => {
@@ -737,7 +752,7 @@ function getDeviceCoordinates() {
           clearTimeout(safety);
           resolve(null);
         },
-        { enableHighAccuracy: false, timeout: 2500, maximumAge: 300000 }
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
       );
     } else {
       resolve(null);
@@ -766,8 +781,7 @@ function requestUserDeviceLocationPrompt() {
 
   let hasFinished = false;
 
-  // Strict 4.5s race timeout: In iOS PWA standalone mode, WebKit often silently hangs
-  // without invoking either success or error callbacks.
+  // Strict 12s race timeout
   const safetyTimeout = setTimeout(() => {
     if (hasFinished) return;
     hasFinished = true;
@@ -778,7 +792,7 @@ function requestUserDeviceLocationPrompt() {
     showHelpfulError(
       '📍 Location request timed out. On iPhone/iPad, check <b>Settings &gt; Privacy &gt; Location Services &gt; Safari</b>, or tap your city below!'
     );
-  }, 4500);
+  }, 12500);
 
   function handleSuccess(pos) {
     if (hasFinished) return;
@@ -788,11 +802,26 @@ function requestUserDeviceLocationPrompt() {
       btn.disabled = false;
       btn.innerHTML = '📍 Enable Location Sharing';
     }
-    userDeviceGeo = {
-      lat: Number(pos.coords.latitude.toFixed(4)),
-      lng: Number(pos.coords.longitude.toFixed(4))
-    };
-    try { sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo)); } catch (e) {}
+    const lat = Number(pos.coords.latitude.toFixed(4));
+    const lng = Number(pos.coords.longitude.toFixed(4));
+    userDeviceGeo = { lat, lng };
+    try {
+      sessionStorage.setItem('omni_user_geo', JSON.stringify(userDeviceGeo));
+      localStorage.setItem('comm_lat', String(lat));
+      localStorage.setItem('comm_lng', String(lng));
+    } catch (e) {}
+    // Reverse geocode to update true city name
+    if (typeof window.api?.reverseGeocode === 'function') {
+      window.api.reverseGeocode(lat, lng).then(rev => {
+        if (rev && rev.formatted) {
+          localStorage.setItem('comm_loc_name', rev.formatted);
+          const label = document.getElementById('hub-rec-location-label');
+          if (label) {
+            label.innerHTML = `📍 <b>${escapeHtml(rev.formatted)}</b> <button class="hub-location-btn" onclick="openLocationPickerModal()">✏️ Change Location</button>`;
+          }
+        }
+      }).catch(() => {});
+    }
     loadHubRecommendedEvents();
   }
 
@@ -827,7 +856,7 @@ function requestUserDeviceLocationPrompt() {
     navigator.geolocation.getCurrentPosition(
       handleSuccess,
       handleError,
-      { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
   } catch (e) {
     if (!hasFinished) {
@@ -882,7 +911,7 @@ async function loadHubRecommendedEvents() {
     if (geo) {
       userLat = geo.lat;
       userLng = geo.lng;
-      locName = 'Live GPS Location';
+      locName = localStorage.getItem('comm_loc_name') || 'Live GPS Location';
     }
   }
 
@@ -891,8 +920,21 @@ async function loadHubRecommendedEvents() {
     const events = data.events || [];
     
     if (label) {
-      const activeName = locName || [data.detected_city, data.detected_state].filter(Boolean).join(', ') || 'San Diego, CA';
+      const activeName = (locName && locName !== 'Live GPS Location')
+        ? locName
+        : ([data.detected_city, data.detected_state].filter(Boolean).join(', ') || locName || 'Your Location');
       label.innerHTML = `📍 <b>${escapeHtml(activeName)}</b> <button class="hub-location-btn" onclick="openLocationPickerModal()">✏️ Change Location</button>`;
+
+      if (userLat != null && userLng != null && (activeName === 'Live GPS Location' || activeName === 'Your Location')) {
+        if (typeof window.api?.reverseGeocode === 'function') {
+          window.api.reverseGeocode(userLat, userLng).then(rev => {
+            if (rev && rev.formatted) {
+              localStorage.setItem('comm_loc_name', rev.formatted);
+              label.innerHTML = `📍 <b>${escapeHtml(rev.formatted)}</b> <button class="hub-location-btn" onclick="openLocationPickerModal()">✏️ Change Location</button>`;
+            }
+          }).catch(() => {});
+        }
+      }
     }
 
     // If no GPS, no custom location, and no detected history, show prompt to enable location sharing
