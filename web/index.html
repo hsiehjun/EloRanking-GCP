@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=14.0">
-  <link rel="stylesheet" href="/css/styles.css?v=77.0">
+  <link rel="stylesheet" href="/css/styles.css?v=78.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
@@ -83,10 +83,22 @@
     }
   </script>
 
-  <!-- Instant Anti-FOUC Auth Guard (Executes synchronously before first frame paint) -->
+  <!-- Instant Anti-FOUC Auth Guard & iOS Safe-Area Detector (Executes synchronously before first frame paint) -->
   <script>
     (function() {
       try {
+        // Instant iOS device detection for status bar & notch safe area clearance
+        var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (isIos) {
+          document.documentElement.classList.add('is-ios');
+          var isStandalone = ('standalone' in window.navigator && window.navigator.standalone) ||
+                             (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+          if (isStandalone) {
+            document.documentElement.classList.add('is-ios-standalone');
+          }
+        }
+
         var token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token');
         if (!token) {
           var match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));

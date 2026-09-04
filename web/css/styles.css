@@ -3111,12 +3111,20 @@ input, select, textarea {
     font-size: 1.05rem;
   }
   .landing-btn-signin {
-    padding: 5px 9px !important;
-    font-size: 0.76rem !important;
+    padding: 6px 11px !important;
+    font-size: 0.8rem !important;
+    min-height: 34px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
   .landing-btn-register {
-    padding: 5px 10px !important;
-    font-size: 0.76rem !important;
+    padding: 6px 13px !important;
+    font-size: 0.8rem !important;
+    min-height: 34px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
   .btn-text-full {
     display: none;
@@ -3149,6 +3157,68 @@ input, select, textarea {
   .landing-stat-lbl {
     font-size: 0.68rem;
   }
+}
+
+/* ==========================================================================
+   iOS STATUS BAR & NOTCH / DYNAMIC ISLAND SAFE AREA CLEARANCE
+   Guarantees landing header, logo, and sign in/register buttons clear the iOS
+   status bar (camera notch, Dynamic Island, clock, wifi, battery) without
+   altering Android or desktop layouts.
+   ========================================================================== */
+@supports (-webkit-touch-callout: none) {
+  .landing-nav {
+    padding-top: constant(safe-area-inset-top) !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-left: env(safe-area-inset-left, 0px) !important;
+    padding-right: env(safe-area-inset-right, 0px) !important;
+  }
+  #app-header {
+    padding-top: constant(safe-area-inset-top) !important;
+    padding-top: env(safe-area-inset-top, 0px) !important;
+    padding-left: env(safe-area-inset-left, 0px) !important;
+    padding-right: env(safe-area-inset-right, 0px) !important;
+  }
+  .landing-btn-signin,
+  .landing-btn-register {
+    touch-action: manipulation;
+    min-height: 36px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+}
+
+html.is-ios .landing-nav {
+  padding-top: constant(safe-area-inset-top) !important;
+  padding-top: env(safe-area-inset-top, 0px) !important;
+  padding-left: env(safe-area-inset-left, 0px) !important;
+  padding-right: env(safe-area-inset-right, 0px) !important;
+}
+
+html.is-ios #app-header {
+  padding-top: constant(safe-area-inset-top) !important;
+  padding-top: env(safe-area-inset-top, 0px) !important;
+  padding-left: env(safe-area-inset-left, 0px) !important;
+  padding-right: env(safe-area-inset-right, 0px) !important;
+}
+
+/* For iOS Standalone PWA / Webclip mode, enforce at least 44px top clearance */
+html.is-ios-standalone .landing-nav {
+  padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
+}
+
+html.is-ios-standalone #app-header {
+  padding-top: max(env(safe-area-inset-top, 0px), 44px) !important;
+}
+
+/* Touch & tap-target optimization for iOS navigation buttons */
+html.is-ios .landing-btn-signin,
+html.is-ios .landing-btn-register {
+  touch-action: manipulation;
+  min-height: 36px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 /* ==========================================================================

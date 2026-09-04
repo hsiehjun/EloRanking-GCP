@@ -294,6 +294,45 @@ def test_meta_intel_and_search_filter_cleanups():
     print("✅ Meta Intel dedicated section and streamlined name-only search filters verified!")
 
 
+def test_ios_landing_header_safe_area():
+    """Verify that iOS-specific safe-area notch and status bar clearance is properly enforced."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    # 1. Synchronous iOS detection in index.html <head>
+    assert "document.documentElement.classList.add('is-ios');" in index_content, \
+        "index.html must synchronously add is-ios class before first paint"
+    assert "document.documentElement.classList.add('is-ios-standalone');" in index_content, \
+        "index.html must detect iOS standalone PWA/webclip mode"
+
+    # 2. CSS @supports (-webkit-touch-callout: none) WebKit isolation
+    assert "@supports (-webkit-touch-callout: none)" in styles_content, \
+        "styles.css must isolate iOS styling using @supports (-webkit-touch-callout: none)"
+    assert "padding-top: env(safe-area-inset-top, 0px) !important;" in styles_content, \
+        "styles.css must apply safe-area-inset-top to .landing-nav"
+
+    # 3. Class-based iOS rules
+    assert "html.is-ios .landing-nav" in styles_content, \
+        "html.is-ios .landing-nav rule missing in styles.css"
+    assert "html.is-ios-standalone .landing-nav" in styles_content, \
+        "html.is-ios-standalone .landing-nav rule missing in styles.css"
+    assert "max(env(safe-area-inset-top, 0px), 44px)" in styles_content, \
+        "Standalone mode must enforce at least 44px top clearance for status bar"
+
+    # 4. Button touch optimization for iOS
+    assert "touch-action: manipulation;" in styles_content, \
+        "iOS navigation buttons must have touch-action: manipulation to eliminate tap delay"
+    assert "min-height: 36px !important;" in styles_content, \
+        "iOS navigation buttons must have min-height: 36px for comfortable touch target"
+
+    # 5. Base .landing-nav on non-iOS (Android/desktop) remains clean
+    base_landing_match = re.search(r'\.landing-nav\s*\{([^}]+)\}', styles_content)
+    assert base_landing_match is not None, ".landing-nav base rule not found"
+    assert "top: 0;" in base_landing_match.group(1), ".landing-nav should stick to top: 0"
+
+    print("✅ iOS landing header safe-area clearance and touch targets verified (Android unaffected)!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -305,4 +344,5 @@ if __name__ == "__main__":
     test_mobile_nav_dropdown_no_chat()
     test_landing_page_and_chat_notification_fixes()
     test_meta_intel_and_search_filter_cleanups()
+    test_ios_landing_header_safe_area()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
