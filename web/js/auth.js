@@ -22,12 +22,114 @@ try {
 
 function isUserTO(user) {
   if (!user) return false;
-  const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
-  const userEmail = ((user && user.email) ? user.email : '').toLowerCase();
+  const userRole = String(user.role || 'player').trim().toLowerCase();
+  const userEmail = String(user.email || '').trim().toLowerCase();
   const isSuperAdmin = userEmail === 'swimgeek751@gmail.com';
-  return isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+  const isAdmin = isSuperAdmin || userRole === 'admin' || userRole === 'superuser' || userRole === 'developer' || userRole === 'owner';
+  const isTO = userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+  return isAdmin || isTO;
 }
 window.isUserTO = isUserTO;
+
+/**
+ * Synchronize mobile navigation dropdown options based on auth status and user role.
+ * Note: Mobile Safari (iOS) and Android native select dialogs completely ignore CSS display:none
+ * on <option> tags. Therefore, privileged options (such as Event Studio for TO/Admin) and
+ * auth-specific options must be physically added or removed from the DOM.
+ */
+function syncMobileNavDropdown() {
+  const select = document.getElementById('mobile-nav-select');
+  if (!select) return;
+
+  const isTO = Boolean(currentUser && typeof isUserTO === 'function' && isUserTO(currentUser));
+  const divider = document.getElementById('mobile-opt-divider') || select.querySelector('option[disabled]');
+  let esOpt = document.getElementById('mobile-opt-event-studio');
+
+  // Event Studio Option: STRICTLY restricted to Tournament Organizers (TO) and Platform Admins
+  if (isTO) {
+    if (!esOpt) {
+      esOpt = document.createElement('option');
+      esOpt.value = 'event-studio';
+      esOpt.id = 'mobile-opt-event-studio';
+      esOpt.textContent = '🛠️ Event Studio (TO)';
+      if (divider) {
+        select.insertBefore(esOpt, divider);
+      } else {
+        select.appendChild(esOpt);
+      }
+    }
+  } else {
+    if (esOpt) {
+      if (select.value === 'event-studio') {
+        select.value = (typeof activeTab !== 'undefined' && activeTab !== 'event-studio') ? activeTab : 'my-hub';
+      }
+      esOpt.remove();
+    }
+  }
+
+  // Auth-state options: dynamically add/remove to ensure compatibility with iOS native pickers
+  let loginOpt = document.getElementById('mobile-opt-login');
+  let feedbackOpt = document.getElementById('mobile-opt-feedback');
+  let settingsOpt = document.getElementById('mobile-opt-settings');
+  let logoutOpt = document.getElementById('mobile-opt-logout');
+
+  if (currentUser) {
+    if (loginOpt) loginOpt.remove();
+
+    if (!feedbackOpt) {
+      feedbackOpt = document.createElement('option');
+      feedbackOpt.value = 'feedback';
+      feedbackOpt.id = 'mobile-opt-feedback';
+      feedbackOpt.textContent = '💬 Send Feedback';
+      select.appendChild(feedbackOpt);
+    }
+    if (!settingsOpt) {
+      settingsOpt = document.createElement('option');
+      settingsOpt.value = 'settings';
+      settingsOpt.id = 'mobile-opt-settings';
+      settingsOpt.textContent = '⚙️ Account Settings';
+      select.appendChild(settingsOpt);
+    }
+    if (!logoutOpt) {
+      logoutOpt = document.createElement('option');
+      logoutOpt.value = 'logout';
+      logoutOpt.id = 'mobile-opt-logout';
+      logoutOpt.textContent = '🚪 Sign Out';
+      select.appendChild(logoutOpt);
+    }
+  } else {
+    if (feedbackOpt) feedbackOpt.remove();
+    if (settingsOpt) settingsOpt.remove();
+    if (logoutOpt) logoutOpt.remove();
+
+    if (!loginOpt) {
+      loginOpt = document.createElement('option');
+      loginOpt.value = 'login';
+      loginOpt.id = 'mobile-opt-login';
+      loginOpt.textContent = '🔑 Sign In';
+      select.appendChild(loginOpt);
+    }
+  }
+
+  // Keep dropdown value in sync with activeTab
+  if (typeof activeTab !== 'undefined' && activeTab) {
+    if (activeTab === 'event-studio' && !isTO) {
+      select.value = 'my-hub';
+    } else if (select.querySelector(`option[value="${activeTab}"]`)) {
+      select.value = activeTab;
+    }
+  }
+}
+window.syncMobileNavDropdown = syncMobileNavDropdown;
+
+// Run immediate synchronous cleanup if DOM is already ready
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncMobileNavDropdown);
+  } else {
+    syncMobileNavDropdown();
+  }
+}
 
 function syncAppAuthView() {
   const landingView = document.getElementById('landing-page-view');
@@ -40,10 +142,7 @@ function syncAppAuthView() {
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && canAccessTO) ? 'flex' : 'none';
   }
-  const mobEsOpt = document.getElementById('mobile-opt-event-studio');
-  if (mobEsOpt) {
-    mobEsOpt.style.display = (currentUser && canAccessTO) ? '' : 'none';
-  }
+  syncMobileNavDropdown();
 
   const chatWidget = document.getElementById('floating-chat-widget');
 
@@ -470,18 +569,7 @@ function renderHeaderAuth() {
   if (esNavBtn) {
     esNavBtn.style.display = (currentUser && isUserTO(currentUser)) ? 'flex' : 'none';
   }
-  const mobEsOpt = document.getElementById('mobile-opt-event-studio');
-  if (mobEsOpt) {
-    mobEsOpt.style.display = (currentUser && isUserTO(currentUser)) ? '' : 'none';
-  }
-  const mobSettingsOpt = document.getElementById('mobile-opt-settings');
-  const mobLogoutOpt = document.getElementById('mobile-opt-logout');
-  const mobLoginOpt = document.getElementById('mobile-opt-login');
-  const mobFeedbackOpt = document.getElementById('mobile-opt-feedback');
-  if (mobSettingsOpt) mobSettingsOpt.style.display = currentUser ? '' : 'none';
-  if (mobLogoutOpt) mobLogoutOpt.style.display = currentUser ? '' : 'none';
-  if (mobLoginOpt) mobLoginOpt.style.display = currentUser ? 'none' : '';
-  if (mobFeedbackOpt) mobFeedbackOpt.style.display = currentUser ? '' : 'none';
+  syncMobileNavDropdown();
 
   if (!container) return;
 

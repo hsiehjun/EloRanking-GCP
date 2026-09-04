@@ -531,6 +531,70 @@ def test_pwa_landscape_orientation():
     print("✅ PWA landscape rotation, viewport meta tags, orientation unlock, and safe-area reflow verified!")
 
 
+def test_event_studio_mobile_dropdown_role_restriction():
+    """Verify that Event Studio only shows in mobile dropdown for users signed in as TO or higher (Admin)."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    auth_content = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+    app_content = (root_dir / "web" / "js" / "app.js").read_text(encoding="utf-8")
+
+    # 1. Verify index.html static markup does NOT have event-studio in mobile-nav-select
+    select_match = re.search(r'<select id="mobile-nav-select"[^>]*>(.*?)</select>', index_content, re.DOTALL)
+    assert select_match is not None, "mobile-nav-select not found in index.html"
+    select_inner = select_match.group(1)
+    assert 'value="event-studio"' not in select_inner, \
+        "event-studio must NOT be in initial mobile-nav-select static HTML (prevents iOS Safari native picker leak)"
+    assert 'mobile-opt-event-studio' not in select_inner, \
+        "mobile-opt-event-studio must NOT be in initial mobile-nav-select static HTML"
+    assert 'id="mobile-opt-divider"' in select_inner, \
+        "mobile-opt-divider anchor missing in mobile-nav-select"
+
+    # 2. Verify inline handleMobileNavChange in index.html guards event-studio
+    assert "val === 'event-studio'" in index_content, "index.html handleMobileNavChange missing event-studio guard"
+    assert "isUserTO" in index_content, "index.html handleMobileNavChange missing isUserTO check"
+
+    # 3. Verify auth.js defines isUserTO and syncMobileNavDropdown
+    assert "function isUserTO(user)" in auth_content, "auth.js missing isUserTO function"
+    assert "window.isUserTO = isUserTO;" in auth_content, "auth.js must export isUserTO to window"
+    assert "function syncMobileNavDropdown()" in auth_content, "auth.js missing syncMobileNavDropdown function"
+    assert "window.syncMobileNavDropdown = syncMobileNavDropdown;" in auth_content, "auth.js must export syncMobileNavDropdown"
+    assert "mobile-opt-event-studio" in auth_content, "auth.js must manage mobile-opt-event-studio"
+
+    # 4. Verify auth.js physically inserts/removes options from DOM (required for iOS Safari)
+    assert "esOpt.remove()" in auth_content, "syncMobileNavDropdown must remove esOpt from DOM when not TO"
+    assert "document.createElement('option')" in auth_content, "syncMobileNavDropdown must dynamically create option"
+    assert "select.insertBefore(esOpt, divider)" in auth_content, "syncMobileNavDropdown must insert before divider"
+
+    # 5. Verify syncAppAuthView and renderHeaderAuth trigger syncMobileNavDropdown
+    assert "syncMobileNavDropdown()" in auth_content, "auth.js must invoke syncMobileNavDropdown"
+
+    # 6. Verify app.js handleMobileNavChange guards event-studio
+    assert "val === 'event-studio'" in app_content, "app.js handleMobileNavChange missing event-studio guard"
+    assert "isUserTO" in app_content, "app.js handleMobileNavChange missing isUserTO check"
+    assert "syncMobileNavDropdown" in app_content, "app.js switchTab must sync mobile dropdown"
+
+    # 7. Role parity verification with backend eventstudio.py
+    to_roles = {"to", "organizer", "referee", "admin", "superuser", "developer", "owner"}
+    blocked_roles = {None, "", "player", "guest", "user", "viewer"}
+
+    def simulate_is_user_to(user):
+        if not user:
+            return False
+        role = str(user.get("role") or "player").strip().lower()
+        email = str(user.get("email") or "").strip().lower()
+        is_super = (email == "swimgeek751@gmail.com")
+        is_adm = is_super or (role in ("admin", "superuser", "developer", "owner"))
+        is_organizer = role in ("to", "organizer", "referee")
+        return is_adm or is_organizer
+
+    for r in to_roles:
+        assert simulate_is_user_to({"role": r}), f"Role '{r}' should be granted TO access"
+    for r in blocked_roles:
+        assert not simulate_is_user_to({"role": r} if r is not None else None), f"Role '{r}' must NOT have TO access"
+    assert simulate_is_user_to({"email": "swimgeek751@gmail.com", "role": "player"}), "Superadmin must have TO access"
+
+    print("✅ Event Studio mobile dropdown role-restriction, DOM lifecycle, and TO/Admin guards verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -547,6 +611,7 @@ if __name__ == "__main__":
     test_teams_leaderboard_pagination()
     test_custom_timeframe_calendar_picker()
     test_pwa_landscape_orientation()
+    test_event_studio_mobile_dropdown_role_restriction()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

@@ -55,6 +55,19 @@
         window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
         return;
       }
+      if (val === 'event-studio') {
+        var isTO = (typeof currentUser !== 'undefined' && currentUser) && (typeof isUserTO === 'function' ? isUserTO(currentUser) : false);
+        if (!isTO) {
+          var mob = document.getElementById('mobile-nav-select');
+          if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+          if (typeof currentUser === 'undefined' || !currentUser) {
+            window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
+          } else {
+            alert('Event Studio is restricted to certified Tournament Organizers and Admins.');
+          }
+          return;
+        }
+      }
       if (typeof switchTab === 'function') {
         switchTab(val);
       } else {
@@ -939,8 +952,7 @@
             <option value="leaderboard" selected>🏆 Leaderboard</option>
             <option value="meta-intel">📊 Meta Intel</option>
             <option value="search">🔍 Search Directory</option>
-            <option value="event-studio" id="mobile-opt-event-studio" style="display: none;">🛠️ Event Studio (TO)</option>
-            <option disabled>──────────</option>
+            <option disabled id="mobile-opt-divider">──────────</option>
             <option value="feedback" id="mobile-opt-feedback">💬 Send Feedback</option>
             <option value="settings" id="mobile-opt-settings">⚙️ Account Settings</option>
             <option value="logout" id="mobile-opt-logout">🚪 Sign Out</option>
@@ -2876,12 +2888,12 @@
   <script src="/js/factions.js?v=65.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=66.0"></script>
-  <script src="/js/auth.js?v=80.0"></script>
+  <script src="/js/auth.js?v=81.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
   <script src="/js/connect.js?v=10.0"></script>
   <script src="/js/community.js?v=3.2"></script>
-  <script src="/js/app.js?v=83.0"></script>
+  <script src="/js/app.js?v=84.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

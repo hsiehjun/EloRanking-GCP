@@ -67,7 +67,12 @@ function switchTab(tabName) {
   // Synchronize mobile dropdown tab selector
   const mobNavSelect = document.getElementById('mobile-nav-select');
   if (mobNavSelect) {
-    mobNavSelect.value = tabName;
+    if (typeof syncMobileNavDropdown === 'function') {
+      syncMobileNavDropdown();
+    }
+    if (mobNavSelect.querySelector(`option[value="${tabName}"]`)) {
+      mobNavSelect.value = tabName;
+    }
   }
 
   // Update tab panel visibility
@@ -172,6 +177,19 @@ function handleMobileNavChange(val) {
   if (val === 'login') {
     window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
     return;
+  }
+  if (val === 'event-studio') {
+    const isTO = Boolean(currentUser && typeof isUserTO === 'function' && isUserTO(currentUser));
+    if (!isTO) {
+      const mob = document.getElementById('mobile-nav-select');
+      if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+      if (!currentUser) {
+        window.location.href = '/login?redirect=' + encodeURIComponent('/#event-studio');
+      } else {
+        alert('Event Studio is restricted to certified Tournament Organizers and Admins.');
+      }
+      return;
+    }
   }
   switchTab(val);
 }
