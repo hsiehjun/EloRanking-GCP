@@ -1905,11 +1905,6 @@ async function updateUnreadCountBadge() {
         bubbleBtn.classList.remove('has-unread');
       }
     }
-
-    const mobOptChat = document.getElementById('mobile-opt-chat');
-    if (mobOptChat) {
-      mobOptChat.textContent = count > 0 ? `💬 Chat (${count})` : '💬 Chat';
-    }
   } catch (e) {}
 }
 

@@ -195,6 +195,31 @@ def test_floating_chat_back_navigation():
     print("✅ Floating chat back navigation and compact master-detail architecture verified!")
 
 
+def test_mobile_nav_dropdown_no_chat():
+    """Verify that mobile nav dropdown does not include redundant Chat option now that it is a persistent bubble."""
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+
+    # Locate mobile-nav-select block
+    select_match = re.search(r'<select id="mobile-nav-select"[^>]*>(.*?)</select>', index_content, re.DOTALL)
+    assert select_match is not None, "mobile-nav-select not found in index.html"
+    select_inner = select_match.group(1)
+
+    # Assert chat is NOT in options
+    assert 'value="chat"' not in select_inner, "mobile-nav-select still contains value='chat'"
+    assert 'mobile-opt-chat' not in select_inner, "mobile-nav-select still contains mobile-opt-chat"
+
+    # Assert standard tabs exist
+    assert 'value="my-hub"' in select_inner, "my-hub missing in mobile-nav-select"
+    assert 'value="community"' in select_inner, "community missing in mobile-nav-select"
+    assert 'value="tracker"' in select_inner, "tracker missing in mobile-nav-select"
+    assert 'value="leaderboard"' in select_inner, "leaderboard missing in mobile-nav-select"
+
+    # Assert persistent floating chat bubble exists
+    assert 'id="floating-chat-bubble"' in index_content, "floating-chat-bubble missing in index.html"
+
+    print("✅ Mobile nav dropdown verified free of redundant Chat option (chat handled via bubble)!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -203,4 +228,5 @@ if __name__ == "__main__":
     test_document_scrolling_architecture()
     test_layout_width_and_mobile_stacking()
     test_floating_chat_back_navigation()
+    test_mobile_nav_dropdown_no_chat()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
