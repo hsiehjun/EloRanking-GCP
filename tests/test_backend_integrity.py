@@ -22,7 +22,8 @@ def test_py_compile():
         root_dir / "config.py",
         root_dir / "scraper.py",
         root_dir / "firestore_db.py",
-        root_dir / "army_list_parser.py"
+        root_dir / "army_list_parser.py",
+        root_dir / "bcp_adapter.py"
     ] + list((root_dir / "routers").glob("*.py"))
 
     for p in py_files:
@@ -32,7 +33,7 @@ def test_py_compile():
 
 def test_ast_undefined_names():
     """Verify AST scoping to ensure no undefined variables in any router."""
-    files = [root_dir / "core.py", root_dir / "server.py"] + list((root_dir / "routers").glob("*.py"))
+    files = [root_dir / "core.py", root_dir / "server.py", root_dir / "bcp_adapter.py"] + list((root_dir / "routers").glob("*.py"))
     
     known_globals = {
         "_db_instance", "_engine_instance", "_LAST_UPCOMING_SYNC_TIME",
@@ -43,7 +44,7 @@ def test_ast_undefined_names():
         "GOOGLE_MAPS_API_KEY", "Database", "get_db", "BestCoastPairingsScraper",
         "EloEngine", "get_auth_manager", "_decode_jwt_payload",
         "get_army_parser", "get_firestore_engine", "Request", "HTTPException",
-        "api_events_recommended", "_roster_cache"
+        "api_events_recommended", "_roster_cache", "bcp_adapter", "BcpAdapter"
     }
 
     for file_path in files:
