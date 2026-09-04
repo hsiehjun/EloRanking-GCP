@@ -680,7 +680,7 @@ def test_landing_page_community_ethos_and_neutrality():
         ("Player & Team Leaderboards", 'id="leaderboard"'),
         ("Meta Intel & Balance Matrix", 'id="meta-intel"'),
         ("Tournament Radar", 'id="tournaments"'),
-        ("Cross-Platform BCP Synchronization", 'id="bcp-sync"'),
+        ("Real-Time Sparring Radar Feature Card", 'id="sparring-radar"'),
         ("Interactive Challenge / Match Lobby", 'Match Lobby &bull; Live Room Creation'),
         ("1-Click Game Room Invites in Chat", 'oc-msg-room-card')
     ]
@@ -697,7 +697,7 @@ def test_landing_page_community_ethos_and_neutrality():
         "tournaments",
         "leaderboard",
         "meta-intel",
-        "bcp-sync",
+        "sparring-radar",
         "features"
     ]
     for anchor_id in target_anchors:
@@ -726,11 +726,13 @@ def test_landing_page_community_ethos_and_neutrality():
     assert "Circuit Compatible" in landing_html, "Missing circuit compatibility neutrality badge"
     assert "Zero Paywalls" in landing_html, "Missing zero paywalls affirmative statement"
 
-    # 6. Event Studio completely cleaned up from landing page per user request
+    # 6. Event Studio and BCP completely cleaned up from landing page per user request
     assert "eventstudio" not in landing_lower, "Landing page must have zero references to eventstudio"
     assert "event studio" not in landing_lower, "Landing page must have zero references to event studio"
+    assert "bcp" not in landing_lower, "Landing page must have zero references to BCP"
+    assert "best coast" not in landing_lower, "Landing page must have zero references to Best Coast"
 
-    print("✅ Landing page community ethos, 6-pillar feature suite, and strict neutrality verified!")
+    print("✅ Landing page community ethos, 6-pillar feature suite, and strict neutrality verified (0 Event Studio, 0 BCP)!")
 
 
 if __name__ == "__main__":
