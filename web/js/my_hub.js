@@ -120,6 +120,7 @@ function renderMyHub(data) {
   const factionMastery = data.faction_mastery || [];
   const matchups = data.matchup_matrix || [];
   const upcoming = data.upcoming_events || [];
+  const matchupSpotlights = computeMatchupSpotlights(matchups, history, p.win_rate);
 
   const activeMatches = (data.active_sessions && Array.isArray(data.active_sessions))
     ? data.active_sessions
@@ -270,6 +271,7 @@ function renderMyHub(data) {
       <div class="hub-card">
         <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
         ${matchups.length > 0 ? `
+          ${renderMatchupSpotlightCards(matchupSpotlights)}
           <div class="hub-table-wrapper">
             <table id="hub-matchup-table" class="hub-table">
               <thead>
@@ -282,7 +284,7 @@ function renderMyHub(data) {
               </thead>
               <tbody>
                 ${matchups.map(m => `
-                  <tr>
+                  <tr data-faction="${escapeHtml(m.enemy_faction)}">
                     <td class="cell-ellipsis" title="${escapeHtml(m.enemy_faction)}"><b style="color: #fff;">${escapeHtml(m.enemy_faction)}</b></td>
                     <td style="text-align: center; font-family: var(--font-mono);">${m.total_encounters}</td>
                     <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${m.losses}L</span>${m.draws ? ` - <span style="color:var(--draw);">${m.draws}D</span>` : ''}</td>
@@ -558,6 +560,293 @@ function renderHubTrajectory(history) {
     svg.appendChild(circle);
   });
 }
+
+
+/* ==========================================================================
+   MATCHUP SPOTLIGHTS (FAVORITE PREY & NEMESIS ARMY)
+   ========================================================================== */
+
+/**
+ * Computes Favorite Prey and Nemesis Army with sample size qualification,
+ * career win rate differential, and streak tracking.
+ */
+function computeMatchupSpotlights(matchups, history, careerWinRate) {
+  if (!matchups || matchups.length === 0) {
+    return { prey: null, nemesis: null };
+  }
+
+  const careerRate = Number(careerWinRate || 0);
+
+  function getFactionStreak(factionName, hist) {
+    if (!hist || hist.length === 0 || !factionName) return null;
+    const fLower = factionName.trim().toLowerCase();
+    const matchesAgainst = [];
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i];
+      const oppFaction = (h.opponent_faction || h.enemy_faction || '').trim().toLowerCase();
+      if (oppFaction === fLower) {
+        matchesAgainst.push(h);
+      }
+    }
+    if (matchesAgainst.length === 0) return null;
+
+    const firstRes = matchesAgainst[0].result;
+    if (firstRes !== 'W' && firstRes !== 'L' && firstRes !== 'D') return null;
+
+    let count = 0;
+    for (const m of matchesAgainst) {
+      if (m.result === firstRes) count++;
+      else break;
+    }
+
+    if (firstRes === 'W') {
+      return { type: 'win', count, shortText: `🔥 ${count}W`, fullText: count >= 2 ? `🔥 ${count}W Streak` : `🔥 Won last` };
+    } else if (firstRes === 'L') {
+      return { type: 'loss', count, shortText: `💀 ${count}L`, fullText: count >= 2 ? `💀 ${count}L Streak` : `💀 Lost last` };
+    } else {
+      return { type: 'draw', count, shortText: `🤝 Draw`, fullText: `🤝 Drawn last` };
+    }
+  }
+
+  function formatSpotlight(m) {
+    if (!m) return null;
+    const wr = Number(m.win_rate || 0);
+    const diff = wr - careerRate;
+    const sign = diff > 0 ? '+' : '';
+    const diffText = `${sign}${diff.toFixed(1)}% vs avg`;
+    const streak = getFactionStreak(m.enemy_faction, history);
+
+    return {
+      faction: m.enemy_faction,
+      encounters: Number(m.total_encounters) || 0,
+      wins: Number(m.wins) || 0,
+      losses: Number(m.losses) || 0,
+      draws: Number(m.draws) || 0,
+      winRate: wr.toFixed(1),
+      diff,
+      diffText,
+      streak,
+      recordText: `${m.wins}W - ${m.losses}L${m.draws ? ` - ${m.draws}D` : ''}`
+    };
+  }
+
+  // Single opponent army edge case
+  if (matchups.length === 1) {
+    const single = matchups[0];
+    const wr = Number(single.win_rate || 0);
+    const spot = formatSpotlight(single);
+
+    if (wr >= 50) {
+      return { prey: spot, nemesis: null };
+    } else {
+      return { prey: null, nemesis: spot };
+    }
+  }
+
+  const totalGames = matchups.reduce((sum, m) => sum + (Number(m.total_encounters) || 0), 0);
+
+  // Dynamic sample threshold:
+  // >= 15 total games -> require >= 3 encounters
+  // >= 5 total games -> require >= 2 encounters
+  // < 5 total games -> require >= 1 encounter
+  let minGames = 3;
+  if (totalGames < 5) minGames = 1;
+  else if (totalGames < 15) minGames = 2;
+
+  let qualified = matchups.filter(m => (Number(m.total_encounters) || 0) >= minGames);
+  // Graceful degradation if threshold excludes too many opponents
+  if (qualified.length < 2 && minGames > 1) {
+    qualified = matchups.filter(m => (Number(m.total_encounters) || 0) >= (minGames - 1));
+  }
+  if (qualified.length === 0) {
+    qualified = matchups.slice();
+  }
+
+  // 1. Best Matchup (Favorite Prey)
+  // Must have wins > 0
+  const preyPool = qualified.filter(m => (Number(m.wins) || 0) > 0);
+  let bestCandidate = null;
+  if (preyPool.length > 0) {
+    preyPool.sort((a, b) => {
+      const wrDiff = Number(b.win_rate || 0) - Number(a.win_rate || 0);
+      if (Math.abs(wrDiff) > 0.01) return wrDiff;
+      const encDiff = (Number(b.total_encounters) || 0) - (Number(a.total_encounters) || 0);
+      if (encDiff !== 0) return encDiff;
+      return (Number(b.wins) || 0) - (Number(a.wins) || 0);
+    });
+    bestCandidate = preyPool[0];
+  } else {
+    // Fallback across all matchups if qualified had 0 wins
+    const anyPrey = matchups.filter(m => (Number(m.wins) || 0) > 0);
+    if (anyPrey.length > 0) {
+      anyPrey.sort((a, b) => (Number(b.win_rate || 0) - Number(a.win_rate || 0)) || ((Number(b.total_encounters) || 0) - (Number(a.total_encounters) || 0)));
+      bestCandidate = anyPrey[0];
+    }
+  }
+
+  // 2. Worst Matchup (Nemesis Army)
+  // Exclude bestCandidate
+  let nemesisPool = qualified.filter(m => {
+    if (bestCandidate && m.enemy_faction === bestCandidate.enemy_faction) {
+      return false;
+    }
+    return (Number(m.losses) || 0) > 0;
+  });
+
+  let worstCandidate = null;
+  if (nemesisPool.length > 0) {
+    nemesisPool.sort((a, b) => {
+      const wrDiff = Number(a.win_rate || 0) - Number(b.win_rate || 0);
+      if (Math.abs(wrDiff) > 0.01) return wrDiff;
+      const encDiff = (Number(b.total_encounters) || 0) - (Number(a.total_encounters) || 0);
+      if (encDiff !== 0) return encDiff;
+      return (Number(b.losses) || 0) - (Number(a.losses) || 0);
+    });
+    worstCandidate = nemesisPool[0];
+  } else {
+    const anyNemesis = matchups.filter(m => {
+      if (bestCandidate && m.enemy_faction === bestCandidate.enemy_faction) {
+        return false;
+      }
+      return (Number(m.losses) || 0) > 0;
+    });
+    if (anyNemesis.length > 0) {
+      anyNemesis.sort((a, b) => (Number(a.win_rate || 0) - Number(b.win_rate || 0)) || ((Number(b.total_encounters) || 0) - (Number(a.total_encounters) || 0)));
+      worstCandidate = anyNemesis[0];
+    }
+  }
+
+  return {
+    prey: formatSpotlight(bestCandidate),
+    nemesis: formatSpotlight(worstCandidate)
+  };
+}
+
+/**
+ * Renders the compact 50/50 Favorite Prey and Nemesis Army cards.
+ */
+function renderMatchupSpotlightCards(spotlights) {
+  if (!spotlights) return '';
+  const { prey, nemesis } = spotlights;
+  if (!prey && !nemesis) return '';
+
+  const preyHtml = prey ? `
+    <div class="hub-spotlight-card spotlight-prey" data-spotlight-target="${escapeHtml(prey.faction)}" onclick="highlightMatchupRow(this.getAttribute('data-spotlight-target'))" role="button" tabindex="0" title="Click to locate ${escapeHtml(prey.faction)} in table">
+      <div class="spotlight-header">
+        <span class="spotlight-badge prey-badge">
+          <span>🎯</span> <span class="badge-label-long">FAVORITE PREY</span><span class="badge-label-short">PREY</span>
+        </span>
+        ${prey.streak ? `
+          <span class="spotlight-streak streak-${prey.streak.type}" title="${escapeHtml(prey.streak.fullText)}">
+            <span class="streak-long">${escapeHtml(prey.streak.fullText)}</span>
+            <span class="streak-short">${escapeHtml(prey.streak.shortText)}</span>
+          </span>` : ''}
+      </div>
+      <div class="spotlight-body">
+        <div class="spotlight-faction-name" title="${escapeHtml(prey.faction)}">${escapeHtml(prey.faction)}</div>
+        <div class="spotlight-rate text-win">${prey.winRate}%</div>
+      </div>
+      <div class="spotlight-footer">
+        <span class="spotlight-record">${prey.recordText}</span>
+        <span class="spotlight-diff ${prey.diff >= 0 ? 'text-win' : 'text-loss'}">${prey.diff > 0 ? '+' : ''}${prey.diff.toFixed(1)}%<span class="diff-label"> vs avg</span></span>
+      </div>
+    </div>
+  ` : `
+    <div class="hub-spotlight-card spotlight-prey spotlight-empty" style="cursor: default; opacity: 0.75;">
+      <div class="spotlight-header">
+        <span class="spotlight-badge prey-badge">
+          <span>🎯</span> <span class="badge-label-long">FAVORITE PREY</span><span class="badge-label-short">PREY</span>
+        </span>
+      </div>
+      <div class="spotlight-body" style="align-items: center; justify-content: center;">
+        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">No Prey Yet</div>
+      </div>
+      <div class="spotlight-footer" style="justify-content: center;">
+        <span style="font-size: 0.68rem; color: var(--text-secondary);">Log wins to unlock</span>
+      </div>
+    </div>
+  `;
+
+  const nemesisHtml = nemesis ? `
+    <div class="hub-spotlight-card spotlight-nemesis" data-spotlight-target="${escapeHtml(nemesis.faction)}" onclick="highlightMatchupRow(this.getAttribute('data-spotlight-target'))" role="button" tabindex="0" title="Click to locate ${escapeHtml(nemesis.faction)} in table">
+      <div class="spotlight-header">
+        <span class="spotlight-badge nemesis-badge">
+          <span>⚡</span> <span class="badge-label-long">NEMESIS ARMY</span><span class="badge-label-short">NEMESIS</span>
+        </span>
+        ${nemesis.streak ? `
+          <span class="spotlight-streak streak-${nemesis.streak.type}" title="${escapeHtml(nemesis.streak.fullText)}">
+            <span class="streak-long">${escapeHtml(nemesis.streak.fullText)}</span>
+            <span class="streak-short">${escapeHtml(nemesis.streak.shortText)}</span>
+          </span>` : ''}
+      </div>
+      <div class="spotlight-body">
+        <div class="spotlight-faction-name" title="${escapeHtml(nemesis.faction)}">${escapeHtml(nemesis.faction)}</div>
+        <div class="spotlight-rate text-loss">${nemesis.winRate}%</div>
+      </div>
+      <div class="spotlight-footer">
+        <span class="spotlight-record">${nemesis.recordText}</span>
+        <span class="spotlight-diff ${nemesis.diff >= 0 ? 'text-win' : 'text-loss'}">${nemesis.diff > 0 ? '+' : ''}${nemesis.diff.toFixed(1)}%<span class="diff-label"> vs avg</span></span>
+      </div>
+    </div>
+  ` : `
+    <div class="hub-spotlight-card spotlight-nemesis spotlight-empty" style="cursor: default; opacity: 0.75;">
+      <div class="spotlight-header">
+        <span class="spotlight-badge nemesis-badge">
+          <span>⚡</span> <span class="badge-label-long">NEMESIS ARMY</span><span class="badge-label-short">NEMESIS</span>
+        </span>
+      </div>
+      <div class="spotlight-body" style="align-items: center; justify-content: center;">
+        <div style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">No Nemesis Yet</div>
+      </div>
+      <div class="spotlight-footer" style="justify-content: center;">
+        <span style="font-size: 0.68rem; color: var(--text-secondary);">Undefeated or more games needed</span>
+      </div>
+    </div>
+  `;
+
+  return `
+    <div class="hub-spotlight-grid">
+      ${preyHtml}
+      ${nemesisHtml}
+    </div>
+  `;
+}
+
+/**
+ * Smoothly scrolls to and flashes the selected faction row in the Matchup Matrix table.
+ */
+function highlightMatchupRow(faction) {
+  if (!faction) return;
+  const targetName = faction.trim().toLowerCase();
+  const table = document.getElementById('hub-matchup-table');
+  if (!table) return;
+
+  const rows = table.querySelectorAll('tbody tr');
+  let targetRow = null;
+  for (const r of rows) {
+    const dataFaction = r.getAttribute('data-faction');
+    if (dataFaction && dataFaction.trim().toLowerCase() === targetName) {
+      targetRow = r;
+      break;
+    }
+    const firstCell = r.querySelector('td:first-child');
+    if (firstCell && firstCell.textContent.trim().toLowerCase().includes(targetName)) {
+      targetRow = r;
+      break;
+    }
+  }
+
+  if (targetRow) {
+    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    targetRow.classList.remove('row-flash');
+    void targetRow.offsetWidth; // trigger reflow
+    targetRow.classList.add('row-flash');
+    setTimeout(() => {
+      targetRow.classList.remove('row-flash');
+    }, 2200);
+  }
+}
+window.highlightMatchupRow = highlightMatchupRow;
 
 
 /* ==========================================================================

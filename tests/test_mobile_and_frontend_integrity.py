@@ -827,6 +827,38 @@ def test_bcp_linking_integrity_and_landing_separation():
     print("✅ Authentic BCP account linking logic verified in app shell & 100% clean landing page separation verified!")
 
 
+def test_matchup_spotlights_integrity():
+    """Verify Favorite Prey & Nemesis Army spotlights and mobile 50/50 layout integrity."""
+    hub_path = root_dir / "web" / "js" / "my_hub.js"
+    css_path = root_dir / "web" / "css" / "styles.css"
+    app_path = root_dir / "web" / "app.html"
+
+    hub_content = hub_path.read_text(encoding="utf-8")
+    css_content = css_path.read_text(encoding="utf-8")
+    app_content = app_path.read_text(encoding="utf-8")
+
+    # 1. Hub logic
+    assert "function computeMatchupSpotlights" in hub_content, "computeMatchupSpotlights missing in my_hub.js"
+    assert "function renderMatchupSpotlightCards" in hub_content, "renderMatchupSpotlightCards missing in my_hub.js"
+    assert "function highlightMatchupRow" in hub_content, "highlightMatchupRow missing in my_hub.js"
+    assert "${renderMatchupSpotlightCards(matchupSpotlights)}" in hub_content, "Spotlight cards not rendered in Card 4"
+    assert 'data-faction="${escapeHtml(m.enemy_faction)}"' in hub_content, "data-faction attribute missing on matchup rows"
+
+    # 2. Styles
+    assert ".hub-spotlight-grid" in css_content, ".hub-spotlight-grid missing in styles.css"
+    assert "grid-template-columns: 1fr 1fr;" in css_content, "50/50 split missing in hub-spotlight-grid"
+    assert ".spotlight-prey" in css_content, ".spotlight-prey missing in styles.css"
+    assert ".spotlight-nemesis" in css_content, ".spotlight-nemesis missing in styles.css"
+    assert ".row-flash" in css_content, ".row-flash missing in styles.css"
+    assert "@keyframes rowHighlightFlash" in css_content, "rowHighlightFlash animation missing in styles.css"
+
+    # 3. Cache busting
+    assert "styles.css?v=83.0" in app_content, "styles.css not bumped to v=83.0"
+    assert "my_hub.js?v=76.0" in app_content, "my_hub.js not bumped to v=76.0"
+
+    print("✅ Favorite Prey & Nemesis Army spotlights and mobile 50/50 layout integrity verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -848,6 +880,7 @@ if __name__ == "__main__":
     test_landing_page_community_ethos_and_neutrality()
     test_signout_and_pwa_standalone_navigation()
     test_bcp_linking_integrity_and_landing_separation()
+    test_matchup_spotlights_integrity()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

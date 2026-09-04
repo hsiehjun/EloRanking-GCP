@@ -239,6 +239,215 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"players": [], "events": [], "teams": [], "count": 0}).encode("utf-8"))
             return
 
+        if clean_path in ("api/user/dashboard",):
+            res = {
+                "player": {
+                    "player_id": "p_dev_commander",
+                    "player_name": "Commander",
+                    "top_faction": "Space Marines",
+                    "current_elo": 1845.5,
+                    "peak_elo": 1890.0,
+                    "win_rate": 67.5,
+                    "matches_played": 40,
+                    "wins": 27,
+                    "losses": 13,
+                    "team": "Iron Hands Veterans"
+                },
+                "rankings": {
+                    "global_rank": 142,
+                    "faction_rank": 18,
+                    "total_ranked_players": 77322
+                },
+                "matchup_matrix": [
+                    {
+                        "enemy_faction": "Orks",
+                        "total_encounters": 10,
+                        "wins": 8,
+                        "losses": 2,
+                        "draws": 0,
+                        "win_rate": 80.0
+                    },
+                    {
+                        "enemy_faction": "Necrons",
+                        "total_encounters": 8,
+                        "wins": 6,
+                        "losses": 2,
+                        "draws": 0,
+                        "win_rate": 75.0
+                    },
+                    {
+                        "enemy_faction": "Chaos Space Marines",
+                        "total_encounters": 7,
+                        "wins": 5,
+                        "losses": 2,
+                        "draws": 0,
+                        "win_rate": 71.4
+                    },
+                    {
+                        "enemy_faction": "Tyranids",
+                        "total_encounters": 5,
+                        "wins": 4,
+                        "losses": 1,
+                        "draws": 0,
+                        "win_rate": 80.0
+                    },
+                    {
+                        "enemy_faction": "Aeldari",
+                        "total_encounters": 6,
+                        "wins": 1,
+                        "losses": 5,
+                        "draws": 0,
+                        "win_rate": 16.7
+                    },
+                    {
+                        "enemy_faction": "World Eaters",
+                        "total_encounters": 3,
+                        "wins": 2,
+                        "losses": 1,
+                        "draws": 0,
+                        "win_rate": 66.7
+                    },
+                    {
+                        "enemy_faction": "Imperial Knights",
+                        "total_encounters": 1,
+                        "wins": 1,
+                        "losses": 0,
+                        "draws": 0,
+                        "win_rate": 100.0
+                    }
+                ],
+                "faction_mastery": [
+                    {
+                        "faction": "Space Marines",
+                        "games": 30,
+                        "wins": 21,
+                        "losses": 9,
+                        "draws": 0,
+                        "win_rate": 70.0,
+                        "avg_score": 78.5
+                    },
+                    {
+                        "faction": "Adeptus Custodes",
+                        "games": 10,
+                        "wins": 6,
+                        "losses": 4,
+                        "draws": 0,
+                        "win_rate": 60.0,
+                        "avg_score": 72.0
+                    }
+                ],
+                "history": [
+                    {
+                        "match_date": "2026-05-10",
+                        "event_name": "Warhammer Open Atlanta",
+                        "round": "R1",
+                        "result": "W",
+                        "player_score": 85,
+                        "opponent_score": 45,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Marcus Vance",
+                        "opponent_elo": 1720.0,
+                        "opponent_faction": "Orks",
+                        "delta_elo": 12.0,
+                        "new_elo": 1780.0
+                    },
+                    {
+                        "match_date": "2026-06-14",
+                        "event_name": "Lone Star Open 2026",
+                        "round": "R2",
+                        "result": "L",
+                        "player_score": 52,
+                        "opponent_score": 78,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Elena Rostova",
+                        "opponent_elo": 1910.0,
+                        "opponent_faction": "Aeldari",
+                        "delta_elo": -10.5,
+                        "new_elo": 1795.0
+                    },
+                    {
+                        "match_date": "2026-07-20",
+                        "event_name": "Crucible GT 2026",
+                        "round": "R3",
+                        "result": "W",
+                        "player_score": 90,
+                        "opponent_score": 55,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Gorgutz 'Eadsplitter",
+                        "opponent_elo": 1750.0,
+                        "opponent_faction": "Orks",
+                        "delta_elo": 14.2,
+                        "new_elo": 1815.0
+                    },
+                    {
+                        "match_date": "2026-08-01",
+                        "event_name": "Bay Area Cup 2026",
+                        "round": "R4",
+                        "result": "W",
+                        "player_score": 88,
+                        "opponent_score": 60,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Waaagh Boss Da Boss",
+                        "opponent_elo": 1800.0,
+                        "opponent_faction": "Orks",
+                        "delta_elo": 15.0,
+                        "new_elo": 1830.0
+                    },
+                    {
+                        "match_date": "2026-08-15",
+                        "event_name": "Nova Open 2026",
+                        "round": "R5",
+                        "result": "L",
+                        "player_score": 45,
+                        "opponent_score": 82,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Farseer Eldrad",
+                        "opponent_elo": 1950.0,
+                        "opponent_faction": "Aeldari",
+                        "delta_elo": -11.0,
+                        "new_elo": 1825.0
+                    },
+                    {
+                        "match_date": "2026-08-28",
+                        "event_name": "LGT Masters 2026",
+                        "round": "R6",
+                        "result": "L",
+                        "player_score": 58,
+                        "opponent_score": 80,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Yriel Swiftwind",
+                        "opponent_elo": 1920.0,
+                        "opponent_faction": "Aeldari",
+                        "delta_elo": -9.5,
+                        "new_elo": 1830.5
+                    },
+                    {
+                        "match_date": "2026-09-02",
+                        "event_name": "Ironclad Invitational 2026",
+                        "round": "R7",
+                        "result": "W",
+                        "player_score": 95,
+                        "opponent_score": 42,
+                        "player_faction": "Space Marines",
+                        "opponent_name": "Big Mek Ghaz",
+                        "opponent_elo": 1810.0,
+                        "opponent_faction": "Orks",
+                        "delta_elo": 15.0,
+                        "new_elo": 1845.5
+                    }
+                ],
+                "tracker_history": [],
+                "active_sessions": [],
+                "events_attended": [],
+                "upcoming_events": []
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/tracker/"):
             room_id = clean_path.replace("api/tracker/", "").replace("room/", "").strip("/")
             data = ROOMS_DB.get(room_id, {})

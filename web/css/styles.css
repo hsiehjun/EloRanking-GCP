@@ -2135,6 +2135,234 @@ input, select, textarea {
   overflow: hidden;
 }
 
+/* Hub Matchup Spotlight Cards (Favorite Prey & Nemesis Army) */
+.hub-spotlight-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.hub-spotlight-card {
+  border-radius: var(--radius-md, 8px);
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 76px;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.hub-spotlight-card:hover {
+  transform: translateY(-2px);
+}
+
+.hub-spotlight-card:active {
+  transform: translateY(0);
+}
+
+.spotlight-prey {
+  background: linear-gradient(135deg, rgba(74, 222, 128, 0.08) 0%, rgba(15, 23, 42, 0.75) 100%);
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 10px rgba(74, 222, 128, 0.06);
+}
+
+.spotlight-prey:hover {
+  border-color: rgba(74, 222, 128, 0.7);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 16px rgba(74, 222, 128, 0.2);
+}
+
+.spotlight-nemesis {
+  background: linear-gradient(135deg, rgba(248, 113, 113, 0.08) 0%, rgba(15, 23, 42, 0.75) 100%);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 10px rgba(248, 113, 113, 0.06);
+}
+
+.spotlight-nemesis:hover {
+  border-color: rgba(248, 113, 113, 0.7);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 16px rgba(248, 113, 113, 0.2);
+}
+
+.spotlight-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+.spotlight-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  line-height: 1.2;
+}
+
+.prey-badge {
+  background: rgba(74, 222, 128, 0.16);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.35);
+}
+
+.nemesis-badge {
+  background: rgba(248, 113, 113, 0.16);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.spotlight-streak {
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.streak-win {
+  background: rgba(234, 179, 8, 0.16);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.streak-loss {
+  background: rgba(248, 113, 113, 0.16);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.streak-draw {
+  background: rgba(148, 163, 184, 0.16);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.spotlight-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin: 0.15rem 0 0.25rem 0;
+}
+
+.spotlight-faction-name {
+  font-size: 0.88rem;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.spotlight-rate {
+  font-size: 0.95rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.spotlight-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  font-size: 0.70rem;
+}
+
+.spotlight-record {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.spotlight-diff {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badge-label-short,
+.streak-short {
+  display: none;
+}
+
+.badge-label-long,
+.streak-long,
+.diff-label {
+  display: inline;
+}
+
+@media (max-width: 440px) {
+  .hub-spotlight-grid {
+    gap: 0.45rem;
+    margin-bottom: 0.65rem;
+  }
+  .hub-spotlight-card {
+    padding: 0.5rem 0.55rem;
+    min-height: 72px;
+  }
+  .badge-label-long,
+  .streak-long,
+  .diff-label {
+    display: none !important;
+  }
+  .badge-label-short,
+  .streak-short {
+    display: inline !important;
+  }
+  .spotlight-badge,
+  .spotlight-streak {
+    font-size: 0.60rem;
+    padding: 0.12rem 0.35rem;
+  }
+  .spotlight-faction-name {
+    font-size: 0.82rem;
+  }
+  .spotlight-rate {
+    font-size: 0.88rem;
+  }
+  .spotlight-footer {
+    font-size: 0.68rem;
+  }
+}
+
+/* Matchup Row Click Flash Animation */
+@keyframes rowHighlightFlash {
+  0% {
+    background: rgba(56, 189, 248, 0.35) !important;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.5) !important;
+    outline: 2px solid #38bdf8 !important;
+  }
+  60% {
+    background: rgba(56, 189, 248, 0.2) !important;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3) !important;
+    outline: 2px solid rgba(56, 189, 248, 0.5) !important;
+  }
+  100% {
+    outline: 2px solid transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+.row-flash {
+  animation: rowHighlightFlash 2.2s ease-out !important;
+  border-radius: 6px !important;
+}
+
 @media (max-width: 768px) {
   .hub-card {
     padding: 1rem 0.75rem;
