@@ -324,6 +324,18 @@ function handlePlayerChatClick(playerId, playerName, accountUserId) {
   }
 }
 
+function openDatePicker(id) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (!el) return;
+  try {
+    if (typeof el.showPicker === 'function') {
+      el.showPicker();
+      return;
+    }
+  } catch (e) {}
+  el.focus();
+}
+
 if (typeof window !== 'undefined') {
   window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
   window.lookupCityCoordinates = lookupCityCoordinates;
@@ -332,4 +344,5 @@ if (typeof window !== 'undefined') {
   window.getEloBadgeClass = getEloBadgeClass;
   window.sortClientArray = sortClientArray;
   window.handlePlayerChatClick = handlePlayerChatClick;
+  window.openDatePicker = openDatePicker;
 }

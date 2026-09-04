@@ -59,7 +59,20 @@ function setFactionTimeframe(preset) {
     factionCustomEnd = now.toISOString().substring(0, 10);
   }
 
-  if (preset !== 'custom') {
+  if (preset === 'custom') {
+    const startInput = document.getElementById('faction-start-date');
+    const endInput = document.getElementById('faction-end-date');
+    if (startInput && !startInput.value) {
+      const d = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+      startInput.value = factionCustomStart || d.toISOString().substring(0, 10);
+    }
+    if (endInput && !endInput.value) {
+      endInput.value = factionCustomEnd || now.toISOString().substring(0, 10);
+    }
+    factionCustomStart = startInput ? startInput.value : '';
+    factionCustomEnd = endInput ? endInput.value : '';
+    loadFactionMeta();
+  } else {
     loadFactionMeta();
   }
 }
@@ -421,3 +434,23 @@ function renderFactionTrendChart(trends) {
     });
   }
 }
+
+function openDatePicker(id) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (!el) return;
+  try {
+    if (typeof el.showPicker === 'function') {
+      el.showPicker();
+      return;
+    }
+  } catch (e) {}
+  el.focus();
+}
+
+if (typeof window !== 'undefined') {
+  window.setFactionTimeframe = setFactionTimeframe;
+  window.applyCustomFactionDateFilter = applyCustomFactionDateFilter;
+  window.setFactionViewMode = setFactionViewMode;
+  window.openDatePicker = openDatePicker;
+}
+

@@ -440,6 +440,57 @@ def test_teams_leaderboard_pagination():
     print("✅ Teams leaderboard pagination controls, ranking offset, and API wiring verified!")
 
 
+def test_custom_timeframe_calendar_picker():
+    """Verify high-visibility calendar picker icons, dark color-scheme, and openDatePicker helpers."""
+    theme_content = (root_dir / "web" / "css" / "theme.css").read_text(encoding="utf-8")
+    styles_content = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    index_content = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+    utils_content = (root_dir / "web" / "js" / "utils.js").read_text(encoding="utf-8")
+    fac_content = (root_dir / "web" / "js" / "factions.js").read_text(encoding="utf-8")
+
+    # 1. Dark mode color-scheme on :root and input[type="date"]
+    assert 'color-scheme: dark;' in theme_content, \
+        "theme.css :root must include color-scheme: dark to prevent invisible dark-on-dark calendar icons"
+    assert 'input[type="date"]' in styles_content, \
+        "styles.css must style input[type='date']"
+    assert 'color-scheme: dark !important;' in styles_content, \
+        "styles.css must enforce color-scheme: dark on input[type='date']"
+    assert 'input[type="date"]::-webkit-calendar-picker-indicator' in styles_content, \
+        "styles.css must style webkit calendar picker indicator"
+
+    # 2. Custom Date Range Bar classes in styles.css
+    assert '.faction-custom-date-container' in styles_content, \
+        "styles.css must define .faction-custom-date-container"
+    assert '.custom-date-input-wrap' in styles_content, \
+        "styles.css must define .custom-date-input-wrap"
+    assert '.calendar-badge-btn' in styles_content, \
+        "styles.css must define .calendar-badge-btn"
+    assert '.custom-date-input' in styles_content, \
+        "styles.css must define .custom-date-input"
+
+    # 3. HTML markup in index.html
+    assert 'id="faction-custom-date-container"' in index_content, \
+        "faction-custom-date-container missing in index.html"
+    assert 'openDatePicker(\'faction-start-date\')' in index_content, \
+        "openDatePicker call missing for faction-start-date"
+    assert 'openDatePicker(\'faction-end-date\')' in index_content, \
+        "openDatePicker call missing for faction-end-date"
+    assert '<svg viewBox="0 0 24 24"' in index_content, \
+        "SVG calendar icon missing in custom date range bar"
+
+    # 4. JavaScript helpers & auto-initialization
+    assert 'openDatePicker' in utils_content, \
+        "utils.js must define openDatePicker"
+    assert 'window.openDatePicker = openDatePicker;' in utils_content, \
+        "openDatePicker must be exported to window in utils.js"
+    assert 'window.openDatePicker = openDatePicker;' in fac_content, \
+        "openDatePicker must be exported to window in factions.js"
+    assert 'preset === \'custom\'' in fac_content, \
+        "factions.js setFactionTimeframe must handle custom preset"
+
+    print("✅ Custom timeframe calendar picker visibility, styling, and picker handlers verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -454,6 +505,8 @@ if __name__ == "__main__":
     test_ios_landing_header_safe_area()
     test_universal_ios_safe_area_coverage()
     test_teams_leaderboard_pagination()
+    test_custom_timeframe_calendar_picker()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
+
 
 
