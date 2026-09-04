@@ -24,7 +24,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css?v=13.0">
-  <link rel="stylesheet" href="/css/styles.css?v=71.0">
+  <link rel="stylesheet" href="/css/styles.css?v=72.0">
   <link rel="stylesheet" href="/css/eventstudio.css?v=19.0">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
@@ -33,6 +33,26 @@
       if (!val) return;
       if (val === 'tracker') {
         window.location.href = '/11th/tracker';
+        return;
+      }
+      if (val === 'settings') {
+        if (typeof openUserSettingsModal === 'function') openUserSettingsModal();
+        var mob = document.getElementById('mobile-nav-select');
+        if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+        return;
+      }
+      if (val === 'feedback') {
+        if (typeof openFeedbackModal === 'function') openFeedbackModal();
+        var mob = document.getElementById('mobile-nav-select');
+        if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+        return;
+      }
+      if (val === 'logout') {
+        if (typeof handleLogout === 'function') handleLogout();
+        return;
+      }
+      if (val === 'login') {
+        window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
         return;
       }
       if (typeof switchTab === 'function') {
@@ -894,10 +914,10 @@
         </button>
       </div>
 
-      <!-- Mobile Tab Dropdown Selector (Strictly mobile viewports <= 768px only) -->
-      <div class="mobile-nav-wrapper desktop-hidden" style="display: none;">
+      <!-- Mobile Tab Dropdown Selector (Strictly mobile viewports <= 768px only; replaces header on mobile) -->
+      <div class="mobile-nav-wrapper">
         <div class="mobile-nav-select-wrap">
-          <select id="mobile-nav-select" class="mobile-nav-select" onchange="handleMobileNavChange(this.value)" aria-label="Switch Tab">
+          <select id="mobile-nav-select" class="mobile-nav-select" onchange="handleMobileNavChange(this.value)" oninput="handleMobileNavChange(this.value)" aria-label="Switch Tab">
             <option value="my-hub">🏠 My Hub</option>
             <option value="community">👥 Community Hub</option>
             <option value="chat" id="mobile-opt-chat">💬 Chat</option>
@@ -905,6 +925,11 @@
             <option value="leaderboard" selected>🏆 Leaderboard</option>
             <option value="search">🔍 Search Directory</option>
             <option value="event-studio" id="mobile-opt-event-studio" style="display: none;">🛠️ Event Studio (TO)</option>
+            <option disabled>──────────</option>
+            <option value="feedback" id="mobile-opt-feedback">💬 Send Feedback</option>
+            <option value="settings" id="mobile-opt-settings">⚙️ Account Settings</option>
+            <option value="logout" id="mobile-opt-logout">🚪 Sign Out</option>
+            <option value="login" id="mobile-opt-login" style="display: none;">🔑 Sign In</option>
           </select>
           <div class="mobile-nav-select-arrow" aria-hidden="true">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -2880,12 +2905,12 @@
   <script src="/js/factions.js?v=64.0"></script>
   <script src="/js/predictor.js?v=64.0"></script>
   <script src="/js/modals.js?v=65.0"></script>
-  <script src="/js/auth.js?v=75.0"></script>
+  <script src="/js/auth.js?v=76.0"></script>
   <script src="/js/my_hub.js?v=74.0"></script>
   <script src="/js/eventstudio.js?v=75.0"></script>
   <script src="/js/connect.js?v=4.4"></script>
   <script src="/js/community.js?v=2.0"></script>
-  <script src="/js/app.js?v=75.0"></script>
+  <script src="/js/app.js?v=76.0"></script>
 
   <!-- OMNICONNECT: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

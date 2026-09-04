@@ -5,11 +5,6 @@
 let activeTab = 'my-hub';
 
 function switchTab(tabName) {
-  if (!currentUser) {
-    if (typeof syncAppAuthView === 'function') syncAppAuthView();
-    return;
-  }
-
   // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
   if (tabName === 'chat' || tabName === 'community-chat' || tabName === 'messages' || tabName === 'chats' || tabName === 'direct-chat') {
@@ -132,11 +127,32 @@ function switchTab(tabName) {
  * Handle selection from mobile navigation tab dropdown
  */
 function handleMobileNavChange(val) {
+  if (!val) return;
   if (val === 'tracker') {
     window.location.href = '/11th/tracker';
-  } else {
-    switchTab(val);
+    return;
   }
+  if (val === 'settings') {
+    if (typeof openUserSettingsModal === 'function') openUserSettingsModal();
+    const mob = document.getElementById('mobile-nav-select');
+    if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+    return;
+  }
+  if (val === 'feedback') {
+    if (typeof openFeedbackModal === 'function') openFeedbackModal();
+    const mob = document.getElementById('mobile-nav-select');
+    if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+    return;
+  }
+  if (val === 'logout') {
+    if (typeof handleLogout === 'function') handleLogout();
+    return;
+  }
+  if (val === 'login') {
+    window.location.href = '/login?redirect=' + encodeURIComponent(window.location.pathname + window.location.hash);
+    return;
+  }
+  switchTab(val);
 }
 window.handleMobileNavChange = handleMobileNavChange;
 

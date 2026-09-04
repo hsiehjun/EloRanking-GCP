@@ -460,6 +460,14 @@ function renderHeaderAuth() {
   if (mobEsOpt) {
     mobEsOpt.style.display = (currentUser && isUserTO(currentUser)) ? '' : 'none';
   }
+  const mobSettingsOpt = document.getElementById('mobile-opt-settings');
+  const mobLogoutOpt = document.getElementById('mobile-opt-logout');
+  const mobLoginOpt = document.getElementById('mobile-opt-login');
+  const mobFeedbackOpt = document.getElementById('mobile-opt-feedback');
+  if (mobSettingsOpt) mobSettingsOpt.style.display = currentUser ? '' : 'none';
+  if (mobLogoutOpt) mobLogoutOpt.style.display = currentUser ? '' : 'none';
+  if (mobLoginOpt) mobLoginOpt.style.display = currentUser ? 'none' : '';
+  if (mobFeedbackOpt) mobFeedbackOpt.style.display = currentUser ? '' : 'none';
 
   if (!container) return;
 

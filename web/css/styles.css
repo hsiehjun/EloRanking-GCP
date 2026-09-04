@@ -103,8 +103,15 @@ header {
 }
 
 /* Responsive utility classes */
-.desktop-hidden {
-  display: none !important;
+@media (min-width: 769px) {
+  .desktop-hidden {
+    display: none !important;
+  }
+}
+@media (max-width: 768px) {
+  .mobile-hidden {
+    display: none !important;
+  }
 }
 
 /* Mobile Nav Dropdown: Hidden on desktop */
@@ -820,48 +827,33 @@ input, select, textarea {
 
 /* Mobile Devices (<= 768px) */
 @media (max-width: 768px) {
-  /* Header & Navigation */
+  /* Header & Navigation: Mobile dropdown REPLACES the header */
   #app-header {
     flex-shrink: 0;
+    padding: 0 !important;
+    background: rgba(10, 14, 23, 0.98);
+    border-bottom: 1px solid rgba(56, 189, 248, 0.25);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
   .header-inner {
-    padding: 0.45rem 0.75rem;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    grid-template-areas:
-      "logo actions"
-      "tabs tabs";
-    row-gap: 0.4rem;
-    column-gap: 0.5rem;
-    align-items: center;
+    padding: 0.35rem 0.65rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: stretch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    gap: 0 !important;
+    box-sizing: border-box !important;
   }
 
   .logo-group {
-    grid-area: logo;
-    justify-content: flex-start;
+    display: none !important;
   }
 
   .header-actions-group {
-    grid-area: actions;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-
-  .logo-icon {
-    width: 28px;
-    height: 28px;
-    font-size: 0.95rem;
-  }
-
-  .logo-title {
-    font-size: 0.95rem;
-  }
-
-  .logo-subtitle {
-    font-size: 0.65rem;
+    display: none !important;
   }
 
   /* Mobile Tab Navigation: Hide horizontal tabs and show custom dropdown selector */
@@ -870,42 +862,42 @@ input, select, textarea {
   }
 
   .mobile-nav-wrapper {
-    grid-area: tabs;
-    width: 100%;
-    display: block !important;
-    margin-top: 1px;
+    display: flex !important;
+    width: 100% !important;
+    flex: 1 1 100% !important;
+    margin: 0 !important;
   }
 
   .mobile-nav-select-wrap {
-    position: relative;
-    width: 100%;
-    display: flex;
-    align-items: center;
+    position: relative !important;
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
   }
 
   .mobile-nav-select {
-    width: 100%;
-    height: 38px;
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(12, 30, 52, 0.95) 100%);
-    color: #38bdf8;
-    border: 1px solid rgba(56, 189, 248, 0.35);
-    border-radius: 9px;
-    padding: 0 2.2rem 0 0.85rem;
-    font-family: 'Inter', -apple-system, sans-serif;
-    font-size: 0.85rem;
-    font-weight: 700;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    outline: none;
+    width: 100% !important;
+    height: 38px !important;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(12, 30, 52, 0.98) 100%) !important;
+    color: #38bdf8 !important;
+    border: 1px solid rgba(56, 189, 248, 0.4) !important;
+    border-radius: 9px !important;
+    padding: 0 2.2rem 0 0.85rem !important;
+    font-family: 'Inter', -apple-system, sans-serif !important;
+    font-size: 0.88rem !important;
+    font-weight: 700 !important;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
+    outline: none !important;
     transition: all 0.2s ease;
   }
 
   .mobile-nav-select:focus {
-    border-color: #38bdf8;
-    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25) !important;
   }
 
   .mobile-nav-select option {
@@ -916,18 +908,13 @@ input, select, textarea {
   }
 
   .mobile-nav-select-arrow {
-    position: absolute;
-    right: 0.85rem;
-    pointer-events: none;
-    color: #38bdf8;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  /* Mobile utility: Hide elements flagged as mobile-hidden */
-  .mobile-hidden {
-    display: none !important;
+    position: absolute !important;
+    right: 0.85rem !important;
+    pointer-events: none !important;
+    color: #38bdf8 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
   /* Compact Community Banner on mobile */
@@ -940,9 +927,9 @@ input, select, textarea {
   .comm-header-controls {
     width: 100% !important;
     display: flex !important;
-    justify-content: space-between !important;
+    justify-content: flex-start !important;
     align-items: center !important;
-    gap: 0.35rem !important;
+    gap: 0.4rem !important;
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     scrollbar-width: none;
@@ -975,8 +962,8 @@ input, select, textarea {
   main.main-chat-mode {
     padding: 0 !important;
     overflow: hidden !important;
-    height: calc(100vh - 58px) !important;
-    height: calc(100dvh - 58px) !important;
+    height: calc(100vh - 48px) !important;
+    height: calc(100dvh - 48px) !important;
   }
 
   /* Eliminate nested scroll traps on mobile: cards flow cleanly inside main */
@@ -1004,15 +991,31 @@ input, select, textarea {
     z-index: 25;
     background: rgba(10, 12, 16, 0.95);
     backdrop-filter: blur(8px);
-    padding: 0.35rem 0;
-    margin-bottom: 0.75rem;
-    gap: 0.35rem;
+    -webkit-backdrop-filter: blur(8px);
+    padding: 0.35rem 0 !important;
+    margin-bottom: 0.75rem !important;
+    display: flex !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    scrollbar-width: none !important;
+    gap: 0.35rem !important;
+    width: 100% !important;
+  }
+  .comm-subtabs::-webkit-scrollbar,
+  .subtabs-bar::-webkit-scrollbar {
+    display: none !important;
   }
 
   .subtab-btn,
   .comm-subtab-btn {
-    padding: 0.38rem 0.75rem !important;
-    font-size: 0.78rem !important;
+    padding: 0.4rem 0.8rem !important;
+    font-size: 0.8rem !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
   /* Controls & Search Bars */
@@ -1032,34 +1035,21 @@ input, select, textarea {
   }
 
   .filter-group {
-    width: auto;
+    width: 100%;
     display: flex;
     gap: 0.5rem;
     align-items: center;
-    margin-left: auto;
+    justify-content: space-between;
+    margin-left: 0;
   }
 
   .filter-group select {
-    flex: 0 1 auto;
-    max-width: 200px;
-    width: auto;
+    flex: 1 1 0;
+    min-width: 0;
+    width: 100%;
     font-size: 0.8rem;
     padding: 0.35rem 0.65rem;
-    height: 34px;
-  }
-
-
-  .subtabs-bar {
-    width: 100%;
-    display: flex;
-  }
-
-  .subtab-btn {
-    flex: 1;
-    text-align: center;
-    justify-content: center;
-    padding: 0.45rem 0.6rem;
-    font-size: 0.8rem;
+    height: 36px;
   }
 
   /* Modal Bottom Sheet on Mobile */
@@ -1117,7 +1107,7 @@ input, select, textarea {
 }
 
 /* Smartphone Vertical Cards (<= 640px): 100% Vertical Flow with ZERO Horizontal Scroll */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .table-container {
     overflow-x: hidden !important;
     overflow-y: visible !important;
@@ -1183,13 +1173,21 @@ input, select, textarea {
   #leaderboard-table td:nth-child(7)::before { content: "Primary Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #leaderboard-table td:nth-child(8)::before { content: "Last Active"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
+  #players-table td:nth-child(1),
   #players-dir-table td:nth-child(1) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.4rem !important; margin-bottom: 0.2rem; }
+  #players-table td:nth-child(2)::before,
   #players-dir-table td:nth-child(2)::before { content: "Primary Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #players-table td:nth-child(3)::before,
   #players-dir-table td:nth-child(3)::before { content: "Current Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #players-table td:nth-child(4)::before,
   #players-dir-table td:nth-child(4)::before { content: "Peak Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #players-dir-table td:nth-child(5)::before { content: "Total Matches"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #players-dir-table td:nth-child(6)::before { content: "Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #players-dir-table td:nth-child(7)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #players-table td:nth-child(5)::before,
+  #players-dir-table td:nth-child(5)::before { content: "Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #players-table td:nth-child(6)::before,
+  #players-dir-table td:nth-child(6)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #players-table td:nth-child(7)::before,
+  #players-dir-table td:nth-child(7)::before { content: "Total Matches"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #players-table td:nth-child(8)::before,
   #players-dir-table td:nth-child(8)::before { content: "Last Active"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
   /* Tournaments Mobile Card */
@@ -1833,7 +1831,7 @@ input, select, textarea {
   overflow: hidden;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .hub-card {
     padding: 1rem 0.75rem;
   }
