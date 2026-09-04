@@ -312,6 +312,7 @@ main {
   max-width: 400px;
 }
 .search-input {
+  box-sizing: border-box;
   width: 100%;
   padding: 0.6rem 0.9rem 0.6rem 2.25rem;
   background: var(--bg-secondary);
@@ -554,6 +555,19 @@ tbody tr:hover {
 }
 #bcp-link-modal, #user-settings-modal {
   z-index: 1200 !important;
+  overflow-x: hidden !important;
+}
+#user-settings-modal .modal-card {
+  width: 100%;
+  max-width: 520px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+#user-settings-modal-body {
+  overflow-x: hidden !important;
+  overflow-y: auto;
+  box-sizing: border-box;
+  width: 100%;
 }
 .modal-backdrop.active { display: flex; }
 .modal-window {
@@ -2688,6 +2702,7 @@ input, select, textarea {
 
 /* Form Controls */
 .form-input, .form-select, select.form-input {
+  box-sizing: border-box;
   background: #0f172a !important;
   color: #f8fafc !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;

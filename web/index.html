@@ -2731,9 +2731,9 @@
 
   <!-- USER ACCOUNT SETTINGS MODAL -->
   <div id="user-settings-modal" class="modal-backdrop" onclick="if(event.target === this) closeUserSettingsModal()">
-    <div class="modal-card" style="max-width: 520px; padding: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden; max-height: min(90vh, 840px);">
+    <div class="modal-card" style="width: 100%; max-width: 520px; box-sizing: border-box; padding: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden; max-height: min(90vh, 840px);">
       <!-- Sticky Header -->
-      <div style="position: sticky; top: 0; z-index: 10; background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 1.15rem 1.4rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+      <div style="position: sticky; top: 0; z-index: 10; background: var(--bg-card); border-bottom: 1px solid var(--border); padding: 1.15rem 1.4rem; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; box-sizing: border-box; width: 100%;">
         <div style="display: flex; align-items: center; gap: 0.65rem;">
           <span style="font-size: 1.35rem;">⚙️</span>
           <div>
@@ -2745,9 +2745,9 @@
       </div>
 
       <!-- Scrollable Settings Body -->
-      <div style="padding: 1.4rem; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
+      <div id="user-settings-modal-body" style="padding: 1.4rem; overflow-y: auto; overflow-x: hidden; width: 100%; box-sizing: border-box; flex: 1; display: flex; flex-direction: column; gap: 1.25rem;">
         <!-- Account Info -->
-        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1rem; font-size: 0.82rem;">
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.85rem 1rem; font-size: 0.82rem; box-sizing: border-box; width: 100%;">
           <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
             <span style="color: var(--text-muted);">Email Address:</span>
             <b id="settings-email-display" style="color: #fff;">-</b>
@@ -2763,27 +2763,27 @@
         </div>
 
         <!-- Status / Error Messages -->
-        <div id="settings-error" style="display: none; color: var(--loss); font-size: 0.82rem; padding: 0.6rem 0.85rem; background: rgba(239,68,68,0.1); border-radius: 6px; border: 1px solid rgba(239,68,68,0.25);"></div>
-        <div id="settings-success" style="display: none; color: var(--win); font-size: 0.82rem; padding: 0.6rem 0.85rem; background: rgba(16,185,129,0.1); border-radius: 6px; border: 1px solid rgba(16,185,129,0.25);"></div>
+        <div id="settings-error" style="display: none; color: var(--loss); font-size: 0.82rem; padding: 0.6rem 0.85rem; background: rgba(239,68,68,0.1); border-radius: 6px; border: 1px solid rgba(239,68,68,0.25); box-sizing: border-box; width: 100%;"></div>
+        <div id="settings-success" style="display: none; color: var(--win); font-size: 0.82rem; padding: 0.6rem 0.85rem; background: rgba(16,185,129,0.1); border-radius: 6px; border: 1px solid rgba(16,185,129,0.25); box-sizing: border-box; width: 100%;"></div>
 
         <!-- Section 1: Gamer Tag / Display Name -->
-        <form onsubmit="handleSaveDisplayName(event)" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+        <form onsubmit="handleSaveDisplayName(event)" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); width: 100%; box-sizing: border-box;">
           <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; display: block; margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;">
             Display Name / Gamer Tag
           </label>
-          <div style="display: flex; gap: 0.5rem;">
-            <input type="text" id="settings-display-name" class="search-input" style="flex: 1; font-size: 0.9rem;" placeholder="e.g. John Hsieh" required>
-            <button type="submit" id="btn-save-name" class="btn btn-primary" style="padding: 0.55rem 1rem; white-space: nowrap;">
+          <div style="display: flex; gap: 0.5rem; width: 100%; box-sizing: border-box;">
+            <input type="text" id="settings-display-name" class="form-input" style="flex: 1; min-width: 0; box-sizing: border-box; font-size: 0.88rem; padding: 0.55rem 0.75rem;" placeholder="e.g. John Hsieh" required>
+            <button type="submit" id="btn-save-name" class="btn btn-primary" style="padding: 0.55rem 1rem; white-space: nowrap; flex-shrink: 0;">
               Save Name
             </button>
           </div>
         </form>
 
         <!-- Section 2: Home Location & Matchmaking Base -->
-        <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+        <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); width: 100%; box-sizing: border-box;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
             <label style="font-size: 0.82rem; font-weight: 700; color: #10b981; display: flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
-              <span>📍 Home Location & Matchmaking Hub</span>
+              <span>📍 Home Location &amp; Matchmaking Hub</span>
             </label>
             <span id="settings-loc-badge" class="oc-badge" style="font-size: 0.68rem; padding: 2px 7px; background: rgba(16,185,129,0.12); color: #10b981; border: 1px solid rgba(16,185,129,0.25); border-radius: 4px;">
               Primary Base
@@ -2793,13 +2793,13 @@
             Your primary base for local tournament radar, community leaderboards, and nearby player matchmaking. We default to this explicit location instead of inferring from tournament travel history.
           </p>
 
-          <form id="form-user-settings-location" onsubmit="handleSaveUserSettingsLocation(event)">
-            <div style="margin-bottom: 0.75rem;">
+          <form id="form-user-settings-location" onsubmit="handleSaveUserSettingsLocation(event)" style="width: 100%; box-sizing: border-box;">
+            <div style="margin-bottom: 0.75rem; width: 100%; box-sizing: border-box;">
               <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
                 Home Club, Game Store, or City:
               </label>
-              <div style="position: relative;">
-                <input type="text" id="settings-home-location" class="search-input" style="width: 100%; box-sizing: border-box; padding-left: 34px; font-size: 0.88rem;" placeholder="e.g. San Diego, CA or Dice Dojo, Chicago" autocomplete="off" required>
+              <div style="position: relative; width: 100%; box-sizing: border-box;">
+                <input type="text" id="settings-home-location" class="form-input" style="width: 100%; box-sizing: border-box; padding-left: 34px; font-size: 0.88rem;" placeholder="e.g. San Diego, CA or Dice Dojo, Chicago" autocomplete="off" required>
                 <span style="position: absolute; left: 11px; top: 50%; transform: translateY(-50%); font-size: 14px; pointer-events: none; opacity: 0.8;">📍</span>
               </div>
               <input type="hidden" id="settings-loc-lat">
@@ -2809,12 +2809,12 @@
               <input type="hidden" id="settings-loc-country">
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
-              <div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem; width: 100%; box-sizing: border-box;">
+              <div style="min-width: 0;">
                 <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
                   Default Search Radius:
                 </label>
-                <select id="settings-home-radius" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                <select id="settings-home-radius" class="form-select form-input" style="width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
                   <option value="25">25 miles (Local Club)</option>
                   <option value="50" selected>50 miles (Metro Area)</option>
                   <option value="100">100 miles (Regional Scene)</option>
@@ -2822,23 +2822,23 @@
                   <option value="500">500 miles (Super-Regional)</option>
                 </select>
               </div>
-              <div>
+              <div style="min-width: 0;">
                 <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
                   Sparring Radar Status:
                 </label>
-                <select id="settings-lfg-active" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                <select id="settings-lfg-active" class="form-select form-input" style="width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
                   <option value="true">🟢 Available for Games</option>
                   <option value="false">⚪ Off Duty / Idle</option>
                 </select>
               </div>
             </div>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
-              <div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; margin-bottom: 0.85rem; width: 100%; box-sizing: border-box;">
+              <div style="min-width: 0;">
                 <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
                   Match Preference:
                 </label>
-                <select id="settings-play-style" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                <select id="settings-play-style" class="form-select form-input" style="width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
                   <option value="Competitive">⚔️ Competitive (2k)</option>
                   <option value="Casual">🎲 Casual / Practice</option>
                   <option value="Narrative">📜 Narrative / Crusade</option>
@@ -2846,11 +2846,11 @@
                   <option value="Any">✨ Any Game Style</option>
                 </select>
               </div>
-              <div>
+              <div style="min-width: 0;">
                 <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.35rem;">
                   Primary Army / Faction:
                 </label>
-                <select id="settings-primary-faction" class="search-input" style="width: 100%; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
+                <select id="settings-primary-faction" class="form-select form-input" style="width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
                   <option value="">Various / Any Army</option>
                   <option value="Space Marines">Space Marines</option>
                   <option value="Adeptus Custodes">Adeptus Custodes</option>
@@ -2878,11 +2878,11 @@
               </div>
             </div>
 
-            <div style="display: flex; gap: 0.5rem; align-items: center;">
-              <button type="button" onclick="detectUserSettingsGPS()" id="btn-settings-gps" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.5rem 0.75rem; white-space: nowrap; display: flex; align-items: center; gap: 5px;">
+            <div style="display: flex; gap: 0.5rem; align-items: center; width: 100%; box-sizing: border-box;">
+              <button type="button" onclick="detectUserSettingsGPS()" id="btn-settings-gps" class="btn btn-outline" style="font-size: 0.76rem; padding: 0.5rem 0.75rem; white-space: nowrap; display: flex; align-items: center; gap: 5px; flex-shrink: 0;">
                 <span>🛰️</span> <span>Use Device GPS</span>
               </button>
-              <button type="submit" id="btn-save-settings-loc" class="btn btn-primary" style="flex: 1; font-size: 0.82rem; font-weight: 700; padding: 0.5rem 0.85rem;">
+              <button type="submit" id="btn-save-settings-loc" class="btn btn-primary" style="flex: 1; min-width: 0; font-size: 0.82rem; font-weight: 700; padding: 0.5rem 0.85rem;">
                 Save Location &amp; Preferences
               </button>
             </div>
@@ -2890,24 +2890,31 @@
         </div>
 
         <!-- Section 3: Change Password -->
-        <form onsubmit="handleSavePassword(event)" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+        <form onsubmit="handleSavePassword(event)" style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); width: 100%; box-sizing: border-box;">
           <label style="font-size: 0.82rem; font-weight: 700; color: #f59e0b; display: block; margin-bottom: 0.6rem; text-transform: uppercase; letter-spacing: 0.04em;">
             Change Password
           </label>
-          <div style="margin-bottom: 0.75rem;">
-            <input type="password" id="settings-old-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Current Password" required>
+          <div style="display: flex; flex-direction: column; gap: 0.55rem; margin-bottom: 0.85rem; width: 100%; box-sizing: border-box;">
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">Current Password</label>
+              <input type="password" id="settings-old-pass" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.55rem 0.75rem;" placeholder="Enter current password" autocomplete="current-password" required>
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">New Password</label>
+              <input type="password" id="settings-new-pass" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.55rem 0.75rem;" placeholder="Minimum 6 characters" autocomplete="new-password" required>
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 600; color: var(--text-secondary); display: block; margin-bottom: 0.25rem;">Confirm New Password</label>
+              <input type="password" id="settings-confirm-pass" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 0.85rem; padding: 0.55rem 0.75rem;" placeholder="Re-enter new password" autocomplete="new-password" required>
+            </div>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 0.85rem;">
-            <input type="password" id="settings-new-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="New Password (min 6)" required>
-            <input type="password" id="settings-confirm-pass" class="search-input" style="width: 100%; font-size: 0.88rem;" placeholder="Confirm New Password" required>
-          </div>
-          <button type="submit" id="btn-save-pass" class="btn" style="width: 100%; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 700; padding: 0.65rem; cursor: pointer;">
+          <button type="submit" id="btn-save-pass" class="btn" style="width: 100%; box-sizing: border-box; background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); font-weight: 700; padding: 0.6rem; cursor: pointer; border-radius: 6px;">
             Update Password
           </button>
         </form>
 
         <!-- Section 4: Invite Players / Friends -->
-        <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border);">
+        <div style="padding-bottom: 1.25rem; border-bottom: 1px solid var(--border); width: 100%; box-sizing: border-box;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
             <label style="font-size: 0.82rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
               🎟️ Invite Players
@@ -2916,18 +2923,18 @@
           <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
             Invite fellow tabletop players to join OmniTactica with your exclusive invitation pass.
           </p>
-          <button type="button" onclick="closeUserSettingsModal(); openInviteModal();" class="btn" style="width: 100%; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.82rem; padding: 0.65rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <span>🎟️</span> <span>Invite Players (Get Code & Link)</span>
+          <button type="button" onclick="closeUserSettingsModal(); openInviteModal();" class="btn" style="width: 100%; box-sizing: border-box; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; font-size: 0.82rem; padding: 0.65rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <span>🎟️</span> <span>Invite Players (Get Code &amp; Link)</span>
           </button>
         </div>
 
         <!-- Section 5: Device Security & Active Sessions -->
-        <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+        <div style="width: 100%; box-sizing: border-box;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; width: 100%; box-sizing: border-box;">
             <label style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.04em; margin: 0;">
-              🛡️ Device Security & Active Sessions
+              🛡️ Device Security &amp; Active Sessions
             </label>
-            <button type="button" onclick="loadActiveSessionsList()" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px;">
+            <button type="button" onclick="loadActiveSessionsList()" class="btn btn-outline" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; flex-shrink: 0;">
               🔄 Refresh
             </button>
           </div>
@@ -2937,16 +2944,16 @@
           </p>
 
           <!-- Active Sessions Container -->
-          <div id="settings-sessions-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; max-height: 180px; overflow-y: auto;">
+          <div id="settings-sessions-list" style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; max-height: 180px; overflow-y: auto; overflow-x: hidden; width: 100%; box-sizing: border-box;">
             <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">Loading active sessions...</div>
           </div>
 
           <!-- Multi-Device Action Buttons -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-            <button type="button" onclick="handleSignOutAllDevices(true)" class="btn" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; width: 100%; box-sizing: border-box;">
+            <button type="button" onclick="handleSignOutAllDevices(true)" class="btn" style="width: 100%; box-sizing: border-box; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
               🛡️ Sign Out Other Devices
             </button>
-            <button type="button" onclick="handleSignOutAllDevices(false)" class="btn" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
+            <button type="button" onclick="handleSignOutAllDevices(false)" class="btn" style="width: 100%; box-sizing: border-box; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.35); font-weight: 700; font-size: 0.78rem; padding: 0.6rem 0.5rem; cursor: pointer; text-align: center;">
               🛑 Sign Out Everywhere
             </button>
           </div>
