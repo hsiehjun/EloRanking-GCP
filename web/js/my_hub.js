@@ -245,11 +245,10 @@ function renderMyHub(data) {
             <table id="hub-faction-table" class="hub-table">
               <thead>
                 <tr>
-                  <th style="width: 36%;">Army Played</th>
+                  <th style="width: 38%;">Army Played</th>
                   <th style="width: 16%; text-align: center;">Games</th>
-                  <th style="width: 20%;">Record</th>
-                  <th style="width: 16%; text-align: center;">Win Rate</th>
-                  <th style="width: 12%; text-align: right;">Avg</th>
+                  <th style="width: 22%;">Record</th>
+                  <th style="width: 24%; text-align: center;">Win Rate</th>
                 </tr>
               </thead>
               <tbody>
@@ -259,7 +258,6 @@ function renderMyHub(data) {
                     <td style="text-align: center; font-family: var(--font-mono);">${fm.games}</td>
                     <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${fm.losses}L</span></td>
                     <td style="text-align: center;"><b style="color: ${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono);">${Number(fm.win_rate).toFixed(1)}%</b></td>
-                    <td style="text-align: right; font-family: var(--font-mono);">${fm.avg_score || '-'}</td>
                   </tr>
                 `).join('')}
               </tbody>

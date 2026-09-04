@@ -2219,7 +2219,7 @@ input, select, textarea {
   #hub-matchup-table td:nth-child(4)::before { content: "Win Rate vs Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-matchup-table td:nth-child(4) > div { width: 55%; }
 
-  /* 3. Faction Mastery Card (5 columns) */
+  /* 3. Faction Mastery Card (4 columns) */
   #hub-faction-table td:nth-child(1) {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
     padding-bottom: 0.4rem !important;
@@ -2229,7 +2229,6 @@ input, select, textarea {
   #hub-faction-table td:nth-child(2)::before { content: "Games Played"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-faction-table td:nth-child(3)::before { content: "Career Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-faction-table td:nth-child(4)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-faction-table td:nth-child(5)::before { content: "Avg Battle Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
   /* 4. Live Game Tracker Completed History */
   #hub-tracker-history-table td:nth-child(1) {
