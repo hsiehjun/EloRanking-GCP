@@ -213,10 +213,35 @@ function getCommunitySubtabLoaderHtml(type) {
 }
 
 /**
+ * Idempotently sets loader HTML on a container without re-injecting or resetting DOM
+ * if an identical loading state or active spinner is already present.
+ */
+function setSubtabLoaderIfEmpty(container, html) {
+  if (!container || !html) return;
+  // If the container already has the exact loader markup, do not touch innerHTML to prevent visual restart/flicker
+  if (container.innerHTML && container.innerHTML.trim() === html.trim()) {
+    return;
+  }
+  // Check if container already contains an active spinner and matching radius text
+  const hasSpinner = container.querySelector('.spinner') ||
+    container.querySelector('[style*="animation: spin"]') ||
+    container.querySelector('[style*="animation:spin"]');
+  if (hasSpinner && container.textContent && (
+    container.textContent.includes(`within ${communityState.radiusMiles} Miles`) ||
+    container.textContent.includes(`within ${communityState.radiusMiles} miles`)
+  )) {
+    return;
+  }
+  container.innerHTML = html;
+}
+
+let _activeCommunityHubPromise = null;
+let _activeCommunityHubKey = null;
+
+/**
  * Load complete Community Hub data for coordinates and radius
  */
 async function loadCommunityHub(lat = null, lng = null, radius = null, locationName = null) {
-  communityState.isLoading = true;
   if (lat != null && lng != null) {
     communityState.lat = parseFloat(lat);
     communityState.lng = parseFloat(lng);
@@ -226,6 +251,12 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
   }
   if (locationName != null) {
     communityState.locationName = locationName;
+  }
+
+  // Deduplicate concurrent in-flight requests for same location & radius
+  const requestKey = `${communityState.lat != null ? communityState.lat.toFixed(2) : ''}_${communityState.lng != null ? communityState.lng.toFixed(2) : ''}_${communityState.radiusMiles}`;
+  if (_activeCommunityHubPromise && _activeCommunityHubKey === requestKey) {
+    return _activeCommunityHubPromise;
   }
 
   // Sync radius select dropdown
@@ -240,29 +271,33 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     location_name: communityState.locationName
   });
 
-  // Show responsive loading indicators ONLY in the active subview (lazy subtabs keep clean state)
+  // Show responsive loading indicators ONLY in the active subview idempotently (lazy subtabs keep clean state)
   const tourneyView = document.getElementById('comm-tournaments-content');
   if (tourneyView && communityState.activeSubtab === 'tournaments') {
-    tourneyView.innerHTML = getCommunitySubtabLoaderHtml('tournaments');
+    setSubtabLoaderIfEmpty(tourneyView, getCommunitySubtabLoaderHtml('tournaments'));
   }
   const sceneView = document.getElementById('comm-scene-content');
   if (sceneView && communityState.activeSubtab === 'scene') {
-    sceneView.innerHTML = getCommunitySubtabLoaderHtml('scene');
+    setSubtabLoaderIfEmpty(sceneView, getCommunitySubtabLoaderHtml('scene'));
   }
   const playersGrid = document.getElementById('players-grid');
   if (playersGrid && communityState.activeSubtab === 'radar') {
-    playersGrid.innerHTML = getCommunitySubtabLoaderHtml('radar');
+    setSubtabLoaderIfEmpty(playersGrid, getCommunitySubtabLoaderHtml('radar'));
   }
   const storesGrid = document.getElementById('comm-stores-grid');
   if (storesGrid && communityState.activeSubtab === 'stores') {
-    storesGrid.innerHTML = getCommunitySubtabLoaderHtml('stores');
+    setSubtabLoaderIfEmpty(storesGrid, getCommunitySubtabLoaderHtml('stores'));
   }
 
-  try {
-    const data = await API.getCommunityOverview(
-      communityState.lat,
-      communityState.lng,
-      communityState.radiusMiles,
+  communityState.isLoading = true;
+  _activeCommunityHubKey = requestKey;
+
+  _activeCommunityHubPromise = (async () => {
+    try {
+      const data = await API.getCommunityOverview(
+        communityState.lat,
+        communityState.lng,
+        communityState.radiusMiles,
       communityState.locationName
     );
     if (!data || !data.success) {
@@ -331,7 +366,12 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     }
   } finally {
     communityState.isLoading = false;
+    _activeCommunityHubPromise = null;
+    _activeCommunityHubKey = null;
   }
+  })();
+
+  return _activeCommunityHubPromise;
 }
 
 /**
@@ -448,6 +488,17 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
     }
   }
 
+  const prevLat = communityState.lat;
+  const prevLng = communityState.lng;
+  const prevRad = communityState.radiusMiles;
+  const newRad = radius ? (parseInt(radius, 10) || prevRad) : prevRad;
+
+  // Check if coordinates and radius are virtually unchanged (e.g. within 500m / 0.005 deg)
+  const isCoordSame = (prevLat != null && prevLng != null && finalLat != null && finalLng != null) &&
+    Math.abs(finalLat - prevLat) < 0.005 &&
+    Math.abs(finalLng - prevLng) < 0.005;
+  const isRadiusSame = newRad === prevRad;
+
   if (finalLat != null && finalLng != null) {
     communityState.lat = finalLat;
     communityState.lng = finalLng;
@@ -460,7 +511,7 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
     localStorage.setItem('comm_loc_name', locationName);
   }
   if (radius) {
-    communityState.radiusMiles = parseInt(radius, 10) || communityState.radiusMiles;
+    communityState.radiusMiles = newRad;
     localStorage.setItem('comm_radius', String(communityState.radiusMiles));
     localStorage.setItem('comm_radius_v2', String(communityState.radiusMiles));
   }
@@ -478,6 +529,12 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
     radius_miles: communityState.radiusMiles,
     location_name: communityState.locationName
   });
+
+  // If coordinates are unchanged (< 500m) and radius is unchanged, and data is either already
+  // loaded or currently in-flight, avoid triggering a redundant duplicate hub reload / spinner flicker.
+  if (isCoordSame && isRadiusSame && (communityState.overview != null || communityState.isLoading)) {
+    return;
+  }
 
   loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
 
@@ -578,7 +635,7 @@ function renderCommunityEvents() {
 
   const overview = communityState.overview;
   if (!overview) {
-    container.innerHTML = getCommunitySubtabLoaderHtml('tournaments');
+    setSubtabLoaderIfEmpty(container, getCommunitySubtabLoaderHtml('tournaments'));
     return;
   }
   const upcoming = overview.events_upcoming || [];
@@ -1204,7 +1261,7 @@ function renderCurrentSceneView() {
   if (!container) return;
 
   if (!communityState.overview) {
-    container.innerHTML = getCommunitySubtabLoaderHtml('scene');
+    setSubtabLoaderIfEmpty(container, getCommunitySubtabLoaderHtml('scene'));
     return;
   }
 
@@ -1804,12 +1861,7 @@ async function loadLocalGameStores(forceRefresh = false) {
 
   const grid = document.getElementById('comm-stores-grid');
   if (grid && (!communityState.stores || communityState.stores.length === 0 || forceRefresh)) {
-    grid.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Local Warhammer 40k Game Stores within ${communityState.radiusMiles} Miles...</div>
-      </div>
-    `;
+    setSubtabLoaderIfEmpty(grid, getCommunitySubtabLoaderHtml('stores'));
   }
 
   try {
@@ -2685,6 +2737,7 @@ function onGoogleMapsScriptLoaded() {
 window.initCommunityHub = initCommunityHub;
 window.loadCommunityHub = loadCommunityHub;
 window.getCommunitySubtabLoaderHtml = getCommunitySubtabLoaderHtml;
+window.setSubtabLoaderIfEmpty = setSubtabLoaderIfEmpty;
 window.changeCommunityRadius = changeCommunityRadius;
 window.detectCommunityGPS = detectCommunityGPS;
 window.updateCommunityLocation = updateCommunityLocation;

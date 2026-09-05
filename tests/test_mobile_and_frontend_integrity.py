@@ -970,7 +970,13 @@ def test_community_subtab_loading_unification():
     # 3. Ensure renderers use the unified helper
     assert "getCommunitySubtabLoaderHtml('tournaments')" in comm_js, "renderCommunityEvents does not use getCommunitySubtabLoaderHtml"
     assert "getCommunitySubtabLoaderHtml('scene')" in comm_js, "renderCurrentSceneView does not use getCommunitySubtabLoaderHtml"
-    print("✅ Community Hub unified location-aware loading states verified with zero text-swap flicker!")
+
+    # 4. Ensure idempotent loader and double-load prevention guards
+    assert "function setSubtabLoaderIfEmpty" in comm_js, "setSubtabLoaderIfEmpty missing in community.js"
+    assert "window.setSubtabLoaderIfEmpty = setSubtabLoaderIfEmpty" in comm_js, "window export missing for setSubtabLoaderIfEmpty"
+    assert "_activeCommunityHubPromise" in comm_js, "in-flight promise deduplication missing in loadCommunityHub"
+    assert "Math.abs(finalLat - prevLat) < 0.005" in comm_js, "proximity guard missing in updateCommunityLocation"
+    print("✅ Community Hub unified location-aware loading states and double-load prevention verified with zero flicker!")
 
 
 if __name__ == "__main__":
