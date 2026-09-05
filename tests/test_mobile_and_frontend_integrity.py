@@ -955,6 +955,24 @@ def test_eventstudio_guard_and_faction_default():
     print("✅ Event Studio TO/Admin 403 guards, Meta Intel 90d default, DB indexes, and cache pre-warming verified!")
 
 
+def test_community_subtab_loading_unification():
+    """Verify that Community Hub uses unified, location-aware loading states with no generic text-swap flicker."""
+    comm_js = (root_dir / "web" / "js" / "community.js").read_text(encoding="utf-8")
+
+    # 1. Ensure helper exists and is exported
+    assert "function getCommunitySubtabLoaderHtml(type)" in comm_js, "getCommunitySubtabLoaderHtml missing in community.js"
+    assert "window.getCommunitySubtabLoaderHtml = getCommunitySubtabLoaderHtml" in comm_js, "window export missing for getCommunitySubtabLoaderHtml"
+
+    # 2. Ensure old generic texts causing double-load flicker are gone
+    assert "Loading Regional Tournaments..." not in comm_js, "Generic 'Loading Regional Tournaments...' still present"
+    assert "Loading Regional Scene Intel..." not in comm_js, "Generic 'Loading Regional Scene Intel...' still present"
+
+    # 3. Ensure renderers use the unified helper
+    assert "getCommunitySubtabLoaderHtml('tournaments')" in comm_js, "renderCommunityEvents does not use getCommunitySubtabLoaderHtml"
+    assert "getCommunitySubtabLoaderHtml('scene')" in comm_js, "renderCurrentSceneView does not use getCommunitySubtabLoaderHtml"
+    print("✅ Community Hub unified location-aware loading states verified with zero text-swap flicker!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -979,6 +997,7 @@ if __name__ == "__main__":
     test_matchup_spotlights_integrity()
     test_html_tag_balance_and_dom_integrity()
     test_eventstudio_guard_and_faction_default()
+    test_community_subtab_loading_unification()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

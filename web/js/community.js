@@ -171,6 +171,48 @@ function updateCommunityBcpBanner() {
 }
 
 /**
+ * Generates unified, location-aware loading markup for Community Hub subviews.
+ * Ensures initial tab rendering and async API fetches display the exact same text
+ * to eliminate flicker or secondary text-swaps.
+ */
+function getCommunitySubtabLoaderHtml(type) {
+  const locSuffix = communityState.locationName ? ` of ${escapeHtml(communityState.locationName)}` : '';
+  if (type === 'tournaments') {
+    return `
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles${locSuffix}...</div>
+      </div>
+    `;
+  }
+  if (type === 'scene') {
+    return `
+      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles${locSuffix}...</div>
+      </div>
+    `;
+  }
+  if (type === 'radar') {
+    return `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
+        <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🧭</div>
+        <div>Scanning local tabletop radar for active sparring partners within ${communityState.radiusMiles} miles...</div>
+      </div>
+    `;
+  }
+  if (type === 'stores') {
+    return `
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
+        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
+        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Local Warhammer 40k Game Stores within ${communityState.radiusMiles} Miles...</div>
+      </div>
+    `;
+  }
+  return '';
+}
+
+/**
  * Load complete Community Hub data for coordinates and radius
  */
 async function loadCommunityHub(lat = null, lng = null, radius = null, locationName = null) {
@@ -201,39 +243,19 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
   // Show responsive loading indicators ONLY in the active subview (lazy subtabs keep clean state)
   const tourneyView = document.getElementById('comm-tournaments-content');
   if (tourneyView && communityState.activeSubtab === 'tournaments') {
-    tourneyView.innerHTML = `
-      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Tournaments within ${communityState.radiusMiles} Miles of ${escapeHtml(communityState.locationName)}...</div>
-      </div>
-    `;
+    tourneyView.innerHTML = getCommunitySubtabLoaderHtml('tournaments');
   }
   const sceneView = document.getElementById('comm-scene-content');
   if (sceneView && communityState.activeSubtab === 'scene') {
-    sceneView.innerHTML = `
-      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Competitors within ${communityState.radiusMiles} Miles of ${escapeHtml(communityState.locationName)}...</div>
-      </div>
-    `;
+    sceneView.innerHTML = getCommunitySubtabLoaderHtml('scene');
   }
   const playersGrid = document.getElementById('players-grid');
   if (playersGrid && communityState.activeSubtab === 'radar') {
-    playersGrid.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #94a3b8;">
-        <div style="font-size: 2rem; margin-bottom: 0.5rem; animation: spin 1s linear infinite; display: inline-block;">🧭</div>
-        <div>Scanning local tabletop radar for active sparring partners within ${communityState.radiusMiles} miles...</div>
-      </div>
-    `;
+    playersGrid.innerHTML = getCommunitySubtabLoaderHtml('radar');
   }
   const storesGrid = document.getElementById('comm-stores-grid');
   if (storesGrid && communityState.activeSubtab === 'stores') {
-    storesGrid.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Finding Local Warhammer 40k Game Stores within ${communityState.radiusMiles} Miles...</div>
-      </div>
-    `;
+    storesGrid.innerHTML = getCommunitySubtabLoaderHtml('stores');
   }
 
   try {
@@ -556,12 +578,7 @@ function renderCommunityEvents() {
 
   const overview = communityState.overview;
   if (!overview) {
-    container.innerHTML = `
-      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Tournaments...</div>
-      </div>
-    `;
+    container.innerHTML = getCommunitySubtabLoaderHtml('tournaments');
     return;
   }
   const upcoming = overview.events_upcoming || [];
@@ -1187,12 +1204,7 @@ function renderCurrentSceneView() {
   if (!container) return;
 
   if (!communityState.overview) {
-    container.innerHTML = `
-      <div style="padding: 3rem 1rem; text-align: center; color: var(--text-muted);">
-        <div class="spinner" style="margin: 0 auto 0.75rem;"></div>
-        <div style="font-size: 0.95rem; font-weight: 600; color: #cbd5e1;">Loading Regional Scene Intel...</div>
-      </div>
-    `;
+    container.innerHTML = getCommunitySubtabLoaderHtml('scene');
     return;
   }
 
@@ -2672,6 +2684,7 @@ function onGoogleMapsScriptLoaded() {
 // Attach global helpers for window scope
 window.initCommunityHub = initCommunityHub;
 window.loadCommunityHub = loadCommunityHub;
+window.getCommunitySubtabLoaderHtml = getCommunitySubtabLoaderHtml;
 window.changeCommunityRadius = changeCommunityRadius;
 window.detectCommunityGPS = detectCommunityGPS;
 window.updateCommunityLocation = updateCommunityLocation;
