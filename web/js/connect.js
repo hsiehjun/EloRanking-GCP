@@ -40,11 +40,11 @@ async function initConnectTab() {
   // Load current subtab
   switchConnectSubtab(connectState.activeSubtab || 'players');
 
-  // Update unread badge
+  // Update unread badge on initialization
   updateUnreadCountBadge();
   if (!connectState.initialized) {
     connectState.initialized = true;
-    setInterval(updateUnreadCountBadge, 5000);
+    startUnreadBadgeFallbackPolling();
   }
 }
 
@@ -1967,10 +1967,23 @@ function stopChatPolling() {
     clearInterval(connectState.chatPollInterval);
     connectState.chatPollInterval = null;
   }
+let _unreadBadgeFallbackInterval = null;
+function startUnreadBadgeFallbackPolling() {
+  if (_unreadBadgeFallbackInterval) return;
+  // Fallback poller: only runs if real-time Firestore push listener is NOT connected
+  _unreadBadgeFallbackInterval = setInterval(() => {
+    if (document.hidden) return;
+    if (connectState.userSyncSnapshotUnsub) {
+      // Real-time Firestore push listener is active and handling updates. Skip HTTP polling.
+      return;
+    }
+    updateUnreadCountBadge();
+  }, 60000); // 60s gentle fallback
 }
 
 async function updateUnreadCountBadge() {
   try {
+    if (document.hidden) return;
     if (typeof currentUser !== 'undefined' && !currentUser) {
       ['badge-unread-count', 'badge-chat-direct-unread', 'badge-chat-bubble-unread'].forEach(id => {
         const el = document.getElementById(id);
@@ -1981,6 +1994,10 @@ async function updateUnreadCountBadge() {
       });
       const bubbleBtn = document.getElementById('floating-chat-bubble');
       if (bubbleBtn) bubbleBtn.classList.remove('has-unread');
+      return;
+    }
+
+    if (typeof window.api?.getAuthToken === 'function' && !window.api.getAuthToken()) {
       return;
     }
 
@@ -2011,6 +2028,14 @@ async function updateUnreadCountBadge() {
     }
   } catch (e) {}
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (typeof updateUnreadCountBadge === 'function') {
+      updateUnreadCountBadge();
+    }
+  }
+});
 
 window.addEventListener('focus', () => {
   if (typeof updateUnreadCountBadge === 'function') {

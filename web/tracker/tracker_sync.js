@@ -64,7 +64,9 @@
     activeListTab: 'opponent',
     activeListFilter: 'all',
     listSearchQuery: '',
-    wounds: {}
+    wounds: {},
+    firestoreConnected: false,
+    hasRealtimeStream: false
   };
 
   let dbHistoryCache = [];
@@ -1001,9 +1003,14 @@
     document.body.appendChild(modal);
 
     let hasAdvanced = false;
+    let sse = null;
+    let pollTimer = null;
+
     function advanceToSetup(name) {
       if (hasAdvanced) return;
       hasAdvanced = true;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (sse) { try { sse.close(); } catch(e) {} sse = null; }
       const statusText = document.getElementById('gt-waiting-status-text');
       const statusDot = document.getElementById('gt-waiting-status-dot');
       if (statusText) {
@@ -1018,33 +1025,44 @@
       }, 700);
     }
 
-    // 1. Listen for P2 connection over SSE
-    const sse = new EventSource(`/api/tracker/room/${matchId}/stream?client_id=host_${Date.now()}`);
-    sse.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'presence' && msg.count >= 2) {
-          advanceToSetup();
-        } else if (msg.type === 'state_update' && msg.state && (msg.state.user_id_p2 || (msg.state.game && msg.state.game.p2Name && msg.state.game.p2Name !== 'Player 2'))) {
-          advanceToSetup(msg.state.game ? msg.state.game.p2Name : '');
-        }
-      } catch (e) {}
-    };
-
-    // 2. Fallback Fast Poll every 800ms
-    const pollTimer = setInterval(async () => {
-      if (hasAdvanced) { clearInterval(pollTimer); return; }
-      try {
-        const resp = await fetch(`/api/tracker/room/${matchId}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data.online_count >= 2 || data.user_id_p2 || (data.state && data.state.user_id_p2)) {
-            clearInterval(pollTimer);
-            advanceToSetup(data.state && data.state.game ? data.state.game.p2Name : '');
+    function startP2FallbackPolling() {
+      if (pollTimer || hasAdvanced) return;
+      pollTimer = setInterval(async () => {
+        if (hasAdvanced) { clearInterval(pollTimer); pollTimer = null; return; }
+        if (document.hidden) return;
+        try {
+          const resp = await fetch(`/api/tracker/room/${matchId}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data.online_count >= 2 || data.user_id_p2 || (data.state && data.state.user_id_p2)) {
+              advanceToSetup(data.state && data.state.game ? data.state.game.p2Name : '');
+            }
           }
-        }
-      } catch (e) {}
-    }, 800);
+        } catch (e) {}
+      }, 3000);
+    }
+
+    // 1. Listen for P2 connection over SSE in real time
+    try {
+      sse = new EventSource(`/api/tracker/room/${matchId}/stream?client_id=host_${Date.now()}`);
+      sse.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'presence' && msg.count >= 2) {
+            advanceToSetup();
+          } else if (msg.type === 'state_update' && msg.state && (msg.state.user_id_p2 || (msg.state.game && msg.state.game.p2Name && msg.state.game.p2Name !== 'Player 2'))) {
+            advanceToSetup(msg.state.game ? msg.state.game.p2Name : '');
+          }
+        } catch (e) {}
+      };
+
+      sse.onerror = () => {
+        // SSE disconnected or blocked: start slow fallback polling
+        startP2FallbackPolling();
+      };
+    } catch (e) {
+      startP2FallbackPolling();
+    }
   }
 
   // 5. Step 1: 2-Player Invite & Setup Helper inside Play Screen
@@ -1358,7 +1376,7 @@
 
   window.__syncTrackerHistory = syncHistoryFromDatabase;
 
-  // Background Auto-Refresh Timer for Match History
+  // Background Auto-Refresh Timer for Match History (Relaxed 60s fallback; instant sync handled via focus & events)
   let historyPollTimer = null;
   function startHistoryPolling() {
     if (historyPollTimer) clearInterval(historyPollTimer);
@@ -1366,7 +1384,7 @@
       if (!isPlay && document.visibilityState !== 'hidden') {
         syncHistoryFromDatabase();
       }
-    }, 3500);
+    }, 60000);
   }
 
   // Auto-refresh history immediately on tab focus or visibility return
@@ -1611,9 +1629,13 @@
     if (clientState.isFinalizing) return;
     clientState.isFinalizing = true;
     clearTimeout(clientState.debounceTimer);
+    if (fastPollTimer) { clearInterval(fastPollTimer); fastPollTimer = null; }
+    if (wizardScrapeTimer) { clearInterval(wizardScrapeTimer); wizardScrapeTimer = null; }
     if (fsDocUnsub) {
       try { fsDocUnsub(); fsDocUnsub = null; } catch(e) {}
     }
+    clientState.firestoreConnected = false;
+    clientState.hasRealtimeStream = false;
     if (clientState.eventSource) {
       try { clientState.eventSource.close(); clientState.eventSource = null; } catch(e) {}
     }
@@ -1662,6 +1684,7 @@
         if (fsDocUnsub) fsDocUnsub();
         
         fsDocUnsub = docRef.onSnapshot((snap) => {
+          clientState.firestoreConnected = true;
           if (!snap || !snap.exists) {
             // Room was concluded and deleted by opponent!
             if (clientState.hasJoinedRoom && !clientState.isFinalizing) {
@@ -1696,6 +1719,7 @@
             }
           }
         }, (err) => {
+          clientState.firestoreConnected = false;
           console.debug('[Firestore onSnapshot] Native fallback:', err);
         });
       } catch(e) {
@@ -1854,15 +1878,16 @@
   }
 
   let fastPollTimer = null;
+  let wizardScrapeTimer = null;
+
   function startHybridSync() {
     initFirestoreDirectSync();
     startRealtimeStream();
     
-    if (fastPollTimer) clearInterval(fastPollTimer);
-    fastPollTimer = setInterval(async () => {
+    // 1. Local DOM wizard state scraper (0 network overhead)
+    if (wizardScrapeTimer) clearInterval(wizardScrapeTimer);
+    wizardScrapeTimer = setInterval(() => {
       if (!clientState.matchId || clientState.isApplyingRemote) return;
-      
-      // Check if user changed DOM wizard without triggering click
       const wizard = scrapeSetupWizardState();
       if (wizard) {
         const wizardJson = JSON.stringify(wizard);
@@ -1871,6 +1896,20 @@
           notifyStateChanged();
         }
       }
+    }, 500);
+
+    // 2. Network Fallback Poller: ONLY executes if BOTH Firestore and SSE are unavailable
+    if (fastPollTimer) clearInterval(fastPollTimer);
+    fastPollTimer = setInterval(async () => {
+      if (!clientState.matchId || clientState.isApplyingRemote) return;
+      if (document.hidden) return;
+
+      // When Firestore direct sync or SSE stream is active, ZERO HTTP polling needed!
+      const isRealtimeActive = Boolean(
+        clientState.firestoreConnected ||
+        (clientState.eventSource && clientState.eventSource.readyState === EventSource.OPEN)
+      );
+      if (isRealtimeActive) return;
 
       try {
         const resp = await fetch(`${SYNC_CONFIG.apiBase}/${clientState.matchId}`, {
@@ -1891,7 +1930,7 @@
           }
         }
       } catch (e) {}
-    }, 350);
+    }, 3000);
   }
 
   function startRealtimeStream() {
@@ -1902,6 +1941,12 @@
       const sseUrl = `${SYNC_CONFIG.apiBase}/${clientState.matchId}/stream?client_id=${clientState.clientId}`;
       const es = new EventSource(sseUrl);
       clientState.eventSource = es;
+      es.onopen = () => {
+        clientState.hasRealtimeStream = true;
+      };
+      es.onerror = () => {
+        clientState.hasRealtimeStream = false;
+      };
 
       es.onmessage = (event) => {
         try {

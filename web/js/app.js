@@ -438,10 +438,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadGlobalStats();
   checkIosPwaInstall();
 
-  // Periodic check for chat unread notifications badge
+  // Initial check for chat unread notifications badge
   if (typeof updateUnreadCountBadge === 'function') {
     updateUnreadCountBadge();
-    setInterval(updateUnreadCountBadge, 5000);
   }
   if (currentUser && typeof attachUserSyncSnapshot === 'function') {
     attachUserSyncSnapshot();
