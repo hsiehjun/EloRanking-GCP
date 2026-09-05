@@ -930,8 +930,27 @@ def test_eventstudio_guard_and_faction_default():
     assert "factionTimeframe = '90d'" in fac_js, "factionTimeframe not defaulted to 90d in factions.js"
     assert 'id="faction-preset-90d" class="subtab-btn active"' in app_html, "faction-preset-90d not active in app.html"
     assert 'id="faction-preset-all" class="subtab-btn"' in app_html, "faction-preset-all still active in app.html"
+    assert "api.js?v=79.0" in app_html, "api.js not bumped to 79.0"
+    assert "factions.js?v=67.0" in app_html, "factions.js not bumped to 67.0"
 
-    print("✅ Event Studio TO/Admin 403 guards and Meta Intel 90d default verified!")
+    # 3. Database composite index for fast 90d range queries
+    with open("database.py", "r", encoding="utf-8") as f:
+        db_py = f.read()
+    assert "idx_pg_matches_meta_p1" in db_py, "idx_pg_matches_meta_p1 index missing in database.py"
+    assert "idx_pg_matches_meta_p2" in db_py, "idx_pg_matches_meta_p2 index missing in database.py"
+
+    # 4. Server startup pre-warming task
+    with open("server.py", "r", encoding="utf-8") as f:
+        srv_py = f.read()
+    assert "_prewarm_meta_intel_cache" in srv_py, "_prewarm_meta_intel_cache missing in server.py"
+
+    # 5. Leaderboard router timeframe resolution
+    with open("routers/leaderboard.py", "r", encoding="utf-8") as f:
+        lb_py = f.read()
+    assert 'timeframe: Optional[str] = Query(None' in lb_py, "timeframe parameter missing in leaderboard.py"
+    assert 'timedelta(days=90)' in lb_py, "90d default timedelta missing in leaderboard.py"
+
+    print("✅ Event Studio TO/Admin 403 guards, Meta Intel 90d default, DB indexes, and cache pre-warming verified!")
 
 
 if __name__ == "__main__":

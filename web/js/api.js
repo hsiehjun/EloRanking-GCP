@@ -462,8 +462,9 @@ window.api = {
   },
 
   // Faction Meta & Dynamic Timeline Trends
-  async getFactionMeta(startDate = null, endDate = null) {
+  async getFactionMeta(startDate = null, endDate = null, timeframe = null) {
     const params = new URLSearchParams();
+    if (timeframe) params.append('timeframe', timeframe);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
     const url = params.toString() ? `/api/factions/meta?${params}` : '/api/factions/meta';

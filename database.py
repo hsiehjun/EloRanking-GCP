@@ -373,6 +373,8 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_fac1 ON matches(player1_faction, is_done);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_fac2 ON matches(player2_faction, is_done);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p1 ON matches (match_date DESC, player1_faction) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_elo ON player_ratings(current_elo DESC);
@@ -445,6 +447,8 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid1 ON tracker_games(user_id_p1);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_uid2 ON tracker_games(user_id_p2);",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p1 ON matches (match_date DESC, player1_faction) WHERE is_done = TRUE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;",
             """CREATE TABLE IF NOT EXISTS user_army_lists (
                 id VARCHAR(64) PRIMARY KEY,
                 user_id VARCHAR(64),

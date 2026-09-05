@@ -816,10 +816,36 @@ async def api_factions():
 @router.get("/api/factions/meta", summary="Get global faction win rates and balance tier ratings")
 async def api_faction_meta(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
-    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)")
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', 'ytd', 'all'")
 ):
     try:
-        return get_database().get_faction_meta_stats(start_date=start_date, end_date=end_date)
+        resolved_start = start_date
+        resolved_end = end_date
+
+        if timeframe == "all" or start_date == "all":
+            resolved_start = None
+            resolved_end = None
+        elif not resolved_start and not resolved_end:
+            now = datetime.now(timezone.utc)
+            preset = (timeframe or "90d").lower()
+            if preset == "30d":
+                resolved_start = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+                resolved_end = now.strftime("%Y-%m-%d")
+            elif preset == "60d":
+                resolved_start = (now - timedelta(days=60)).strftime("%Y-%m-%d")
+                resolved_end = now.strftime("%Y-%m-%d")
+            elif preset == "ytd":
+                resolved_start = f"{now.year}-01-01"
+                resolved_end = now.strftime("%Y-%m-%d")
+            elif preset == "all":
+                resolved_start = None
+                resolved_end = None
+            else:  # Default to 90d (Last 3 Months)
+                resolved_start = (now - timedelta(days=90)).strftime("%Y-%m-%d")
+                resolved_end = now.strftime("%Y-%m-%d")
+
+        return get_database().get_faction_meta_stats(start_date=resolved_start, end_date=resolved_end)
     except Exception as e:
         logger.error(f"Error in /api/factions/meta: {e}")
         return {"factions": [], "monthly_trends": [], "error": str(e)}

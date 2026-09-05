@@ -107,6 +107,20 @@ async def on_server_startup():
     except Exception as e:
         logger.warning(f"Notice during startup team sync: {e}")
 
+    async def _prewarm_meta_intel_cache():
+        try:
+            now = datetime.now(timezone.utc)
+            d90 = now - timedelta(days=90)
+            start_str = d90.strftime("%Y-%m-%d")
+            end_str = now.strftime("%Y-%m-%d")
+            db = get_database()
+            db.get_faction_meta_stats(start_date=start_str, end_date=end_str)
+            logger.info(f"🔥 Meta Intel 90-day cache pre-warmed ({start_str} to {end_str})")
+        except Exception as me:
+            logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
+
+    asyncio.create_task(_prewarm_meta_intel_cache())
+
 # Mount Modular Domain APIRouters
 app.include_router(admin.router)
 app.include_router(connect.router)

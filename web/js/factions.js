@@ -111,7 +111,7 @@ async function loadFactionMeta() {
   }
 
   try {
-    const data = await window.api.getFactionMeta(factionCustomStart, factionCustomEnd);
+    const data = await window.api.getFactionMeta(factionCustomStart, factionCustomEnd, factionTimeframe);
     factionMetaData = data;
     
     // Populate all available factions from trends
