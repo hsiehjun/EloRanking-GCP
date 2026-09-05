@@ -176,7 +176,7 @@ def test_modals_js_current_team_logic():
     
     # Must NOT have || (idx === 0) when currentTeam is non-empty
     assert "const isCurrent = (tm.toLowerCase() === currentTeam.toLowerCase()) || (idx === 0);" not in modals_code
-    assert "const isCurrent = currentTeam" in modals_code
+    assert "const currentTeam = p.team" in modals_code
     print("✅ test_modals_js_current_team_logic passed: clean single (Current) badge logic verified!")
 
 

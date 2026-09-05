@@ -344,9 +344,10 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
             id_claims = _decode_jwt_payload(id_tok) if id_tok else {}
             acc_claims = _decode_jwt_payload(acc_tok) if acc_tok else {}
 
-            # In BCP, ownerId must be the BCP userId attribute from the ID token or BCP profile
+            # In BCP, ownerId must be the 10-char BCP userId attribute from user record, ID token, or BCP profile
             bcp_owner_id = (
-                id_claims.get("userId")
+                (user.get("player_id") if user and user.get("player_id") and len(str(user.get("player_id"))) <= 15 else None)
+                or id_claims.get("userId")
                 or id_claims.get("custom:userId")
                 or acc_claims.get("userId")
                 or acc_claims.get("custom:userId")

@@ -510,9 +510,8 @@ class AuthManager:
                 display_name = row["display_name"]
                 pw_hash = row["password_hash"]
 
-                # Match with local player database by display name
-                match_p = self.find_matching_competitor(cur, full_name=display_name, email=email)
-                player_id = match_p["player_id"] if match_p else None
+                # Account creation never auto-links to a competitor profile; linking only occurs via explicit BCP connection
+                player_id = None
 
                 # Extract invite_code and resolve inviter_id
                 invite_code = row.get("invite_code")
@@ -876,11 +875,6 @@ class AuthManager:
                     name_clean = display_name.strip()
                     updates.append("display_name = %s")
                     params.append(name_clean)
-                    # Attempt to link player rating
-                    match_p = self.find_matching_competitor(cur, full_name=name_clean)
-                    if match_p:
-                        updates.append("player_id = %s")
-                        params.append(match_p["player_id"])
 
                 if new_password:
                     if not old_password or not _verify_password(old_password, row["password_hash"]):
@@ -1317,6 +1311,33 @@ class AuthManager:
     # BEST COAST PAIRINGS ACCOUNT LINKING & SILENT REFRESH
     # =========================================================================
 
+    def get_competitor_by_player_id(self, cur, player_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Checks if a verified BCP player_id exists in our player_ratings database."""
+        if not player_id:
+            return None
+        clean_id = str(player_id).strip()
+        cur.execute("""
+        SELECT player_id, player_name, COALESCE(matches_played, 0) as matches_played, COALESCE(current_elo, 1500.0) as current_elo
+        FROM player_ratings
+        WHERE player_id = %s;
+        """, (clean_id,))
+        row = cur.fetchone()
+        if not row:
+            return None
+        if isinstance(row, dict):
+            return {
+                "player_id": str(row.get("player_id") or ""),
+                "player_name": str(row.get("player_name") or ""),
+                "matches_played": int(row.get("matches_played") or 0),
+                "current_elo": float(row.get("current_elo") or 1500.0)
+            }
+        return {
+            "player_id": str(row[0] or ""),
+            "player_name": str(row[1] or ""),
+            "matches_played": int(row[2] or 0),
+            "current_elo": float(row[3] or 1500.0)
+        }
+
     def find_matching_competitor(
         self,
         cur,
@@ -1326,133 +1347,13 @@ class AuthManager:
         full_name: str = "",
         email: str = ""
     ) -> Optional[Dict[str, Any]]:
-        """
-        Resolves a competitor's canonical player profile from BCP or user identity.
-        Checks both 'players' and 'player_ratings' tables using tokenized name resolution,
-        prefix matching (e.g. Will -> William), and match volume ordering to select
-        the active competitive record with highest match volume (e.g. 5ODCSZURyN, 212 matches).
-        """
-        def _to_cand(row):
-            if not row:
-                return None
-            if isinstance(row, dict):
-                return {
-                    "player_id": str(row.get("player_id") or ""),
-                    "player_name": str(row.get("player_name") or ""),
-                    "matches_played": int(row.get("matches_played") or 0),
-                    "current_elo": float(row.get("current_elo") or 1500.0)
-                }
-            return {
-                "player_id": str(row[0] or ""),
-                "player_name": str(row[1] or ""),
-                "matches_played": int(row[2] or 0),
-                "current_elo": float(row[3] or 1500.0)
-            }
-
-        first_name = (first_name or "").strip()
-        last_name = (last_name or "").strip()
-        full_name = (full_name or "").strip()
-        email = (email or "").strip().lower()
-
-        if not full_name and (first_name or last_name):
-            full_name = f"{first_name} {last_name}".strip()
-
-        if not first_name or not last_name:
-            parts = full_name.split()
-            if len(parts) >= 2:
-                if not first_name:
-                    first_name = parts[0]
-                if not last_name:
-                    last_name = parts[-1]
-            elif len(parts) == 1 and not first_name:
-                first_name = parts[0]
-
-        # 1. Direct ID match check
-        direct_match = None
-        if bcp_user_id and len(str(bcp_user_id).strip()) <= 15:
-            uid_clean = str(bcp_user_id).strip()
-            cur.execute("""
-            SELECT player_id, player_name, COALESCE(matches_played, 0) as matches_played, COALESCE(current_elo, 1500.0) as current_elo
-            FROM player_ratings
-            WHERE player_id = %s;
-            """, (uid_clean,))
-            row = cur.fetchone()
-            if row:
-                direct_match = _to_cand(row)
-                if direct_match and direct_match["matches_played"] > 0:
-                    return direct_match
-
-        # 2. Name-based match across players and player_ratings
-        first_prefix = first_name[:3] if len(first_name) >= 3 else first_name
-
-        if last_name:
-            cur.execute("""
-            SELECT player_id, player_name, matches_played, current_elo
-            FROM (
-                -- Source 1: players table joined with player_ratings
-                SELECT p.id as player_id,
-                       COALESCE(pr.player_name, p.full_name) as player_name,
-                       COALESCE(pr.matches_played, 0) as matches_played,
-                       COALESCE(pr.current_elo, 1500.0) as current_elo
-                FROM players p
-                LEFT JOIN player_ratings pr ON p.id = pr.player_id
-                WHERE (p.last_name ILIKE %s OR p.full_name ILIKE %s)
-                  AND (
-                      p.first_name ILIKE %s
-                      OR p.first_name ILIKE %s
-                      OR p.full_name ILIKE %s
-                      OR COALESCE(pr.player_name, '') ILIKE %s
-                      OR COALESCE(pr.player_name, '') ILIKE %s
-                  )
-                UNION
-                -- Source 2: player_ratings table directly
-                SELECT pr.player_id,
-                       pr.player_name,
-                       COALESCE(pr.matches_played, 0) as matches_played,
-                       COALESCE(pr.current_elo, 1500.0) as current_elo
-                FROM player_ratings pr
-                WHERE pr.player_name ILIKE %s
-                  AND (
-                      pr.player_name ILIKE %s
-                      OR pr.player_name ILIKE %s
-                      OR pr.player_name ILIKE %s
-                      OR pr.player_name ILIKE %s
-                  )
-            ) candidates
-            ORDER BY matches_played DESC, current_elo DESC
-            LIMIT 1;
-            """, (
-                f"%{last_name}%", f"%{last_name}%",
-                f"{first_name}%", f"{first_prefix}%", f"{first_name}%", f"{first_name}%", f"%{first_prefix}%",
-                f"%{last_name}%",
-                f"{first_name}%", f"{first_prefix}%", f"%{first_name}%", f"%{first_prefix}%"
-            ))
-            row = cur.fetchone()
-            if row:
-                cand = _to_cand(row)
-                if cand and (cand["matches_played"] > 0 or not direct_match):
-                    return cand
-
-        # Fallback for single-name or missing last_name
-        search_term = full_name or first_name
-        if search_term:
-            cur.execute("""
-            SELECT pr.player_id, pr.player_name, COALESCE(pr.matches_played, 0) as matches_played, COALESCE(pr.current_elo, 1500.0) as current_elo
-            FROM player_ratings pr
-            WHERE LOWER(pr.player_name) = LOWER(%s) OR pr.player_name ILIKE %s
-            ORDER BY pr.matches_played DESC, pr.current_elo DESC
-            LIMIT 1;
-            """, (search_term, f"%{search_term}%"))
-            row = cur.fetchone()
-            if row:
-                cand = _to_cand(row)
-                if cand and (cand["matches_played"] > 0 or not direct_match):
-                    return cand
-
-        return direct_match
+        """Exact ID lookup only. Fuzzy name matching has been completely disabled to prevent cross-account collisions."""
+        if bcp_user_id:
+            return self.get_competitor_by_player_id(cur, bcp_user_id)
+        return None
 
     def link_bcp_account(self, user_id: str, bcp_email: str, bcp_password: str) -> Dict[str, Any]:
-        """Links user's Best Coast Pairings account via Headless Browser with fallback to Cognito."""
+        """Links user's Best Coast Pairings account via 2-step Headless Browser navigation with fallback to Cognito."""
         # 1. Attempt Headless Browser Automated Login (Native Web-App Session)
         try:
             from playwright.sync_api import sync_playwright
@@ -1465,6 +1366,31 @@ class AuthManager:
                     user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
                 )
                 page = context.new_page()
+
+                captured_bcp_player_id = None
+                captured_bcp_profile = {}
+
+                def _handle_bcp_response(resp):
+                    nonlocal captured_bcp_player_id, captured_bcp_profile
+                    try:
+                        url = resp.url
+                        # Matches /v1/users/<id> (e.g. MEV83VFANA)
+                        m = re.search(r"/users/([A-Za-z0-9]{8,15})(?:[/?&#]|$)", url)
+                        if m and resp.status == 200:
+                            candidate_id = m.group(1)
+                            if candidate_id.lower() not in ("exchangetoken", "notifications", "changepassword", "feesummary"):
+                                captured_bcp_player_id = candidate_id
+                                try:
+                                    data = resp.json()
+                                    if isinstance(data, dict):
+                                        captured_bcp_profile = data
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
+                page.on("response", _handle_bcp_response)
+
                 login_url = "https://auth.bestcoastpairings.com/login?client_id=web-app&response_type=code&scope=email+openid+profile+aws.cognito.signin.user.admin&redirect_uri=https://www.bestcoastpairings.com/"
                 page.goto(login_url, wait_until="domcontentloaded", timeout=25000)
 
@@ -1482,9 +1408,16 @@ class AuthManager:
 
                 try:
                     page.wait_for_url("**/bestcoastpairings.com/**", timeout=25000)
-                    page.wait_for_timeout(3000)
+                    page.wait_for_timeout(2000)
                 except Exception:
                     pass
+
+                # Step 2: Navigate to organize dashboard (or account) where BCP client fetches official user profile (/v1/users/{player_id})
+                try:
+                    page.goto("https://www.bestcoastpairings.com/organize/", wait_until="domcontentloaded", timeout=15000)
+                    page.wait_for_timeout(3000)
+                except Exception as ne:
+                    logger.debug(f"Notice during BCP organize navigation: {ne}")
 
                 tokens = page.evaluate("""() => {
                     const r = {};
@@ -1501,6 +1434,16 @@ class AuthManager:
                 if tokens.get("id_token") or tokens.get("access_token"):
                     logger.info(f"✅ Headless BCP Login succeeded for {bcp_email}")
                     tokens["email"] = bcp_email.strip()
+                    if captured_bcp_player_id:
+                        tokens["player_id"] = captured_bcp_player_id
+                        logger.info(f"🎯 Discovered BCP Player ID from 2-step organize flow: {captured_bcp_player_id}")
+                    if captured_bcp_profile:
+                        tokens["given_name"] = captured_bcp_profile.get("firstName")
+                        tokens["family_name"] = captured_bcp_profile.get("lastName")
+                        tokens["name"] = f"{captured_bcp_profile.get('firstName', '')} {captured_bcp_profile.get('lastName', '')}".strip()
+                        if captured_bcp_profile.get("email"):
+                            tokens["email"] = captured_bcp_profile.get("email")
+
                     return self.link_bcp_token(user_id, tokens)
         except Exception as pe:
             logger.info(f"Headless Playwright login notice: {pe}")
@@ -1576,12 +1519,17 @@ class AuthManager:
 
         bcp_user_id = claims.get("sub") or claims.get("username") or parsed.get("bcp_user_id") or parsed.get("userId")
         bcp_email = claims.get("email") or claims.get("bcpEmail") or parsed.get("email") or ""
-        pid = claims.get("userId") or claims.get("custom:userId") or parsed.get("player_id")
+        
+        # Player ID prioritization:
+        # 1. Directly discovered player_id from Playwright Step 2 organize/account intercept
+        # 2. JWT custom:userId or userId claim
+        # 3. parsed.get("player_id")
+        pid = parsed.get("player_id") or claims.get("userId") or claims.get("custom:userId")
 
-        given_name = str(claims.get("given_name") or parsed.get("given_name") or "").strip()
-        family_name = str(claims.get("family_name") or parsed.get("family_name") or "").strip()
+        given_name = str(parsed.get("given_name") or claims.get("given_name") or "").strip()
+        family_name = str(parsed.get("family_name") or claims.get("family_name") or "").strip()
         full_bcp_name = f"{given_name} {family_name}".strip()
-        bcp_name = (claims.get("name") or parsed.get("name") or full_bcp_name or claims.get("nickname") or "").strip()
+        bcp_name = (parsed.get("name") or claims.get("name") or full_bcp_name or claims.get("nickname") or "").strip()
         if not bcp_name and bcp_email:
             bcp_name = bcp_email.split("@")[0].strip()
 
@@ -1596,14 +1544,19 @@ class AuthManager:
             elif len(parts) == 1 and not given_name:
                 given_name = parts[0]
 
-        # Check special overrides or query BCP user endpoint if pid is missing or UUID
-        if (bcp_email or "").strip().lower() == "swimgeek751@gmail.com":
-            pid = "MEV83VFANA"
-        elif (not pid or len(str(pid)) > 15) and actual_id and bcp_user_id:
+        # If pid is missing or is a Cognito UUID (>15 chars), query BCP user endpoint directly with access token & client-id header
+        if (not pid or len(str(pid)) > 15) and (actual_acc or actual_id) and bcp_user_id:
             try:
                 import urllib.request
                 u_url = f"https://newprod-api.bestcoastpairings.com/v1/users/{bcp_user_id}"
-                req = urllib.request.Request(u_url, headers={"Authorization": f"Bearer {actual_id}", "User-Agent": "OmniTactica/1.0"})
+                req = urllib.request.Request(
+                    u_url,
+                    headers={
+                        "Authorization": f"Bearer {actual_acc or actual_id}",
+                        "client-id": "web-app",
+                        "User-Agent": "Mozilla/5.0"
+                    }
+                )
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     if resp.status == 200:
                         u_data = json.loads(resp.read().decode("utf-8"))
@@ -1616,8 +1569,11 @@ class AuthManager:
                                 family_name = str(u_data["lastName"]).strip()
                             if not bcp_name and (given_name or family_name):
                                 bcp_name = f"{given_name} {family_name}".strip()
-            except Exception:
-                pass
+            except Exception as ue:
+                logger.debug(f"Direct BCP user profile fetch notice: {ue}")
+
+        if not pid:
+            pid = bcp_user_id
 
         from psycopg2 import extras
         with self.db.get_connection() as conn:
@@ -1650,23 +1606,14 @@ class AuthManager:
                             "error": f"This Best Coast Pairings account ({display_email}) is already linked to another OmniTactica account ({conflict_name}). An account can only be linked to one OmniTactica profile. Please disconnect it from that profile first."
                         }
 
-                # 2. Match competitor in players and player_ratings
-                comp_match = self.find_matching_competitor(
-                    cur,
-                    bcp_user_id=pid or bcp_user_id,
-                    first_name=given_name,
-                    last_name=family_name,
-                    full_name=bcp_name,
-                    email=bcp_email
-                )
-
+                # 2. Check if player_id exists in player_ratings
+                comp_match = self.get_competitor_by_player_id(cur, pid) if pid else None
                 if comp_match:
-                    pid = comp_match["player_id"]
-                    logger.info(f"✅ BCP Competitor auto-linked: '{bcp_name}' -> '{comp_match.get('player_name')}' (ID: {pid}, Matches: {comp_match.get('matches_played')}, Elo: {comp_match.get('current_elo')})")
-                elif not pid or len(str(pid)) > 15:
-                    pid = bcp_user_id
+                    logger.info(f"✅ BCP Competitor linked: '{bcp_name}' -> '{comp_match.get('player_name')}' (ID: {pid}, Matches: {comp_match.get('matches_played')}, Elo: {comp_match.get('current_elo')})")
+                else:
+                    logger.info(f"ℹ️ Verified BCP player ID '{pid}' linked for '{bcp_name}'.")
 
-                # 3. Update users table with BCP name and player_id
+                # 3. Update users table with official BCP name, verified player_id, and tokens
                 target_display_name = bcp_name or full_bcp_name or None
                 cur.execute("""
                 UPDATE users SET
@@ -1695,11 +1642,12 @@ class AuthManager:
         }
 
     def unlink_bcp_account(self, user_id: str) -> Dict[str, Any]:
-        """Unlinks Best Coast Pairings account from user."""
+        """Unlinks Best Coast Pairings account from user and clears competitor profile."""
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
                 UPDATE users SET
+                    player_id = NULL,
                     bcp_user_id = NULL,
                     bcp_email = NULL,
                     bcp_access_token = NULL,
@@ -1824,22 +1772,6 @@ class AuthManager:
         from psycopg2 import extras
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                # Auto-heal competitor profile if target_pid is missing, a UUID, or unlinked
-                if user_info and (not target_pid or len(str(target_pid)) > 15):
-                    match_comp = self.find_matching_competitor(
-                        cur,
-                        bcp_user_id=user_info.get("bcp_user_id"),
-                        full_name=user_info.get("display_name"),
-                        email=user_info.get("bcp_email") or user_info.get("email")
-                    )
-                    if match_comp and match_comp.get("matches_played", 0) > 0:
-                        target_pid = match_comp["player_id"]
-                        try:
-                            cur.execute("UPDATE users SET player_id = %s WHERE id = %s;", (target_pid, user_id))
-                            conn.commit()
-                        except Exception:
-                            pass
-
                 # 1. Player Rating & World Rank
                 cur.execute("""
                 SELECT player_id, player_name, current_elo, peak_elo,
