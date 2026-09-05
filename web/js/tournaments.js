@@ -309,57 +309,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
       }
     }
 
-    // Update Tournament Registration Button state
+    // Tournament Registration Button hidden per user request until registration integration is active
     const regBtn = document.getElementById('modal-event-register-btn');
     if (regBtn) {
-      const isConcluded = Boolean(ev.concluded || ev.is_concluded || (ev.status && ev.status.toLowerCase() === 'concluded'));
-      const currentUser = (typeof authState !== 'undefined' && authState.user) ? authState.user : (window.currentUser || null);
-      const currentUserName = currentUser ? String(currentUser.name || currentUser.full_name || currentUser.username || '').trim().toLowerCase() : '';
-      const currentUserEmail = currentUser ? String(currentUser.email || '').trim().toLowerCase() : '';
-      const currentUserPlayerId = currentUser ? String(currentUser.player_id || '').trim().toLowerCase() : '';
-      const currentUserBcpId = currentUser ? String(currentUser.bcp_user_id || '').trim().toLowerCase() : '';
-
-      const checkMatch = (p) => {
-        if (!p) return false;
-        const pEmail = String(p.email || '').trim().toLowerCase();
-        if (currentUserEmail && pEmail && pEmail === currentUserEmail) return true;
-        const pName = String(p.name || p.full_name || p.player_name || '').trim().toLowerCase();
-        if (currentUserName && pName && (pName === currentUserName || currentUserName.includes(pName) || pName.includes(currentUserName))) return true;
-        const pId = String(p.id || p.player_id || '').trim().toLowerCase();
-        if (currentUserPlayerId && pId && pId === currentUserPlayerId) return true;
-        const pUserId = String(p.userId || p.bcp_user_id || '').trim().toLowerCase();
-        if (currentUserBcpId && (pId === currentUserBcpId || pUserId === currentUserBcpId)) return true;
-        return false;
-      };
-
-      const isRegistered = Boolean(
-        (ev.roster || []).some(checkMatch) ||
-        (ev.players || []).some(checkMatch)
-      );
-
-      if (isConcluded) {
-        regBtn.style.display = 'none';
-      } else if (isRegistered) {
-        regBtn.style.display = 'inline-flex';
-        regBtn.className = 'btn btn-outline';
-        regBtn.style.background = 'rgba(16, 185, 129, 0.15)';
-        regBtn.style.color = '#10b981';
-        regBtn.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-        regBtn.disabled = false;
-        regBtn.title = 'You are registered for this event. Click to view or update your army list.';
-        regBtn.innerHTML = '<span>✓ Registered</span>';
-        regBtn.onclick = () => openTournamentRegistrationModal(eventId, ev.name);
-      } else {
-        regBtn.style.display = 'inline-flex';
-        regBtn.className = 'btn btn-primary';
-        regBtn.style.background = 'linear-gradient(135deg, #059669, #10b981)';
-        regBtn.style.color = '#fff';
-        regBtn.style.borderColor = '#10b981';
-        regBtn.disabled = false;
-        regBtn.title = 'Register for this tournament';
-        regBtn.innerHTML = '<span>⚡ Register</span>';
-        regBtn.onclick = () => openTournamentRegistrationModal(eventId, ev.name);
-      }
+      regBtn.style.display = 'none';
     }
   } catch (err) {
     if (rbody) {
