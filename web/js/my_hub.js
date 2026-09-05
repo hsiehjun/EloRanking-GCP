@@ -122,6 +122,12 @@ function renderMyHub(data) {
   const upcoming = data.upcoming_events || [];
   const matchupSpotlights = computeMatchupSpotlights(matchups, history, p.win_rate);
 
+  const totalHistoryMatches = history.length;
+  const totalFactionGames = factionMastery.reduce((acc, f) => acc + (Number(f.games) || 0), 0);
+  const totalMatchupGames = matchups.reduce((acc, m) => acc + (Number(m.total_encounters) || 0), 0);
+  const unrecordedFactionGames = Math.max(0, totalHistoryMatches - totalFactionGames);
+  const unrecordedMatchupGames = Math.max(0, totalHistoryMatches - totalMatchupGames);
+
   const activeMatches = (data.active_sessions && Array.isArray(data.active_sessions))
     ? data.active_sessions
     : [data.primary_active, ...(data.unfinished_sessions || [])].filter(Boolean);
@@ -240,7 +246,14 @@ function renderMyHub(data) {
       
       <!-- Card 3: Faction Mastery Breakdown -->
       <div class="hub-card">
-        <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🛡️ Faction Mastery & Win Rates</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.25rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
+          ${factionMastery.length > 0 ? `
+            <span style="font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 10px; font-family: var(--font-mono); white-space: nowrap;" title="${unrecordedFactionGames > 0 ? `${unrecordedFactionGames} matches unrecorded on BCP (no army list submitted)` : 'All matches recorded'}">
+              ${unrecordedFactionGames > 0 ? `${totalFactionGames} of ${totalHistoryMatches} logged` : `${totalFactionGames} matches`}
+            </span>
+          ` : ''}
+        </div>
         ${factionMastery.length > 0 ? `
           <div class="hub-table-wrapper">
             <table id="hub-faction-table" class="hub-table">
@@ -264,12 +277,24 @@ function renderMyHub(data) {
               </tbody>
             </table>
           </div>
+          ${unrecordedFactionGames > 0 ? `
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; text-align: right;">
+              ℹ️ ${unrecordedFactionGames} career matches unrecorded on BCP (no army list submitted)
+            </div>
+          ` : ''}
         ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading faction data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>')}
       </div>
 
       <!-- Card 4: Matchup Matrix vs Enemy Factions -->
       <div class="hub-card">
-        <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.75rem;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.25rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
+          ${matchups.length > 0 ? `
+            <span style="font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 10px; font-family: var(--font-mono); white-space: nowrap;" title="${unrecordedMatchupGames > 0 ? `${unrecordedMatchupGames} matches vs opponents with unrecorded armies on BCP` : 'All matches recorded'}">
+              ${unrecordedMatchupGames > 0 ? `${totalMatchupGames} of ${totalHistoryMatches} logged` : `${totalMatchupGames} matches`}
+            </span>
+          ` : ''}
+        </div>
         ${matchups.length > 0 ? `
           ${renderMatchupSpotlightCards(matchupSpotlights)}
           <div class="hub-table-wrapper">
@@ -301,6 +326,11 @@ function renderMyHub(data) {
               </tbody>
             </table>
           </div>
+          ${unrecordedMatchupGames > 0 ? `
+            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; text-align: right;">
+              ℹ️ ${unrecordedMatchupGames} matches vs opponents with unrecorded armies on BCP
+            </div>
+          ` : ''}
         ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading matchup data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>')}
       </div>
 
