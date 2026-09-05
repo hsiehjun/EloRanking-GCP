@@ -187,6 +187,71 @@ def test_score_submission_local_save():
         assert updated_match['is_done'] is True
     print("✅ test_score_submission_local_save passed!")
 
+def test_eventstudio_create_and_delete_flow():
+    """Verify tournament creation and deletion push directly to BCP API without headless browser."""
+    from routers.eventstudio import api_eventstudio_create_event, api_eventstudio_delete_event, CreateEventPayload
+    from core import Request
+    import asyncio
+
+    req = MagicMock(spec=Request)
+    req.headers = {"Authorization": "Bearer test_token"}
+    req.cookies = {}
+
+    mock_user = {
+        "id": "user_john_123",
+        "email": "swimgeek751@gmail.com",
+        "role": "admin",
+        "player_id": "MEV83VFANA",
+        "bcp_user_id": "sub_john_uuid"
+    }
+
+    with patch("routers.eventstudio._get_to_session_or_403", return_value=mock_user), \
+         patch("routers.eventstudio.get_auth_manager") as mock_auth, \
+         patch("routers.eventstudio.get_database") as mock_db, \
+         patch("routers.eventstudio.execute_bcp_api_call") as mock_bcp:
+        
+        auth_inst = MagicMock()
+        auth_inst.get_valid_bcp_tokens.return_value = {"access_token": "acc_tok_123", "id_token": "id_tok_123"}
+        auth_inst.get_valid_bcp_token.return_value = "acc_tok_123"
+        mock_auth.return_value = auth_inst
+
+        db_inst = MagicMock()
+        db_inst.save_studio_event.return_value = True
+        mock_db.return_value = db_inst
+
+        mock_bcp.return_value = ({"id": "BCP_EV_999", "name": "SoCal Open"}, None)
+
+        payload = CreateEventPayload(
+            name="SoCal Open",
+            venue="San Diego Convention Center",
+            city="San Diego",
+            state="CA",
+            rounds=5,
+            points=2000
+        )
+
+        res = asyncio.run(api_eventstudio_create_event(payload, req))
+        assert res["success"] is True
+        assert res["bcp_registered"] is True
+        assert res["event_id"] == "BCP_EV_999"
+
+        # Verify BCP call arguments
+        call_args = mock_bcp.call_args
+        assert call_args[0][0] == f"{BCP_API_BASE}/events"
+        assert call_args[1]["json_data"]["ownerId"] == "MEV83VFANA"
+        assert call_args[1]["explicit_token"] == "acc_tok_123"
+
+        # Verify Event Deletion
+        mock_bcp.return_value = ({"success": True}, None)
+        del_res = asyncio.run(api_eventstudio_delete_event("BCP_EV_999", req))
+        assert del_res["success"] is True
+        assert del_res["bcp_deleted"] is True
+        del_call_args = mock_bcp.call_args
+        assert del_call_args[0][0] == "https://newprod-api.bestcoastpairings.com/v1/events/BCP_EV_999"
+        assert del_call_args[1]["method"] == "DELETE"
+
+    print("✅ test_eventstudio_create_and_delete_flow passed!")
+
 if __name__ == '__main__':
     test_bcp_adapter_start_event_url()
     test_bcp_adapter_register_player_payload()
@@ -194,4 +259,5 @@ if __name__ == '__main__':
     test_swiss_pairings_generation()
     test_start_event_local_first()
     test_score_submission_local_save()
+    test_eventstudio_create_and_delete_flow()
     print("🎉 ALL PHASE 1 BCP ADAPTER & EVENT STUDIO TESTS PASSED!")
