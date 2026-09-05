@@ -588,7 +588,9 @@ async function handleConnectBcp(e) {
       closeBcpLinkModal();
       await initAuth();
       if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
-      if (typeof loadStudioEvents === 'function') await loadStudioEvents();
+      if (typeof loadStudioEvents === 'function' && typeof isUserTO === 'function' && isUserTO(currentUser)) {
+        await loadStudioEvents();
+      }
       if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
       if (typeof loadCommunityHub === 'function') loadCommunityHub();
       alert("🎉 Best Coast Pairings account connected successfully!");
@@ -627,7 +629,9 @@ async function handleDisconnectBcp() {
   closeBcpLinkModal();
   await initAuth();
   if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
-  if (typeof loadStudioEvents === 'function') await loadStudioEvents();
+  if (typeof loadStudioEvents === 'function' && typeof isUserTO === 'function' && isUserTO(currentUser)) {
+    await loadStudioEvents();
+  }
   if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   if (typeof loadCommunityHub === 'function') loadCommunityHub();
   alert("Best Coast Pairings account disconnected.");

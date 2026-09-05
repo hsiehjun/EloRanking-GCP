@@ -217,7 +217,7 @@ def test_2_step_bcp_discovery_john_hsieh():
             "bcp_email": "swimgeek751@gmail.com"
         }
 
-        # Simulated payload from 2-step Playwright organize intercept
+        # Simulated payload from direct BCP user profile fetch
         tokens = {
             "id_token": create_fake_jwt({"sub": "sub_john_uuid", "email": "swimgeek751@gmail.com", "custom:userId": "MEV83VFANA"}),
             "access_token": create_fake_jwt({"sub": "sub_john_uuid"}),

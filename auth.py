@@ -1353,102 +1353,8 @@ class AuthManager:
         return None
 
     def link_bcp_account(self, user_id: str, bcp_email: str, bcp_password: str) -> Dict[str, Any]:
-        """Links user's Best Coast Pairings account via 2-step Headless Browser navigation with fallback to Cognito."""
-        # 1. Attempt Headless Browser Automated Login (Native Web-App Session)
-        try:
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--single-process"]
-                )
-                context = browser.new_context(
-                    user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-                )
-                page = context.new_page()
-
-                captured_bcp_player_id = None
-                captured_bcp_profile = {}
-
-                def _handle_bcp_response(resp):
-                    nonlocal captured_bcp_player_id, captured_bcp_profile
-                    try:
-                        url = resp.url
-                        # Matches /v1/users/<id> (e.g. MEV83VFANA)
-                        m = re.search(r"/users/([A-Za-z0-9]{8,15})(?:[/?&#]|$)", url)
-                        if m and resp.status == 200:
-                            candidate_id = m.group(1)
-                            if candidate_id.lower() not in ("exchangetoken", "notifications", "changepassword", "feesummary"):
-                                captured_bcp_player_id = candidate_id
-                                try:
-                                    data = resp.json()
-                                    if isinstance(data, dict):
-                                        captured_bcp_profile = data
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
-
-                page.on("response", _handle_bcp_response)
-
-                login_url = "https://auth.bestcoastpairings.com/login?client_id=web-app&response_type=code&scope=email+openid+profile+aws.cognito.signin.user.admin&redirect_uri=https://www.bestcoastpairings.com/"
-                page.goto(login_url, wait_until="domcontentloaded", timeout=25000)
-
-                email_input = page.wait_for_selector('input[type="email"], input[name="username"], input[name="email"], input[type="text"]', timeout=10000)
-                if email_input:
-                    email_input.fill(bcp_email.strip())
-
-                pwd_input = page.wait_for_selector('input[type="password"]', timeout=5000)
-                if pwd_input:
-                    pwd_input.fill(bcp_password)
-
-                submit_btn = page.wait_for_selector('button[type="submit"], button:has-text("Log In"), button:has-text("Sign In")', timeout=5000)
-                if submit_btn:
-                    submit_btn.click()
-
-                try:
-                    page.wait_for_url("**/bestcoastpairings.com/**", timeout=25000)
-                    page.wait_for_timeout(2000)
-                except Exception:
-                    pass
-
-                # Step 2: Navigate to organize dashboard (or account) where BCP client fetches official user profile (/v1/users/{player_id})
-                try:
-                    page.goto("https://www.bestcoastpairings.com/organize/", wait_until="domcontentloaded", timeout=15000)
-                    page.wait_for_timeout(3000)
-                except Exception as ne:
-                    logger.debug(f"Notice during BCP organize navigation: {ne}")
-
-                tokens = page.evaluate("""() => {
-                    const r = {};
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const k = localStorage.key(i);
-                        if (k.includes('idToken')) r.id_token = localStorage.getItem(k);
-                        if (k.includes('accessToken')) r.access_token = localStorage.getItem(k);
-                        if (k.includes('refreshToken')) r.refresh_token = localStorage.getItem(k);
-                    }
-                    return r;
-                }""")
-                browser.close()
-
-                if tokens.get("id_token") or tokens.get("access_token"):
-                    logger.info(f"✅ Headless BCP Login succeeded for {bcp_email}")
-                    tokens["email"] = bcp_email.strip()
-                    if captured_bcp_player_id:
-                        tokens["player_id"] = captured_bcp_player_id
-                        logger.info(f"🎯 Discovered BCP Player ID from 2-step organize flow: {captured_bcp_player_id}")
-                    if captured_bcp_profile:
-                        tokens["given_name"] = captured_bcp_profile.get("firstName")
-                        tokens["family_name"] = captured_bcp_profile.get("lastName")
-                        tokens["name"] = f"{captured_bcp_profile.get('firstName', '')} {captured_bcp_profile.get('lastName', '')}".strip()
-                        if captured_bcp_profile.get("email"):
-                            tokens["email"] = captured_bcp_profile.get("email")
-
-                    return self.link_bcp_token(user_id, tokens)
-        except Exception as pe:
-            logger.info(f"Headless Playwright login notice: {pe}")
-
-        # 2. Fallback to Direct Cognito Authentication
+        """Links user's Best Coast Pairings account via direct AWS Cognito authentication and official BCP User Profile API."""
+        # 1. Direct AWS Cognito Authentication
         payload = {
             "AuthFlow": "USER_PASSWORD_AUTH",
             "ClientId": BCP_COGNITO_CLIENT_ID,
@@ -1521,9 +1427,9 @@ class AuthManager:
         bcp_email = claims.get("email") or claims.get("bcpEmail") or parsed.get("email") or ""
         
         # Player ID prioritization:
-        # 1. Directly discovered player_id from Playwright Step 2 organize/account intercept
-        # 2. JWT custom:userId or userId claim
-        # 3. parsed.get("player_id")
+        # 1. Directly supplied player_id or custom:userId
+        # 2. JWT claims
+        # 3. Fetched from BCP /v1/users/{sub} endpoint
         pid = parsed.get("player_id") or claims.get("userId") or claims.get("custom:userId")
 
         given_name = str(parsed.get("given_name") or claims.get("given_name") or "").strip()

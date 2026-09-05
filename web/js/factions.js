@@ -2,10 +2,12 @@
    FACTIONS.JS - Faction Meta Analytics, Dynamic Timeline & Interactive Army Toggles
    ========================================================================== */
 
+const _initNow = new Date();
+const _init90d = new Date(_initNow.getTime() - 90 * 24 * 60 * 60 * 1000);
 let factionMetaData = null;
-let factionTimeframe = 'all';
-let factionCustomStart = '';
-let factionCustomEnd = '';
+let factionTimeframe = '90d';
+let factionCustomStart = _init90d.toISOString().substring(0, 10);
+let factionCustomEnd = _initNow.toISOString().substring(0, 10);
 let factionViewMode = 'table'; // 'table' or 'chart'
 let selectedFactions = new Set();
 let allAvailableFactions = [];

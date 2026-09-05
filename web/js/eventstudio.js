@@ -302,6 +302,12 @@ async function syncBcpOrganizerEvents() {
 }
 
 async function loadStudioEvents() {
+  const user = (typeof currentUser !== 'undefined') ? currentUser : null;
+  const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
+  if (!isTO) {
+    studioState.eventsList = [];
+    return;
+  }
   try {
     const res = await window.api.getStudioEvents();
     studioState.eventsList = (res && Array.isArray(res.events)) ? res.events : [];

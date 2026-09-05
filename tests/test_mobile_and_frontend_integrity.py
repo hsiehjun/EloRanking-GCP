@@ -853,10 +853,85 @@ def test_matchup_spotlights_integrity():
     assert "@keyframes rowHighlightFlash" in css_content, "rowHighlightFlash animation missing in styles.css"
 
     # 3. Cache busting
-    assert "styles.css?v=83.0" in app_content, "styles.css not bumped to v=83.0"
+    import re
+    css_v = re.search(r'styles\.css\?v=([0-9.]+)', app_content)
+    assert css_v and float(css_v.group(1)) >= 83.0, "styles.css not bumped to v>=83.0"
     assert "my_hub.js?v=76.0" in app_content, "my_hub.js not bumped to v=76.0"
 
     print("✅ Favorite Prey & Nemesis Army spotlights and mobile 50/50 layout integrity verified!")
+
+
+def test_html_tag_balance_and_dom_integrity():
+    from html.parser import HTMLParser
+
+    class TagChecker(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []
+            self.void_tags = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+            self.errors = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() not in self.void_tags:
+                attrs_dict = dict(attrs)
+                tag_id = attrs_dict.get("id", "")
+                self.stack.append((tag.lower(), self.getpos(), tag_id))
+
+        def handle_endtag(self, tag):
+            tag = tag.lower()
+            if tag in self.void_tags:
+                return
+            if not self.stack:
+                self.errors.append(f"Unexpected closing tag </{tag}> at line {self.getpos()[0]}")
+                return
+            last_tag, pos, tag_id = self.stack[-1]
+            if last_tag == tag:
+                self.stack.pop()
+            else:
+                for i in range(len(self.stack) - 1, -1, -1):
+                    if self.stack[i][0] == tag:
+                        unclosed = self.stack[i+1:]
+                        self.errors.append(f"Mismatched </{tag}> at line {self.getpos()[0]}. Unclosed tags: {[(t, p, tid) for t, p, tid in unclosed]}")
+                        self.stack = self.stack[:i]
+                        return
+                self.errors.append(f"Stray closing tag </{tag}> at line {self.getpos()[0]}")
+
+    for html_file in ["web/app.html", "web/index.html", "web/eventstudio.html"]:
+        with open(html_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        checker = TagChecker()
+        checker.feed(content)
+        assert len(checker.errors) == 0, f"HTML nesting errors in {html_file}: {checker.errors}"
+        assert len(checker.stack) == 0, f"Unclosed tags in {html_file}: {checker.stack}"
+
+    with open("web/app.html", "r", encoding="utf-8") as f:
+        app_html = f.read()
+    assert "</div> <!-- #faction-modal -->" in app_html
+    assert "</main>\n  </div> <!-- #app-shell -->" in app_html
+
+    print("✅ Full HTML DOM tag nesting, #app-shell boundary, and #faction-modal closure verified with 0 errors!")
+
+
+def test_eventstudio_guard_and_faction_default():
+    with open("web/js/auth.js", "r", encoding="utf-8") as f:
+        auth_js = f.read()
+    with open("web/js/eventstudio.js", "r", encoding="utf-8") as f:
+        es_js = f.read()
+    with open("web/js/factions.js", "r", encoding="utf-8") as f:
+        fac_js = f.read()
+    with open("web/app.html", "r", encoding="utf-8") as f:
+        app_html = f.read()
+
+    # 1. Event Studio TO/Admin guards
+    assert "isUserTO(currentUser)" in auth_js, "loadStudioEvents unguarded in auth.js"
+    assert "if (!isTO) {" in es_js and "studioState.eventsList = [];" in es_js, "loadStudioEvents unguarded in eventstudio.js"
+
+    # 2. Factions 90d default
+    assert "factionTimeframe = '90d'" in fac_js, "factionTimeframe not defaulted to 90d in factions.js"
+    assert 'id="faction-preset-90d" class="subtab-btn active"' in app_html, "faction-preset-90d not active in app.html"
+    assert 'id="faction-preset-all" class="subtab-btn"' in app_html, "faction-preset-all still active in app.html"
+
+    print("✅ Event Studio TO/Admin 403 guards and Meta Intel 90d default verified!")
 
 
 if __name__ == "__main__":
@@ -881,6 +956,8 @@ if __name__ == "__main__":
     test_signout_and_pwa_standalone_navigation()
     test_bcp_linking_integrity_and_landing_separation()
     test_matchup_spotlights_integrity()
+    test_html_tag_balance_and_dom_integrity()
+    test_eventstudio_guard_and_faction_default()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 
