@@ -1341,7 +1341,11 @@ function detachChatSnapshot() {
 let markReadDebounceTimer = null;
 function markCurrentChatAsRead(requestId = connectState.activeRequestId) {
   if (!requestId) return;
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
   const localReq = connectState.requestsList ? connectState.requestsList.find(r => r.id === requestId) : null;
+  const hadUnread = localReq && (localReq.unread_count > 0);
+  const hasUnreadMessages = connectState.activeMessages && connectState.activeMessages.some(m => m.sender_id !== myId && !m.read_at);
+
   if (localReq) {
     localReq.unread_count = 0;
   }
@@ -1351,16 +1355,23 @@ function markCurrentChatAsRead(requestId = connectState.activeRequestId) {
     if (unreadBadge) unreadBadge.remove();
   }
 
+  // If there are no unread messages locally or on server request, skip sending redundant HTTP requests
+  if (!hadUnread && !hasUnreadMessages) {
+    return;
+  }
+
   if (markReadDebounceTimer) clearTimeout(markReadDebounceTimer);
   markReadDebounceTimer = setTimeout(async () => {
     try {
       if (!requestId || connectState.activeRequestId !== requestId) return;
       await window.api.getConnectMessages(requestId);
-      await updateUnreadCountBadge();
+      if (typeof updateUnreadCountBadge === 'function') {
+        await updateUnreadCountBadge();
+      }
     } catch (e) {
       console.warn("Notice marking chat as read:", e);
     }
-  }, 100);
+  }, 150);
 }
 window.markCurrentChatAsRead = markCurrentChatAsRead;
 
@@ -1381,7 +1392,11 @@ function attachChatSnapshot(requestId) {
 
         const win = document.getElementById('floating-chat-window');
         if (win && win.style.display !== 'none' && !document.hidden) {
-          markCurrentChatAsRead(requestId);
+          const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
+          const hasUnreadFromOther = data.messages.some(m => m.sender_id !== myId && !m.read_at);
+          if (hasUnreadFromOther) {
+            markCurrentChatAsRead(requestId);
+          }
         }
       }
     }, (err) => {
@@ -1700,6 +1715,11 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
   const msgContainer = document.getElementById('chat-messages-container');
   if (!msgContainer) return;
 
+  if (markReadDebounceTimer) {
+    clearTimeout(markReadDebounceTimer);
+    markReadDebounceTimer = null;
+  }
+
   try {
     const res = await window.api.getConnectMessages(connectState.activeRequestId);
     if (!res || !res.success) return;
@@ -1952,14 +1972,18 @@ async function createGameTrackerRoomForChat() {
 function startChatPolling() {
   stopChatPolling();
   connectState.chatPollInterval = setInterval(() => {
-    if (connectState.activeSubtab === 'chats') {
+    const isFloatingOpen = document.getElementById('floating-chat-window')?.style.display !== 'none';
+    if (connectState.activeSubtab === 'chats' || isFloatingOpen) {
       // If Firestore push listener is active, avoid duplicate polling of messages
-      if (!connectState.chatSnapshotUnsub) {
+      if (!connectState.chatSnapshotUnsub && connectState.activeRequestId) {
         refreshActiveMessages(true);
       }
-      loadUserRequests();
+      // If userSyncSnapshot is active, Firestore already pushes real-time updates for user requests
+      if (!connectState.userSyncSnapshotUnsub) {
+        loadUserRequests();
+      }
     }
-  }, 8000);
+  }, 15000);
 }
 
 function stopChatPolling() {

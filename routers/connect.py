@@ -219,12 +219,13 @@ async def api_get_connect_messages(request_id: str, request: Request):
     if not res.get("success"):
         raise HTTPException(status_code=400, detail=res.get("error", "Failed to load messages"))
 
-    # Sync messages into Firestore room engine for real-time push subscribers
-    try:
-        fs_engine = get_firestore_engine()
-        fs_engine.sync_chat_history(request_id, res.get("messages", []), res.get("request"))
-    except Exception as e:
-        logger.warning(f"Notice syncing chat history to Firestore: {e}")
+    # Only sync into Firestore if messages were newly marked read to prevent infinite onSnapshot ping-pong loops
+    if res.get("marked_read_count", 0) > 0:
+        try:
+            fs_engine = get_firestore_engine()
+            fs_engine.sync_chat_history(request_id, res.get("messages", []), res.get("request"))
+        except Exception as e:
+            logger.warning(f"Notice syncing chat history to Firestore: {e}")
 
     return res
 

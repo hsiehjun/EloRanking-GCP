@@ -4788,6 +4788,7 @@ class PostgresDatabase:
                     SET read_at = NOW()
                     WHERE request_id = %s AND sender_id != %s AND read_at IS NULL;
                 """, (request_id, user_id))
+                marked_read_count = cursor.rowcount if cursor.rowcount is not None and cursor.rowcount >= 0 else 0
                 conn.commit()
 
                 # Fetch chronological messages
@@ -4816,7 +4817,8 @@ class PostgresDatabase:
                     "request": dict(req),
                     "other_user_id": other_user_id,
                     "other_user_name": other_user_name,
-                    "messages": messages
+                    "messages": messages,
+                    "marked_read_count": marked_read_count
                 }
 
     def send_chat_message(self, request_id: str, sender_id: str, message_text: str, room_key: Optional[str] = None, message_id: Optional[str] = None) -> Dict[str, Any]:
