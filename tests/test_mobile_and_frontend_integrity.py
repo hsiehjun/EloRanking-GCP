@@ -207,9 +207,11 @@ def test_mobile_nav_dropdown_no_chat():
     assert select_match is not None, "mobile-nav-select not found in app.html"
     select_inner = select_match.group(1)
 
-    # Assert chat is NOT in mobile-nav options
+    # Assert chat and reload are NOT in mobile-nav options
     assert 'value="chat"' not in select_inner, "mobile-nav-select still contains value='chat'"
     assert 'mobile-opt-chat' not in select_inner, "mobile-nav-select still contains mobile-opt-chat"
+    assert 'value="reload"' not in select_inner, "mobile-nav-select still contains value='reload'"
+    assert 'mobile-opt-reload' not in select_inner, "mobile-nav-select still contains mobile-opt-reload"
 
     # Assert redundant top-header chat button is removed from desktop browser header
     assert 'id="nav-btn-chat"' not in app_content, "app.html top header still contains redundant nav-btn-chat"
