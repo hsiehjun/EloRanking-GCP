@@ -260,6 +260,10 @@ def test_landing_page_and_chat_notification_fixes():
         "connect.js must call updateUnreadCountBadge after reading messages"
     assert 'window.addEventListener(\'focus\'' in connect_content, \
         "connect.js must have focus event listener for instant notification sync"
+    assert 'function stopChatPolling() {\n  if (connectState.chatPollInterval) {\n    clearInterval(connectState.chatPollInterval);\n    connectState.chatPollInterval = null;\n  }\n}' in connect_content, \
+        "connect.js must properly close stopChatPolling function"
+    assert 'window.toggleFloatingChat = toggleFloatingChat;' in connect_content, \
+        "connect.js must export toggleFloatingChat to window"
 
     print("✅ Landing page chat hiding, mobile header restoration, and responsive notification clearing verified!")
 

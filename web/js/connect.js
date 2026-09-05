@@ -1967,6 +1967,8 @@ function stopChatPolling() {
     clearInterval(connectState.chatPollInterval);
     connectState.chatPollInterval = null;
   }
+}
+
 let _unreadBadgeFallbackInterval = null;
 function startUnreadBadgeFallbackPolling() {
   if (_unreadBadgeFallbackInterval) return;
