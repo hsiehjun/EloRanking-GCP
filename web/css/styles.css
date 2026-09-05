@@ -2190,6 +2190,28 @@ input, select, textarea {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 16px rgba(248, 113, 113, 0.2);
 }
 
+.spotlight-main {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.08) 0%, rgba(15, 23, 42, 0.75) 100%);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 10px rgba(234, 179, 8, 0.06);
+}
+
+.spotlight-main:hover {
+  border-color: rgba(234, 179, 8, 0.7);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 16px rgba(234, 179, 8, 0.2);
+}
+
+.spotlight-secondary {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.08) 0%, rgba(15, 23, 42, 0.75) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 10px rgba(56, 189, 248, 0.06);
+}
+
+.spotlight-secondary:hover {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35), 0 0 16px rgba(56, 189, 248, 0.2);
+}
+
 .spotlight-header {
   display: flex;
   align-items: center;
@@ -2220,6 +2242,18 @@ input, select, textarea {
   background: rgba(248, 113, 113, 0.16);
   color: #f87171;
   border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
+.main-badge {
+  background: rgba(234, 179, 8, 0.16);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.secondary-badge {
+  background: rgba(56, 189, 248, 0.16);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
 }
 
 .spotlight-streak {
@@ -2338,6 +2372,94 @@ input, select, textarea {
   .spotlight-footer {
     font-size: 0.68rem;
   }
+  .hub-milestone-grid {
+    grid-template-columns: 1fr !important;
+    gap: 0.5rem !important;
+  }
+}
+
+/* Hub Faction Intel / Milestone Box */
+.hub-milestone-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.hub-milestone-panel {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.6rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 64px;
+  box-sizing: border-box;
+}
+
+.milestone-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.milestone-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.milestone-desc {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+}
+
+.milestone-pills {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.form-dot {
+  width: 17px;
+  height: 17px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+
+.form-dot-w {
+  background: rgba(74, 222, 128, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(74, 222, 128, 0.4);
+}
+
+.form-dot-l {
+  background: rgba(248, 113, 113, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+
+.form-dot-d {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.4);
 }
 
 /* Matchup Row Click Flash Animation */

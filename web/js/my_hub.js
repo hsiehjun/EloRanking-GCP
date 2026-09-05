@@ -121,6 +121,9 @@ function renderMyHub(data) {
   const matchups = data.matchup_matrix || [];
   const upcoming = data.upcoming_events || [];
   const matchupSpotlights = computeMatchupSpotlights(matchups, history, p.win_rate);
+  const factionSpotlights = computeFactionMasterySpotlights(factionMastery, history, p.win_rate);
+  const primaryFactionName = factionMastery.length > 0 ? factionMastery[0].faction : null;
+  const factionIntel = computeFactionIntel(primaryFactionName, history, data.events_attended);
 
   const totalHistoryMatches = history.length;
   const totalFactionGames = factionMastery.reduce((acc, f) => acc + (Number(f.games) || 0), 0);
@@ -255,28 +258,39 @@ function renderMyHub(data) {
           ` : ''}
         </div>
         ${factionMastery.length > 0 ? `
+          ${renderFactionMasterySpotlightCards(factionSpotlights)}
           <div class="hub-table-wrapper">
             <table id="hub-faction-table" class="hub-table">
               <thead>
                 <tr>
-                  <th style="width: 38%;">Army Played</th>
-                  <th style="width: 16%; text-align: center;">Games</th>
-                  <th style="width: 22%;">Record</th>
-                  <th style="width: 24%; text-align: center;">Win Rate</th>
+                  <th style="width: 36%;">Army Played</th>
+                  <th style="width: 14%; text-align: center;">Share</th>
+                  <th style="width: 14%; text-align: center;">Games</th>
+                  <th style="width: 16%;">Record</th>
+                  <th style="width: 20%;">Win Rate</th>
                 </tr>
               </thead>
               <tbody>
                 ${factionMastery.map(fm => `
-                  <tr>
+                  <tr data-faction="${escapeHtml(fm.faction)}">
                     <td class="cell-ellipsis" title="${escapeHtml(fm.faction)}"><b style="color: #fff;">${escapeHtml(fm.faction)}</b></td>
+                    <td style="text-align: center; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">${totalFactionGames > 0 ? `${((fm.games / totalFactionGames) * 100).toFixed(1)}%` : '—'}</td>
                     <td style="text-align: center; font-family: var(--font-mono);">${fm.games}</td>
                     <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${fm.losses}L</span></td>
-                    <td style="text-align: center;"><b style="color: ${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono);">${Number(fm.win_rate).toFixed(1)}%</b></td>
+                    <td>
+                      <div style="display:flex; align-items:center; gap:0.4rem;">
+                        <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
+                          <div style="width:${Math.min(100, Number(fm.win_rate))}%; background:${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
+                        </div>
+                        <b style="font-size:0.78rem; font-family:var(--font-mono);">${Number(fm.win_rate).toFixed(1)}%</b>
+                      </div>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           </div>
+          ${renderFactionIntelPanel(factionIntel)}
           ${unrecordedFactionGames > 0 ? `
             <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; text-align: right;">
               ℹ️ ${unrecordedFactionGames} career matches unrecorded on BCP (no army list submitted)
@@ -877,6 +891,292 @@ function highlightMatchupRow(faction) {
   }
 }
 window.highlightMatchupRow = highlightMatchupRow;
+
+
+/* ==========================================================================
+   FACTION MASTERY SPOTLIGHTS & INTEL
+   ========================================================================== */
+
+/**
+ * Computes Primary Main and Secondary / Pocket Pick for Faction Mastery card.
+ */
+function computeFactionMasterySpotlights(factionMastery, history, careerWinRate) {
+  if (!factionMastery || factionMastery.length === 0) {
+    return null;
+  }
+
+  const careerRate = Number(careerWinRate || 0);
+
+  function getArmyStreak(factionName, hist) {
+    if (!hist || hist.length === 0 || !factionName) return null;
+    const fLower = factionName.trim().toLowerCase();
+    const myMatches = [];
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i];
+      const pFac = (h.player_faction || h.faction || '').trim().toLowerCase();
+      if (pFac === fLower) {
+        myMatches.push(h);
+      }
+    }
+    if (myMatches.length === 0) return null;
+
+    const firstRes = myMatches[0].result;
+    if (firstRes !== 'W' && firstRes !== 'L' && firstRes !== 'D') return null;
+
+    let count = 0;
+    for (const m of myMatches) {
+      if (m.result === firstRes) count++;
+      else break;
+    }
+
+    if (firstRes === 'W') {
+      return { type: 'win', count, shortText: `🔥 ${count}W`, fullText: count >= 2 ? `🔥 ${count}W Streak` : `🔥 Won last` };
+    } else if (firstRes === 'L') {
+      return { type: 'loss', count, shortText: `💀 ${count}L`, fullText: count >= 2 ? `💀 ${count}L Streak` : `💀 Lost last` };
+    } else {
+      return { type: 'draw', count, shortText: `🤝 Draw`, fullText: `🤝 Drawn last` };
+    }
+  }
+
+  const primary = factionMastery[0];
+  const pWr = Number(primary.win_rate || 0);
+  const pDiff = pWr - careerRate;
+  const pStreak = getArmyStreak(primary.faction, history);
+
+  const primarySpot = {
+    faction: primary.faction,
+    games: primary.games,
+    winRate: pWr.toFixed(1),
+    diff: pDiff,
+    recordText: `${primary.wins}W - ${primary.losses}L`,
+    streak: pStreak
+  };
+
+  let secondarySpot = null;
+  if (factionMastery.length > 1) {
+    const sec = factionMastery[1];
+    const sWr = Number(sec.win_rate || 0);
+    const sDiff = sWr - careerRate;
+    const sStreak = getArmyStreak(sec.faction, history);
+    secondarySpot = {
+      faction: sec.faction,
+      games: sec.games,
+      winRate: sWr.toFixed(1),
+      diff: sDiff,
+      recordText: `${sec.wins}W - ${sec.losses}L`,
+      streak: sStreak
+    };
+  }
+
+  return { primary: primarySpot, secondary: secondarySpot };
+}
+
+/**
+ * Renders the compact 50/50 Primary Main and Secondary / Pocket Pick spotlight cards.
+ */
+function renderFactionMasterySpotlightCards(spotlights) {
+  if (!spotlights || !spotlights.primary) return '';
+  const { primary, secondary } = spotlights;
+
+  const primaryHtml = `
+    <div class="hub-spotlight-card spotlight-main" data-spotlight-target="${escapeHtml(primary.faction)}" onclick="highlightFactionRow(this.getAttribute('data-spotlight-target'))" role="button" tabindex="0" title="Click to locate ${escapeHtml(primary.faction)} in table">
+      <div class="spotlight-header">
+        <span class="spotlight-badge main-badge">
+          <span>👑</span> <span class="badge-label-long">PRIMARY MAIN</span><span class="badge-label-short">MAIN</span>
+        </span>
+        ${primary.streak ? `
+          <span class="spotlight-streak streak-${primary.streak.type}" title="${escapeHtml(primary.streak.fullText)}">
+            <span class="streak-long">${escapeHtml(primary.streak.fullText)}</span>
+            <span class="streak-short">${escapeHtml(primary.streak.shortText)}</span>
+          </span>` : ''}
+      </div>
+      <div class="spotlight-body">
+        <div class="spotlight-faction-name" title="${escapeHtml(primary.faction)}">${escapeHtml(primary.faction)}</div>
+        <div class="spotlight-rate text-win">${primary.winRate}%</div>
+      </div>
+      <div class="spotlight-footer">
+        <span class="spotlight-record">${primary.recordText}</span>
+        <span class="spotlight-diff ${primary.diff >= 0 ? 'text-win' : 'text-loss'}">${primary.diff > 0 ? '+' : ''}${primary.diff.toFixed(1)}%<span class="diff-label"> vs avg</span></span>
+      </div>
+    </div>
+  `;
+
+  const secondaryHtml = secondary ? `
+    <div class="hub-spotlight-card spotlight-secondary" data-spotlight-target="${escapeHtml(secondary.faction)}" onclick="highlightFactionRow(this.getAttribute('data-spotlight-target'))" role="button" tabindex="0" title="Click to locate ${escapeHtml(secondary.faction)} in table">
+      <div class="spotlight-header">
+        <span class="spotlight-badge secondary-badge">
+          <span>🗡️</span> <span class="badge-label-long">POCKET PICK</span><span class="badge-label-short">PICK</span>
+        </span>
+        ${secondary.streak ? `
+          <span class="spotlight-streak streak-${secondary.streak.type}" title="${escapeHtml(secondary.streak.fullText)}">
+            <span class="streak-long">${escapeHtml(secondary.streak.fullText)}</span>
+            <span class="streak-short">${escapeHtml(secondary.streak.shortText)}</span>
+          </span>` : `<span class="spotlight-streak streak-win">${secondary.games} Games</span>`}
+      </div>
+      <div class="spotlight-body">
+        <div class="spotlight-faction-name" title="${escapeHtml(secondary.faction)}">${escapeHtml(secondary.faction)}</div>
+        <div class="spotlight-rate ${Number(secondary.winRate) >= 50 ? 'text-win' : 'text-loss'}">${secondary.winRate}%</div>
+      </div>
+      <div class="spotlight-footer">
+        <span class="spotlight-record">${secondary.recordText}</span>
+        <span class="spotlight-diff ${secondary.diff >= 0 ? 'text-win' : 'text-loss'}">${secondary.diff > 0 ? '+' : ''}${secondary.diff.toFixed(1)}%<span class="diff-label"> vs avg</span></span>
+      </div>
+    </div>
+  ` : `
+    <div class="hub-spotlight-card spotlight-secondary" style="cursor: default; opacity: 0.85;">
+      <div class="spotlight-header">
+        <span class="spotlight-badge" style="background: rgba(168,85,247,0.16); color: #c084fc; border: 1px solid rgba(168,85,247,0.35);">
+          <span>🛡️</span> <span class="badge-label-long">MONO FACTION</span><span class="badge-label-short">LOYAL</span>
+        </span>
+      </div>
+      <div class="spotlight-body">
+        <div class="spotlight-faction-name">Specialist</div>
+        <div class="spotlight-rate" style="color: #c084fc;">100%</div>
+      </div>
+      <div class="spotlight-footer">
+        <span class="spotlight-record">Single Army Focus</span>
+        <span class="spotlight-diff" style="color: var(--text-muted);">Dedicated</span>
+      </div>
+    </div>
+  `;
+
+  return `
+    <div class="hub-spotlight-grid">
+      ${primaryHtml}
+      ${secondaryHtml}
+    </div>
+  `;
+}
+
+/**
+ * Smoothly scrolls to and flashes the selected faction row in the Faction Mastery table.
+ */
+function highlightFactionRow(faction) {
+  if (!faction) return;
+  const targetName = faction.trim().toLowerCase();
+  const table = document.getElementById('hub-faction-table');
+  if (!table) return;
+
+  const rows = table.querySelectorAll('tbody tr');
+  let targetRow = null;
+  for (const r of rows) {
+    const dataFaction = r.getAttribute('data-faction');
+    if (dataFaction && dataFaction.trim().toLowerCase() === targetName) {
+      targetRow = r;
+      break;
+    }
+    const firstCell = r.querySelector('td:first-child');
+    if (firstCell && firstCell.textContent.trim().toLowerCase().includes(targetName)) {
+      targetRow = r;
+      break;
+    }
+  }
+
+  if (targetRow) {
+    targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    targetRow.classList.remove('row-flash');
+    void targetRow.offsetWidth; // trigger reflow
+    targetRow.classList.add('row-flash');
+    setTimeout(() => {
+      targetRow.classList.remove('row-flash');
+    }, 2200);
+  }
+}
+window.highlightFactionRow = highlightFactionRow;
+
+/**
+ * Computes recent form and tournament milestones for the player's primary army.
+ */
+function computeFactionIntel(primaryFaction, history, eventsAttended) {
+  if (!primaryFaction) return null;
+  const pLower = primaryFaction.trim().toLowerCase();
+
+  // 1. Recent form with primary army
+  const myMatches = (history || []).filter(h => {
+    const fac = (h.player_faction || h.faction || '').trim().toLowerCase();
+    return fac === pLower;
+  });
+
+  if (myMatches.length === 0) return null;
+
+  const recent = myMatches.slice(-10);
+  const rWins = recent.filter(m => m.result === 'W').length;
+  const rLosses = recent.filter(m => m.result === 'L').length;
+  const rDraws = recent.filter(m => m.result === 'D').length;
+  const rWinRate = ((rWins * 100) / Math.max(1, recent.length)).toFixed(1);
+
+  // 2. Best tournament outing with this faction (minimum 3 games)
+  let bestEvent = null;
+  const qualifiedEvents = (eventsAttended || []).filter(e => {
+    const eFac = (e.registered_faction || '').trim().toLowerCase();
+    return (eFac === pLower || (!eFac && myMatches.length > 0)) && (Number(e.matches_played) || 0) >= 3;
+  });
+
+  if (qualifiedEvents.length > 0) {
+    qualifiedEvents.sort((a, b) => {
+      const aWr = (Number(a.wins) || 0) / Math.max(1, Number(a.matches_played) || 1);
+      const bWr = (Number(b.wins) || 0) / Math.max(1, Number(b.matches_played) || 1);
+      if (Math.abs(bWr - aWr) > 0.01) return bWr - aWr;
+      return (Number(b.wins) || 0) - (Number(a.wins) || 0);
+    });
+    bestEvent = qualifiedEvents[0];
+  }
+
+  return {
+    faction: primaryFaction,
+    recentCount: recent.length,
+    recentWins: rWins,
+    recentLosses: rLosses,
+    recentDraws: rDraws,
+    recentWinRate: rWinRate,
+    recentMatches: recent,
+    bestEvent: bestEvent
+  };
+}
+
+/**
+ * Renders the mini-dashboard milestone grid below the Faction Mastery table.
+ */
+function renderFactionIntelPanel(intel) {
+  if (!intel) return '';
+
+  const pillsHtml = intel.recentMatches.map(m => {
+    const res = (m.result || 'W').toUpperCase();
+    const cls = res === 'W' ? 'form-dot-w' : (res === 'L' ? 'form-dot-l' : 'form-dot-d');
+    const dateStr = (m.match_date || '').slice(0, 10);
+    const opp = m.opponent_name || 'Opponent';
+    return `<span class="form-dot ${cls}" title="${res} vs ${escapeHtml(opp)} (${dateStr})">${res}</span>`;
+  }).join('');
+
+  const bestEventHtml = intel.bestEvent ? `
+    <div class="hub-milestone-panel">
+      <div class="milestone-label">🏆 BEST TOURNAMENT OUTING</div>
+      <div class="milestone-title" title="${escapeHtml(intel.bestEvent.event_name)}">${escapeHtml(intel.bestEvent.event_name)}</div>
+      <div class="milestone-desc">
+        <b style="color:var(--win); font-family:var(--font-mono);">${intel.bestEvent.wins}W – ${intel.bestEvent.losses}L</b>
+        ${intel.bestEvent.draws ? ` – <span style="color:var(--draw);">${intel.bestEvent.draws}D</span>` : ''}
+        · <span style="color:#fff;">${escapeHtml(intel.faction)}</span>
+      </div>
+    </div>
+  ` : `
+    <div class="hub-milestone-panel">
+      <div class="milestone-label">🏆 CAREER MILESTONE</div>
+      <div class="milestone-title">${escapeHtml(intel.faction)} Veteran</div>
+      <div class="milestone-desc">${intel.recentWins + intel.recentLosses} verified matches recorded</div>
+    </div>
+  `;
+
+  return `
+    <div class="hub-milestone-grid">
+      <div class="hub-milestone-panel">
+        <div class="milestone-label">📈 RECENT FORM (${escapeHtml(intel.faction)})</div>
+        <div class="milestone-title">Last ${intel.recentCount} Matches: <b style="color:var(--win); font-family:var(--font-mono);">${intel.recentWins}W – ${intel.recentLosses}L</b> <span style="font-size:0.75rem; color:var(--text-muted); font-family:var(--font-mono);">(${intel.recentWinRate}%)</span></div>
+        <div class="milestone-pills">${pillsHtml}</div>
+      </div>
+      ${bestEventHtml}
+    </div>
+  `;
+}
 
 
 /* ==========================================================================
