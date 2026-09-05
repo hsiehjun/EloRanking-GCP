@@ -309,11 +309,6 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
       }
     }
 
-    // Tournament Registration Button hidden per user request until registration integration is active
-    const regBtn = document.getElementById('modal-event-register-btn');
-    if (regBtn) {
-      regBtn.style.display = 'none';
-    }
   } catch (err) {
     if (rbody) {
       rbody.style.opacity = '1';

@@ -1799,23 +1799,22 @@
   <!-- Tournament Details Modal -->
   <div id="event-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window">
-      <div class="modal-header">
-        <div>
-          <h2 id="modal-event-name" style="font-size: 1.35rem; font-weight: 700; color: #fff;">Tournament Details</h2>
-          <div id="modal-event-meta" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
+      <div class="modal-header event-modal-header">
+        <div class="event-modal-top-row">
+          <h2 id="modal-event-name" class="event-modal-title">Tournament Details</h2>
+          <button class="modal-close" onclick="closeModal('event-modal')" aria-label="Close modal">✕</button>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <button id="modal-event-register-btn" style="display: none; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; cursor: pointer; align-items: center; gap: 4px; transition: all 0.2s;" title="Register for this tournament">
-            <span>⚡ Register</span>
-          </button>
-          <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.28); color: #38bdf8; font-size: 0.75rem; font-weight: 700; padding: 0.35rem 0.75rem; border-radius: 8px; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s;" onmouseover="this.style.background='rgba(56,189,248,0.18)'; this.style.borderColor='#38bdf8';" onmouseout="this.style.background='rgba(56,189,248,0.08)'; this.style.borderColor='rgba(56,189,248,0.28)';" title="Open external tournament listing">
-            <span>Listing ↗</span>
-          </a>
-          <span id="modal-event-sync-status" style="display: none;"></span>
-          <button id="modal-event-refresh-btn" style="background: rgba(255, 255, 255, 0.05); border: 1px solid var(--border); color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; border-radius: 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.1)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(255,255,255,0.05)'; this.style.color='var(--text-secondary)';" onclick="refreshCurrentEventModal(event)" title="Refresh latest pairings and match scores">
-            <span>🔄 Refresh Live</span>
-          </button>
-          <button class="modal-close" onclick="closeModal('event-modal')">✕</button>
+        <div class="event-modal-subrow">
+          <div id="modal-event-meta" class="event-modal-meta"></div>
+          <div class="event-modal-actions">
+            <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" class="btn-event-header btn-event-bcp" title="Open external tournament listing">
+              <span>Listing ↗</span>
+            </a>
+            <span id="modal-event-sync-status" style="display: none;"></span>
+            <button id="modal-event-refresh-btn" class="btn-event-header btn-event-refresh" onclick="refreshCurrentEventModal(event)" title="Refresh latest pairings and match scores">
+              <span>🔄 Refresh Live</span>
+            </button>
+          </div>
         </div>
       </div>
 

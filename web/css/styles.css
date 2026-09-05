@@ -727,6 +727,159 @@ tbody tr:hover {
     gap: 0.4rem !important;
   }
 }
+
+/* Event / Tournament Modal Responsive Compact Header & Layout */
+.event-modal-header {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 0.45rem !important;
+  padding: 1.15rem 1.4rem 0.95rem !important;
+  border-bottom: 1px solid var(--border) !important;
+  box-sizing: border-box !important;
+}
+
+.event-modal-top-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: flex-start !important;
+  width: 100% !important;
+  gap: 0.75rem !important;
+}
+
+.event-modal-title {
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+  margin: 0 !important;
+  line-height: 1.25 !important;
+  flex: 1 !important;
+}
+
+.event-modal-subrow {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  gap: 0.75rem !important;
+  flex-wrap: wrap !important;
+  width: 100% !important;
+}
+
+.event-modal-meta {
+  font-size: 0.82rem !important;
+  color: var(--text-secondary) !important;
+  line-height: 1.35 !important;
+  margin: 0 !important;
+}
+
+.event-modal-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex-shrink: 0 !important;
+}
+
+.btn-event-header {
+  font-size: 0.75rem !important;
+  font-weight: 700 !important;
+  padding: 0.35rem 0.75rem !important;
+  border-radius: 8px !important;
+  text-decoration: none !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  transition: all 0.2s !important;
+}
+
+.btn-event-bcp {
+  background: rgba(56, 189, 248, 0.08) !important;
+  border: 1px solid rgba(56, 189, 248, 0.28) !important;
+  color: #38bdf8 !important;
+}
+
+.btn-event-bcp:hover {
+  background: rgba(56, 189, 248, 0.18) !important;
+  border-color: #38bdf8 !important;
+}
+
+.btn-event-refresh {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.btn-event-refresh:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #fff !important;
+}
+
+@media (max-width: 768px) {
+  #event-modal.modal-backdrop {
+    align-items: flex-start !important;
+    padding: max(0.5rem, env(safe-area-inset-top, 0px)) 0.5rem max(0.5rem, env(safe-area-inset-bottom, 0px)) 0.5rem !important;
+  }
+  #event-modal .modal-window {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - max(1rem, env(safe-area-inset-top, 0px)) - max(0.5rem, env(safe-area-inset-bottom, 0px))) !important;
+    margin: 0 auto !important;
+    border-radius: 14px !important;
+  }
+  .event-modal-header {
+    padding: 0.85rem 1rem 0.75rem !important;
+    gap: 0.35rem !important;
+  }
+  .event-modal-title {
+    font-size: 1.15rem !important;
+    line-height: 1.25 !important;
+  }
+  .event-modal-subrow {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.45rem !important;
+  }
+  .event-modal-actions {
+    width: 100% !important;
+    display: flex !important;
+    gap: 0.5rem !important;
+  }
+  .event-modal-actions .btn-event-header {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 0.35rem 0.6rem !important;
+    font-size: 0.74rem !important;
+  }
+  #event-modal .modal-body {
+    padding: 0.85rem 1rem 1rem !important;
+  }
+  #event-modal .tournament-stats-strip {
+    display: flex !important;
+    gap: 0.4rem !important;
+    margin-bottom: 0.75rem !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+  }
+  #event-modal .stat-pill {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 0.28rem 0.5rem !important;
+    font-size: 0.76rem !important;
+    white-space: nowrap !important;
+  }
+  #event-modal .subtabs-bar {
+    margin-bottom: 0.65rem !important;
+    gap: 0.35rem !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+  }
+  #event-modal .subtab-btn {
+    font-size: 0.74rem !important;
+    padding: 0.38rem 0.65rem !important;
+    white-space: nowrap !important;
+  }
+}
+
 .modal-body {
   padding: 1.5rem;
   overflow-y: auto;

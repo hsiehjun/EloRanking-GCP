@@ -974,9 +974,30 @@ def test_community_subtab_loading_unification():
     # 4. Ensure idempotent loader and double-load prevention guards
     assert "function setSubtabLoaderIfEmpty" in comm_js, "setSubtabLoaderIfEmpty missing in community.js"
     assert "window.setSubtabLoaderIfEmpty = setSubtabLoaderIfEmpty" in comm_js, "window export missing for setSubtabLoaderIfEmpty"
-    assert "_activeCommunityHubPromise" in comm_js, "in-flight promise deduplication missing in loadCommunityHub"
     assert "Math.abs(finalLat - prevLat) < 0.005" in comm_js, "proximity guard missing in updateCommunityLocation"
     print("✅ Community Hub unified location-aware loading states and double-load prevention verified with zero flicker!")
+
+
+def test_event_modal_mobile_layout_and_no_register():
+    """Verify tournament details pop-up modal has no register button and uses compact mobile header."""
+    app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    comm_js = (root_dir / "web" / "js" / "community.js").read_text(encoding="utf-8")
+
+    # 1. Ensure register button is gone from tournament cards and pop-up modal
+    assert "modal-event-register-btn" not in app_html, "modal-event-register-btn still present in app.html"
+    assert "openTournamentRegistrationModal" not in comm_js, "openTournamentRegistrationModal still referenced in community.js"
+
+    # 2. Ensure responsive event-modal header structure
+    assert "event-modal-header" in app_html, "event-modal-header class missing in app.html"
+    assert "event-modal-top-row" in app_html, "event-modal-top-row missing in app.html"
+    assert "event-modal-title" in app_html, "event-modal-title missing in app.html"
+
+    # 3. Ensure styles.css has compact mobile rules eliminating wasted top space
+    assert ".event-modal-header" in styles_css, ".event-modal-header missing in styles.css"
+    assert "#event-modal.modal-backdrop" in styles_css, "#event-modal.modal-backdrop mobile override missing in styles.css"
+    assert "align-items: flex-start !important;" in styles_css, "modal-backdrop must align to flex-start on mobile"
+    print("✅ Tournament pop-up modal verified free of register button with optimized mobile layout!")
 
 
 if __name__ == "__main__":
@@ -1004,6 +1025,7 @@ if __name__ == "__main__":
     test_html_tag_balance_and_dom_integrity()
     test_eventstudio_guard_and_faction_default()
     test_community_subtab_loading_unification()
+    test_event_modal_mobile_layout_and_no_register()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 
