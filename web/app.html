@@ -1837,6 +1837,10 @@
 
         <!-- Sub-tabs within Tournament Modal -->
         <div class="subtabs-bar" style="margin-bottom: 1rem;">
+          <button id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab('teams')" style="display: none;">
+            <span>🛡️ Team Standings</span>
+            <span id="event-tab-teams-count" class="subtab-count-badge">0</span>
+          </button>
           <button id="event-subtab-results" class="subtab-btn active" onclick="switchEventModalTab('results')">
             <span>🏆 Tournament Results</span>
             <span id="event-tab-results-count" class="subtab-count-badge">0</span>
@@ -1849,6 +1853,25 @@
             <span>⚔️ Match Pairings & Results</span>
             <span id="event-tab-matches-count" class="subtab-count-badge">0</span>
           </button>
+        </div>
+
+        <!-- View 0: Team Standings (for Team Tournaments) -->
+        <div id="event-view-teams" style="display: none;">
+          <div class="table-container" style="max-height: 380px;">
+            <table id="event-teams-table">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">Rank</th>
+                  <th>Team</th>
+                  <th>Captain</th>
+                  <th>Match Points</th>
+                  <th>Game Wins</th>
+                  <th>Battle Points</th>
+                </tr>
+              </thead>
+              <tbody id="event-teams-body"></tbody>
+            </table>
+          </div>
         </div>
 
         <!-- View 1: Tournament Results & Placings -->

@@ -710,10 +710,17 @@ async def api_event_details(event_id: str, force_sync: bool = False):
     # 4) Event is ongoing/in-progress (is_ended is False)
     # 5) Event has 0 participants or matches scraped
     has_data = bool(event_details and event_details.get("players") and event_details.get("matches"))
+    has_missing_placings = bool(
+        event_details and 
+        event_details.get("is_ended", True) and 
+        event_details.get("players") and 
+        not any(p.get("placement") or p.get("official_placement") for p in event_details.get("players", []))
+    )
     needs_roster_sync = (
         not is_native_studio and (
             force_sync or 
             not has_data or 
+            has_missing_placings or
             (event_details and all(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
         )
     )
@@ -727,7 +734,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             is_syncing = True
             def bg_roster_sync(eid: str, scrape_full: bool):
                 try:
-                    scraper = BestCoastPairingsScraper(db=db)
+                    scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
                     scraper.sync_event_roster(eid)
                     if scrape_full:
                         scraper.scrape_event(eid)
@@ -742,7 +749,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             is_syncing = True
             def bg_live_scrape(eid: str):
                 try:
-                    scraper = BestCoastPairingsScraper(db=db)
+                    scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
                     scraper.scrape_event(eid)
                 except Exception:
                     pass

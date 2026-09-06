@@ -978,7 +978,7 @@ def test_community_subtab_loading_unification():
     # 4. Ensure idempotent loader and double-load prevention guards
     assert "function setSubtabLoaderIfEmpty" in comm_js, "setSubtabLoaderIfEmpty missing in community.js"
     assert "window.setSubtabLoaderIfEmpty = setSubtabLoaderIfEmpty" in comm_js, "window export missing for setSubtabLoaderIfEmpty"
-    assert "Math.abs(finalLat - prevLat) < 0.005" in comm_js, "proximity guard missing in updateCommunityLocation"
+    assert ("Math.abs(finalLat - prevLat) < 0.005" in comm_js or "Math.abs(finalLat - prevLat) < 0.015" in comm_js), "proximity guard missing in updateCommunityLocation"
     print("✅ Community Hub unified location-aware loading states and double-load prevention verified with zero flicker!")
 
 

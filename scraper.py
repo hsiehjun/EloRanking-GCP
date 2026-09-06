@@ -134,9 +134,9 @@ class BestCoastPairingsScraper:
         return []
 
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
-        """Fetches registered player roster for an event from BCP."""
-        # 1. Fetch from /events/{event_id}/players (primary BCP participant endpoint)
-        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 1000})
+        """Fetches registered player roster for an event from BCP with official placings and tiebreaker metrics."""
+        # 1. Fetch from /events/{event_id}/players with placings=true
+        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 1000, "placings": "true"})
         players = []
         if resp:
             if isinstance(resp, dict):
@@ -162,30 +162,45 @@ class BestCoastPairingsScraper:
 
         return players
 
-    def sync_event_roster(self, event_id: str) -> int:
-        """Quickly updates the participant roster, podNum, and event placing metrics without re-fetching all round matches."""
-        try:
-            ev_data = self.fetch_event_details(event_id)
-            if ev_data and isinstance(ev_data, dict):
-                ev_data["id"] = ev_data.get("id") or event_id
-                self.db.upsert_event(ev_data)
-            elif ev_data is None and getattr(self, "last_http_code", None) == 404 and not str(event_id).startswith("ES-"):
-                if hasattr(self.db, "has_event_matches") and not self.db.has_event_matches(event_id):
-                    logger.info(f"Event {event_id} returned 404 on BCP and has no matches; removing from DB.")
-                    if hasattr(self.db, "delete_studio_event"):
-                        self.db.delete_studio_event(event_id)
-                    return 0
-        except Exception as e:
-            logger.debug(f"Could not update event metadata in sync_event_roster for {event_id}: {e}")
+    def fetch_event_teams(self, event_id: str) -> List[Dict[str, Any]]:
+        """Fetches registered teams and official team placings from BCP for a team tournament."""
+        resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 1000, "placings": "true"})
+        teams = []
+        if resp:
+            if isinstance(resp, dict):
+                if "active" in resp and isinstance(resp["active"], list):
+                    teams = resp["active"]
+                elif "data" in resp and isinstance(resp["data"], list):
+                    teams = resp["data"]
+                elif "teamplayers" in resp and isinstance(resp["teamplayers"], list):
+                    teams = resp["teamplayers"]
+            elif isinstance(resp, list):
+                teams = resp
+        return teams
 
-        enrolled_players = self.fetch_event_players(event_id)
+    def ingest_event_roster(self, event_id: str, enrolled_players: List[Dict[str, Any]], teams: Optional[List[Dict[str, Any]]] = None) -> int:
+        """Parses, deduplicates, links team affiliations, and batch-upserts the participant roster."""
+        if not enrolled_players:
+            return 0
+
+        # Build team lookup map if teams are provided
+        team_name_by_id = {}
+        for t in (teams or []):
+            t_id = t.get("id") or t.get("teamPlayerId")
+            t_name = t.get("name") or t.get("teamName")
+            if t_id and t_name:
+                team_name_by_id[str(t_id)] = str(t_name).strip()
+
         active_player_ids = set()
-        count = 0
-        for p in (enrolled_players or []):
+        participants_to_upsert = []
+
+        for p in enrolled_players:
             user = p.get("user") or {}
-            user_id = user.get("id") or p.get("userId") or p.get("id")
-            if not user_id:
+            canonical_id = user.get("id") or p.get("userId") or p.get("id")
+            if not canonical_id:
                 continue
+            canonical_id = str(canonical_id).strip()
+
             first_name = user.get("firstName") or p.get("firstName") or ""
             last_name = user.get("lastName") or p.get("lastName") or ""
             full_name = f"{first_name} {last_name}".strip() or p.get("name") or "Player"
@@ -208,7 +223,12 @@ class BestCoastPairingsScraper:
                 team_name = team_name.get("name") or team_name.get("teamName") or ""
             team_name = str(team_name).strip()
 
-            raw_place = p.get("placing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
+            # Resolve team name from teamPlayerId mapping if not directly present on player
+            team_player_id = str(p.get("teamPlayerId") or "").strip()
+            if not team_name and team_player_id and team_player_id in team_name_by_id:
+                team_name = team_name_by_id[team_player_id]
+
+            raw_place = p.get("placing") or p.get("overallPlacing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
             placing_num = None
             if raw_place is not None:
                 try:
@@ -224,6 +244,15 @@ class BestCoastPairingsScraper:
                 except (ValueError, TypeError):
                     pass
 
+            if pts_num is None and isinstance(p.get("metrics"), list):
+                for m in p["metrics"]:
+                    if isinstance(m, dict) and m.get("name") in ("Battle Points", "battlePoints", "points"):
+                        try:
+                            pts_num = int(m.get("value", 0))
+                            break
+                        except (ValueError, TypeError):
+                            pass
+
             raw_pod = p.get("podNum") or p.get("pod_num")
             pod_num = None
             if raw_pod is not None:
@@ -232,36 +261,44 @@ class BestCoastPairingsScraper:
                 except (ValueError, TypeError):
                     pass
 
-            ids_to_upsert = set()
-            if user_id:
-                ids_to_upsert.add(user_id)
-            if p.get("id"):
-                ids_to_upsert.add(p.get("id"))
-            if p.get("userId"):
-                ids_to_upsert.add(p.get("userId"))
+            active_player_ids.add(canonical_id)
+            participants_to_upsert.append({
+                "player_id": canonical_id,
+                "first_name": first_name,
+                "last_name": last_name,
+                "full_name": full_name,
+                "faction": faction_name,
+                "team": team_name,
+                "dropped": bool(p.get("dropped")),
+                "checked_in": bool(p.get("checkedIn")),
+                "placement": placing_num,
+                "battle_points": pts_num,
+                "pod_num": pod_num
+            })
 
-            active_player_ids.update(ids_to_upsert)
-
-            for pid in ids_to_upsert:
-                self.db.upsert_player(pid, first_name, last_name, full_name, team=team_name)
+        # Batch upsert participants
+        if hasattr(self.db, "upsert_event_participants_batch"):
+            self.db.upsert_event_participants_batch(event_id, participants_to_upsert)
+        else:
+            for part in participants_to_upsert:
+                self.db.upsert_player(part["player_id"], part["first_name"], part["last_name"], part["full_name"], team=part["team"])
                 self.db.upsert_event_participant(
                     event_id=event_id,
-                    player_id=pid,
-                    first_name=first_name,
-                    last_name=last_name,
-                    full_name=full_name,
-                    faction=faction_name,
-                    team=team_name,
-                    dropped=bool(p.get("dropped")),
-                    checked_in=bool(p.get("checkedIn")),
-                    placement=placing_num,
-                    battle_points=pts_num,
-                    pod_num=pod_num
+                    player_id=part["player_id"],
+                    first_name=part["first_name"],
+                    last_name=part["last_name"],
+                    full_name=part["full_name"],
+                    faction=part["faction"],
+                    team=part["team"],
+                    dropped=part["dropped"],
+                    checked_in=part["checked_in"],
+                    placement=part["placement"],
+                    battle_points=part["battle_points"],
+                    pod_num=part["pod_num"]
                 )
-            count += 1
 
-        # Prune dropped / unregistered participants from DB if we queried BCP successfully
-        if enrolled_players is not None and hasattr(self.db, "prune_event_participants"):
+        # Prune dropped / unregistered participants and orphaned ghost IDs from DB
+        if hasattr(self.db, "prune_event_participants"):
             self.db.prune_event_participants(event_id, active_player_ids)
             # Update total_players count in events to reflect active roster
             try:
@@ -277,7 +314,59 @@ class BestCoastPairingsScraper:
             except Exception as e:
                 logger.debug(f"Notice updating total_players for event {event_id}: {e}")
 
-        return count
+        return len(active_player_ids)
+
+    def sync_event_roster(self, event_id: str) -> int:
+        """Quickly updates the participant roster, podNum, event placing metrics, and team standings without re-fetching all round matches."""
+        ev_data = None
+        try:
+            ev_data = self.fetch_event_details(event_id)
+            if ev_data and isinstance(ev_data, dict):
+                ev_data["id"] = ev_data.get("id") or event_id
+                self.db.upsert_event(ev_data)
+            elif ev_data is None and getattr(self, "last_http_code", None) == 404 and not str(event_id).startswith("ES-"):
+                if hasattr(self.db, "has_event_matches") and not self.db.has_event_matches(event_id):
+                    logger.info(f"Event {event_id} returned 404 on BCP and has no matches; removing from DB.")
+                    if hasattr(self.db, "delete_studio_event"):
+                        self.db.delete_studio_event(event_id)
+                    return 0
+        except Exception as e:
+            logger.debug(f"Could not update event metadata in sync_event_roster for {event_id}: {e}")
+
+        is_team_event = False
+        if ev_data and isinstance(ev_data, dict):
+            is_team_event = bool(
+                ev_data.get("teamEvent") or 
+                ev_data.get("eventType") == "team" or 
+                (isinstance(ev_data.get("raw_json"), dict) and ev_data["raw_json"].get("teamEvent"))
+            )
+
+        teams = None
+        if is_team_event:
+            try:
+                teams = self.fetch_event_teams(event_id)
+                if teams and hasattr(self.db, "save_event_team_standings"):
+                    formatted_team_standings = []
+                    for t in teams:
+                        metrics = {m.get("name"): m.get("value") for m in t.get("metrics", []) if isinstance(m, dict)}
+                        capt = t.get("captain") or {}
+                        capt_name = f"{capt.get('firstName', '')} {capt.get('lastName', '')}".strip() if isinstance(capt, dict) else ""
+                        formatted_team_standings.append({
+                            "id": t.get("id"),
+                            "placing": t.get("placing") or t.get("overallPlacing"),
+                            "name": t.get("name") or "Team",
+                            "captain": capt_name,
+                            "match_points": metrics.get("Match Points", 0),
+                            "game_wins": metrics.get("Game Wins", 0),
+                            "battle_points": metrics.get("Battle Points", 0)
+                        })
+                    formatted_team_standings.sort(key=lambda x: x.get("placing") or 999)
+                    self.db.save_event_team_standings(event_id, formatted_team_standings)
+            except Exception as te:
+                logger.debug(f"Could not fetch team standings for {event_id}: {te}")
+
+        enrolled_players = self.fetch_event_players(event_id)
+        return self.ingest_event_roster(event_id, enrolled_players, teams=teams)
 
     def parse_and_store_match(self, event_data: Dict[str, Any], pairing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Extracts structured match details and stores both players and match outcome in DB."""
@@ -404,85 +493,40 @@ class BestCoastPairingsScraper:
         event_data["id"] = event_data.get("id") or event_data.get("objectId") or event_id
         self.db.upsert_event(event_data)
 
+        # Check team event and fetch team standings
+        is_team_event = bool(
+            event_data.get("teamEvent") or 
+            event_data.get("eventType") == "team" or 
+            (isinstance(event_data.get("raw_json"), dict) and event_data["raw_json"].get("teamEvent"))
+        )
+        teams = None
+        if is_team_event:
+            try:
+                teams = self.fetch_event_teams(event_id)
+                if teams and hasattr(self.db, "save_event_team_standings"):
+                    formatted_team_standings = []
+                    for t in teams:
+                        metrics = {m.get("name"): m.get("value") for m in t.get("metrics", []) if isinstance(m, dict)}
+                        capt = t.get("captain") or {}
+                        capt_name = f"{capt.get('firstName', '')} {capt.get('lastName', '')}".strip() if isinstance(capt, dict) else ""
+                        formatted_team_standings.append({
+                            "id": t.get("id"),
+                            "placing": t.get("placing") or t.get("overallPlacing"),
+                            "name": t.get("name") or "Team",
+                            "captain": capt_name,
+                            "match_points": metrics.get("Match Points", 0),
+                            "game_wins": metrics.get("Game Wins", 0),
+                            "battle_points": metrics.get("Battle Points", 0)
+                        })
+                    formatted_team_standings.sort(key=lambda x: x.get("placing") or 999)
+                    self.db.save_event_team_standings(event_id, formatted_team_standings)
+            except Exception as te:
+                logger.debug(f"Could not fetch team standings for {event_id}: {te}")
+
         # Ingest registered participants roster (works even if 0 rounds played yet)
         try:
             enrolled_players = self.fetch_event_players(event_id)
-            for p in enrolled_players:
-                user = p.get("user") or {}
-                user_id = user.get("id") or p.get("userId") or p.get("id")
-                if not user_id:
-                    continue
-                first_name = user.get("firstName") or p.get("firstName") or ""
-                last_name = user.get("lastName") or p.get("lastName") or ""
-                full_name = f"{first_name} {last_name}".strip() or p.get("name") or "Player"
-
-                faction_obj = p.get("faction") or p.get("parentFaction") or ""
-                faction_name = ""
-                if isinstance(faction_obj, dict):
-                    faction_name = faction_obj.get("name", "")
-                elif isinstance(faction_obj, str):
-                    faction_name = faction_obj
-
-                # Extract team or gaming club
-                team_name = (
-                    p.get("team") or p.get("teamName") or 
-                    user.get("team") or user.get("teamName") or 
-                    p.get("club") or user.get("club") or 
-                    p.get("gamingClub") or user.get("gamingClub") or 
-                    p.get("clubName") or user.get("clubName") or ""
-                )
-                if isinstance(team_name, dict):
-                    team_name = team_name.get("name") or team_name.get("teamName") or ""
-                team_name = str(team_name).strip()
-
-                raw_place = p.get("placing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
-                placing_num = None
-                if raw_place is not None:
-                    try:
-                        placing_num = int(raw_place)
-                    except (ValueError, TypeError):
-                        pass
-
-                raw_pts = p.get("points") or p.get("battlePoints") or p.get("totalPoints")
-                pts_num = None
-                if raw_pts is not None:
-                    try:
-                        pts_num = int(raw_pts)
-                    except (ValueError, TypeError):
-                        pass
-
-                raw_pod = p.get("podNum") or p.get("pod_num")
-                pod_num = None
-                if raw_pod is not None:
-                    try:
-                        pod_num = int(raw_pod)
-                    except (ValueError, TypeError):
-                        pass
-
-                ids_to_upsert = set()
-                if user_id:
-                    ids_to_upsert.add(user_id)
-                if p.get("id"):
-                    ids_to_upsert.add(p.get("id"))
-                if p.get("userId"):
-                    ids_to_upsert.add(p.get("userId"))
-
-                for pid in ids_to_upsert:
-                    self.db.upsert_player(pid, first_name, last_name, full_name, team=team_name)
-                    self.db.upsert_event_participant(
-                        event_id=event_id,
-                        player_id=pid,
-                        first_name=first_name,
-                        last_name=last_name,
-                        full_name=full_name,
-                        faction=faction_name,
-                        team=team_name,
-                        dropped=bool(p.get("dropped")),
-                        checked_in=bool(p.get("checkedIn")),
-                        placement=placing_num,
-                        battle_points=pts_num,
-                        pod_num=pod_num
-                    )
+            self.ingest_event_roster(event_id, enrolled_players, teams=teams)
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")
 

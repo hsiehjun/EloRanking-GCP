@@ -145,11 +145,21 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         const tabResultsCount = document.getElementById('event-tab-results-count');
         const tabEloCount = document.getElementById('event-tab-elo-count');
         const tabMatchesCount = document.getElementById('event-tab-matches-count');
+        const tabTeamsCount = document.getElementById('event-tab-teams-count');
+        const subtabTeams = document.getElementById('event-subtab-teams');
 
         const placementsCount = eventPlayersCache.filter(p => p.placement && p.placement > 0).length;
         if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : eventPlayersCache.length;
         if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
         if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
+
+        if (fresh.team_standings && fresh.team_standings.length > 0) {
+          if (subtabTeams) subtabTeams.style.display = 'inline-flex';
+          if (tabTeamsCount) tabTeamsCount.innerText = fresh.team_standings.length;
+          renderEventTeamsRows();
+        } else {
+          if (subtabTeams) subtabTeams.style.display = 'none';
+        }
 
         renderEventResultsRows();
         renderEventEloRows();
@@ -235,15 +245,27 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
     const tabResultsCount = document.getElementById('event-tab-results-count');
     const tabEloCount = document.getElementById('event-tab-elo-count');
     const tabMatchesCount = document.getElementById('event-tab-matches-count');
+    const tabTeamsCount = document.getElementById('event-tab-teams-count');
+    const subtabTeams = document.getElementById('event-subtab-teams');
 
     const placementsCount = eventPlayersCache.filter(p => p.placement && p.placement > 0).length;
     if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : eventPlayersCache.length;
     if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
     if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
 
+    if (ev.team_standings && ev.team_standings.length > 0) {
+      if (subtabTeams) subtabTeams.style.display = 'inline-flex';
+      if (tabTeamsCount) tabTeamsCount.innerText = ev.team_standings.length;
+      renderEventTeamsRows();
+    } else {
+      if (subtabTeams) subtabTeams.style.display = 'none';
+    }
+
     if (!hasCachedRows) {
       if (initialTab) {
         switchEventModalTab(initialTab);
+      } else if (ev.team_standings && ev.team_standings.length > 0) {
+        switchEventModalTab('teams');
       } else if (eventMatchesCache.length > 0) {
         switchEventModalTab('matches');
       } else if (placementsCount > 0) {
@@ -327,17 +349,22 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
 
 function switchEventModalTab(tabKey) {
   currentEventModalTab = tabKey || 'elo';
+  const btnTeams = document.getElementById('event-subtab-teams');
   const btnResults = document.getElementById('event-subtab-results');
   const btnElo = document.getElementById('event-subtab-elo');
   const btnMatches = document.getElementById('event-subtab-matches');
+  const viewTeams = document.getElementById('event-view-teams');
   const viewResults = document.getElementById('event-view-results');
   const viewElo = document.getElementById('event-view-elo');
   const viewMatches = document.getElementById('event-view-matches');
 
-  [btnResults, btnElo, btnMatches].forEach(b => b && b.classList.remove('active'));
-  [viewResults, viewElo, viewMatches].forEach(v => v && (v.style.display = 'none'));
+  [btnTeams, btnResults, btnElo, btnMatches].forEach(b => b && b.classList.remove('active'));
+  [viewTeams, viewResults, viewElo, viewMatches].forEach(v => v && (v.style.display = 'none'));
 
-  if (tabKey === 'matches') {
+  if (tabKey === 'teams') {
+    if (btnTeams) btnTeams.classList.add('active');
+    if (viewTeams) viewTeams.style.display = 'block';
+  } else if (tabKey === 'matches') {
     if (btnMatches) btnMatches.classList.add('active');
     if (viewMatches) viewMatches.style.display = 'block';
   } else if (tabKey === 'results') {
@@ -350,11 +377,37 @@ function switchEventModalTab(tabKey) {
   }
 }
 
+function renderEventTeamsRows() {
+  const tbody = document.getElementById('event-teams-body');
+  if (!tbody) return;
+
+  const standings = (currentEventData && currentEventData.team_standings) || [];
+  if (standings.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No team standings available for this tournament.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = '';
+  standings.forEach((t, idx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="rank-cell">#${t.placing && t.placing > 0 ? t.placing : (idx + 1)}</td>
+      <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(t.name || 'Team')}</td>
+      <td style="color:var(--text-muted);">${escapeHtml(t.captain || '-')}</td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">${t.match_points != null ? t.match_points : '-'} pts</td>
+      <td style="font-family:var(--font-mono); font-weight:600; color:var(--text-secondary);">${t.game_wins != null ? t.game_wins : '-'}</td>
+      <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points != null ? t.battle_points : '-'} pts</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
 function renderEventResultsRows() {
   const tbody = document.getElementById('event-results-body');
   if (!tbody) return;
 
-  if (!eventMatchesCache || eventMatchesCache.length === 0) {
+  const hasPlacements = eventPlayersCache && eventPlayersCache.some(p => p.placement && p.placement > 0);
+  if ((!eventMatchesCache || eventMatchesCache.length === 0) && !hasPlacements) {
     tbody.innerHTML = `
       <tr>
         <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
@@ -380,19 +433,22 @@ function renderEventResultsRows() {
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
+    const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
+    const drawStr = p.event_draws ? ` - ${p.event_draws}D` : '';
 
     tr.innerHTML = `
       <td class="rank-cell">#${p.placement && p.placement > 0 ? p.placement : (idx + 1)}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.full_name || 'Player')}</span>
+          ${teamHtml}
         </div>
       </td>
       <td>
         <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}</span>
       </td>
       <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
-        ${p.event_wins || 0}W - ${p.event_losses || 0}L
+        ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
       </td>
       <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
         ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
@@ -778,3 +834,4 @@ window.launchTournamentTracker = launchTournamentTracker;
 window.openTournamentRegistrationModal = openTournamentRegistrationModal;
 window.closeTournamentRegistrationModal = closeTournamentRegistrationModal;
 window.submitTournamentRegistration = submitTournamentRegistration;
+window.renderEventTeamsRows = renderEventTeamsRows;

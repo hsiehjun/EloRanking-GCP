@@ -1102,6 +1102,131 @@ class PostgresDatabase:
                 """, (event_id, player_id, first_name, last_name, full_name, faction, team or None, dropped, checked_in, placement, battle_points, pod_num))
             conn.commit()
 
+    def save_event_team_standings(self, event_id: str, team_standings: List[Dict[str, Any]]):
+        """Saves team standings JSON into events.raw_json."""
+        if not event_id:
+            return
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                UPDATE events
+                SET raw_json = jsonb_set(
+                    COALESCE(raw_json, '{}'::jsonb),
+                    '{team_standings}',
+                    %s::jsonb
+                )
+                WHERE id = %s;
+                """, (json.dumps(team_standings or []), event_id))
+            conn.commit()
+
+    def upsert_event_participants_batch(
+        self,
+        event_id: str,
+        participants: List[Dict[str, Any]]
+    ):
+        """Batches player and participant roster upserts into a single fast transaction."""
+        if not event_id or not participants:
+            return
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                player_rows = []
+                ep_rows = []
+                for p in participants:
+                    pid = str(p.get("player_id", "")).strip()
+                    if not pid:
+                        continue
+                    fn = p.get("first_name", "")
+                    ln = p.get("last_name", "")
+                    name = p.get("full_name") or f"{fn} {ln}".strip() or "Player"
+                    team = p.get("team") or ""
+                    player_rows.append((pid, fn, ln, name, team or None))
+
+                    ep_rows.append((
+                        event_id,
+                        pid,
+                        fn,
+                        ln,
+                        name,
+                        p.get("faction", ""),
+                        team or None,
+                        bool(p.get("dropped")),
+                        bool(p.get("checked_in", True)),
+                        p.get("placement"),
+                        p.get("battle_points"),
+                        p.get("pod_num")
+                    ))
+
+                if player_rows:
+                    if hasattr(extras, "execute_values") and extras.execute_values is not None:
+                        extras.execute_values(
+                            cursor,
+                            """
+                            INSERT INTO players (id, first_name, last_name, name, team)
+                            VALUES %s
+                            ON CONFLICT (id) DO UPDATE SET
+                                first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
+                                last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
+                                name = COALESCE(NULLIF(EXCLUDED.name, ''), players.name),
+                                team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team);
+                            """,
+                            player_rows,
+                            page_size=500
+                        )
+                    else:
+                        for r in player_rows:
+                            cursor.execute("""
+                            INSERT INTO players (id, first_name, last_name, name, team)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (id) DO UPDATE SET
+                                first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
+                                last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
+                                name = COALESCE(NULLIF(EXCLUDED.name, ''), players.name),
+                                team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team);
+                            """, r)
+
+                if ep_rows:
+                    if hasattr(extras, "execute_values") and extras.execute_values is not None:
+                        extras.execute_values(
+                            cursor,
+                            """
+                            INSERT INTO event_participants (
+                                event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points, pod_num
+                            ) VALUES %s
+                            ON CONFLICT (event_id, player_id) DO UPDATE SET
+                                first_name = EXCLUDED.first_name,
+                                last_name = EXCLUDED.last_name,
+                                full_name = EXCLUDED.full_name,
+                                faction = EXCLUDED.faction,
+                                team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
+                                dropped = EXCLUDED.dropped,
+                                checked_in = EXCLUDED.checked_in,
+                                placement = COALESCE(EXCLUDED.placement, event_participants.placement),
+                                battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points),
+                                pod_num = COALESCE(EXCLUDED.pod_num, event_participants.pod_num);
+                            """,
+                            ep_rows,
+                            page_size=500
+                        )
+                    else:
+                        for r in ep_rows:
+                            cursor.execute("""
+                            INSERT INTO event_participants (
+                                event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points, pod_num
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (event_id, player_id) DO UPDATE SET
+                                first_name = EXCLUDED.first_name,
+                                last_name = EXCLUDED.last_name,
+                                full_name = EXCLUDED.full_name,
+                                faction = EXCLUDED.faction,
+                                team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
+                                dropped = EXCLUDED.dropped,
+                                checked_in = EXCLUDED.checked_in,
+                                placement = COALESCE(EXCLUDED.placement, event_participants.placement),
+                                battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points),
+                                pod_num = COALESCE(EXCLUDED.pod_num, event_participants.pod_num);
+                            """, r)
+            conn.commit()
+
     def upsert_match(self, match_data: Dict[str, Any]):
         """Inserts or updates a match pairing."""
         event_id = match_data.get("event_id")
@@ -1647,11 +1772,13 @@ class PostgresDatabase:
                         active_pid = existing_names[name_norm]
                         if player_stats[active_pid].get("pod_num") is None and p_info.get("pod_num") is not None:
                             player_stats[active_pid]["pod_num"] = p_info.get("pod_num")
-                        if player_stats[active_pid].get("official_placement") is None and p_info.get("placement") is not None:
+                        if p_info.get("placement") is not None:
                             player_stats[active_pid]["official_placement"] = p_info.get("placement")
                             player_stats[active_pid]["placement"] = p_info.get("placement")
                         if not player_stats[active_pid].get("team") and p_info.get("team"):
                             player_stats[active_pid]["team"] = p_info.get("team")
+                        if not player_stats[active_pid].get("event_battle_points") and p_info.get("battle_points"):
+                            player_stats[active_pid]["event_battle_points"] = p_info.get("battle_points")
                         continue
 
                     if p_id not in player_stats:
@@ -1672,7 +1799,7 @@ class PostgresDatabase:
                             "event_losses": 0,
                             "event_draws": 0,
                             "event_matches_count": 0,
-                            "event_battle_points": 0,
+                            "event_battle_points": p_info.get("battle_points") or 0,
                             "event_mov": 0,
                             "round_wins": {},
                             "opponents": []
@@ -1810,7 +1937,7 @@ class PostgresDatabase:
                         k = m.get("key") or m.get("name", "")
                         neg = bool(m.get("negative", False))
                         val = 0
-                        if k in ("numWins", "Wins", "wins"):
+                        if k in ("numWins", "Wins", "wins", "numGameWins", "gameWins", "gamesWon", "teamMatchPoints"):
                             val = p["event_wins"] + 0.5 * p["event_draws"]
                         elif k in ("pathToVictory", "Path to Victory", "ptv"):
                             val = p["ptv"]
@@ -1866,13 +1993,22 @@ class PostgresDatabase:
                 res["players"] = final_players
                 res["roster"] = roster_list
                 res["matches"] = matches
-                res["total_players"] = max(res.get("total_players") or 0, len(final_players))
+                res["total_players"] = len(final_players) if final_players else (res.get("total_players") or 0)
                 res["num_rounds"] = res.get("num_rounds") or (max([m["round"] for m in matches]) if matches else 0)
                 if final_players:
                     elos = [float(p["current_elo"]) for p in final_players if p.get("current_elo") is not None]
                     if elos:
                         res["avg_field_elo"] = round(sum(elos) / len(elos), 1)
                         res["top_seed_elo"] = max(elos)
+
+                raw_meta = res.get("raw_json") or {}
+                if isinstance(raw_meta, dict):
+                    res["team_standings"] = raw_meta.get("team_standings", [])
+                    res["is_team_event"] = bool(raw_meta.get("teamEvent") or raw_meta.get("team_standings"))
+                else:
+                    res["team_standings"] = []
+                    res["is_team_event"] = False
+
                 return res
 
     def get_recommended_events(
