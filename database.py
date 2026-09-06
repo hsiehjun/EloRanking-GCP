@@ -127,6 +127,7 @@ class PostgresDatabase:
             if not PostgresDatabase._db_initialized:
                 self.init_db()
                 self.ensure_tracker_table()
+                self.ensure_registered_tournaments_table()
                 PostgresDatabase._db_initialized = True
         except Exception as e:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
@@ -214,13 +215,14 @@ class PostgresDatabase:
                         to_regclass('public.events') IS NOT NULL
                         AND to_regclass('public.matches') IS NOT NULL
                         AND to_regclass('public.player_ratings') IS NOT NULL
-                        AND to_regclass('public.system_settings') IS NOT NULL;
+                        AND to_regclass('public.system_settings') IS NOT NULL
+                        AND to_regclass('public.user_tournament_registrations') IS NOT NULL;
                     """)
                     row = cursor.fetchone()
                     if row and row[0]:
-                        cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_ready';")
+                        cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'true':
+                        if setting and setting[0] == 'v14_registered_tournaments':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -812,8 +814,8 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true')
-                    ON CONFLICT (key) DO UPDATE SET value = 'true';
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v14_registered_tournaments')
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     """)
                 conn.commit()
         except Exception as err:
@@ -977,6 +979,62 @@ class PostgresDatabase:
                         logger.debug(f"Tracker ensure table notice: {e}")
         except Exception as err:
             logger.debug(f"ensure_tracker_table batch notice: {err}")
+
+    def ensure_registered_tournaments_table(self, force: bool = False):
+        """Guarantees that user_tournament_registrations table and required indexes exist."""
+        if not force:
+            try:
+                with self.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute("SELECT to_regclass('public.user_tournament_registrations') IS NOT NULL;")
+                        row = cursor.fetchone()
+                        if row and row[0]:
+                            return
+            except Exception:
+                pass
+
+        stmts = [
+            """CREATE TABLE IF NOT EXISTS user_tournament_registrations (
+                id VARCHAR(64) PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                player_id VARCHAR(64),
+                bcp_event_id VARCHAR(64) NOT NULL,
+                event_name VARCHAR(255) NOT NULL,
+                event_date TIMESTAMPTZ,
+                end_date TIMESTAMPTZ,
+                venue_name VARCHAR(255),
+                city VARCHAR(100),
+                state VARCHAR(50),
+                country VARCHAR(50),
+                faction VARCHAR(100),
+                detachment VARCHAR(100),
+                army_list TEXT,
+                has_list_submitted BOOLEAN DEFAULT FALSE,
+                checked_in BOOLEAN DEFAULT FALSE,
+                points_limit INT DEFAULT 2000,
+                rounds INT DEFAULT 5,
+                total_players INT DEFAULT 0,
+                bcp_url VARCHAR(500),
+                last_synced_at TIMESTAMPTZ DEFAULT NOW(),
+                created_at TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT uq_user_event UNIQUE (user_id, bcp_event_id)
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_utr_user_date ON user_tournament_registrations(user_id, event_date);",
+            "CREATE INDEX IF NOT EXISTS idx_utr_bcp_event ON user_tournament_registrations(bcp_event_id);"
+        ]
+        try:
+            with self.get_connection() as conn:
+                for s in stmts:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SET lock_timeout = '2s';")
+                            cursor.execute(s)
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        logger.debug(f"Registered tournaments ensure table notice: {e}")
+        except Exception as err:
+            logger.warning(f"ensure_registered_tournaments_table batch notice: {err}")
 
     def upsert_event(self, event_data: Dict[str, Any]):
         """Inserts or updates an event record in PostgreSQL."""
@@ -3562,6 +3620,23 @@ class PostgresDatabase:
         """Retrieves active/upcoming registered tournaments for a user."""
         if not user_id:
             return []
+        self.ensure_registered_tournaments_table()
+        try:
+            return self._query_user_registered_tournaments(user_id)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "undefinedtable" in err_str:
+                logger.warning(f"user_tournament_registrations table missing on query, auto-creating: {e}")
+                self.ensure_registered_tournaments_table(force=True)
+                try:
+                    return self._query_user_registered_tournaments(user_id)
+                except Exception as retry_err:
+                    logger.error(f"Failed to query registered tournaments after table creation: {retry_err}")
+                    return []
+            logger.error(f"get_user_registered_tournaments unexpected error: {e}")
+            return []
+
+    def _query_user_registered_tournaments(self, user_id: str) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
@@ -3592,6 +3667,23 @@ class PostgresDatabase:
         """Upserts a list of registered tournaments for a user."""
         if not user_id or not events:
             return self.get_user_registered_tournaments(user_id) if user_id else []
+        self.ensure_registered_tournaments_table()
+        try:
+            return self._execute_save_registered_tournaments(user_id, events)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "does not exist" in err_str or "undefinedtable" in err_str:
+                logger.warning(f"user_tournament_registrations table missing on save, auto-creating: {e}")
+                self.ensure_registered_tournaments_table(force=True)
+                try:
+                    return self._execute_save_registered_tournaments(user_id, events)
+                except Exception as retry_err:
+                    logger.error(f"Failed to save registered tournaments after table auto-creation: {retry_err}")
+                    return self.get_user_registered_tournaments(user_id)
+            logger.error(f"save_user_registered_tournaments error: {e}")
+            return self.get_user_registered_tournaments(user_id)
+
+    def _execute_save_registered_tournaments(self, user_id: str, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 for ev in events:

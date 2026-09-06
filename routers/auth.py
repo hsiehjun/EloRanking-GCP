@@ -353,7 +353,11 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
         }
 
     db = get_database()
-    cached = db.get_user_registered_tournaments(user_id)
+    try:
+        cached = db.get_user_registered_tournaments(user_id)
+    except Exception as e:
+        logger.error(f"Error fetching registered tournaments from DB: {e}")
+        cached = []
 
     # If force_sync requested or no cached records, attempt BCP sync
     if force_sync or not cached:
@@ -362,14 +366,16 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
             ok, err, events = bcp_adapter.fetch_user_registered_events(user_id)
             if ok and events is not None:
                 cached = db.save_user_registered_tournaments(user_id, events)
+            elif not ok:
+                logger.info(f"BCP registered tournaments fetch returned notice: {err}")
         except Exception as e:
             logger.warning(f"BCP registered tournaments sync notice: {e}")
 
     return {
         "success": True,
         "bcp_connected": True,
-        "count": len(cached),
-        "tournaments": cached
+        "count": len(cached or []),
+        "tournaments": cached or []
     }
 
 
