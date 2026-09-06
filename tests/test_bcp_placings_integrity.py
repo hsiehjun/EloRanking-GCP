@@ -303,10 +303,10 @@ def test_format_bcp_roster_exact_order():
     ]
 
     existing_db = [
-        {"player_id": "u1", "full_name": "Steve Trimble", "current_elo": 2233.2},
-        {"player_id": "u11", "full_name": "David T.", "current_elo": 2102.8},
-        {"player_id": "u3", "full_name": "Ben Jurek", "current_elo": 2098.2},
-        {"player_id": "u2", "full_name": "Jeff Jew", "current_elo": 1989.7},
+        {"player_id": "u1", "full_name": "Steve Trimble", "current_elo": 2233.2, "event_wins": 8, "event_losses": 0, "event_draws": 0, "event_matches_count": 8, "event_battle_points": 691},
+        {"player_id": "u11", "full_name": "David T.", "current_elo": 2102.8, "event_wins": 6, "event_losses": 2, "event_draws": 0, "event_matches_count": 8, "event_battle_points": 580},
+        {"player_id": "u3", "full_name": "Ben Jurek", "current_elo": 2098.2, "event_wins": 7, "event_losses": 1, "event_draws": 0, "event_matches_count": 8, "event_battle_points": 723},
+        {"player_id": "u2", "full_name": "Jeff Jew", "current_elo": 1989.7, "event_wins": 7, "event_losses": 1, "event_draws": 0, "event_matches_count": 8, "event_battle_points": 653},
     ]
 
     formatted = format_bcp_roster_to_players(raw_payload, existing_db)
@@ -315,13 +315,20 @@ def test_format_bcp_roster_exact_order():
     assert formatted[0]["full_name"] == "Steve Trimble"
     assert formatted[0]["placement"] == 1
     assert formatted[0]["current_elo"] == 2233.2
+    assert formatted[0]["event_wins"] == 8
+    assert formatted[0]["event_losses"] == 0
+    assert formatted[0]["event_matches_count"] == 8
 
     assert formatted[1]["full_name"] == "Jeff Jew"
     assert formatted[1]["placement"] == 2
     assert formatted[1]["current_elo"] == 1989.7
+    assert formatted[1]["event_wins"] == 7
+    assert formatted[1]["event_losses"] == 1
 
     assert formatted[2]["full_name"] == "Ben Jurek"
     assert formatted[2]["placement"] == 3
+    assert formatted[2]["event_wins"] == 7
+    assert formatted[2]["event_losses"] == 1
 
     assert formatted[3]["full_name"] == "Steven Salazar"
     assert formatted[3]["placement"] == 4
@@ -332,6 +339,8 @@ def test_format_bcp_roster_exact_order():
     assert formatted[5]["full_name"] == "David T."
     assert formatted[5]["placement"] == 11
     assert formatted[5]["current_elo"] == 2102.8
+    assert formatted[5]["event_wins"] == 6
+    assert formatted[5]["event_losses"] == 2
 
     print("✅ test_format_bcp_roster_exact_order passed!")
 
@@ -374,8 +383,8 @@ def test_api_event_details_direct_bcp_placings():
         "name": "Warhammer 40,000 Grand Tournament: US Open Tacoma",
         "total_players": 2,
         "players": [
-            {"player_id": "u1", "full_name": "Marshall Peterson", "current_elo": 1950.0},
-            {"player_id": "u2", "full_name": "Scott Ketcham", "current_elo": 1920.0}
+            {"player_id": "u1", "full_name": "Marshall Peterson", "current_elo": 1950.0, "event_wins": 8, "event_losses": 0, "event_draws": 0, "event_matches_count": 8, "event_battle_points": 778},
+            {"player_id": "u2", "full_name": "Scott Ketcham", "current_elo": 1920.0, "event_wins": 7, "event_losses": 1, "event_draws": 0, "event_matches_count": 8, "event_battle_points": 715}
         ],
         "matches": [{"round": 1}]
     }
@@ -398,11 +407,18 @@ def test_api_event_details_direct_bcp_placings():
         assert mock_scraper_inst.fetch_event_players.call_count == 1
         # sync_in_progress must be False
         assert res.get("sync_in_progress") is False, "sync_in_progress must be False!"
-        # Placings strictly from BCP
+        # Placings strictly from BCP and matches/Elo from DB
         assert res.get("players")[0]["placement"] == 1
         assert res.get("players")[0]["current_elo"] == 1950.0
+        assert res.get("players")[0]["event_wins"] == 8
+        assert res.get("players")[0]["event_losses"] == 0
+        assert res.get("players")[0]["event_matches_count"] == 8
+
         assert res.get("players")[1]["placement"] == 2
         assert res.get("players")[1]["current_elo"] == 1920.0
+        assert res.get("players")[1]["event_wins"] == 7
+        assert res.get("players")[1]["event_losses"] == 1
+        assert res.get("players")[1]["event_matches_count"] == 8
 
     print("✅ test_api_event_details_direct_bcp_placings passed!")
 

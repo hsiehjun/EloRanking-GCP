@@ -689,9 +689,18 @@ async def api_events_recommended(
 _active_event_syncs: set = set()
 
 def format_bcp_roster_to_players(raw_players: list, existing_players: list = None) -> list:
-    """Formats raw BCP competitors directly preserving exact BCP tournament placing order."""
-    existing_by_id = {str(p.get("player_id")): p for p in (existing_players or []) if p.get("player_id")}
-    existing_by_name = {(p.get("full_name") or "").strip().lower(): p for p in (existing_players or []) if p.get("full_name")}
+    """Formats raw BCP competitors preserving exact BCP tournament placing order,
+    pulling Elo ratings and match records from DB, and official placings strictly from BCP."""
+    existing_by_id = {}
+    existing_by_name = {}
+    for p in (existing_players or []):
+        for k in ("player_id", "id", "user_id", "userId"):
+            val = p.get(k)
+            if val:
+                existing_by_id[str(val)] = p
+        fname = p.get("full_name")
+        if fname:
+            existing_by_name[fname.strip().lower()] = p
 
     formatted = []
     for idx, p in enumerate(raw_players):
@@ -739,55 +748,85 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if placing_num is None:
             placing_num = idx + 1
 
-        tot_metrics = p.get("total_metrics") or p.get("metrics") or []
-        wins = 0
-        losses = 0
-        draws = 0
-        bps = 0
-        for m in tot_metrics:
-            if isinstance(m, dict):
-                mn = m.get("name")
-                mv = m.get("value", 0)
-                if mn in ("Wins", "wins", "numWins", "Games Won"):
-                    try: wins = float(mv)
-                    except (ValueError, TypeError): pass
-                elif mn in ("Losses", "losses", "numLosses", "Games Lost"):
-                    try: losses = float(mv)
-                    except (ValueError, TypeError): pass
-                elif mn in ("Battle Points", "battlePoints", "points"):
-                    try: bps = int(mv)
-                    except (ValueError, TypeError): pass
-
         faction_obj = p.get("faction") or {}
         faction_name = faction_obj.get("name") if isinstance(faction_obj, dict) else (str(faction_obj) if faction_obj else "Unknown")
         team_obj = p.get("team") or {}
         team_name = team_obj.get("name") if isinstance(team_obj, dict) else (str(team_obj) if team_obj else "")
 
-        cached = existing_by_id.get(pid) or existing_by_name.get(full_name.lower())
-        current_elo = cached.get("current_elo", 1500.0) if cached else 1500.0
-        if not wins and cached and cached.get("event_wins"):
-            wins = cached.get("event_wins", 0)
-            losses = cached.get("event_losses", 0)
-            draws = cached.get("event_draws", 0)
-        if not bps and cached and cached.get("event_battle_points"):
-            bps = cached.get("event_battle_points", 0)
+        # Lookup candidate IDs in DB
+        candidate_ids = [
+            str(u.get("id")) if u.get("id") else None,
+            str(p.get("userId")) if p.get("userId") else None,
+            str(p.get("id")) if p.get("id") else None,
+            str(u.get("userId")) if u.get("userId") else None
+        ]
+        cached = None
+        for cid in candidate_ids:
+            if cid and cid in existing_by_id:
+                cached = existing_by_id[cid]
+                break
+        if not cached:
+            cached = existing_by_name.get(full_name.strip().lower())
 
-        formatted.append({
-            "player_id": pid,
-            "full_name": full_name,
-            "faction": faction_name,
-            "team": team_name,
-            "placement": placing_num,
-            "official_placement": placing_num,
-            "pod_num": p.get("podNum") or p.get("pod_num"),
-            "event_wins": wins,
-            "event_losses": losses,
-            "event_draws": draws,
-            "event_battle_points": bps or p.get("points") or 0,
-            "current_elo": current_elo,
-            "dropped": bool(p.get("dropped")),
-            "checked_in": bool(p.get("checkedIn"))
-        })
+        if cached:
+            player_dict = dict(cached)
+            # Tournament placing is strictly from BCP
+            player_dict["placement"] = placing_num
+            player_dict["official_placement"] = placing_num
+            player_dict["rank"] = placing_num
+            player_dict["player_id"] = str(cached.get("player_id") or pid)
+            if not player_dict.get("full_name") or player_dict["full_name"] in ("Player", "Player 1", "Player 2"):
+                player_dict["full_name"] = full_name
+            if not player_dict.get("faction") or player_dict["faction"] == "Unknown":
+                player_dict["faction"] = faction_name
+            if not player_dict.get("team"):
+                player_dict["team"] = team_name
+            if p.get("podNum") is not None:
+                player_dict["pod_num"] = p.get("podNum")
+            if p.get("dropped") is not None:
+                player_dict["dropped"] = bool(p.get("dropped"))
+            if p.get("checkedIn") is not None:
+                player_dict["checked_in"] = bool(p.get("checkedIn"))
+            formatted.append(player_dict)
+        else:
+            tot_metrics = p.get("total_metrics") or p.get("metrics") or []
+            wins = 0
+            losses = 0
+            draws = 0
+            bps = 0
+            for m in tot_metrics:
+                if isinstance(m, dict):
+                    mn = m.get("name")
+                    mv = m.get("value", 0)
+                    if mn in ("Wins", "wins", "numWins", "Games Won"):
+                        try: wins = float(mv)
+                        except (ValueError, TypeError): pass
+                    elif mn in ("Losses", "losses", "numLosses", "Games Lost"):
+                        try: losses = float(mv)
+                        except (ValueError, TypeError): pass
+                    elif mn in ("Battle Points", "battlePoints", "points"):
+                        try: bps = int(mv)
+                        except (ValueError, TypeError): pass
+
+            formatted.append({
+                "player_id": pid,
+                "full_name": full_name,
+                "faction": faction_name,
+                "team": team_name,
+                "placement": placing_num,
+                "official_placement": placing_num,
+                "rank": placing_num,
+                "pod_num": p.get("podNum") or p.get("pod_num"),
+                "event_wins": wins,
+                "event_losses": losses,
+                "event_draws": draws,
+                "event_matches_count": int(wins + losses + draws),
+                "event_battle_points": bps or p.get("points") or 0,
+                "current_elo": 1500.0,
+                "peak_elo": 1500.0,
+                "dropped": bool(p.get("dropped")),
+                "checked_in": bool(p.get("checkedIn"))
+            })
 
     formatted.sort(key=lambda x: (x.get("placement") or 999999))
     return formatted

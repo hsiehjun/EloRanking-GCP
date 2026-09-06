@@ -7,7 +7,7 @@ let eventPlayersCache = [];
 let currentRoundFilter = 'all';
 let currentOpenEventId = null;
 let currentEventData = null;
-let currentEventModalTab = 'elo';
+let currentEventModalTab = 'results';
 
 function debounceEventSearch() {
   clearTimeout(eventSearchTimeout);
@@ -349,7 +349,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 }
 
 function switchEventModalTab(tabKey) {
-  currentEventModalTab = tabKey || 'elo';
+  currentEventModalTab = tabKey || 'results';
   const btnTeams = document.getElementById('event-subtab-teams');
   const btnResults = document.getElementById('event-subtab-results');
   const btnElo = document.getElementById('event-subtab-elo');
@@ -368,13 +368,13 @@ function switchEventModalTab(tabKey) {
   } else if (tabKey === 'matches') {
     if (btnMatches) btnMatches.classList.add('active');
     if (viewMatches) viewMatches.style.display = 'block';
-  } else if (tabKey === 'results') {
-    if (btnResults) btnResults.classList.add('active');
-    if (viewResults) viewResults.style.display = 'block';
-  } else {
-    // default to 'elo' tab
+  } else if (tabKey === 'elo') {
     if (btnElo) btnElo.classList.add('active');
     if (viewElo) viewElo.style.display = 'block';
+  } else {
+    // default to 'results' tab
+    if (btnResults) btnResults.classList.add('active');
+    if (viewResults) viewResults.style.display = 'block';
   }
 }
 
