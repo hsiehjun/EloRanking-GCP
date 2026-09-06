@@ -1249,7 +1249,7 @@ def test_career_match_history_player_links_and_mobile_spacing():
     # 3. Overview Recent Matches preview has clickable opponent and event
     assert "openPlayerModal('${encodeURIComponent(oppTarget)}')\"" in my_hub_js, \
         "my_hub.js Recent Matches overview preview must wire openPlayerModal to opponent name"
-    assert "openEventModal('${encodeURIComponent(h.event_id)}', false, 'elo')\"" in my_hub_js, \
+    assert "openEventModal('${encodeURIComponent(h.event_id)}', false" in my_hub_js, \
         "my_hub.js Recent Matches overview preview must wire openEventModal to event name"
 
     # 4. Mobile spacing between Elo Trajectory and Recent Matches / Previews

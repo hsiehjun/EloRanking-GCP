@@ -289,9 +289,81 @@ def test_standings_sort_with_official_placements():
     print("✅ test_standings_sort_with_official_placements passed!")
 
 
+def test_format_bcp_roster_exact_order():
+    """Verify that format_bcp_roster_to_players creates players in exact BCP tournament results order."""
+    from routers.leaderboard import format_bcp_roster_to_players
+
+    raw_payload = [
+        {"id": "p1", "userId": "u1", "user": {"firstName": "Steve", "lastName": "Trimble"}, "placing": 1, "overallPlacing": 23, "total_metrics": [{"name": "Wins", "value": 8}, {"name": "Battle Points", "value": 691}]},
+        {"id": "p2", "userId": "u2", "user": {"firstName": "Jeff", "lastName": "Jew"}, "placing": 2, "overallPlacing": 30, "total_metrics": [{"name": "Wins", "value": 7}, {"name": "Battle Points", "value": 653}]},
+        {"id": "p3", "userId": "u3", "user": {"firstName": "Ben", "lastName": "Jurek"}, "placing": 3, "overallPlacing": 5, "total_metrics": [{"name": "Wins", "value": 7}, {"name": "Battle Points", "value": 723}]},
+        {"id": "p4", "userId": "u4", "user": {"firstName": "Steven", "lastName": "Salazar"}, "placing": 4, "overallPlacing": 33, "total_metrics": [{"name": "Wins", "value": 6}, {"name": "Battle Points", "value": 620}]},
+        {"id": "p9", "userId": "u9", "user": {"firstName": "Ken", "lastName": "Bush"}, "placing": 9, "overallPlacing": 1, "total_metrics": [{"name": "Wins", "value": 7}, {"name": "Battle Points", "value": 697}]},
+        {"id": "p11", "userId": "u11", "user": {"firstName": "David", "lastName": "T."}, "placing": 11, "overallPlacing": 50, "total_metrics": [{"name": "Wins", "value": 6}, {"name": "Battle Points", "value": 580}]}
+    ]
+
+    existing_db = [
+        {"player_id": "u1", "full_name": "Steve Trimble", "current_elo": 2233.2},
+        {"player_id": "u11", "full_name": "David T.", "current_elo": 2102.8},
+        {"player_id": "u3", "full_name": "Ben Jurek", "current_elo": 2098.2},
+        {"player_id": "u2", "full_name": "Jeff Jew", "current_elo": 1989.7},
+    ]
+
+    formatted = format_bcp_roster_to_players(raw_payload, existing_db)
+
+    # Order MUST be #1 Steve Trimble, #2 Jeff Jew, #3 Ben Jurek, #4 Steven Salazar, #5 Ken Bush, #6 David T.
+    assert formatted[0]["full_name"] == "Steve Trimble"
+    assert formatted[0]["placement"] == 1
+    assert formatted[0]["current_elo"] == 2233.2
+
+    assert formatted[1]["full_name"] == "Jeff Jew"
+    assert formatted[1]["placement"] == 2
+    assert formatted[1]["current_elo"] == 1989.7
+
+    assert formatted[2]["full_name"] == "Ben Jurek"
+    assert formatted[2]["placement"] == 3
+
+    assert formatted[3]["full_name"] == "Steven Salazar"
+    assert formatted[3]["placement"] == 4
+
+    assert formatted[4]["full_name"] == "Ken Bush"
+    assert formatted[4]["placement"] == 9  # NOT 1 overallPlacing!
+
+    assert formatted[5]["full_name"] == "David T."
+    assert formatted[5]["placement"] == 11
+    assert formatted[5]["current_elo"] == 2102.8
+
+    print("✅ test_format_bcp_roster_exact_order passed!")
+
+
+def test_frontend_default_tab_and_sorting():
+    """Verify that frontend utils.js and tournaments.js default to results tab and placement asc."""
+    utils_js = (root_dir / "web" / "js" / "utils.js").read_text()
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text()
+    app_html = (root_dir / "web" / "app.html").read_text()
+
+    # 1. utils.js default event-results sort is placement ascending
+    assert "'event-results': { field: 'placement', asc: true }" in utils_js, "utils.js must default event-results to placement asc"
+
+    # 2. app.html Rank column header is sortable and sorted-asc
+    assert '<th class="sortable sorted-asc" onclick="sortTable(\'event-results\', \'placement\')">Rank</th>' in app_html, \
+        "app.html event-results-table Rank column header must be sortable and sorted-asc"
+
+    # 3. tournaments.js openEventModal defaults to results tab, not 'elo'
+    assert "async function openEventModal(eventId, forceSync = false, initialTab = null)" in tournaments_js, \
+        "tournaments.js openEventModal must not default initialTab to 'elo'"
+
+    # 4. tournaments.js renderEventResultsRows sorts by placement
+    assert "eventPlayersCache.sort(" in tournaments_js, "tournaments.js must sort eventPlayersCache by placement"
+
+    print("✅ test_frontend_default_tab_and_sorting passed!")
+
+
 if __name__ == "__main__":
     test_scraper_placing_resolution_priority()
     test_team_standings_placing_priority()
     test_leaderboard_has_missing_placings_guard()
     test_standings_sort_with_official_placements()
+    test_format_bcp_roster_exact_order()
+    test_frontend_default_tab_and_sorting()
     print("\n🎉 ALL BCP PLACINGS INTEGRITY TESTS PASSED!")

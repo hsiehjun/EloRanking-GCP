@@ -73,7 +73,7 @@ function renderEventsRows() {
 
   eventsData.forEach(ev => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openEventModal(ev.id, false, 'elo');
+    tr.onclick = () => openEventModal(ev.id, false);
 
     const location = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Unspecified';
     const dateStr = (ev.event_date || '').slice(0, 10) || '-';
@@ -190,7 +190,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
   }, attempt === 1 ? 2000 : 3000);
 }
 
-async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
+async function openEventModal(eventId, forceSync = false, initialTab = null) {
   stopEventSyncPoll();
   currentOpenEventId = eventId;
   const modal = document.getElementById('event-modal');
@@ -201,8 +201,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
     modal.classList.add('active');
   }
 
-  // Set active tab immediately to prevent visual flashing
-  switchEventModalTab(initialTab || 'elo');
+  // Set active tab immediately to prevent visual flashing (default to tournament results)
+  switchEventModalTab(initialTab || (currentEventData && currentEventData.team_standings && currentEventData.team_standings.length > 0 ? 'teams' : 'results'));
 
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink) {
@@ -261,14 +261,15 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
       if (subtabTeams) subtabTeams.style.display = 'none';
     }
 
-    if (!hasCachedRows) {
+    const hasStandings = ev.team_standings && ev.team_standings.length > 0;
+    const hasPlacings = placementsCount > 0 || eventMatchesCache.length > 0;
+
+    if (!hasCachedRows || !currentEventModalTab) {
       if (initialTab) {
         switchEventModalTab(initialTab);
-      } else if (ev.team_standings && ev.team_standings.length > 0) {
+      } else if (hasStandings) {
         switchEventModalTab('teams');
-      } else if (eventMatchesCache.length > 0) {
-        switchEventModalTab('matches');
-      } else if (placementsCount > 0) {
+      } else if (hasPlacings) {
         switchEventModalTab('results');
       } else {
         switchEventModalTab('elo');
@@ -278,6 +279,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = 'elo') {
     renderEventResultsRows();
     renderEventEloRows();
     renderEventPairingsRows();
+
+    // If BCP event, also attempt direct live fetch from BCP in browser to guarantee zero-latency results
+    if (!eventId.startsWith('ES-')) {
+      tryDirectBcpFetchAndQuietUpdate(eventId);
+    }
 
     if (rbody) rbody.style.opacity = '1';
     if (ebody) ebody.style.opacity = '1';
@@ -427,6 +433,19 @@ function renderEventResultsRows() {
   }
 
   tbody.innerHTML = '';
+
+  // Ensure eventPlayersCache is strictly ordered by placement / rank
+  const sortCfg = (typeof currentSort !== 'undefined' && currentSort['event-results']) || { field: 'placement', asc: true };
+  if (sortCfg.field === 'placement' || sortCfg.field === 'rank') {
+    eventPlayersCache.sort((a, b) => {
+      const plA = (a.placement && a.placement > 0) ? a.placement : 999999;
+      const plB = (b.placement && b.placement > 0) ? b.placement : 999999;
+      return sortCfg.asc ? (plA - plB) : (plB - plA);
+    });
+  } else if (typeof sortClientArray === 'function') {
+    eventPlayersCache = sortClientArray(eventPlayersCache, sortCfg.field, sortCfg.asc);
+  }
+
   eventPlayersCache.forEach((p, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openPlayerModal(p.player_id);
@@ -826,6 +845,89 @@ async function submitTournamentRegistration(e) {
   }
 }
 
+// Direct BCP Fetch & Quiet DB Update
+async function tryDirectBcpFetchAndQuietUpdate(eventId) {
+  try {
+    const resp = await fetch(`https://api.bestcoastpairings.com/events/${encodeURIComponent(eventId)}/players?limit=1000&placings=true`, {
+      headers: { 'Accept': 'application/json' }
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const rawPlayers = Array.isArray(data) ? data : (data.active || data.data || data.players || []);
+    if (!rawPlayers || rawPlayers.length === 0 || currentOpenEventId !== eventId) return;
+
+    // Map raw BCP competitors preserving exact BCP ordering
+    const directBcpList = rawPlayers.map((p, idx) => {
+      const u = p.user || {};
+      const fname = u.firstName || p.firstName || '';
+      const lname = u.lastName || p.lastName || '';
+      const fullName = `${fname} ${lname}`.trim() || p.name || 'Player';
+      const pid = String(u.id || p.userId || p.id || `bcp_${idx}`);
+
+      let placing = null;
+      if (p.manualPlacing !== null && typeof p.manualPlacing !== 'boolean' && Number(p.manualPlacing) > 0) {
+        placing = Number(p.manualPlacing);
+      } else if (p.placing !== null && typeof p.placing !== 'boolean' && Number(p.placing) > 0) {
+        placing = Number(p.placing);
+      } else if (p.place || p.rank || p.placement) {
+        placing = Number(p.place || p.rank || p.placement) || (idx + 1);
+      } else if (p.overallPlacing !== null && typeof p.overallPlacing !== 'boolean' && Number(p.overallPlacing) > 0) {
+        placing = Number(p.overallPlacing);
+      } else {
+        placing = idx + 1;
+      }
+
+      let wins = 0, losses = 0, draws = 0, pts = 0;
+      const metrics = p.total_metrics || p.metrics || [];
+      if (Array.isArray(metrics)) {
+        metrics.forEach(m => {
+          if (m && m.name) {
+            if (['Wins', 'wins', 'numWins', 'Games Won'].includes(m.name)) wins = Number(m.value) || 0;
+            if (['Losses', 'losses', 'numLosses', 'Games Lost'].includes(m.name)) losses = Number(m.value) || 0;
+            if (['Battle Points', 'battlePoints', 'points'].includes(m.name)) pts = Number(m.value) || 0;
+          }
+        });
+      }
+      if (!pts && p.points) pts = Number(p.points) || 0;
+
+      const cachedPlayer = (eventPlayersCache || []).find(ep => ep.player_id === pid || (ep.full_name && ep.full_name.toLowerCase() === fullName.toLowerCase()));
+      const currentElo = cachedPlayer ? cachedPlayer.current_elo : 1500;
+
+      return {
+        player_id: pid,
+        full_name: fullName,
+        faction: (p.faction && p.faction.name) || p.faction || 'Unknown',
+        team: (p.team && p.team.name) || p.team || '',
+        placement: placing,
+        official_placement: placing,
+        pod_num: p.podNum || p.pod_num,
+        event_wins: wins,
+        event_losses: losses,
+        event_draws: draws,
+        event_battle_points: pts,
+        current_elo: currentElo
+      };
+    });
+
+    directBcpList.sort((a, b) => (a.placement || 999999) - (b.placement || 999999));
+    eventPlayersCache = directBcpList;
+    renderEventResultsRows();
+    renderEventEloRows();
+
+    const tabResultsCount = document.getElementById('event-tab-results-count');
+    if (tabResultsCount) tabResultsCount.innerText = directBcpList.length;
+
+    // Quietly persist to backend database in background
+    if (window.api && typeof window.api.syncEventRosterWithBcp === 'function') {
+      window.api.syncEventRosterWithBcp(eventId, rawPlayers).catch(e => {
+        console.debug('Background DB update notice:', e);
+      });
+    }
+  } catch (e) {
+    console.debug('Direct BCP browser fetch notice (handled via backend):', e);
+  }
+}
+
 // Window bindings for tournament modal and registration
 window.openEventModal = openEventModal;
 window.switchEventModalTab = switchEventModalTab;
@@ -835,3 +937,4 @@ window.openTournamentRegistrationModal = openTournamentRegistrationModal;
 window.closeTournamentRegistrationModal = closeTournamentRegistrationModal;
 window.submitTournamentRegistration = submitTournamentRegistration;
 window.renderEventTeamsRows = renderEventTeamsRows;
+window.tryDirectBcpFetchAndQuietUpdate = tryDirectBcpFetchAndQuietUpdate;

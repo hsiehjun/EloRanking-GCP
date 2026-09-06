@@ -483,6 +483,15 @@ window.api = {
     return this._fetchJson(`/api/event/${encodeURIComponent(eventId)}${query}`);
   },
 
+  // Quietly persist raw BCP roster into backend DB
+  async syncEventRosterWithBcp(eventId, rawPlayers) {
+    return this._fetchJson(`/api/event/${encodeURIComponent(eventId)}/sync-roster`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ players: rawPlayers })
+    });
+  },
+
   // Faction Meta & Dynamic Timeline Trends
   async getFactionMeta(startDate = null, endDate = null, timeframe = null) {
     const params = new URLSearchParams();

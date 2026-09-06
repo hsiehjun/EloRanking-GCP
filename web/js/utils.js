@@ -53,7 +53,7 @@ const currentSort = {
   'players-dir': { field: 'current_elo', asc: false },
   'factions': { field: 'win_rate', asc: false },
   'player-matches': { field: 'match_date', asc: false },
-  'event-results': { field: 'event_wins', asc: false },
+  'event-results': { field: 'placement', asc: true },
   'event-elo': { field: 'current_elo', asc: false },
   'event-pairings': { field: 'round', asc: true },
   'h2h': { field: 'match_date', asc: false },
@@ -62,14 +62,14 @@ const currentSort = {
 
 function sortTable(tableKey, field) {
   if (!currentSort[tableKey]) {
-    currentSort[tableKey] = { field: field, asc: false };
+    currentSort[tableKey] = { field: field, asc: (field === 'placement' || field === 'rank' || field === 'round') ? true : false };
   }
   const config = currentSort[tableKey];
   if (config.field === field) {
     config.asc = !config.asc;
   } else {
     config.field = field;
-    config.asc = (field === 'name' || field === 'player_name' || field === 'full_name' || field === 'team' || field === 'faction' || field === 'round') ? true : false;
+    config.asc = (field === 'name' || field === 'player_name' || field === 'full_name' || field === 'team' || field === 'faction' || field === 'round' || field === 'placement' || field === 'rank') ? true : false;
   }
 
   updateHeaderIcons(tableKey, field, config.asc);

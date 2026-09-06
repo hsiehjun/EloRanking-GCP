@@ -302,7 +302,7 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                 <div class="hub-event-item-card">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
-                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'elo')">
+                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
                         ${escapeHtml(evName)}
                       </span>
                     </div>
@@ -331,7 +331,7 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                       <a href="${bcpUrl}" target="_blank" rel="noopener" class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="event.stopPropagation()">
                         BCP ↗
                       </a>
-                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'elo')">
+                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
                         Roster ➔
                       </button>
                     </div>
@@ -398,7 +398,7 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
         ${countdownPill}
       </div>
       <div>
-        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'elo')">
+        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
           ${escapeHtml(evName)}
         </b>
         <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 3px;">
@@ -687,7 +687,7 @@ function renderMyHub(data) {
                       `}
                     </div>
                     ${h.event_id ? `
-                      <span class="player-link cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;" onclick="event.stopPropagation(); openEventModal('${encodeURIComponent(h.event_id)}', false, 'elo')">
+                      <span class="player-link cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;" onclick="event.stopPropagation(); openEventModal('${encodeURIComponent(h.event_id)}', false)">
                         ${escapeHtml(h.event_name || 'Event')}
                       </span>
                     ` : `
@@ -925,7 +925,7 @@ function renderMyHub(data) {
                     <tr>
                       <td style="color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</td>
                       <td class="cell-ellipsis" title="${escapeHtml(h.event_name || 'Event')}">
-                        <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}', false, 'elo')">${escapeHtml(h.event_name || 'Event')}</span>
+                        <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}', false)">${escapeHtml(h.event_name || 'Event')}</span>
                       </td>
                       <td class="cell-ellipsis" title="${escapeHtml(h.opponent_name || 'Opponent')}">
                         ${(h.opponent_id || h.opponent_name) ? `
@@ -2259,7 +2259,7 @@ function renderHubEventCard(ev) {
   }
 
   return `
-    <div class="hub-event-card-pro" onclick="openEventModal('${ev.id}', false, 'elo')">
+    <div class="hub-event-card-pro" onclick="openEventModal('${ev.id}', false)">
       <div>
         <!-- Card Header: Title & Badges -->
         <div class="hub-card-header">

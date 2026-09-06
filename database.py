@@ -1975,23 +1975,32 @@ class PostgresDatabase:
 
                 sorted_roster = sorted(player_stats.values(), key=get_standings_sort_key, reverse=True)
 
-                # Filter out 0-match phantom alias records if the player already played matches
+                # Deduplicate phantom alias records while preserving official placement ranking
                 final_players = []
                 seen_names = set()
-                # 1. First keep all players who played matches
-                for p in sorted_roster:
-                    norm_name = (p.get("full_name") or "").strip().lower()
-                    if p.get("event_matches_count", 0) > 0:
-                        final_players.append(p)
+                if has_official_placements:
+                    for p in sorted_roster:
+                        norm_name = (p.get("full_name") or "").strip().lower()
                         if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
+                            if norm_name in seen_names and not (p.get("official_placement") and p.get("official_placement") > 0):
+                                continue
                             seen_names.add(norm_name)
-                # 2. Then keep genuine registered players who have not played a round yet
-                for p in sorted_roster:
-                    norm_name = (p.get("full_name") or "").strip().lower()
-                    if p.get("event_matches_count", 0) == 0 and norm_name not in seen_names:
                         final_players.append(p)
-                        if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
-                            seen_names.add(norm_name)
+                else:
+                    # 1. First keep all players who played matches
+                    for p in sorted_roster:
+                        norm_name = (p.get("full_name") or "").strip().lower()
+                        if p.get("event_matches_count", 0) > 0:
+                            final_players.append(p)
+                            if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
+                                seen_names.add(norm_name)
+                    # 2. Then keep genuine registered players who have not played a round yet
+                    for p in sorted_roster:
+                        norm_name = (p.get("full_name") or "").strip().lower()
+                        if p.get("event_matches_count", 0) == 0 and norm_name not in seen_names:
+                            final_players.append(p)
+                            if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
+                                seen_names.add(norm_name)
 
                 for rank_idx, p in enumerate(final_players, 1):
                     p["placement"] = p.get("official_placement") or rank_idx

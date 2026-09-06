@@ -1880,10 +1880,10 @@
             <table id="event-results-table">
               <thead>
                 <tr>
-                  <th>Rank</th>
+                  <th class="sortable sorted-asc" onclick="sortTable('event-results', 'placement')">Rank</th>
                   <th class="sortable" onclick="sortTable('event-results', 'full_name')">Player</th>
                   <th class="sortable" onclick="sortTable('event-results', 'faction')">Faction</th>
-                  <th class="sortable sorted-desc" onclick="sortTable('event-results', 'event_wins')">Tournament Record</th>
+                  <th class="sortable" onclick="sortTable('event-results', 'event_wins')">Tournament Record</th>
                   <th class="sortable" onclick="sortTable('event-results', 'event_battle_points')">Battle Points</th>
                   <th class="sortable" onclick="sortTable('event-results', 'current_elo')">Current Elo</th>
                 </tr>

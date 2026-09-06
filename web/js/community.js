@@ -988,7 +988,7 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
 
       <!-- Actions -->
       <div style="display: flex; gap: 0.5rem; margin-top: auto; align-items: center;">
-        <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false, 'elo')">
+        <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
           📋 Roster & Details
         </button>
         <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
@@ -2814,7 +2814,7 @@ function renderStoreTournamentsModalList(tournaments) {
         </div>
 
         <!-- Tournament Title -->
-        <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem; line-height: 1.35; cursor: pointer;" onclick="openEventModal('${escapeHtml(ev.id)}', false, 'elo')">
+        <h4 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0 0 0.5rem; line-height: 1.35; cursor: pointer;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
           <span style="transition: color 0.15s;" onmouseover="this.style.color='#38bdf8'" onmouseout="this.style.color='#fff'">${escapeHtml(ev.name || 'Warhammer 40k Tournament')}</span>
         </h4>
 
@@ -2844,7 +2844,7 @@ function renderStoreTournamentsModalList(tournaments) {
 
         <!-- Action Buttons -->
         <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.42rem 0.8rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false, 'elo')">
+          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.42rem 0.8rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
             📋 View Bracket &amp; Roster
           </button>
           <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.7rem; color: #94a3b8; display: inline-flex; align-items: center; gap: 4px;" title="Open this event on Best Coast Pairings">
