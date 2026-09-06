@@ -620,7 +620,7 @@ function renderMyHub(data) {
     </div>
 
     <!-- Mobile Overview Quick-Jump Preview Cards (Mobile-Only) -->
-    <div class="hub-overview-previews">
+    <div class="hub-overview-previews" style="margin-top: 1.25rem;">
       ${renderNextEventOverviewPreview(registeredTournaments, isBcpConnected)}
       ${(activeMatches && activeMatches.length > 0) ? `
         <div class="hub-card" style="border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.05);">
@@ -665,14 +665,27 @@ function renderMyHub(data) {
               const delta = Number(h.delta_elo || 0);
               const isPos = delta >= 0;
               const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
+              const oppTarget = h.opponent_id || h.opponent_name || '';
               return `
                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.8rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
                   <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;">
                     <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                       <span style="color: var(--text-muted); font-size: 0.72rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</span>
-                      <span class="cell-ellipsis" style="color: #fff; font-size: 0.82rem; font-weight: 700;">${escapeHtml(h.opponent_name || 'Opponent')}</span>
+                      ${oppTarget ? `
+                        <span class="player-link cell-ellipsis" style="font-size: 0.82rem; font-weight: 700;" onclick="event.stopPropagation(); openPlayerModal('${encodeURIComponent(oppTarget)}')">
+                          ${escapeHtml(h.opponent_name || 'Opponent')}
+                        </span>
+                      ` : `
+                        <span class="cell-ellipsis" style="color: #fff; font-size: 0.82rem; font-weight: 700;">${escapeHtml(h.opponent_name || 'Opponent')}</span>
+                      `}
                     </div>
-                    <div class="cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;">${escapeHtml(h.event_name || 'Event')}</div>
+                    ${h.event_id ? `
+                      <span class="player-link cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;" onclick="event.stopPropagation(); openEventModal('${encodeURIComponent(h.event_id)}', false, 'elo')">
+                        ${escapeHtml(h.event_name || 'Event')}
+                      </span>
+                    ` : `
+                      <div class="cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;">${escapeHtml(h.event_name || 'Event')}</div>
+                    `}
                   </div>
                   <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
                     ${res}
@@ -908,7 +921,13 @@ function renderMyHub(data) {
                         <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}', false, 'elo')">${escapeHtml(h.event_name || 'Event')}</span>
                       </td>
                       <td class="cell-ellipsis" title="${escapeHtml(h.opponent_name || 'Opponent')}">
-                        <b style="font-size:0.78rem; color:#e2e8f0;">${escapeHtml(h.opponent_name || 'Opponent')}</b>
+                        ${(h.opponent_id || h.opponent_name) ? `
+                          <span class="player-link" style="font-size:0.78rem; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${encodeURIComponent(h.opponent_id || h.opponent_name)}')">
+                            ${escapeHtml(h.opponent_name || 'Opponent')}
+                          </span>
+                        ` : `
+                          <b style="font-size:0.78rem; color:#e2e8f0;">${escapeHtml(h.opponent_name || 'Opponent')}</b>
+                        `}
                       </td>
                       <td style="text-align: center;">${res}</td>
                       <td style="text-align: right;">

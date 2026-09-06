@@ -1228,6 +1228,38 @@ def test_mobile_chat_keyboard_persistence_back_to_back():
     print("✅ Mobile chat keyboard persistence & back-to-back messaging verified!")
 
 
+def test_career_match_history_player_links_and_mobile_spacing():
+    """Verify player profile links in Career Match History and mobile spacing between Trajectory and Previews."""
+    my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    auth_py = (root_dir / "auth.py").read_text(encoding="utf-8")
+
+    # 1. Backend includes rh.opponent_id in rating_history
+    assert "rh.opponent_id" in auth_py, "auth.py rating_history query must include rh.opponent_id"
+
+    # 2. Career Match History table has clickable opponent name
+    assert "openPlayerModal('${encodeURIComponent(h.opponent_id || h.opponent_name)}')\"" in my_hub_js, \
+        "my_hub.js Career Match History table must wire openPlayerModal to opponent name"
+
+    # 3. Overview Recent Matches preview has clickable opponent and event
+    assert "openPlayerModal('${encodeURIComponent(oppTarget)}')\"" in my_hub_js, \
+        "my_hub.js Recent Matches overview preview must wire openPlayerModal to opponent name"
+    assert "openEventModal('${encodeURIComponent(h.event_id)}', false, 'elo')\"" in my_hub_js, \
+        "my_hub.js Recent Matches overview preview must wire openEventModal to event name"
+
+    # 4. Mobile spacing between Elo Trajectory and Recent Matches / Previews
+    assert 'class="hub-overview-previews" style="margin-top: 1.25rem;"' in my_hub_js, \
+        "my_hub.js hub-overview-previews must include margin-top: 1.25rem;"
+    assert '.my-hub-container[data-active-tab="overview"] .hub-fullwidth-trajectory' in styles_css, \
+        "styles.css must style trajectory in overview tab"
+    assert 'margin-bottom: 1.25rem !important;' in styles_css, \
+        "styles.css must ensure margin-bottom on trajectory in mobile overview tab"
+    assert 'margin-top: 1.25rem !important;' in styles_css, \
+        "styles.css must ensure margin-top on hub-overview-previews in mobile overview tab"
+
+    print("✅ Career Match History player profile links & mobile Trajectory-Preview spacing verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1259,6 +1291,7 @@ if __name__ == "__main__":
     test_chat_auto_scroll_and_revoke_request()
     test_registered_tournaments_module()
     test_mobile_chat_keyboard_persistence_back_to_back()
+    test_career_match_history_player_links_and_mobile_spacing()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

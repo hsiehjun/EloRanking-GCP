@@ -1722,7 +1722,7 @@ class AuthManager:
                 cur.execute("""
                 SELECT 
                     rh.match_date, rh.round, rh.old_elo, rh.new_elo, rh.delta_elo,
-                    rh.result, rh.player_faction, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
+                    rh.result, rh.player_faction, rh.opponent_id, rh.opponent_name, rh.opponent_elo, rh.opponent_faction,
                     rh.player_score, rh.opponent_score,
                     e.name as event_name, e.city, e.state, e.country, e.id as event_id
                 FROM rating_history rh

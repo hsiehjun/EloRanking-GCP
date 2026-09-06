@@ -2957,11 +2957,13 @@ input, select, textarea {
   /* Overview Tab: show trajectory and overview previews, hide heavy rows */
   .my-hub-container[data-active-tab="overview"] .hub-fullwidth-trajectory {
     display: block !important;
+    margin-bottom: 1.25rem !important;
   }
   .my-hub-container[data-active-tab="overview"] .hub-overview-previews {
     display: flex !important;
     flex-direction: column;
     gap: 1.25rem;
+    margin-top: 1.25rem !important;
   }
   .my-hub-container[data-active-tab="overview"] .hub-row-prep,
   .my-hub-container[data-active-tab="overview"] .hub-row-mastery-matrix,
