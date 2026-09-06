@@ -127,7 +127,7 @@ class PostgresDatabase:
             if not PostgresDatabase._db_initialized:
                 self.init_db()
                 self.ensure_tracker_table()
-                self.ensure_registered_tournaments_table()
+                self._ensure_event_participant_columns()
                 PostgresDatabase._db_initialized = True
         except Exception as e:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
@@ -213,16 +213,16 @@ class PostgresDatabase:
                     cursor.execute("""
                     SELECT 
                         to_regclass('public.events') IS NOT NULL
+                        AND to_regclass('public.event_participants') IS NOT NULL
                         AND to_regclass('public.matches') IS NOT NULL
                         AND to_regclass('public.player_ratings') IS NOT NULL
-                        AND to_regclass('public.system_settings') IS NOT NULL
-                        AND to_regclass('public.user_tournament_registrations') IS NOT NULL;
+                        AND to_regclass('public.system_settings') IS NOT NULL;
                     """)
                     row = cursor.fetchone()
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v14_registered_tournaments':
+                        if setting and setting[0] == 'v15_unified_events':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -429,6 +429,9 @@ class PostgresDatabase:
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS placement INT;",
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS battle_points INT;",
             "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS pod_num INT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS detachment TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list TEXT;",
+            "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS has_list_submitted BOOLEAN DEFAULT FALSE;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p1 VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS user_id_p2 VARCHAR(64);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_role TEXT DEFAULT 'player1';",
@@ -468,33 +471,6 @@ class PostgresDatabase:
             );""",
             "CREATE INDEX IF NOT EXISTS idx_user_army_lists_uid ON user_army_lists(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_user_army_lists_faction ON user_army_lists(faction);",
-            """CREATE TABLE IF NOT EXISTS user_tournament_registrations (
-                id VARCHAR(64) PRIMARY KEY,
-                user_id VARCHAR(64) NOT NULL,
-                player_id VARCHAR(64),
-                bcp_event_id VARCHAR(64) NOT NULL,
-                event_name VARCHAR(255) NOT NULL,
-                event_date TIMESTAMPTZ,
-                end_date TIMESTAMPTZ,
-                venue_name VARCHAR(255),
-                city VARCHAR(100),
-                state VARCHAR(50),
-                country VARCHAR(50),
-                faction VARCHAR(100),
-                detachment VARCHAR(100),
-                army_list TEXT,
-                has_list_submitted BOOLEAN DEFAULT FALSE,
-                checked_in BOOLEAN DEFAULT FALSE,
-                points_limit INT DEFAULT 2000,
-                rounds INT DEFAULT 5,
-                total_players INT DEFAULT 0,
-                bcp_url VARCHAR(500),
-                last_synced_at TIMESTAMPTZ DEFAULT NOW(),
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_user_event UNIQUE (user_id, bcp_event_id)
-            );""",
-            "CREATE INDEX IF NOT EXISTS idx_utr_user_date ON user_tournament_registrations(user_id, event_date);",
-            "CREATE INDEX IF NOT EXISTS idx_utr_bcp_event ON user_tournament_registrations(bcp_event_id);",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
@@ -814,7 +790,7 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v14_registered_tournaments')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v15_unified_events')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     """)
                 conn.commit()
@@ -980,61 +956,24 @@ class PostgresDatabase:
         except Exception as err:
             logger.debug(f"ensure_tracker_table batch notice: {err}")
 
-    def ensure_registered_tournaments_table(self, force: bool = False):
-        """Guarantees that user_tournament_registrations table and required indexes exist."""
-        if not force:
-            try:
-                with self.get_connection() as conn:
-                    with conn.cursor() as cursor:
-                        cursor.execute("SELECT to_regclass('public.user_tournament_registrations') IS NOT NULL;")
-                        row = cursor.fetchone()
-                        if row and row[0]:
-                            return
-            except Exception:
-                pass
-
-        stmts = [
-            """CREATE TABLE IF NOT EXISTS user_tournament_registrations (
-                id VARCHAR(64) PRIMARY KEY,
-                user_id VARCHAR(64) NOT NULL,
-                player_id VARCHAR(64),
-                bcp_event_id VARCHAR(64) NOT NULL,
-                event_name VARCHAR(255) NOT NULL,
-                event_date TIMESTAMPTZ,
-                end_date TIMESTAMPTZ,
-                venue_name VARCHAR(255),
-                city VARCHAR(100),
-                state VARCHAR(50),
-                country VARCHAR(50),
-                faction VARCHAR(100),
-                detachment VARCHAR(100),
-                army_list TEXT,
-                has_list_submitted BOOLEAN DEFAULT FALSE,
-                checked_in BOOLEAN DEFAULT FALSE,
-                points_limit INT DEFAULT 2000,
-                rounds INT DEFAULT 5,
-                total_players INT DEFAULT 0,
-                bcp_url VARCHAR(500),
-                last_synced_at TIMESTAMPTZ DEFAULT NOW(),
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                CONSTRAINT uq_user_event UNIQUE (user_id, bcp_event_id)
-            );""",
-            "CREATE INDEX IF NOT EXISTS idx_utr_user_date ON user_tournament_registrations(user_id, event_date);",
-            "CREATE INDEX IF NOT EXISTS idx_utr_bcp_event ON user_tournament_registrations(bcp_event_id);"
-        ]
+    def _ensure_event_participant_columns(self):
+        """Guarantees detachment, army_list, and has_list_submitted columns exist in event_participants."""
         try:
             with self.get_connection() as conn:
-                for s in stmts:
-                    try:
-                        with conn.cursor() as cursor:
-                            cursor.execute("SET lock_timeout = '2s';")
-                            cursor.execute(s)
-                        conn.commit()
-                    except Exception as e:
-                        conn.rollback()
-                        logger.debug(f"Registered tournaments ensure table notice: {e}")
+                with conn.cursor() as cursor:
+                    cursor.execute("SET lock_timeout = '2s';")
+                    cursor.execute("""
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS detachment TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS has_list_submitted BOOLEAN DEFAULT FALSE;
+                    """)
+                conn.commit()
         except Exception as err:
-            logger.warning(f"ensure_registered_tournaments_table batch notice: {err}")
+            logger.debug(f"_ensure_event_participant_columns notice: {err}")
+
+    def ensure_registered_tournaments_table(self, force: bool = False):
+        """Deprecated compatibility alias: ensures event_participants columns exist."""
+        return self._ensure_event_participant_columns()
 
     def upsert_event(self, event_data: Dict[str, Any]):
         """Inserts or updates an event record in PostgreSQL."""
@@ -3617,75 +3556,121 @@ class PostgresDatabase:
         return True
 
     def get_user_registered_tournaments(self, user_id: str) -> List[Dict[str, Any]]:
-        """Retrieves active/upcoming registered tournaments for a user."""
+        """Retrieves active/upcoming registered tournaments for a user by querying events and event_participants."""
         if not user_id:
             return []
-        self.ensure_registered_tournaments_table()
         try:
             return self._query_user_registered_tournaments(user_id)
         except Exception as e:
             err_str = str(e).lower()
-            if "does not exist" in err_str or "undefinedtable" in err_str:
-                logger.warning(f"user_tournament_registrations table missing on query, auto-creating: {e}")
-                self.ensure_registered_tournaments_table(force=True)
+            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "undefinedcolumn" in err_str:
+                self._ensure_event_participant_columns()
                 try:
                     return self._query_user_registered_tournaments(user_id)
                 except Exception as retry_err:
-                    logger.error(f"Failed to query registered tournaments after table creation: {retry_err}")
+                    logger.error(f"Failed to query registered tournaments after column check: {retry_err}")
                     return []
-            logger.error(f"get_user_registered_tournaments unexpected error: {e}")
+            logger.error(f"get_user_registered_tournaments error: {e}")
             return []
 
     def _query_user_registered_tournaments(self, user_id: str) -> List[Dict[str, Any]]:
+        target_pids = [user_id]
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT player_id, bcp_user_id FROM users WHERE id = %s;", (user_id,))
+                    row = cur.fetchone()
+                    if row:
+                        if row[0] and str(row[0]) not in target_pids:
+                            target_pids.append(str(row[0]))
+                        if row[1] and str(row[1]) not in target_pids:
+                            target_pids.append(str(row[1]))
+        except Exception as e:
+            logger.debug(f"Could not fetch user player_id: {e}")
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
-                SELECT id, user_id, player_id, bcp_event_id, event_name,
-                       event_date, end_date, venue_name, city, state, country,
-                       faction, detachment, army_list, has_list_submitted, checked_in,
-                       points_limit, rounds, total_players, bcp_url, last_synced_at, created_at
-                FROM user_tournament_registrations
-                WHERE user_id = %s
-                ORDER BY COALESCE(event_date, created_at) ASC;
-                """, (user_id,))
+                SELECT 
+                    e.id,
+                    e.id AS bcp_event_id,
+                    e.name AS event_name,
+                    e.name,
+                    e.event_date,
+                    e.end_date,
+                    COALESCE(e.venue_name, e.venue, '') AS venue_name,
+                    COALESCE(e.city, '') AS city,
+                    COALESCE(e.state, '') AS state,
+                    COALESCE(e.country, '') AS country,
+                    COALESCE(ep.faction, '') AS faction,
+                    COALESCE(ep.detachment, '') AS detachment,
+                    COALESCE(ep.army_list, '') AS army_list,
+                    COALESCE(ep.has_list_submitted, FALSE) AS has_list_submitted,
+                    COALESCE(ep.checked_in, FALSE) AS checked_in,
+                    COALESCE(e.points, 2000) AS points_limit,
+                    COALESCE(e.num_rounds, 5) AS rounds,
+                    COALESCE(e.total_players, 0) AS total_players,
+                    CONCAT('https://www.bestcoastpairings.com/event/', e.id) AS bcp_url
+                FROM events e
+                JOIN event_participants ep ON e.id = ep.event_id
+                WHERE ep.player_id = ANY(%s)
+                  AND (e.event_date >= NOW() - INTERVAL '30 days' OR e.end_date >= NOW() - INTERVAL '30 days' OR e.event_date IS NULL)
+                ORDER BY COALESCE(e.event_date, e.end_date) ASC;
+                """, (target_pids,))
                 rows = cursor.fetchall()
                 res = []
+                seen_event_ids = set()
                 for r in rows:
                     item = dict(r)
+                    ev_id = str(item.get("id") or item.get("bcp_event_id") or "")
+                    if ev_id in seen_event_ids:
+                        continue
+                    seen_event_ids.add(ev_id)
                     if item.get("event_date") and hasattr(item["event_date"], "isoformat"):
                         item["event_date"] = item["event_date"].isoformat()
                     if item.get("end_date") and hasattr(item["end_date"], "isoformat"):
                         item["end_date"] = item["end_date"].isoformat()
-                    if item.get("last_synced_at") and hasattr(item["last_synced_at"], "isoformat"):
-                        item["last_synced_at"] = item["last_synced_at"].isoformat()
-                    if item.get("created_at") and hasattr(item["created_at"], "isoformat"):
-                        item["created_at"] = item["created_at"].isoformat()
                     res.append(item)
                 return res
 
     def save_user_registered_tournaments(self, user_id: str, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Upserts a list of registered tournaments for a user."""
+        """
+        Upserts a list of registered tournaments for a user directly into:
+        1. events: updates or inserts event metadata (name, dates, venue, points, rounds, total_players)
+        2. event_participants: links the player to the event with their faction, detachment, list submission, check-in status
+        """
         if not user_id or not events:
             return self.get_user_registered_tournaments(user_id) if user_id else []
-        self.ensure_registered_tournaments_table()
         try:
             return self._execute_save_registered_tournaments(user_id, events)
         except Exception as e:
             err_str = str(e).lower()
-            if "does not exist" in err_str or "undefinedtable" in err_str:
-                logger.warning(f"user_tournament_registrations table missing on save, auto-creating: {e}")
-                self.ensure_registered_tournaments_table(force=True)
+            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "undefinedcolumn" in err_str:
+                self._ensure_event_participant_columns()
                 try:
                     return self._execute_save_registered_tournaments(user_id, events)
                 except Exception as retry_err:
-                    logger.error(f"Failed to save registered tournaments after table auto-creation: {retry_err}")
+                    logger.error(f"Failed to save registered tournaments after column check: {retry_err}")
                     return self.get_user_registered_tournaments(user_id)
             logger.error(f"save_user_registered_tournaments error: {e}")
             return self.get_user_registered_tournaments(user_id)
 
     def _execute_save_registered_tournaments(self, user_id: str, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        target_pid = user_id
+        full_name = ""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT player_id, display_name FROM users WHERE id = %s;", (user_id,))
+                    row = cur.fetchone()
+                    if row:
+                        target_pid = row[0] or user_id
+                        full_name = row[1] or ""
+        except Exception as e:
+            logger.debug(f"User lookup in save_user_registered_tournaments notice: {e}")
+
         with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
+            with conn.cursor() as cursor:
                 for ev in events:
                     bcp_event_id = str(ev.get("bcp_event_id") or ev.get("id") or "").strip()
                     if not bcp_event_id:
@@ -3694,10 +3679,10 @@ class PostgresDatabase:
                     event_date = ev.get("event_date") or ev.get("eventDate") or ev.get("startDate")
                     end_date = ev.get("end_date") or ev.get("endDate") or ev.get("eventEndDate")
                     loc = ev.get("location") if isinstance(ev.get("location"), dict) else {}
-                    venue_name = ev.get("venue_name") or ev.get("venue") or loc.get("venueName") or loc.get("name") or loc.get("venue")
-                    city = ev.get("city") or loc.get("city")
-                    state = ev.get("state") or loc.get("state")
-                    country = ev.get("country") or loc.get("country")
+                    venue_name = ev.get("venue_name") or ev.get("venue") or loc.get("venueName") or loc.get("name") or loc.get("venue") or ""
+                    city = ev.get("city") or loc.get("city") or ""
+                    state = ev.get("state") or loc.get("state") or ""
+                    country = ev.get("country") or loc.get("country") or ""
                     faction = ev.get("faction") or ev.get("army") or ""
                     detachment = ev.get("detachment") or ""
                     army_list = ev.get("army_list") or ev.get("armyList") or ""
@@ -3706,70 +3691,76 @@ class PostgresDatabase:
                     points_limit = int(ev.get("points_limit") or ev.get("points") or 2000)
                     rounds = int(ev.get("rounds") or ev.get("numberOfRounds") or ev.get("numRounds") or 5)
                     total_players = int(ev.get("total_players") or ev.get("totalPlayers") or ev.get("capacity") or 0)
-                    bcp_url = ev.get("bcp_url") or f"https://www.bestcoastpairings.com/event/{bcp_event_id}"
-                    reg_id = f"reg_{user_id}_{bcp_event_id}"
+                    player_id_to_use = str(ev.get("player_id") or target_pid or user_id).strip()
 
-                    cursor.execute("""
-                    INSERT INTO user_tournament_registrations (
-                        id, user_id, player_id, bcp_event_id, event_name,
-                        event_date, end_date, venue_name, city, state, country,
-                        faction, detachment, army_list, has_list_submitted, checked_in,
-                        points_limit, rounds, total_players, bcp_url, last_synced_at, created_at
-                    ) VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, NOW(), NOW()
-                    )
-                    ON CONFLICT (user_id, bcp_event_id) DO UPDATE SET
-                        event_name = EXCLUDED.event_name,
-                        event_date = COALESCE(EXCLUDED.event_date, user_tournament_registrations.event_date),
-                        end_date = COALESCE(EXCLUDED.end_date, user_tournament_registrations.end_date),
-                        venue_name = COALESCE(EXCLUDED.venue_name, user_tournament_registrations.venue_name),
-                        city = COALESCE(EXCLUDED.city, user_tournament_registrations.city),
-                        state = COALESCE(EXCLUDED.state, user_tournament_registrations.state),
-                        country = COALESCE(EXCLUDED.country, user_tournament_registrations.country),
-                        faction = COALESCE(NULLIF(EXCLUDED.faction, ''), user_tournament_registrations.faction),
-                        detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), user_tournament_registrations.detachment),
-                        army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), user_tournament_registrations.army_list),
-                        has_list_submitted = EXCLUDED.has_list_submitted,
-                        checked_in = EXCLUDED.checked_in,
-                        points_limit = EXCLUDED.points_limit,
-                        rounds = EXCLUDED.rounds,
-                        total_players = EXCLUDED.total_players,
-                        bcp_url = EXCLUDED.bcp_url,
-                        last_synced_at = NOW();
-                    """, (
-                        reg_id, user_id, ev.get("player_id"), bcp_event_id, event_name,
-                        event_date, end_date, venue_name, city, state, country,
-                        faction, detachment, army_list, has_list_submitted, checked_in,
-                        points_limit, rounds, total_players, bcp_url
-                    ))
-
-                    # Also ensure the event exists in global events table
+                    # 1. Upsert into canonical events table
                     cursor.execute("""
                     INSERT INTO events (
                         id, name, event_date, end_date, city, state, country,
-                        venue, num_rounds, points, total_players
+                        venue, venue_name, num_rounds, points, total_players
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s
+                        %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (id) DO UPDATE SET
                         name = EXCLUDED.name,
                         event_date = COALESCE(EXCLUDED.event_date, events.event_date),
                         end_date = COALESCE(EXCLUDED.end_date, events.end_date),
-                        city = COALESCE(EXCLUDED.city, events.city),
-                        state = COALESCE(EXCLUDED.state, events.state),
-                        country = COALESCE(EXCLUDED.country, events.country),
-                        venue = COALESCE(EXCLUDED.venue, events.venue),
+                        city = COALESCE(NULLIF(EXCLUDED.city, ''), events.city),
+                        state = COALESCE(NULLIF(EXCLUDED.state, ''), events.state),
+                        country = COALESCE(NULLIF(EXCLUDED.country, ''), events.country),
+                        venue = COALESCE(NULLIF(EXCLUDED.venue, ''), events.venue),
+                        venue_name = COALESCE(NULLIF(EXCLUDED.venue_name, ''), events.venue_name),
                         num_rounds = COALESCE(EXCLUDED.num_rounds, events.num_rounds),
                         points = COALESCE(EXCLUDED.points, events.points),
                         total_players = COALESCE(EXCLUDED.total_players, events.total_players);
                     """, (
                         bcp_event_id, event_name, event_date, end_date, city, state, country,
-                        venue_name, rounds, points_limit, total_players
+                        venue_name, venue_name, rounds, points_limit, total_players
                     ))
+
+                    # 2. Upsert into canonical event_participants table
+                    cursor.execute("""
+                    INSERT INTO event_participants (
+                        event_id, player_id, full_name, faction, checked_in,
+                        detachment, army_list, has_list_submitted
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s
+                    )
+                    ON CONFLICT (event_id, player_id) DO UPDATE SET
+                        full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                        faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
+                        checked_in = EXCLUDED.checked_in,
+                        detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                        army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
+                        has_list_submitted = EXCLUDED.has_list_submitted;
+                    """, (
+                        bcp_event_id, player_id_to_use, full_name, faction, checked_in,
+                        detachment, army_list, has_list_submitted
+                    ))
+
+                    # If target_pid is different from user_id, also ensure user_id record is synced
+                    if user_id != player_id_to_use:
+                        cursor.execute("""
+                        INSERT INTO event_participants (
+                            event_id, player_id, full_name, faction, checked_in,
+                            detachment, army_list, has_list_submitted
+                        ) VALUES (
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s
+                        )
+                        ON CONFLICT (event_id, player_id) DO UPDATE SET
+                            full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                            faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
+                            checked_in = EXCLUDED.checked_in,
+                            detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                            army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
+                            has_list_submitted = EXCLUDED.has_list_submitted;
+                        """, (
+                            bcp_event_id, user_id, full_name, faction, checked_in,
+                            detachment, army_list, has_list_submitted
+                        ))
 
             conn.commit()
         return self.get_user_registered_tournaments(user_id)

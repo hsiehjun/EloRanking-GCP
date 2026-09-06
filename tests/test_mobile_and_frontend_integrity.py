@@ -1126,11 +1126,15 @@ def test_registered_tournaments_module():
     styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
     my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
 
-    # 1. Database schema and data layer
-    assert "CREATE TABLE IF NOT EXISTS user_tournament_registrations" in db_py, \
-        "database.py missing user_tournament_registrations table definition"
-    assert "idx_utr_user_date" in db_py, "database.py missing idx_utr_user_date index"
-    assert "idx_utr_bcp_event" in db_py, "database.py missing idx_utr_bcp_event index"
+    # 1. Database schema and data layer - unified events and event_participants
+    assert "CREATE TABLE IF NOT EXISTS events" in db_py, \
+        "database.py missing events table definition"
+    assert "CREATE TABLE IF NOT EXISTS event_participants" in db_py, \
+        "database.py missing event_participants table definition"
+    assert "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS detachment" in db_py, \
+        "database.py missing event_participants detachment column"
+    assert "ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list" in db_py, \
+        "database.py missing event_participants army_list column"
     assert "def get_user_registered_tournaments(" in db_py, \
         "database.py missing get_user_registered_tournaments method"
     assert "def save_user_registered_tournaments(" in db_py, \
