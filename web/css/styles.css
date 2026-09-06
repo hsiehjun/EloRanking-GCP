@@ -719,6 +719,19 @@ tbody tr:hover {
   }
 }
 
+#player-modal .modal-window {
+  max-width: 1120px;
+}
+#player-modal .modal-body {
+  padding: 1.25rem 1.25rem;
+}
+#player-matches-table th,
+#player-matches-table td {
+  padding: 0.5rem 0.4rem !important;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
 /* Event / Tournament Modal Responsive Compact Header & Layout */
 .event-modal-header {
   display: flex !important;
@@ -1538,6 +1551,19 @@ input, select, textarea {
   #faction-meta-table td:nth-child(5)::before { content: "Sample Size"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #faction-meta-table td:nth-child(6)::before { content: "Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #faction-meta-table td:nth-child(7)::before { content: "Avg Battle Pts"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Player Matches Modal Mobile Card */
+  #player-matches-table td:nth-child(1) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.4rem !important; margin-bottom: 0.2rem; font-weight: 700; font-size: 0.95rem; }
+  #player-matches-table td:nth-child(2)::before { content: "Tournament"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(3)::before { content: "Round"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(4)::before { content: "Result"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(5)::before { content: "Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(6)::before { content: "Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(7)::before { content: "Opponent"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(8)::before { content: "Opp Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(9)::before { content: "Opp Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(10)::before { content: "Δ Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #player-matches-table td:nth-child(11)::before { content: "New Elo"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
   /* Community Scene Mobile Layout */
   .comm-table-container {

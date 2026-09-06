@@ -8,6 +8,7 @@ let currentRoundFilter = 'all';
 let currentOpenEventId = null;
 let currentEventData = null;
 let currentEventModalTab = 'results';
+let eventModalSearchQuery = '';
 
 function debounceEventSearch() {
   clearTimeout(eventSearchTimeout);
@@ -193,6 +194,14 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
 async function openEventModal(eventId, forceSync = false, initialTab = null) {
   stopEventSyncPoll();
   currentOpenEventId = eventId;
+  eventModalSearchQuery = '';
+  const searchInput = document.getElementById('event-modal-search');
+  if (searchInput) searchInput.value = '';
+  const clearBtn = document.getElementById('event-modal-search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  const searchSummary = document.getElementById('event-modal-search-summary');
+  if (searchSummary) searchSummary.style.display = 'none';
+
   const modal = document.getElementById('event-modal');
   if (!modal) return;
   if (typeof bringModalToFront === 'function') {
@@ -348,6 +357,32 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
 }
 
+function handleEventModalSearch(query) {
+  eventModalSearchQuery = (query || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('event-modal-search-clear');
+  if (clearBtn) clearBtn.style.display = eventModalSearchQuery ? 'block' : 'none';
+
+  if (currentEventModalTab === 'teams') {
+    renderEventTeamsRows();
+  } else if (currentEventModalTab === 'matches') {
+    renderEventPairingsRows();
+  } else if (currentEventModalTab === 'elo') {
+    renderEventEloRows();
+  } else {
+    renderEventResultsRows();
+  }
+}
+
+function clearEventModalSearch() {
+  const input = document.getElementById('event-modal-search');
+  if (input) input.value = '';
+  handleEventModalSearch('');
+  if (input) input.focus();
+}
+
+window.handleEventModalSearch = handleEventModalSearch;
+window.clearEventModalSearch = clearEventModalSearch;
+
 function switchEventModalTab(tabKey) {
   currentEventModalTab = tabKey || 'results';
   const btnTeams = document.getElementById('event-subtab-teams');
@@ -365,16 +400,20 @@ function switchEventModalTab(tabKey) {
   if (tabKey === 'teams') {
     if (btnTeams) btnTeams.classList.add('active');
     if (viewTeams) viewTeams.style.display = 'block';
+    renderEventTeamsRows();
   } else if (tabKey === 'matches') {
     if (btnMatches) btnMatches.classList.add('active');
     if (viewMatches) viewMatches.style.display = 'block';
+    renderEventPairingsRows();
   } else if (tabKey === 'elo') {
     if (btnElo) btnElo.classList.add('active');
     if (viewElo) viewElo.style.display = 'block';
+    renderEventEloRows();
   } else {
     // default to 'results' tab
     if (btnResults) btnResults.classList.add('active');
     if (viewResults) viewResults.style.display = 'block';
+    renderEventResultsRows();
   }
 }
 
@@ -388,8 +427,40 @@ function renderEventTeamsRows() {
     return;
   }
 
+  let filtered = standings;
+  if (eventModalSearchQuery) {
+    filtered = standings.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      const captain = (t.captain || '').toLowerCase();
+      return name.includes(eventModalSearchQuery) || captain.includes(eventModalSearchQuery);
+    });
+  }
+
+  const searchSummary = document.getElementById('event-modal-search-summary');
+  if (searchSummary && currentEventModalTab === 'teams') {
+    if (eventModalSearchQuery) {
+      searchSummary.innerText = `Showing ${filtered.length} of ${standings.length} teams`;
+      searchSummary.style.display = 'block';
+    } else {
+      searchSummary.style.display = 'none';
+    }
+  }
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
+          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Teams Found</div>
+          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+            No teams match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+          </div>
+        </td>
+      </tr>`;
+    return;
+  }
+
   tbody.innerHTML = '';
-  standings.forEach((t, idx) => {
+  filtered.forEach((t, idx) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td class="rank-cell">#${t.placing && t.placing > 0 ? t.placing : (idx + 1)}</td>
@@ -427,8 +498,6 @@ function renderEventResultsRows() {
     return;
   }
 
-  tbody.innerHTML = '';
-
   // Ensure eventPlayersCache is strictly ordered by placement / rank
   const sortCfg = (typeof currentSort !== 'undefined' && currentSort['event-results']) || { field: 'placement', asc: true };
   if (sortCfg.field === 'placement' || sortCfg.field === 'rank') {
@@ -441,7 +510,41 @@ function renderEventResultsRows() {
     eventPlayersCache = sortClientArray(eventPlayersCache, sortCfg.field, sortCfg.asc);
   }
 
-  eventPlayersCache.forEach((p, idx) => {
+  let playersToRender = eventPlayersCache;
+  if (eventModalSearchQuery) {
+    playersToRender = eventPlayersCache.filter(p => {
+      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
+      const fac = (p.faction || '').toLowerCase();
+      const team = (p.team || '').toLowerCase();
+      return name.includes(eventModalSearchQuery) || fac.includes(eventModalSearchQuery) || team.includes(eventModalSearchQuery);
+    });
+  }
+
+  const searchSummary = document.getElementById('event-modal-search-summary');
+  if (searchSummary && currentEventModalTab === 'results') {
+    if (eventModalSearchQuery) {
+      searchSummary.innerText = `Showing ${playersToRender.length} of ${eventPlayersCache.length} competitors`;
+      searchSummary.style.display = 'block';
+    } else {
+      searchSummary.style.display = 'none';
+    }
+  }
+
+  if (playersToRender.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
+          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Results Found</div>
+          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+            No competitors match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+          </div>
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = '';
+  playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openPlayerModal(p.player_id);
 
@@ -484,21 +587,56 @@ function renderEventEloRows() {
     return;
   }
 
-  tbody.innerHTML = '';
   // Sort players descending by current Elo
   const sorted = [...eventPlayersCache].sort((a, b) => (b.current_elo || 1500) - (a.current_elo || 1500));
 
-  sorted.forEach((p, idx) => {
+  let playersToRender = sorted;
+  if (eventModalSearchQuery) {
+    playersToRender = sorted.filter(p => {
+      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
+      const fac = (p.faction || '').toLowerCase();
+      const team = (p.team || '').toLowerCase();
+      return name.includes(eventModalSearchQuery) || fac.includes(eventModalSearchQuery) || team.includes(eventModalSearchQuery);
+    });
+  }
+
+  const searchSummary = document.getElementById('event-modal-search-summary');
+  if (searchSummary && currentEventModalTab === 'elo') {
+    if (eventModalSearchQuery) {
+      searchSummary.innerText = `Showing ${playersToRender.length} of ${sorted.length} competitors`;
+      searchSummary.style.display = 'block';
+    } else {
+      searchSummary.style.display = 'none';
+    }
+  }
+
+  if (playersToRender.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="empty-state" style="padding:2.5rem 1rem;">
+          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Competitors Found</div>
+          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+            No competitors match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+          </div>
+        </td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = '';
+  playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openPlayerModal(p.player_id);
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
+    const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
 
     tr.innerHTML = `
       <td class="rank-cell">#${idx + 1}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.full_name || (p.first_name + ' ' + p.last_name))}</span>
+          ${teamHtml}
         </div>
       </td>
       <td>
@@ -558,9 +696,50 @@ function renderEventPairingsRows() {
   }
 
   // 2. Filter matches by selected round
-  const matchesToRender = selectedEventRound === 'all' 
+  let matchesToRender = selectedEventRound === 'all' 
     ? eventMatchesCache 
     : eventMatchesCache.filter(m => (m.round || 1) === Number(selectedEventRound));
+
+  // 3. Filter matches by search query (players, teams, factions)
+  if (eventModalSearchQuery) {
+    matchesToRender = matchesToRender.filter(m => {
+      const p1Name = (m.player1_name || '').toLowerCase();
+      const p2Name = (m.player2_name || '').toLowerCase();
+      const p1Fac = (m.player1_faction || eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction || '').toLowerCase();
+      const p2Fac = (m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '').toLowerCase();
+      const p1Team = (eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.team || '').toLowerCase();
+      const p2Team = (eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.team || '').toLowerCase();
+      return p1Name.includes(eventModalSearchQuery) ||
+             p2Name.includes(eventModalSearchQuery) ||
+             p1Fac.includes(eventModalSearchQuery) ||
+             p2Fac.includes(eventModalSearchQuery) ||
+             p1Team.includes(eventModalSearchQuery) ||
+             p2Team.includes(eventModalSearchQuery);
+    });
+  }
+
+  const searchSummary = document.getElementById('event-modal-search-summary');
+  if (searchSummary && currentEventModalTab === 'matches') {
+    if (eventModalSearchQuery) {
+      searchSummary.innerText = `Showing ${matchesToRender.length} of ${eventMatchesCache.length} pairings`;
+      searchSummary.style.display = 'block';
+    } else {
+      searchSummary.style.display = 'none';
+    }
+  }
+
+  if (matchesToRender.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
+          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Matching Match Pairings</div>
+          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+            No match pairings match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>"${selectedEventRound !== 'all' ? ` in Round ${selectedEventRound}` : ''}.
+          </div>
+        </td>
+      </tr>`;
+    return;
+  }
 
   tbody.innerHTML = '';
   matchesToRender.forEach(m => {
@@ -575,6 +754,9 @@ function renderEventPairingsRows() {
     const hasScore = (m.player1_score !== null && m.player2_score !== null);
     const hasTrackerGame = Boolean(m.has_tracker_game);
     const isTrackerDone = Boolean(m.tracker_is_done || m.tracker_status === 'completed');
+
+    const p1Faction = m.player1_faction || eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction || '';
+    const p2Faction = m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '';
 
     // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
     const u = currentUser;
@@ -606,7 +788,7 @@ function renderEventPairingsRows() {
       else if (!hasScore && canEdit) {
         const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
         actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${eventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
-      }
+      } 
       // 3. If match has an active tracker room and user is a spectator
       else if (!hasScore && hasTrackerGame && !canEdit) {
         actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#818cf8;" onclick="event.stopPropagation(); window.open('/11th/tracker?match_id=${encodeURIComponent(matchId)}&role=spectator', '_blank')" title="Live Spectator Mode">👀 Spectate</button>`;
@@ -617,9 +799,12 @@ function renderEventPairingsRows() {
       <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
       <td style="font-family:var(--font-mono); color:var(--text-muted);">T${m.table_number || 1}</td>
       <td>
-        <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'};" onclick="event.stopPropagation(); openPlayerModal('${m.player1_id}')">
-          ${escapeHtml(m.player1_name || 'Player 1')}
-        </span>
+        <div class="player-name-cell">
+          <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player1_id}')">
+            ${escapeHtml(m.player1_name || 'Player 1')}
+          </span>
+          ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
+        </div>
       </td>
       <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">
         ${m.player1_score !== null ? m.player1_score : '-'}
@@ -628,9 +813,12 @@ function renderEventPairingsRows() {
         ${m.player2_score !== null ? m.player2_score : '-'}
       </td>
       <td>
-        <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'};" onclick="event.stopPropagation(); openPlayerModal('${m.player2_id}')">
-          ${escapeHtml(m.player2_name || (m.is_bye ? 'BYE' : 'Player 2'))}
-        </span>
+        <div class="player-name-cell">
+          <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player2_id}')">
+            ${escapeHtml(m.player2_name || (m.is_bye ? 'BYE' : 'Player 2'))}
+          </span>
+          ${(!isBye && p2Faction) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span></div>` : ''}
+        </div>
       </td>
       <td>
         <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end;">

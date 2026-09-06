@@ -204,7 +204,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "player_score": 69,
                             "opponent_score": 63,
                             "player_faction": "Adeptus Custodes",
-                            "opponent_name": "GemHammer RTT April 2022",
+                            "opponent_name": "John Lennon",
+                            "opponent_faction": "Ultramarines",
                             "opponent_elo": 1820.0,
                             "delta_elo": 12.4,
                             "new_elo": 2495.2
@@ -217,13 +218,276 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "player_score": 61,
                             "opponent_score": 72,
                             "player_faction": "Adeptus Custodes",
-                            "opponent_name": "Opponent",
+                            "opponent_name": "David Gaylard",
+                            "opponent_faction": "Necrons",
                             "opponent_elo": 1900.0,
                             "delta_elo": -8.1,
                             "new_elo": 2487.1
+                        },
+                        {
+                            "match_date": "2022-04-16",
+                            "event_name": "GemHammer RTT April 2022",
+                            "round": "R3",
+                            "result": "W",
+                            "player_score": 88,
+                            "opponent_score": 45,
+                            "player_faction": "Adeptus Custodes",
+                            "opponent_name": "Manny Cheema",
+                            "opponent_faction": "Tyranids",
+                            "opponent_elo": 2100.0,
+                            "delta_elo": 15.2,
+                            "new_elo": 2502.3
+                        },
+                        {
+                            "match_date": "2022-04-16",
+                            "event_name": "GemHammer RTT April 2022",
+                            "round": "R4",
+                            "result": "W",
+                            "player_score": 95,
+                            "opponent_score": 50,
+                            "player_faction": "Adeptus Custodes",
+                            "opponent_name": "Brad Chester",
+                            "opponent_faction": "Aeldari",
+                            "opponent_elo": 2150.0,
+                            "delta_elo": 14.1,
+                            "new_elo": 2516.4
                         }
                     ]
                 }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/event/"):
+            res = {
+                "id": "ev_tacoma_gt_2026",
+                "name": "US Open Tacoma GT 2026",
+                "event_date": "2026-07-18",
+                "end_date": "2026-07-20",
+                "city": "Tacoma",
+                "state": "WA",
+                "country": "United States",
+                "total_players": 8,
+                "num_rounds": 3,
+                "current_round": 3,
+                "is_ended": True,
+                "players": [
+                    {
+                        "player_id": "p_1",
+                        "full_name": "Folger Pyles",
+                        "faction": "Adeptus Custodes",
+                        "team": "Art of War",
+                        "placement": 1,
+                        "event_wins": 3,
+                        "event_losses": 0,
+                        "event_draws": 0,
+                        "event_battle_points": 290,
+                        "current_elo": 2495.2
+                    },
+                    {
+                        "player_id": "p_2",
+                        "full_name": "John Lennon",
+                        "faction": "Ultramarines",
+                        "team": "Art of War",
+                        "placement": 2,
+                        "event_wins": 2,
+                        "event_losses": 1,
+                        "event_draws": 0,
+                        "event_battle_points": 265,
+                        "current_elo": 2340.5
+                    },
+                    {
+                        "player_id": "p_3",
+                        "full_name": "Manny Cheema",
+                        "faction": "Tyranids",
+                        "team": "Team USA",
+                        "placement": 3,
+                        "event_wins": 2,
+                        "event_losses": 1,
+                        "event_draws": 0,
+                        "event_battle_points": 250,
+                        "current_elo": 2210.0
+                    },
+                    {
+                        "player_id": "p_4",
+                        "full_name": "David Gaylard",
+                        "faction": "Necrons",
+                        "team": "London Wargaming",
+                        "placement": 4,
+                        "event_wins": 2,
+                        "event_losses": 1,
+                        "event_draws": 0,
+                        "event_battle_points": 240,
+                        "current_elo": 2185.0
+                    },
+                    {
+                        "player_id": "p_5",
+                        "full_name": "Jack Harpster",
+                        "faction": "Blood Angels",
+                        "team": "Art of War",
+                        "placement": 5,
+                        "event_wins": 1,
+                        "event_losses": 2,
+                        "event_draws": 0,
+                        "event_battle_points": 210,
+                        "current_elo": 2250.0
+                    },
+                    {
+                        "player_id": "p_6",
+                        "full_name": "Brad Chester",
+                        "faction": "Aeldari",
+                        "team": "Team USA",
+                        "placement": 6,
+                        "event_wins": 1,
+                        "event_losses": 2,
+                        "event_draws": 0,
+                        "event_battle_points": 195,
+                        "current_elo": 2190.0
+                    },
+                    {
+                        "player_id": "p_7",
+                        "full_name": "Anthony Vanella",
+                        "faction": "World Eaters",
+                        "team": "Best in Coast",
+                        "placement": 7,
+                        "event_wins": 1,
+                        "event_losses": 2,
+                        "event_draws": 0,
+                        "event_battle_points": 180,
+                        "current_elo": 2120.0
+                    },
+                    {
+                        "player_id": "p_8",
+                        "full_name": "Richard Siegler",
+                        "faction": "Tau Empire",
+                        "team": "Art of War",
+                        "placement": 8,
+                        "event_wins": 0,
+                        "event_losses": 3,
+                        "event_draws": 0,
+                        "event_battle_points": 160,
+                        "current_elo": 2380.0
+                    }
+                ],
+                "team_standings": [
+                    {
+                        "placing": 1,
+                        "name": "Art of War",
+                        "captain": "Richard Siegler",
+                        "match_points": 9,
+                        "game_wins": 6,
+                        "battle_points": 945
+                    },
+                    {
+                        "placing": 2,
+                        "name": "Team USA",
+                        "captain": "Manny Cheema",
+                        "match_points": 6,
+                        "game_wins": 3,
+                        "battle_points": 445
+                    }
+                ],
+                "matches": [
+                    {
+                        "id": "m_1_1",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "round": 1,
+                        "table_number": 1,
+                        "player1_id": "p_1",
+                        "player1_name": "Folger Pyles",
+                        "player1_faction": "Adeptus Custodes",
+                        "player1_score": 100,
+                        "player2_id": "p_4",
+                        "player2_name": "David Gaylard",
+                        "player2_faction": "Necrons",
+                        "player2_score": 65,
+                        "winner_id": "p_1",
+                        "loser_id": "p_4",
+                        "is_draw": False,
+                        "is_bye": False,
+                        "is_done": True
+                    },
+                    {
+                        "id": "m_1_2",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "round": 1,
+                        "table_number": 2,
+                        "player1_id": "p_2",
+                        "player1_name": "John Lennon",
+                        "player1_faction": "Ultramarines",
+                        "player1_score": 92,
+                        "player2_id": "p_3",
+                        "player2_name": "Manny Cheema",
+                        "player2_faction": "Tyranids",
+                        "player2_score": 78,
+                        "winner_id": "p_2",
+                        "loser_id": "p_3",
+                        "is_draw": False,
+                        "is_bye": False,
+                        "is_done": True
+                    },
+                    {
+                        "id": "m_2_1",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "round": 2,
+                        "table_number": 1,
+                        "player1_id": "p_1",
+                        "player1_name": "Folger Pyles",
+                        "player1_faction": "Adeptus Custodes",
+                        "player1_score": 95,
+                        "player2_id": "p_2",
+                        "player2_name": "John Lennon",
+                        "player2_faction": "Ultramarines",
+                        "player2_score": 88,
+                        "winner_id": "p_1",
+                        "loser_id": "p_2",
+                        "is_draw": False,
+                        "is_bye": False,
+                        "is_done": True
+                    },
+                    {
+                        "id": "m_2_2",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "round": 2,
+                        "table_number": 2,
+                        "player1_id": "p_3",
+                        "player1_name": "Manny Cheema",
+                        "player1_faction": "Tyranids",
+                        "player1_score": 85,
+                        "player2_id": "p_4",
+                        "player2_name": "David Gaylard",
+                        "player2_faction": "Necrons",
+                        "player2_score": 80,
+                        "winner_id": "p_3",
+                        "loser_id": "p_4",
+                        "is_draw": False,
+                        "is_bye": False,
+                        "is_done": True
+                    },
+                    {
+                        "id": "m_3_1",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "round": 3,
+                        "table_number": 1,
+                        "player1_id": "p_1",
+                        "player1_name": "Folger Pyles",
+                        "player1_faction": "Adeptus Custodes",
+                        "player1_score": 95,
+                        "player2_id": "p_3",
+                        "player2_name": "Manny Cheema",
+                        "player2_faction": "Tyranids",
+                        "player2_score": 87,
+                        "winner_id": "p_1",
+                        "loser_id": "p_3",
+                        "is_draw": False,
+                        "is_bye": False,
+                        "is_done": True
+                    }
+                ]
+            }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()

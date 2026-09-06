@@ -4,6 +4,7 @@
 
 let currentPlayerTrajectory = [];
 let currentPlayerMatches = [];
+let playerModalSearchQuery = '';
 let isChartExpanded = false;
 
 let modalZIndexCounter = 1000;
@@ -90,8 +91,17 @@ async function openPlayerModal(playerId) {
   if (toggleArrow) toggleArrow.innerText = '▼';
   if (toggleBtn) toggleBtn.querySelector('span').innerText = '📈 View Elo Progression Graph';
 
+  // Reset search filter
+  playerModalSearchQuery = '';
+  const searchInput = document.getElementById('player-modal-search');
+  if (searchInput) searchInput.value = '';
+  const clearBtn = document.getElementById('player-modal-search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  const searchSummary = document.getElementById('player-modal-search-summary');
+  if (searchSummary) searchSummary.style.display = 'none';
+
   const tbody = document.getElementById('modal-matches-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="10" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading match history...</div></td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading match history...</div></td></tr>';
 
   const chatContainer = document.getElementById('modal-player-chat-container');
   if (chatContainer) chatContainer.innerHTML = '';
@@ -360,18 +370,69 @@ async function openPlayerModal(playerId) {
 
     currentPlayerTrajectory = data.trajectory || [];
     const matchesList = data.history || data.win_path || [];
+    currentPlayerMatches = matchesList;
     renderPlayerMatches(matchesList);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="10" class="empty-state" style="color:var(--loss);">Error loading profile: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="11" class="empty-state" style="color:var(--loss);">Error loading profile: ${err.message}</td></tr>`;
   }
 }
 
-function renderPlayerMatches(history) {
+function handlePlayerModalSearch(query) {
+  playerModalSearchQuery = (query || '').trim().toLowerCase();
+  const clearBtn = document.getElementById('player-modal-search-clear');
+  if (clearBtn) clearBtn.style.display = playerModalSearchQuery ? 'block' : 'none';
+
+  if (!currentPlayerMatches || currentPlayerMatches.length === 0) return;
+
+  if (!playerModalSearchQuery) {
+    const summary = document.getElementById('player-modal-search-summary');
+    if (summary) summary.style.display = 'none';
+    renderPlayerMatches(currentPlayerMatches);
+    return;
+  }
+
+  const filtered = currentPlayerMatches.filter(h => {
+    const oppName = (h.opponent_name || '').toLowerCase();
+    const evName = (h.event_name || '').toLowerCase();
+    const myFac = (h.player_faction || '').toLowerCase();
+    const oppFac = (h.opponent_faction || '').toLowerCase();
+    const oppTeam = (h.opponent_team || h.team || '').toLowerCase();
+    return oppName.includes(playerModalSearchQuery) ||
+           evName.includes(playerModalSearchQuery) ||
+           myFac.includes(playerModalSearchQuery) ||
+           oppFac.includes(playerModalSearchQuery) ||
+           oppTeam.includes(playerModalSearchQuery);
+  });
+
+  const summary = document.getElementById('player-modal-search-summary');
+  if (summary) {
+    summary.innerText = `Showing ${filtered.length} of ${currentPlayerMatches.length} matches`;
+    summary.style.display = 'block';
+  }
+
+  renderPlayerMatches(filtered, true);
+}
+
+function clearPlayerModalSearch() {
+  const input = document.getElementById('player-modal-search');
+  if (input) input.value = '';
+  handlePlayerModalSearch('');
+  if (input) input.focus();
+}
+
+window.handlePlayerModalSearch = handlePlayerModalSearch;
+window.clearPlayerModalSearch = clearPlayerModalSearch;
+
+function renderPlayerMatches(history, isFiltered = false) {
   const tbody = document.getElementById('modal-matches-body');
   if (!tbody) return;
   tbody.innerHTML = '';
   if (!history || history.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="10" class="empty-state">No match trajectory records stored.</td></tr>';
+    if (isFiltered) {
+      tbody.innerHTML = `<tr><td colspan="11" class="empty-state" style="padding:2rem 1rem;"><div style="font-size:0.95rem; font-weight:600; color:#fff;">🔍 No Matching Matches</div><div style="margin-top:0.35rem; color:var(--text-secondary); font-size:0.82rem;">No matches match "<strong>${escapeHtml(playerModalSearchQuery)}</strong>" in this player's career history.</div></td></tr>`;
+    } else {
+      tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No match trajectory records stored.</td></tr>';
+    }
     return;
   }
 
@@ -397,6 +458,9 @@ function renderPlayerMatches(history) {
         <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${h.opponent_id}')">
           ${escapeHtml(h.opponent_name || (h.result === 'BYE' ? 'BYE' : 'Opponent'))}
         </span>
+      </td>
+      <td>
+        ${h.opponent_faction ? `<span class="faction-pill" style="font-size:0.72rem; background:rgba(148,163,184,0.1); border-color:rgba(148,163,184,0.3); color:var(--text-secondary);">${escapeHtml(h.opponent_faction)}</span>` : '<span style="color:var(--text-muted); font-size:0.78rem;">-</span>'}
       </td>
       <td style="font-family:var(--font-mono); color:var(--text-secondary); font-size:0.85rem;">${h.opponent_elo ? Number(h.opponent_elo).toFixed(1) : '-'}</td>
       <td style="font-family:var(--font-mono); font-weight:700; color:${dColor};">${dStr}</td>

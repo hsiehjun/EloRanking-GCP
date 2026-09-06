@@ -1726,9 +1726,17 @@
         </div>
 
         <div>
-          <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.75rem; letter-spacing: 0.05em;">
-            Match-by-Match Win Path
-          </h4>
+          <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
+            <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin: 0; letter-spacing: 0.05em;">
+              Match-by-Match Win Path
+            </h4>
+            <div style="position: relative; width: 260px; max-width: 100%;">
+              <input type="text" id="player-modal-search" class="search-input" placeholder="Search opponents, events, factions..." oninput="handlePlayerModalSearch(this.value)" style="width: 100%; box-sizing: border-box; padding: 0.38rem 0.65rem 0.38rem 2rem; font-size: 0.78rem; height: 32px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff;" />
+              <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--text-muted); pointer-events: none;">🔍</span>
+              <button id="player-modal-search-clear" onclick="clearPlayerModalSearch()" style="display: none; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; padding: 2px 4px;" title="Clear search">✕</button>
+            </div>
+          </div>
+          <div id="player-modal-search-summary" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; display: none;"></div>
           <div class="table-container" style="max-height: 280px;">
             <table id="player-matches-table">
               <thead>
@@ -1740,6 +1748,7 @@
                   <th>Score</th>
                   <th>Faction</th>
                   <th>Opponent</th>
+                  <th>Opp Faction</th>
                   <th>Opp Elo</th>
                   <th>Δ Elo</th>
                   <th>New Elo</th>
@@ -1836,7 +1845,7 @@
         </div>
 
         <!-- Sub-tabs within Tournament Modal -->
-        <div class="subtabs-bar" style="margin-bottom: 1rem;">
+        <div class="subtabs-bar" style="margin-bottom: 0.75rem;">
           <button id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab('teams')" style="display: none;">
             <span>🛡️ Team Standings</span>
             <span id="event-tab-teams-count" class="subtab-count-badge">0</span>
@@ -1853,6 +1862,16 @@
             <span>⚔️ Match Pairings & Results</span>
             <span id="event-tab-matches-count" class="subtab-count-badge">0</span>
           </button>
+        </div>
+
+        <!-- Search bar for Event View Pop-up -->
+        <div class="event-modal-search-wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.85rem; flex-wrap: wrap;">
+          <div style="position: relative; flex: 1; min-width: 220px;">
+            <input type="text" id="event-modal-search" class="search-input" placeholder="Search players, teams, factions..." oninput="handleEventModalSearch(this.value)" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.75rem 0.42rem 2.1rem; font-size: 0.82rem; height: 34px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff;" />
+            <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--text-muted); pointer-events: none;">🔍</span>
+            <button id="event-modal-search-clear" onclick="clearEventModalSearch()" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; padding: 2px 6px;" title="Clear search">✕</button>
+          </div>
+          <div id="event-modal-search-summary" style="font-size: 0.78rem; color: var(--text-muted); display: none;"></div>
         </div>
 
         <!-- View 0: Team Standings (for Team Tournaments) -->
