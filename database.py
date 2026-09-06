@@ -1764,21 +1764,27 @@ class PostgresDatabase:
                 # Track existing player names to avoid alias ID duplicates
                 existing_names = {ps["full_name"].strip().lower(): p_id for p_id, ps in player_stats.items() if ps["event_matches_count"] > 0 and ps["full_name"] not in ("Player", "Player 1", "Player 2", "BYE")}
 
-                # Add any enrolled players who haven't played a round yet
+                # Merge participant metadata and add any enrolled players who haven't played a round yet
                 for p_id, p_info in participants.items():
-                    name_norm = (p_info.get("full_name") or "").strip().lower()
-                    if name_norm and name_norm in existing_names:
-                        # Merge pod_num, team, placement, or faction if missing on the active match record
-                        active_pid = existing_names[name_norm]
-                        if player_stats[active_pid].get("pod_num") is None and p_info.get("pod_num") is not None:
-                            player_stats[active_pid]["pod_num"] = p_info.get("pod_num")
+                    target_pid = None
+                    if p_id in player_stats:
+                        target_pid = p_id
+                    else:
+                        name_norm = (p_info.get("full_name") or "").strip().lower()
+                        if name_norm and name_norm in existing_names:
+                            target_pid = existing_names[name_norm]
+
+                    if target_pid:
+                        # Merge pod_num, team, placement, or battle points if present
                         if p_info.get("placement") is not None:
-                            player_stats[active_pid]["official_placement"] = p_info.get("placement")
-                            player_stats[active_pid]["placement"] = p_info.get("placement")
-                        if not player_stats[active_pid].get("team") and p_info.get("team"):
-                            player_stats[active_pid]["team"] = p_info.get("team")
-                        if not player_stats[active_pid].get("event_battle_points") and p_info.get("battle_points"):
-                            player_stats[active_pid]["event_battle_points"] = p_info.get("battle_points")
+                            player_stats[target_pid]["official_placement"] = p_info.get("placement")
+                            player_stats[target_pid]["placement"] = p_info.get("placement")
+                        if p_info.get("pod_num") is not None and player_stats[target_pid].get("pod_num") is None:
+                            player_stats[target_pid]["pod_num"] = p_info.get("pod_num")
+                        if not player_stats[target_pid].get("team") and p_info.get("team"):
+                            player_stats[target_pid]["team"] = p_info.get("team")
+                        if not player_stats[target_pid].get("event_battle_points") and p_info.get("battle_points"):
+                            player_stats[target_pid]["event_battle_points"] = p_info.get("battle_points")
                         continue
 
                     if p_id not in player_stats:

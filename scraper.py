@@ -228,13 +228,52 @@ class BestCoastPairingsScraper:
             if not team_name and team_player_id and team_player_id in team_name_by_id:
                 team_name = team_name_by_id[team_player_id]
 
-            raw_place = p.get("placing") or p.get("overallPlacing") or p.get("place") or p.get("rank") or p.get("placement") or p.get("ranking")
+            # Priority:
+            # 1. manualPlacing (if explicit positive integer override from TO, ignoring booleans like False)
+            # 2. placing (official competitive tournament placing from Swiss + playoff pods)
+            # 3. rank / place / placement / ranking (alternate standard ranking keys)
+            # 4. overallPlacing (fallback only if competitive placing is absent)
             placing_num = None
-            if raw_place is not None:
+            manual_val = p.get("manualPlacing")
+            if manual_val is not None and not isinstance(manual_val, bool):
                 try:
-                    placing_num = int(raw_place)
+                    mv = int(manual_val)
+                    if mv > 0:
+                        placing_num = mv
                 except (ValueError, TypeError):
                     pass
+
+            if placing_num is None:
+                comp_place = p.get("placing")
+                if comp_place is not None and not isinstance(comp_place, bool):
+                    try:
+                        cp = int(comp_place)
+                        if cp > 0:
+                            placing_num = cp
+                    except (ValueError, TypeError):
+                        pass
+
+            if placing_num is None:
+                for alt_key in ("place", "rank", "placement", "ranking"):
+                    val = p.get(alt_key)
+                    if val is not None and not isinstance(val, bool):
+                        try:
+                            pv = int(val)
+                            if pv > 0:
+                                placing_num = pv
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
+            if placing_num is None:
+                overall = p.get("overallPlacing")
+                if overall is not None and not isinstance(overall, bool):
+                    try:
+                        ov = int(overall)
+                        if ov > 0:
+                            placing_num = ov
+                    except (ValueError, TypeError):
+                        pass
 
             raw_pts = p.get("points") or p.get("battlePoints") or p.get("totalPoints")
             pts_num = None
@@ -351,9 +390,20 @@ class BestCoastPairingsScraper:
                         metrics = {m.get("name"): m.get("value") for m in t.get("metrics", []) if isinstance(m, dict)}
                         capt = t.get("captain") or {}
                         capt_name = f"{capt.get('firstName', '')} {capt.get('lastName', '')}".strip() if isinstance(capt, dict) else ""
+                        t_place = None
+                        for pk in ("manualPlacing", "placing", "rank", "place", "placement", "overallPlacing"):
+                            pval = t.get(pk)
+                            if pval is not None and not isinstance(pval, bool):
+                                try:
+                                    pv = int(pval)
+                                    if pv > 0:
+                                        t_place = pv
+                                        break
+                                except (ValueError, TypeError):
+                                    pass
                         formatted_team_standings.append({
                             "id": t.get("id"),
-                            "placing": t.get("placing") or t.get("overallPlacing"),
+                            "placing": t_place,
                             "name": t.get("name") or "Team",
                             "captain": capt_name,
                             "match_points": metrics.get("Match Points", 0),
@@ -509,9 +559,20 @@ class BestCoastPairingsScraper:
                         metrics = {m.get("name"): m.get("value") for m in t.get("metrics", []) if isinstance(m, dict)}
                         capt = t.get("captain") or {}
                         capt_name = f"{capt.get('firstName', '')} {capt.get('lastName', '')}".strip() if isinstance(capt, dict) else ""
+                        t_place = None
+                        for pk in ("manualPlacing", "placing", "rank", "place", "placement", "overallPlacing"):
+                            pval = t.get(pk)
+                            if pval is not None and not isinstance(pval, bool):
+                                try:
+                                    pv = int(pval)
+                                    if pv > 0:
+                                        t_place = pv
+                                        break
+                                except (ValueError, TypeError):
+                                    pass
                         formatted_team_standings.append({
                             "id": t.get("id"),
-                            "placing": t.get("placing") or t.get("overallPlacing"),
+                            "placing": t_place,
                             "name": t.get("name") or "Team",
                             "captain": capt_name,
                             "match_points": metrics.get("Match Points", 0),

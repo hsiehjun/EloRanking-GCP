@@ -714,7 +714,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         event_details and 
         event_details.get("is_ended", True) and 
         event_details.get("players") and 
-        not any(p.get("placement") or p.get("official_placement") for p in event_details.get("players", []))
+        sum(1 for p in event_details.get("players", []) if p.get("official_placement")) < min(len(event_details.get("players", [])), 4)
     )
     needs_roster_sync = (
         not is_native_studio and (
