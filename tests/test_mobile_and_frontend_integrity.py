@@ -1185,6 +1185,10 @@ def test_registered_tournaments_module():
         "my_hub.js missing filterHubRegisteredEvents function"
     assert "function syncBcpRegisteredTournaments(" in my_hub_js, \
         "my_hub.js missing syncBcpRegisteredTournaments function"
+    assert 'id="hub-registered-tournaments-card"' in my_hub_js, \
+        "my_hub.js renderRegisteredTournamentsCard must define id='hub-registered-tournaments-card' for live DOM updates"
+    assert "cardContainer.outerHTML = renderRegisteredTournamentsCard" in my_hub_js, \
+        "syncBcpRegisteredTournaments must dynamically re-render cardContainer.outerHTML in place"
     assert "const h = 140;" in my_hub_js, \
         "my_hub.js renderHubTrajectory must use sleek 140px height for full-width layout"
 
