@@ -1140,11 +1140,13 @@ def test_registered_tournaments_module():
     assert "def save_user_registered_tournaments(" in db_py, \
         "database.py missing save_user_registered_tournaments method"
 
-    # 2. BCP Adapter Tier 1 registered events fetching
+    # 2. BCP Adapter registered events fetching
     assert "def fetch_user_registered_events(" in bcp_py, \
         "bcp_adapter.py missing fetch_user_registered_events method"
-    assert "eventSearchType=user" in bcp_py, \
-        "bcp_adapter.py must query Tier 1 with eventSearchType=user"
+    assert "playerEvents=true" in bcp_py, \
+        "bcp_adapter.py must query official endpoint with playerEvents=true"
+    assert "toEvents=true" in bcp_py, \
+        "bcp_adapter.py must query official endpoint with toEvents=true"
     assert "has_list_submitted" in bcp_py, \
         "bcp_adapter.py must normalize has_list_submitted"
 

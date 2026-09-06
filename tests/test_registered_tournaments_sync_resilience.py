@@ -192,9 +192,94 @@ def test_schema_precheck_uses_events_and_participants():
     print('✅ Canonical schema pre-check verified in database.py!')
 
 
+def test_bcp_adapter_fetch_user_registered_events_canonical_url():
+    """Verify that BcpAdapter queries canonical BCP v1 endpoint with playerEvents=true, toEvents=true, and date filter in 1 call."""
+    from bcp_adapter import BcpAdapter
+
+    mock_auth = MagicMock()
+    mock_auth.get_valid_bcp_tokens.return_value = {"access_token": "mock_token_abc"}
+    mock_auth.get_user_by_id.return_value = {
+        "id": "u1",
+        "bcp_user_id": "bcp_u1",
+        "bcp_email": "player@example.com"
+    }
+
+    mock_bcp_response = {
+        "data": [
+            {
+                "id": "bcp_ev_40k_championship",
+                "name": "Warhammer 40k Championship 2026",
+                "eventDate": "2026-10-20T10:00:00Z",
+                "endDate": "2026-10-22T18:00:00Z",
+                "location": {
+                    "venueName": "Emerald City Center",
+                    "city": "Seattle",
+                    "state": "WA",
+                    "country": "US"
+                },
+                "points": 2000,
+                "numberOfRounds": 5,
+                "totalPlayers": 64,
+                "myPlayer": {
+                    "army": "Necrons",
+                    "detachment": "Canoptek Court",
+                    "armyList": "2000 pt list content",
+                    "hasList": True,
+                    "checkedIn": True
+                }
+            }
+        ]
+    }
+
+    with patch('core.get_auth_manager', return_value=mock_auth), \
+         patch.object(BcpAdapter, 'execute_call') as mock_execute:
+        mock_execute.return_value = (mock_bcp_response, None)
+
+        ok, err, events = BcpAdapter.fetch_user_registered_events("u1")
+
+        # 1. Exactly 1 call made
+        assert mock_execute.call_count == 1, f"Expected exactly 1 BCP call, got {mock_execute.call_count}"
+
+        # 2. Canonical BCP v1 endpoint with playerEvents=true, toEvents=true, eventEndDateFrom
+        called_url = mock_execute.call_args[0][0]
+        assert "v1/events" in called_url, f"Must call BCP v1/events endpoint, got: {called_url}"
+        assert "playerEvents=true" in called_url, "Must include playerEvents=true"
+        assert "toEvents=true" in called_url, "Must include toEvents=true"
+        assert "eventEndDateFrom=" in called_url, "Must include eventEndDateFrom filter"
+        assert "v2/events" not in called_url, "Must not call obsolete v2/events endpoint"
+        assert "eventSearchType" not in called_url, "Must not use invalid eventSearchType parameter"
+
+        # 3. Extraction results
+        assert ok is True
+        assert err is None
+        assert len(events) == 1
+        ev = events[0]
+        assert ev["bcp_event_id"] == "bcp_ev_40k_championship"
+        assert ev["event_name"] == "Warhammer 40k Championship 2026"
+        assert ev["faction"] == "Necrons"
+        assert ev["detachment"] == "Canoptek Court"
+        assert ev["has_list_submitted"] is True
+        assert ev["checked_in"] is True
+        assert ev["venue_name"] == "Emerald City Center"
+        assert ev["city"] == "Seattle"
+        assert ev["bcp_url"] == "https://www.bestcoastpairings.com/event/bcp_ev_40k_championship"
+
+        # 4. Clean empty list handling (0 events returns empty list without error)
+        mock_execute.reset_mock()
+        mock_execute.return_value = ({"data": []}, None)
+        ok_empty, err_empty, events_empty = BcpAdapter.fetch_user_registered_events("u1")
+        assert mock_execute.call_count == 1
+        assert ok_empty is True
+        assert err_empty is None
+        assert events_empty == []
+
+    print("✅ Canonical BCP v1 single-call registered events fetching verified!")
+
+
 if __name__ == '__main__':
     test_database_unified_events_sync_methods()
     test_database_sync_events_and_participants_sql_execution()
     test_api_user_sync_registered_tournaments_resilience()
     test_schema_precheck_uses_events_and_participants()
+    test_bcp_adapter_fetch_user_registered_events_canonical_url()
     print('ALL UNIFIED REGISTERED TOURNAMENTS SYNC TESTS PASSED!')
