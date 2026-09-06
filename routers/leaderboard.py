@@ -808,6 +808,30 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         if studio_ev:
             event_details = studio_ev
 
+    # Check if tournament is concluded by explicit flag, round completion, or past event date
+    is_concluded = False
+    if event_details:
+        if event_details.get("is_ended"):
+            is_concluded = True
+        elif event_details.get("num_rounds") and event_details.get("current_round") and event_details["current_round"] >= event_details["num_rounds"] and event_details["num_rounds"] > 0:
+            is_concluded = True
+        elif event_details.get("event_date"):
+            try:
+                ev_dt_str = str(event_details["event_date"]).replace("Z", "+00:00")
+                ev_dt = datetime.fromisoformat(ev_dt_str)
+                if datetime.now(timezone.utc) - ev_dt.astimezone(timezone.utc) > timedelta(days=3):
+                    is_concluded = True
+            except Exception:
+                pass
+
+        if is_concluded and not event_details.get("is_ended"):
+            event_details["is_ended"] = True
+            try:
+                if hasattr(db, "mark_event_concluded"):
+                    db.mark_event_concluded(event_id_str)
+            except Exception as ex:
+                logger.warning(f"Could not mark event {event_id_str} concluded: {ex}")
+
     # Auto-query BCP if:
     # 1) Not a native Event Studio tournament
     # 2) User explicitly requested force_sync
@@ -816,7 +840,6 @@ async def api_event_details(event_id: str, force_sync: bool = False):
     has_data = bool(event_details and event_details.get("players") and event_details.get("matches"))
     has_missing_placings = bool(
         event_details and 
-        event_details.get("is_ended", True) and 
         event_details.get("players") and 
         sum(1 for p in event_details.get("players", []) if p.get("official_placement")) < min(len(event_details.get("players", [])), 4)
     )
@@ -831,33 +854,35 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
     # When fresh results are required or force_sync was requested:
     # Query BCP immediately to get the exact competitor array, attach it to response,
-    # and quietly persist to backend DB in background thread.
+    # and synchronously persist to backend DB so PostgreSQL permanently has official placings.
     if not is_native_studio and needs_roster_sync:
         try:
             scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
             bcp_players = scraper.fetch_event_players(event_id_str)
             if bcp_players:
+                try:
+                    scraper.ingest_event_roster(event_id_str, bcp_players)
+                except Exception as ex:
+                    logger.warning(f"Synchronous DB roster update notice for {event_id_str}: {ex}")
+
                 existing_players = (event_details.get("players") if event_details else None)
                 formatted_players = format_bcp_roster_to_players(bcp_players, existing_players)
                 if event_details:
                     event_details["players"] = formatted_players
                     event_details["total_players"] = len(formatted_players)
                     event_details["sync_in_progress"] = False
-
-                    def bg_update_db(eid: str, raw_roster: list):
-                        try:
-                            s = BestCoastPairingsScraper(db=db, request_delay=0.0)
-                            s.ingest_event_roster(eid, raw_roster)
-                        except Exception as ex:
-                            logger.warning(f"Background DB roster update notice for {eid}: {ex}")
-                    threading.Thread(target=bg_update_db, args=(event_id_str, bcp_players), daemon=True).start()
-
+                    _active_event_syncs.discard(event_id_str)
                     return event_details
         except Exception as e:
             logger.warning(f"Direct BCP fetch notice for {event_id_str}: {e}")
 
     # If event details exist in DB, return them
     if event_details:
+        if is_concluded or event_details.get("is_ended"):
+            _active_event_syncs.discard(event_id_str)
+            event_details["sync_in_progress"] = False
+            return event_details
+
         is_syncing = event_id_str in _active_event_syncs
         if needs_roster_sync and not is_syncing:
             _active_event_syncs.add(event_id_str)
@@ -873,7 +898,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 finally:
                     _active_event_syncs.discard(eid)
             threading.Thread(target=bg_roster_sync, args=(event_id_str, not has_data), daemon=True).start()
-        elif not is_native_studio and not event_details.get("is_ended", True) and not is_syncing:
+        elif not is_native_studio and not is_syncing:
             # Background refresh for live ongoing tournament
             _active_event_syncs.add(event_id_str)
             is_syncing = True

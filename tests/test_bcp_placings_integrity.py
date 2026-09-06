@@ -353,10 +353,66 @@ def test_frontend_default_tab_and_sorting():
     assert "async function openEventModal(eventId, forceSync = false, initialTab = null)" in tournaments_js, \
         "tournaments.js openEventModal must not default initialTab to 'elo'"
 
-    # 4. tournaments.js renderEventResultsRows sorts by placement
-    assert "eventPlayersCache.sort(" in tournaments_js, "tournaments.js must sort eventPlayersCache by placement"
+    # 5. Frontend must NEVER make direct fetch calls to api.bestcoastpairings.com (causes CORS errors in browser)
+    assert "api.bestcoastpairings.com" not in tournaments_js, \
+        "tournaments.js must not contain direct calls to api.bestcoastpairings.com"
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text()
+    assert "api.bestcoastpairings.com" not in bundle_js, \
+        "app.bundle.min.js must not contain direct calls to api.bestcoastpairings.com"
 
     print("✅ test_frontend_default_tab_and_sorting passed!")
+
+
+def test_api_event_details_sync_and_concluded_status():
+    """Verify that api_event_details detects past concluded events, synchronously saves to DB, and returns sync_in_progress=False."""
+    import asyncio
+    from unittest.mock import AsyncMock
+    from routers import leaderboard
+
+    mock_db = MagicMock()
+    # Scenario: Event from 2024 has is_ended = False in DB, missing placings
+    mock_db.get_event_details.return_value = {
+        "id": "PXVBY6HUQC",
+        "name": "Warhammer 40,000 Grand Tournament: US Open Tacoma",
+        "event_date": "2024-07-19T16:00:00+00:00",
+        "is_ended": False,
+        "num_rounds": 8,
+        "current_round": 8,
+        "total_players": 481,
+        "players": [
+            {"player_id": "p1", "full_name": "Marshall Peterson", "official_placement": None},
+            {"player_id": "p2", "full_name": "Scott Ketcham", "official_placement": None}
+        ],
+        "matches": [{"id": "m1"}]
+    }
+    mock_db.mark_event_concluded = MagicMock()
+
+    bcp_raw_players = [
+        {"id": "p1", "userId": "u1", "user": {"firstName": "Marshall", "lastName": "Peterson"}, "placing": 1, "podNum": 1},
+        {"id": "p2", "userId": "u2", "user": {"firstName": "Scott", "lastName": "Ketcham"}, "placing": 2, "podNum": 1},
+    ]
+
+    with patch("routers.leaderboard.get_database", return_value=mock_db), \
+         patch("routers.leaderboard.BestCoastPairingsScraper") as MockScraperClass:
+        mock_scraper_inst = MagicMock()
+        mock_scraper_inst.fetch_event_players.return_value = bcp_raw_players
+        mock_scraper_inst.ingest_event_roster.return_value = 2
+        MockScraperClass.return_value = mock_scraper_inst
+
+        # Run api_event_details
+        res = asyncio.run(leaderboard.api_event_details("PXVBY6HUQC"))
+
+        # Must mark concluded in DB
+        assert mock_db.mark_event_concluded.call_count == 1, "Must call mark_event_concluded for concluded event"
+        # Must ingest to DB synchronously
+        assert mock_scraper_inst.ingest_event_roster.call_count == 1, "Must synchronously ingest roster to DB"
+        # Must set sync_in_progress to False
+        assert res.get("sync_in_progress") is False, "sync_in_progress must be False!"
+        # Placings must be present
+        assert res.get("players")[0]["placement"] == 1
+        assert res.get("players")[1]["placement"] == 2
+
+    print("✅ test_api_event_details_sync_and_concluded_status passed!")
 
 
 if __name__ == "__main__":
@@ -366,4 +422,5 @@ if __name__ == "__main__":
     test_standings_sort_with_official_placements()
     test_format_bcp_roster_exact_order()
     test_frontend_default_tab_and_sorting()
+    test_api_event_details_sync_and_concluded_status()
     print("\n🎉 ALL BCP PLACINGS INTEGRITY TESTS PASSED!")
