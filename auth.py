@@ -1827,7 +1827,8 @@ class AuthManager:
             "faction_mastery": faction_mastery,
             "matchup_matrix": matchup_matrix,
             "events_attended": events_attended,
-            "upcoming_events": upcoming_events
+            "upcoming_events": upcoming_events,
+            "registered_tournaments": self.db.get_user_registered_tournaments(user_id) if user_id else []
         }
 
 

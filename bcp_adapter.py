@@ -7,7 +7,7 @@ import json
 import logging
 import urllib.request
 import urllib.error
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
@@ -286,5 +286,111 @@ class BcpAdapter:
             return True, None
         return False, err
 
+    @classmethod
+    def fetch_user_registered_events(
+        cls,
+        user_id: str,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], List[Dict[str, Any]]]:
+        """
+        Fetches active tournaments where the user is registered as a player on BCP.
+        Uses Tier 1 query with silent token refresh.
+        """
+        from core import get_auth_manager
+        auth_mgr = get_auth_manager()
+
+        tok = explicit_token
+        if not tok and user_id:
+            tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+            tok = tok_dict.get("access_token") or tok_dict.get("id_token")
+
+        if not tok:
+            return False, "Player is not linked to Best Coast Pairings", []
+
+        # Tier 1 endpoint: BCP v2 events with eventSearchType=user or registered
+        query_urls = [
+            "https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=user&sortKey=eventDate&sortAscending=true",
+            "https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=registered&sortKey=eventDate&sortAscending=true",
+            "https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=attendee&sortKey=eventDate&sortAscending=true"
+        ]
+
+        bcp_data = None
+        last_err = None
+
+        for sync_url in query_urls:
+            data, err = cls.execute_call(sync_url, method="GET", user_id=user_id, explicit_token=tok)
+            if data and (data.get("data") or data.get("events") or isinstance(data, list)):
+                bcp_data = data
+                break
+            if err:
+                last_err = err
+
+        if not bcp_data:
+            if last_err is None or "404" in str(last_err) or "empty" in str(last_err).lower():
+                return True, None, []
+            return False, last_err or "Failed to fetch registered events from BCP", []
+
+        raw_items = bcp_data.get("data") or bcp_data.get("events") or []
+        if isinstance(bcp_data, list):
+            raw_items = bcp_data
+
+        user_info = auth_mgr.get_user_by_id(user_id) if user_id else None
+        bcp_user_id = user_info.get("bcp_user_id") if user_info else None
+        user_email = (user_info.get("bcp_email") or (user_info.get("email") if user_info else "") or "").lower().strip()
+
+        events_list = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            ev_id = str(item.get("id") or item.get("_id") or "")
+            if not ev_id:
+                continue
+
+            loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+            venue_name = item.get("venue") or loc.get("venueName") or loc.get("name") or loc.get("venue") or ""
+            city = item.get("city") or loc.get("city") or ""
+            state = item.get("state") or loc.get("state") or ""
+            country = item.get("country") or loc.get("country") or ""
+
+            # Extract player registration info
+            p_data = item.get("myPlayer") or item.get("playerData") or item.get("registration") or {}
+            if not p_data and item.get("players") and isinstance(item.get("players"), list):
+                for p in item.get("players"):
+                    p_uid = str(p.get("userId") or p.get("user_id") or "")
+                    p_em = str((p.get("user") or {}).get("email") or p.get("email") or "").lower().strip()
+                    if (bcp_user_id and p_uid == str(bcp_user_id)) or (user_email and p_em == user_email):
+                        p_data = p
+                        break
+
+            faction = p_data.get("army") or p_data.get("faction") or ""
+            detachment = p_data.get("detachment") or ""
+            army_list = p_data.get("armyList") or p_data.get("army_list") or ""
+            has_list = bool(p_data.get("hasList") or army_list or p_data.get("listSubmitted"))
+            checked_in = bool(p_data.get("checkedIn") or False)
+
+            events_list.append({
+                "bcp_event_id": ev_id,
+                "event_name": item.get("name") or "Tournament",
+                "event_date": item.get("eventDate") or item.get("startDate"),
+                "end_date": item.get("endDate") or item.get("eventEndDate"),
+                "venue_name": venue_name,
+                "city": city,
+                "state": state,
+                "country": country,
+                "faction": faction,
+                "detachment": detachment,
+                "army_list": army_list,
+                "has_list_submitted": has_list,
+                "checked_in": checked_in,
+                "points_limit": item.get("points") or 2000,
+                "rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                "total_players": item.get("totalPlayers") or item.get("capacity") or 0,
+                "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
+            })
+
+        logger.info(f"✅ Fetched {len(events_list)} registered events for user {user_id} from BCP Tier 1")
+        return True, None, events_list
+
 # Module-level instance
 bcp_adapter = BcpAdapter()
+

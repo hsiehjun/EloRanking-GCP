@@ -327,3 +327,54 @@ async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(
 
     return auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid)
 
+
+@router.get("/api/user/registered-tournaments", summary="Get tournaments registered on BCP for current user")
+async def api_user_registered_tournaments(request: Request, force_sync: bool = Query(False), token: Optional[str] = Query(None)):
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    session = auth_mgr.get_session(session_token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+    user_id = session["id"]
+    user_info = auth_mgr.get_user_by_id(user_id) or session
+    bcp_connected = bool(user_info.get("bcp_connected") or user_info.get("bcp_user_id"))
+
+    if not bcp_connected:
+        return {
+            "success": True,
+            "bcp_connected": False,
+            "count": 0,
+            "tournaments": [],
+            "message": "Player is not linked to Best Coast Pairings"
+        }
+
+    db = get_database()
+    cached = db.get_user_registered_tournaments(user_id)
+
+    # If force_sync requested or no cached records, attempt BCP sync
+    if force_sync or not cached:
+        try:
+            from bcp_adapter import bcp_adapter
+            ok, err, events = bcp_adapter.fetch_user_registered_events(user_id)
+            if ok and events is not None:
+                cached = db.save_user_registered_tournaments(user_id, events)
+        except Exception as e:
+            logger.warning(f"BCP registered tournaments sync notice: {e}")
+
+    return {
+        "success": True,
+        "bcp_connected": True,
+        "count": len(cached),
+        "tournaments": cached
+    }
+
+
+@router.post("/api/user/registered-tournaments/sync", summary="Force sync tournaments registered on BCP for current user")
+async def api_user_sync_registered_tournaments(request: Request, token: Optional[str] = Query(None)):
+    return await api_user_registered_tournaments(request, force_sync=True, token=token)
+
+

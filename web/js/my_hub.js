@@ -26,6 +26,7 @@ function buildMyHubShellData(u) {
     faction_mastery: [],
     matchup_matrix: [],
     upcoming_events: [],
+    registered_tournaments: [],
     active_sessions: [],
     _isSkeleton: true
   };
@@ -194,6 +195,266 @@ window.filterHubHistory = filterHubHistory;
 window.filterHubMatrix = filterHubMatrix;
 window.filterHubFaction = filterHubFaction;
 
+function filterHubRegisteredEvents(query) {
+  const q = (query || '').trim().toLowerCase();
+  const items = document.querySelectorAll('#hub-registered-events-list .hub-event-item-card');
+  items.forEach(el => {
+    if (!q) {
+      el.style.display = '';
+      return;
+    }
+    const text = el.textContent.toLowerCase();
+    el.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+window.filterHubRegisteredEvents = filterHubRegisteredEvents;
+
+function computeDaysUntil(dateStr) {
+  if (!dateStr) return null;
+  const target = new Date(dateStr);
+  if (isNaN(target.getTime())) return null;
+  const now = new Date();
+  const diffTime = target.setHours(0,0,0,0) - now.setHours(0,0,0,0);
+  return Math.round(diffTime / (1000 * 60 * 60 * 24));
+}
+
+function getCountdownBadge(dateStr, endDateStr) {
+  const days = computeDaysUntil(dateStr);
+  if (days === null) return '';
+  if (days < 0) {
+    const endDays = computeDaysUntil(endDateStr);
+    if (endDays !== null && endDays >= 0) {
+      return `<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981; font-size: 0.7rem; padding: 2px 7px; border: 1px solid rgba(16,185,129,0.4);">🟢 In Progress</span>`;
+    }
+    return `<span class="badge" style="background: rgba(100,116,139,0.2); color: #94a3b8; font-size: 0.7rem; padding: 2px 7px;">Concluded</span>`;
+  }
+  if (days === 0) {
+    return `<span class="badge" style="background: rgba(239,68,68,0.2); color: #f87171; font-size: 0.7rem; padding: 2px 7px; border: 1px solid rgba(239,68,68,0.4); font-weight: 700;">🔥 Starts Today</span>`;
+  }
+  if (days === 1) {
+    return `<span class="badge" style="background: rgba(245,158,11,0.2); color: #fbbf24; font-size: 0.7rem; padding: 2px 7px; border: 1px solid rgba(245,158,11,0.4); font-weight: 700;">⏳ Tomorrow</span>`;
+  }
+  if (days <= 7) {
+    return `<span class="badge" style="background: rgba(56,189,248,0.2); color: #38bdf8; font-size: 0.7rem; padding: 2px 7px; border: 1px solid rgba(56,189,248,0.4); font-weight: 700;">⚡ In ${days} days</span>`;
+  }
+  return `<span class="badge" style="background: rgba(255,255,255,0.06); color: #cbd5e1; font-size: 0.7rem; padding: 2px 7px; font-family: var(--font-mono);">In ${days} days</span>`;
+}
+
+function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
+  const events = tournaments || [];
+  
+  if (!isBcpConnected) {
+    return `
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Tournaments</h3>
+          </div>
+        </div>
+        <div style="background: rgba(56, 189, 248, 0.05); border: 1px dashed rgba(56, 189, 248, 0.3); border-radius: 12px; padding: 1.75rem 1.25rem; text-align: center;">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">🔗</div>
+          <h4 style="color: #fff; font-size: 1rem; font-weight: 700; margin: 0 0 0.4rem 0;">Connect Best Coast Pairings</h4>
+          <p style="color: var(--text-secondary); font-size: 0.82rem; margin: 0 0 1rem 0; line-height: 1.4;">
+            Link your BCP account to automatically sync tournaments you are playing in, track army list submission deadlines, and view roster countdowns.
+          </p>
+          <button class="bcp-login-btn" onclick="openBcpLinkModal()" style="padding: 0.5rem 1.2rem; font-size: 0.82rem; font-weight: 700;">
+            <span>🔗</span> Connect BCP Account
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Tournaments</h3>
+          ${events.length > 0 ? `<span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.5rem;">${events.length} Active</span>` : ''}
+        </div>
+        <button id="hub-bcp-sync-btn" onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Fetch latest tournament registrations from Best Coast Pairings">
+          <span id="hub-bcp-sync-icon">🔄</span> Sync BCP
+        </button>
+      </div>
+
+      ${events.length > 0 ? `
+        <div style="margin-bottom: 0.75rem;">
+          <input type="text" class="hub-search-input" placeholder="🔍 Filter registered tournaments..." oninput="filterHubRegisteredEvents(this.value)">
+        </div>
+        <div id="hub-registered-events-list" class="hub-events-scroll-container">
+          ${events.map(ev => {
+            const evId = ev.bcp_event_id || ev.id || '';
+            const evName = ev.event_name || ev.name || 'Tournament';
+            const bcpUrl = ev.bcp_url || `https://www.bestcoastpairings.com/event/${encodeURIComponent(evId)}`;
+            const evDate = ev.event_date || ev.start_date || '';
+            const dateDisplay = (evDate ? evDate.substring(0, 10) : 'TBD');
+            const countdownPill = getCountdownBadge(evDate, ev.end_date);
+            const locationStr = [ev.venue_name, ev.city, ev.state].filter(Boolean).join(' • ') || 'Location TBD';
+            const hasList = !!(ev.has_list_submitted || ev.army_list || ev.army_list_name);
+            const listStatus = hasList
+              ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.7rem; padding: 2px 7px;">✅ List Submitted</span>`
+              : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.7rem; padding: 2px 7px;">⚠️ List Pending</span>`;
+
+            return `
+              <div class="hub-event-item-card">
+                <div class="hub-event-header">
+                  <div style="min-width: 0; flex: 1;">
+                    <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'elo')">
+                      ${escapeHtml(evName)}
+                    </span>
+                  </div>
+                  <div style="flex-shrink: 0;">
+                    ${countdownPill}
+                  </div>
+                </div>
+
+                <div class="hub-event-meta">
+                  <span>📅 <b>${escapeHtml(dateDisplay)}</b></span>
+                  <span>📍 ${escapeHtml(locationStr)}</span>
+                  ${ev.points_limit ? `<span>⚔️ ${ev.points_limit} pts</span>` : ''}
+                  ${ev.rounds ? `<span>• ${ev.rounds} Rounds</span>` : ''}
+                </div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.2rem; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+                    <span style="font-size: 0.75rem; color: #fff;">
+                      🛡️ <b>${escapeHtml(ev.faction || 'Army Unassigned')}</b>
+                      ${ev.detachment ? `<span style="color: var(--text-muted);"> (${escapeHtml(ev.detachment)})</span>` : ''}
+                    </span>
+                    ${listStatus}
+                  </div>
+
+                  <div class="hub-event-actions">
+                    <a href="${bcpUrl}" target="_blank" rel="noopener" class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="event.stopPropagation()">
+                      BCP ↗
+                    </a>
+                    <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'elo')">
+                      Roster ➔
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      ` : `
+        <div style="padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+          <div style="font-size: 1.5rem; margin-bottom: 0.4rem;">📅</div>
+          <div style="font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">No registered tournaments found on BCP</div>
+          <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">When you register for tournaments on Best Coast Pairings, they will automatically sync here!</div>
+          <button onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.8rem;">
+            🔄 Check for Registrations
+          </button>
+        </div>
+      `}
+    </div>
+  `;
+}
+
+function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
+  if (!isBcpConnected) {
+    return `
+      <div id="hub-overview-events-preview" class="hub-card" style="border-color: rgba(56,189,248,0.25); background: rgba(56,189,248,0.03);">
+        <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; font-family: var(--font-mono); margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between;">
+          <span>📅 REGISTERED TOURNAMENTS</span>
+          <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">BCP Sync</span>
+        </div>
+        <p style="color: var(--text-secondary); font-size: 0.8rem; margin: 0 0 8px 0;">
+          Connect your BCP account to track upcoming tournaments and roster deadlines.
+        </p>
+        <button class="hub-view-all-btn" onclick="openBcpLinkModal()" style="margin-top: 4px;">
+          <span>🔗 Connect BCP Account</span>
+          <span class="hub-btn-arrow">➔</span>
+        </button>
+      </div>
+    `;
+  }
+
+  const events = (tournaments || []).filter(e => {
+    const dStr = e.event_date || e.start_date;
+    const days = computeDaysUntil(dStr);
+    return days === null || days >= 0 || (computeDaysUntil(e.end_date) || 0) >= 0;
+  });
+
+  if (events.length === 0) return '';
+
+  const nextEv = events[0];
+  const evId = nextEv.bcp_event_id || nextEv.id || '';
+  const evName = nextEv.event_name || nextEv.name || 'Tournament';
+  const evDate = nextEv.event_date || nextEv.start_date || '';
+  const countdownPill = getCountdownBadge(evDate, nextEv.end_date);
+  const dateStr = evDate ? evDate.substring(0, 10) : 'Upcoming';
+  const venueStr = [nextEv.venue_name, nextEv.city].filter(Boolean).join(' • ') || 'Tournament';
+  const hasList = !!(nextEv.has_list_submitted || nextEv.army_list || nextEv.army_list_name);
+
+  return `
+    <div id="hub-overview-events-preview" class="hub-card" style="border-color: rgba(56,189,248,0.3); background: rgba(56,189,248,0.04);">
+      <div style="font-size: 0.72rem; color: #38bdf8; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+        <span>📅 NEXT REGISTERED TOURNAMENT</span>
+        ${countdownPill}
+      </div>
+      <div>
+        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'elo')">
+          ${escapeHtml(evName)}
+        </b>
+        <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 3px;">
+          📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(venueStr)}
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+          <span style="font-size: 0.74rem; color: #fff;">🛡️ <b>${escapeHtml(nextEv.faction || 'Army Unassigned')}</b></span>
+          ${hasList 
+            ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.68rem; padding: 1px 6px;">✅ List Submitted</span>`
+            : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ List Pending</span>`}
+        </div>
+      </div>
+      <button class="hub-view-all-btn" onclick="switchHubMobileTab('events')">
+        <span>View All Registered Tournaments (${events.length})</span>
+        <span class="hub-btn-arrow">➔</span>
+      </button>
+    </div>
+  `;
+}
+
+async function syncBcpRegisteredTournaments() {
+  const btn = document.getElementById('hub-bcp-sync-btn');
+  const icon = document.getElementById('hub-bcp-sync-icon');
+  if (btn) btn.disabled = true;
+  if (icon) icon.style.animation = 'spin 0.8s linear infinite';
+
+  try {
+    const res = await window.api.syncUserRegisteredTournaments();
+    if (res && res.success) {
+      if (typeof showNotification === 'function') {
+        showNotification(`Synced ${res.count || 0} registered tournament(s) from BCP`, 'success');
+      }
+      if (myHubData) {
+        myHubData.registered_tournaments = res.tournaments || [];
+        const cardContainer = document.getElementById('hub-registered-tournaments-card');
+        if (cardContainer) {
+          cardContainer.innerHTML = renderRegisteredTournamentsCard(myHubData.registered_tournaments, true);
+        }
+        const previewContainer = document.getElementById('hub-overview-events-preview');
+        if (previewContainer) {
+          previewContainer.outerHTML = renderNextEventOverviewPreview(myHubData.registered_tournaments, true);
+        }
+      }
+    } else {
+      if (typeof showNotification === 'function') {
+        showNotification((res && res.message) || 'Failed to sync with BCP', 'warning');
+      }
+    }
+  } catch (e) {
+    if (typeof showNotification === 'function') {
+      showNotification('Notice: ' + e.message, 'warning');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.style.animation = '';
+  }
+}
+window.syncBcpRegisteredTournaments = syncBcpRegisteredTournaments;
+
+
 function renderMyHub(data) {
   const container = document.getElementById('my-hub-content');
   if (!container || !data) return;
@@ -204,6 +465,7 @@ function renderMyHub(data) {
   const factionMastery = data.faction_mastery || [];
   const matchups = data.matchup_matrix || [];
   const upcoming = data.upcoming_events || [];
+  const registeredTournaments = data.registered_tournaments || [];
   const matchupSpotlights = computeMatchupSpotlights(matchups, history, p.win_rate);
   const factionSpotlights = computeFactionMasterySpotlights(factionMastery, history, p.win_rate);
   const primaryFactionName = factionMastery.length > 0 ? factionMastery[0].faction : null;
@@ -222,10 +484,9 @@ function renderMyHub(data) {
   const currentElo = Number(p.current_elo || 1500.0).toFixed(1);
   const peakElo = Number(p.peak_elo || 1500.0).toFixed(1);
   const winRate = Number(p.win_rate || 0.0).toFixed(1);
-  const totalMatches = Number(p.matches_played || 0);
-
-  const isBcpConnected = currentUser && currentUser.bcp_connected;
-  const bcpEmail = currentUser && currentUser.bcp_email;
+  const totalMatches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 0);
+  const isBcpConnected = !!((currentUser && (currentUser.bcp_connected || currentUser.bcp_user_id || currentUser.bcp_token || currentUser.bcp_email)) || (p && p.is_bcp_connected));
+  const bcpEmail = (currentUser && currentUser.bcp_email) || (p && p.bcp_email) || '';
 
   const competitorName = (currentUser && currentUser.display_name && currentUser.display_name.trim() !== '' && currentUser.display_name.toLowerCase() !== 'competitor')
     ? currentUser.display_name
@@ -297,6 +558,10 @@ function renderMyHub(data) {
       <button class="hub-mobile-tab-btn ${(!currentHubMobileTab || currentHubMobileTab === 'overview') ? 'active' : ''}" data-tab="overview" onclick="switchHubMobileTab('overview')">
         <span>🌟 Overview</span>
       </button>
+      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'events' ? 'active' : ''}" data-tab="events" onclick="switchHubMobileTab('events')">
+        <span>📅 Events</span>
+        ${registeredTournaments.length > 0 ? `<span class="hub-tab-count">${registeredTournaments.length}</span>` : ''}
+      </button>
       <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matches' ? 'active' : ''}" data-tab="matches" onclick="switchHubMobileTab('matches')">
         <span>📜 Matches</span>
         ${totalHistoryMatches > 0 ? `<span class="hub-tab-count">${totalHistoryMatches}</span>` : ''}
@@ -311,10 +576,24 @@ function renderMyHub(data) {
       </button>
     </div>
 
-    <!-- 2-Column Row 1: Half-Sized Army Lists & Elo Trajectory -->
-    <div class="hub-grid-2col hub-row-trajectory" style="margin-top: 1.25rem;">
+    <!-- Full-Width Elo Trajectory Progression at Top -->
+    <div class="hub-card hub-fullwidth-trajectory" style="margin-top: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📈 Elo Rating Trajectory</h3>
+          <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Career Timeline</span>
+        </div>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} games logged</span>
+      </div>
+      <div style="overflow-x: auto;">
+        <svg id="hub-trajectory-svg" style="width: 100%; height: 140px;"></svg>
+      </div>
+    </div>
 
-      <!-- Card: Half-Sized Army Lists & Rosters -->
+    <!-- 2-Column Row 1: Army Lists & Rosters + Registered Tournaments -->
+    <div class="hub-grid-2col hub-row-prep" style="margin-top: 1.25rem;">
+
+      <!-- Card: Army Lists & Rosters -->
       <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
@@ -335,21 +614,14 @@ function renderMyHub(data) {
         </div>
       </div>
 
-      <!-- Card: Half-Sized Elo Trajectory Progression -->
-      <div class="hub-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📈 Elo Rating Trajectory</h3>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} games logged</span>
-        </div>
-        <div style="overflow-x: auto;">
-          <svg id="hub-trajectory-svg" style="width: 100%; height: 220px;"></svg>
-        </div>
-      </div>
+      <!-- Card: Registered Tournaments (Beside Army Lists) -->
+      ${renderRegisteredTournamentsCard(registeredTournaments, isBcpConnected)}
 
     </div>
 
     <!-- Mobile Overview Quick-Jump Preview Cards (Mobile-Only) -->
     <div class="hub-overview-previews">
+      ${renderNextEventOverviewPreview(registeredTournaments, isBcpConnected)}
       ${(activeMatches && activeMatches.length > 0) ? `
         <div class="hub-card" style="border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.05);">
           <div style="font-size: 0.72rem; color: #10b981; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
@@ -789,12 +1061,12 @@ function renderHubTrajectory(history) {
   if (!svg || !history || history.length === 0) return;
 
   const w = svg.clientWidth || 480;
-  const h = 220;
+  const h = 140;
   svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   svg.innerHTML = '';
 
   const padX = 45;
-  const padY = 25;
+  const padY = 18;
   const plotW = w - padX * 2;
   const plotH = h - padY * 2;
 

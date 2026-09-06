@@ -152,7 +152,7 @@ def test_route_parity():
 
     assert server.app is not None, "server.app failed to initialize"
     registered_routes = [(r[0], r[1]) for r in server.app.routes]
-    assert len(registered_routes) == 185, f"Expected 185 routes, found {len(registered_routes)}"
+    assert len(registered_routes) == 187, f"Expected 187 routes, found {len(registered_routes)}"
 
     canonical_path = Path("/tmp/canonical_routes.json")
     if canonical_path.exists():

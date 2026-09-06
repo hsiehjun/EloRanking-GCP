@@ -394,6 +394,25 @@ window.api = {
     return this._fetchJson(`/api/user/dashboard${qs}`, { headers });
   },
 
+  // User Registered Tournaments (BCP Synced)
+  async getUserRegisteredTournaments(forceSync = false) {
+    const token = this.getAuthToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const qs = forceSync ? '?force_sync=true' : '';
+    return this._fetchJson(`/api/user/registered-tournaments${qs}`, { headers });
+  },
+
+  async syncUserRegisteredTournaments() {
+    const token = this.getAuthToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson('/api/user/registered-tournaments/sync', {
+      method: 'POST',
+      headers
+    });
+  },
+
   // Global Summary Stats
   async getStats() {
     return this._fetchJson('/api/stats');

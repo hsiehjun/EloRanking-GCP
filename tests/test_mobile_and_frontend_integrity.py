@@ -1116,6 +1116,75 @@ def test_chat_auto_scroll_and_revoke_request():
     print("✅ Mobile chat auto-scroll and request revocation backend & frontend verified!")
 
 
+def test_registered_tournaments_module():
+    """Verify backend and frontend architecture for Registered Tournaments and Top Elo Trajectory in My Hub."""
+    db_py = (root_dir / "database.py").read_text(encoding="utf-8")
+    bcp_py = (root_dir / "bcp_adapter.py").read_text(encoding="utf-8")
+    auth_py = (root_dir / "auth.py").read_text(encoding="utf-8")
+    auth_router = (root_dir / "routers" / "auth.py").read_text(encoding="utf-8")
+    api_js = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+
+    # 1. Database schema and data layer
+    assert "CREATE TABLE IF NOT EXISTS user_tournament_registrations" in db_py, \
+        "database.py missing user_tournament_registrations table definition"
+    assert "idx_utr_user_date" in db_py, "database.py missing idx_utr_user_date index"
+    assert "idx_utr_bcp_event" in db_py, "database.py missing idx_utr_bcp_event index"
+    assert "def get_user_registered_tournaments(" in db_py, \
+        "database.py missing get_user_registered_tournaments method"
+    assert "def save_user_registered_tournaments(" in db_py, \
+        "database.py missing save_user_registered_tournaments method"
+
+    # 2. BCP Adapter Tier 1 registered events fetching
+    assert "def fetch_user_registered_events(" in bcp_py, \
+        "bcp_adapter.py missing fetch_user_registered_events method"
+    assert "eventSearchType=user" in bcp_py, \
+        "bcp_adapter.py must query Tier 1 with eventSearchType=user"
+    assert "has_list_submitted" in bcp_py, \
+        "bcp_adapter.py must normalize has_list_submitted"
+
+    # 3. Auth Manager & Routers
+    assert '"registered_tournaments": self.db.get_user_registered_tournaments(user_id)' in auth_py, \
+        "auth.py get_user_competitor_hub missing registered_tournaments"
+    assert "/api/user/registered-tournaments" in auth_router, \
+        "routers/auth.py missing /api/user/registered-tournaments endpoint"
+    assert "/api/user/registered-tournaments/sync" in auth_router, \
+        "routers/auth.py missing /api/user/registered-tournaments/sync endpoint"
+
+    # 4. Frontend API layer
+    assert "getUserRegisteredTournaments(forceSync = false)" in api_js, \
+        "api.js missing getUserRegisteredTournaments method"
+    assert "syncUserRegisteredTournaments()" in api_js, \
+        "api.js missing syncUserRegisteredTournaments method"
+
+    # 5. CSS styles and responsive rules
+    assert ".hub-fullwidth-trajectory" in styles_css, \
+        "styles.css missing .hub-fullwidth-trajectory class"
+    assert ".hub-events-scroll-container" in styles_css, \
+        "styles.css missing .hub-events-scroll-container class"
+    assert '.my-hub-container[data-active-tab="events"]' in styles_css, \
+        "styles.css missing mobile rules for data-active-tab='events'"
+    assert "#hub-registered-tournaments-card" in styles_css, \
+        "styles.css missing #hub-registered-tournaments-card display rule"
+
+    # 6. My Hub JS components, mobile subtabs & fallbacks
+    assert 'data-tab="events"' in my_hub_js, \
+        "my_hub.js missing dedicated mobile Events tab button"
+    assert "function renderRegisteredTournamentsCard(" in my_hub_js, \
+        "my_hub.js missing renderRegisteredTournamentsCard function"
+    assert "function renderNextEventOverviewPreview(" in my_hub_js, \
+        "my_hub.js missing renderNextEventOverviewPreview function"
+    assert "function filterHubRegisteredEvents(" in my_hub_js, \
+        "my_hub.js missing filterHubRegisteredEvents function"
+    assert "function syncBcpRegisteredTournaments(" in my_hub_js, \
+        "my_hub.js missing syncBcpRegisteredTournaments function"
+    assert "const h = 140;" in my_hub_js, \
+        "my_hub.js renderHubTrajectory must use sleek 140px height for full-width layout"
+
+    print("✅ Registered Tournaments and Top Elo Trajectory module verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1145,6 +1214,7 @@ if __name__ == "__main__":
     test_mobile_chat_keyboard_viewport_adjustment()
     test_my_hub_mobile_restructuring()
     test_chat_auto_scroll_and_revoke_request()
+    test_registered_tournaments_module()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

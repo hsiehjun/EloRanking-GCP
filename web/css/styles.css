@@ -2719,6 +2719,75 @@ input, select, textarea {
   font-weight: 600;
 }
 
+.hub-fullwidth-trajectory {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.hub-events-scroll-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.hub-event-item-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md, 8px);
+  padding: 0.75rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  transition: all 0.2s ease;
+}
+
+.hub-event-item-card:hover {
+  border-color: rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.hub-event-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.hub-event-title {
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.hub-event-title:hover {
+  color: #38bdf8;
+  text-decoration: underline;
+}
+
+.hub-event-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.hub-event-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+  flex-wrap: wrap;
+}
+
+
 @media (max-width: 768px) {
   .hub-card {
     padding: 1rem 0.75rem;
@@ -2886,18 +2955,39 @@ input, select, textarea {
   /* Responsive Display Rules for Hub Tabs on Mobile */
   
   /* Overview Tab: show trajectory and overview previews, hide heavy rows */
+  .my-hub-container[data-active-tab="overview"] .hub-fullwidth-trajectory {
+    display: block !important;
+  }
   .my-hub-container[data-active-tab="overview"] .hub-overview-previews {
     display: flex !important;
     flex-direction: column;
     gap: 1.25rem;
   }
+  .my-hub-container[data-active-tab="overview"] .hub-row-prep,
   .my-hub-container[data-active-tab="overview"] .hub-row-mastery-matrix,
   .my-hub-container[data-active-tab="overview"] .hub-row-matches-tracker {
     display: none !important;
   }
 
-  /* Matches Tab: hide trajectory & previews, hide mastery-matrix row, show matches-tracker row */
-  .my-hub-container[data-active-tab="matches"] .hub-row-trajectory,
+  /* Events Tab: show only registered tournaments card */
+  .my-hub-container[data-active-tab="events"] .hub-fullwidth-trajectory,
+  .my-hub-container[data-active-tab="events"] .hub-overview-previews,
+  .my-hub-container[data-active-tab="events"] .hub-row-mastery-matrix,
+  .my-hub-container[data-active-tab="events"] .hub-row-matches-tracker,
+  .my-hub-container[data-active-tab="events"] #hub-armylists-card {
+    display: none !important;
+  }
+  .my-hub-container[data-active-tab="events"] .hub-row-prep {
+    display: flex !important;
+    flex-direction: column;
+  }
+  .my-hub-container[data-active-tab="events"] #hub-registered-tournaments-card {
+    display: flex !important;
+  }
+
+  /* Matches Tab: hide trajectory & previews, hide mastery-matrix row & prep, show matches-tracker row */
+  .my-hub-container[data-active-tab="matches"] .hub-fullwidth-trajectory,
+  .my-hub-container[data-active-tab="matches"] .hub-row-prep,
   .my-hub-container[data-active-tab="matches"] .hub-row-mastery-matrix,
   .my-hub-container[data-active-tab="matches"] .hub-overview-previews {
     display: none !important;
@@ -2908,8 +2998,9 @@ input, select, textarea {
     gap: 1.25rem;
   }
 
-  /* Matrix Tab: hide trajectory, previews, matches row; in mastery-matrix row show only matrix */
-  .my-hub-container[data-active-tab="matrix"] .hub-row-trajectory,
+  /* Matrix Tab: hide trajectory, previews, prep, matches row; in mastery-matrix row show only matrix */
+  .my-hub-container[data-active-tab="matrix"] .hub-fullwidth-trajectory,
+  .my-hub-container[data-active-tab="matrix"] .hub-row-prep,
   .my-hub-container[data-active-tab="matrix"] .hub-row-matches-tracker,
   .my-hub-container[data-active-tab="matrix"] .hub-overview-previews {
     display: none !important;
@@ -2925,8 +3016,9 @@ input, select, textarea {
     display: block !important;
   }
 
-  /* Mastery Tab: hide trajectory, previews, matches row; in mastery-matrix row show only mastery */
-  .my-hub-container[data-active-tab="mastery"] .hub-row-trajectory,
+  /* Mastery Tab: hide trajectory, previews, prep, matches row; in mastery-matrix row show only mastery */
+  .my-hub-container[data-active-tab="mastery"] .hub-fullwidth-trajectory,
+  .my-hub-container[data-active-tab="mastery"] .hub-row-prep,
   .my-hub-container[data-active-tab="mastery"] .hub-row-matches-tracker,
   .my-hub-container[data-active-tab="mastery"] .hub-overview-previews {
     display: none !important;
@@ -5573,6 +5665,8 @@ body.is-authenticated #floating-chat-widget {
   .faction-chip-container,
   .hub-armylists-list-container,
   #hub-armylists-list-container,
+  .hub-events-scroll-container,
+  #hub-events-scroll-container,
   #faction-toggle-chips,
   .es-events-grid,
   .oc-players-grid {
