@@ -441,7 +441,10 @@ async def serve_admin_feedback(request: Request, token: Optional[str] = Query(No
     session_token = token or request.cookies.get("session_token") or request.cookies.get("elo_auth_token") or request.cookies.get("native_session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     user_email = ((user.get("email") or "") if user else "").strip().lower()
-    if not user or user_email != "swimgeek751@gmail.com":
+    user_role = ((user.get("role") or "") if user else "").strip().lower()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = bool(user) and (user.get("is_admin") is True or user_role in ("admin", "superuser", "developer", "owner") or (bool(superadmin_email) and user_email == superadmin_email))
+    if not is_admin:
         return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
     af_file = web_dir / "admin_feedback.html"
     if af_file.exists():
@@ -456,7 +459,10 @@ async def serve_admin_dashboard(request: Request, token: Optional[str] = Query(N
     session_token = token or request.cookies.get("session_token") or request.cookies.get("elo_auth_token") or request.cookies.get("native_session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     user_email = ((user.get("email") or "") if user else "").strip().lower()
-    if not user or user_email != "swimgeek751@gmail.com":
+    user_role = ((user.get("role") or "") if user else "").strip().lower()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = bool(user) and (user.get("is_admin") is True or user_role in ("admin", "superuser", "developer", "owner") or (bool(superadmin_email) and user_email == superadmin_email))
+    if not is_admin:
         return RedirectResponse(url="/", status_code=303, headers=NO_CACHE_HEADERS)
     adm_file = web_dir / "admin.html"
     if adm_file.exists():

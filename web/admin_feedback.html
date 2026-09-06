@@ -26,8 +26,8 @@
         }
         if (profileStr) {
           var p = JSON.parse(profileStr);
-          var email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
-          if (email && email !== 'swimgeek751@gmail.com') {
+          var role = (p.role || (p.user && p.user.role) || '').trim().toLowerCase();
+          if (role && role !== 'admin' && !p.is_admin) {
             document.documentElement.style.display = 'none';
             window.location.replace('/');
           }
@@ -560,7 +560,7 @@
         userDisplayName = u.display_name || u.email || 'Admin';
       }
 
-      const isAdmin = currentAdminUser && userEmail === 'swimgeek751@gmail.com';
+      const isAdmin = currentAdminUser && (userRole === 'admin' || Boolean(currentAdminUser.is_admin));
 
       if (!isAdmin) {
         window.location.replace('/');

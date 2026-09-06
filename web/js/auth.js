@@ -23,10 +23,8 @@ try {
 function isUserTO(user) {
   if (!user) return false;
   const userRole = String(user.role || 'player').trim().toLowerCase();
-  const userEmail = String(user.email || '').trim().toLowerCase();
-  const isSuperAdmin = userEmail === 'swimgeek751@gmail.com';
-  const isAdmin = isSuperAdmin || userRole === 'admin' || userRole === 'superuser' || userRole === 'developer' || userRole === 'owner';
-  const isTO = userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+  const isAdmin = userRole === 'admin' || userRole === 'superuser' || userRole === 'developer' || userRole === 'owner' || Boolean(user.is_admin);
+  const isTO = userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(user.can_access_to);
   return isAdmin || isTO;
 }
 window.isUserTO = isUserTO;
@@ -733,7 +731,7 @@ function renderHeaderAuth() {
 
   if (currentUser) {
     const name = currentUser.display_name || currentUser.email || 'Player';
-    const isAdmin = currentUser.role === 'admin' && (currentUser.email || '').toLowerCase() === 'swimgeek751@gmail.com';
+    const isAdmin = currentUser.role === 'admin' || Boolean(currentUser.is_admin);
     const adminLink = isAdmin ? `
       <a href="/admin" style="display:inline-flex; align-items:center; gap:4px; background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#f87171; font-weight:800; font-size:0.75rem; padding:3px 8px; border-radius:6px; text-decoration:none;" title="Admin Governance Dashboard">
         <span>🛡️</span> Admin

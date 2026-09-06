@@ -138,8 +138,9 @@ def _get_admin_session_or_403(request: Request, token: Optional[str] = None) -> 
         raise HTTPException(status_code=401, detail="Invalid session")
     user_role = (session.get("role") or "player").strip().lower()
     user_email = (session.get("email") or "").strip().lower()
-    admin_emails = ('swimgeek751@gmail.com',)
-    if user_role not in ("admin", "superuser", "developer", "owner") or user_email not in admin_emails:
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = session.get("is_admin") is True or user_role in ("admin", "superuser", "developer", "owner") or (bool(superadmin_email) and user_email == superadmin_email)
+    if not is_admin:
         raise HTTPException(status_code=403, detail="Administrator privileges required")
     return session
 

@@ -146,9 +146,9 @@ def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dic
         raise HTTPException(status_code=401, detail="Invalid or expired session.")
     user_role = (session.get("role") or "player").strip().lower()
     user_email = (session.get("email") or "").strip().lower()
-    admin_emails = ('swimgeek751@gmail.com',)
-    is_admin = (user_role in ("admin", "superuser", "developer", "owner")) or (user_email in admin_emails)
-    is_to = user_role in ("to", "organizer", "referee")
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner")) or (bool(superadmin_email) and user_email == superadmin_email)
+    is_to = session.get("can_access_to") is True or user_role in ("to", "organizer", "referee") or is_admin
     if not (is_admin or is_to):
         raise HTTPException(
             status_code=403,
@@ -685,10 +685,11 @@ VERIFIED_TOURNAMENT_CITIES = [
     {"city": "Rome", "state": "Lazio", "country": "Italy", "lat": 41.9028, "lng": 12.4964, "label": "Rome, Italy"}
 ]
 
-@router.get("/api/config/maps-key", summary="Get Google Maps client API key for Places Autocomplete")
+@router.get("/api/config/maps-key", summary="Check Maps service availability")
 async def api_get_maps_key():
+    # Security: Never expose raw Google Maps API keys to client browsers.
     key = os.environ.get("GOOGLE_MAPS_API_KEY", GOOGLE_MAPS_API_KEY)
-    return {"key": key}
+    return {"configured": bool(key)}
 
 
 

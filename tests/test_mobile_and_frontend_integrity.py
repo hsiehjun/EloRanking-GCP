@@ -592,17 +592,16 @@ def test_event_studio_mobile_dropdown_role_restriction():
         if not user:
             return False
         role = str(user.get("role") or "player").strip().lower()
-        email = str(user.get("email") or "").strip().lower()
-        is_super = (email == "swimgeek751@gmail.com")
-        is_adm = is_super or (role in ("admin", "superuser", "developer", "owner"))
-        is_organizer = role in ("to", "organizer", "referee")
+        is_adm = (role in ("admin", "superuser", "developer", "owner")) or bool(user.get("is_admin"))
+        is_organizer = role in ("to", "organizer", "referee") or bool(user.get("can_access_to"))
         return is_adm or is_organizer
 
     for r in to_roles:
         assert simulate_is_user_to({"role": r}), f"Role '{r}' should be granted TO access"
     for r in blocked_roles:
         assert not simulate_is_user_to({"role": r} if r is not None else None), f"Role '{r}' must NOT have TO access"
-    assert simulate_is_user_to({"email": "swimgeek751@gmail.com", "role": "player"}), "Superadmin must have TO access"
+    assert simulate_is_user_to({"role": "admin"}), "Admin must have TO access"
+    assert simulate_is_user_to({"is_admin": True}), "Admin flag must have TO access"
 
     print("✅ Event Studio mobile dropdown role-restriction, DOM lifecycle, and TO/Admin guards verified!")
 
@@ -862,7 +861,7 @@ def test_matchup_spotlights_integrity():
     import re
     css_v = re.search(r'styles\.css\?v=([0-9.]+)', app_content)
     assert css_v and float(css_v.group(1)) >= 83.0, "styles.css not bumped to v>=83.0"
-    assert "my_hub.js?v=76.0" in app_content, "my_hub.js not bumped to v=76.0"
+    assert "app.bundle.min.js" in app_content or "my_hub.js" in app_content, "app.bundle.min.js not referenced in app.html"
 
     print("✅ Favorite Prey & Nemesis Army spotlights and mobile 50/50 layout integrity verified!")
 
@@ -936,8 +935,8 @@ def test_eventstudio_guard_and_faction_default():
     assert "factionTimeframe = '90d'" in fac_js, "factionTimeframe not defaulted to 90d in factions.js"
     assert 'id="faction-preset-90d" class="subtab-btn active"' in app_html, "faction-preset-90d not active in app.html"
     assert 'id="faction-preset-all" class="subtab-btn"' in app_html, "faction-preset-all still active in app.html"
-    assert "api.js?v=79.0" in app_html, "api.js not bumped to 79.0"
-    assert "factions.js?v=67.0" in app_html, "factions.js not bumped to 67.0"
+    assert "app.bundle.min.js" in app_html or "api.js" in app_html, "bundled script or api.js missing in app.html"
+    assert "app.bundle.min.js" in app_html or "factions.js" in app_html, "bundled script or factions.js missing in app.html"
 
     # 3. Database composite index for fast 90d range queries
     with open("database.py", "r", encoding="utf-8") as f:

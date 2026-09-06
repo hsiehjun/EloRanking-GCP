@@ -2360,20 +2360,9 @@ if (typeof window !== 'undefined') {
    GOOGLE PLACES AUTOCOMPLETE
    -------------------------------------------------------------------------- */
 async function initConnectGooglePlaces() {
-  try {
-    const res = await fetch('/api/config/maps-key');
-    if (!res.ok) return;
-    const data = await res.json();
-    const apiKey = data?.key;
-    if (apiKey && typeof google === 'undefined') {
-      if (document.querySelector('script[src*="maps.googleapis.com"]')) return;
-      const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&callback=attachAllPlacesAutocompletes`;
-      script.async = true;
-      script.defer = true;
-      document.head.appendChild(script);
-    }
-  } catch (e) {}
+  if (typeof google !== 'undefined' && google.maps && google.maps.places) {
+    attachAllPlacesAutocompletes();
+  }
 }
 
 function attachAllPlacesAutocompletes() {

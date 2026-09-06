@@ -36,8 +36,7 @@ async function initStudio() {
   
   let user = typeof currentUser !== "undefined" ? currentUser : null;
   const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
-  const userEmail = ((user && user.email) ? user.email : '').toLowerCase();
-  const canAccessTO = userEmail === 'swimgeek751@gmail.com' || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+  const canAccessTO = Boolean(user && (userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || user.is_admin || (typeof isUserTO === 'function' && isUserTO(user))));
 
   if (canAccessTO) {
     await loadStudioEvents();
@@ -76,9 +75,8 @@ function updateStudioAuthBadge() {
 
   const isLoggedIn = !!(user || (token && token.length > 20) || (typeof API !== 'undefined' && API.getAuthToken()));
   const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
-  const userEmail = ((user && user.email) ? user.email : '').toLowerCase();
-  const isSuperAdmin = userEmail === 'swimgeek751@gmail.com';
-  const isTO = isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+  const isSuperAdmin = Boolean(user && (user.role === 'admin' || user.is_superadmin || user.is_admin));
+  const isTO = isSuperAdmin || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(user && user.can_access_to);
 
   if (!isLoggedIn) {
     lockedGates.forEach(g => {
@@ -2616,27 +2614,6 @@ window.initGooglePlaces = initGooglePlaces;
 async function loadGoogleMapsSdk() {
   if (typeof google !== "undefined" && google.maps && google.maps.places) {
     initGooglePlaces();
-    return;
-  }
-  try {
-    const res = await fetch("/api/config/maps-key");
-    if (!res.ok) return;
-    const data = await res.json();
-    const apiKey = (data && data.key) ? data.key.trim() : "";
-    if (!apiKey) {
-      console.info("Google Maps API key not yet set in environment.");
-      return;
-    }
-    if (document.querySelector('script[src*="maps.googleapis.com"]')) {
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&callback=initGooglePlaces`;
-    script.async = true;
-    script.defer = true;
-    document.head.appendChild(script);
-  } catch (err) {
-    console.warn("Notice loading Google Maps SDK:", err);
   }
 }
 

@@ -102,7 +102,7 @@ async function fetchFeedbacks() {
     userDisplayName = u.display_name || u.email || 'Admin';
   }
 
-  const isAdmin = currentAdminUser && userEmail === 'swimgeek751@gmail.com';
+  const isAdmin = currentAdminUser && (userRole === 'admin' || Boolean(currentAdminUser.is_admin));
 
   if (!isAdmin) {
     window.location.replace('/');

@@ -628,8 +628,8 @@
           if (target.startsWith('/admin')) {
             try {
               const p = JSON.parse(localStorage.getItem('native_user_profile') || '{}');
-              const email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
-              if (email !== 'swimgeek751@gmail.com') {
+              const role = (p.role || (p.user && p.user.role) || '').trim().toLowerCase();
+              if (role !== 'admin' && !p.is_admin) {
                 target = '/app';
               }
             } catch(e) {

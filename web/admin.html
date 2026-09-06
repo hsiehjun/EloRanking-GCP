@@ -25,8 +25,8 @@
         }
         if (profileStr) {
           var p = JSON.parse(profileStr);
-          var email = (p.email || (p.user && p.user.email) || '').trim().toLowerCase();
-          if (email && email !== 'swimgeek751@gmail.com') {
+          var role = (p.role || (p.user && p.user.role) || '').trim().toLowerCase();
+          if (role && role !== 'admin' && !p.is_admin) {
             document.documentElement.style.display = 'none';
             window.location.replace('/');
           }
@@ -925,7 +925,7 @@
       }
 
       tbody.innerHTML = users.map(u => {
-        const isSuperAdmin = (u.email || '').toLowerCase() === 'swimgeek751@gmail.com';
+        const isSuperAdmin = Boolean(u.is_superadmin || u.role === 'superadmin');
         const rolePill = isSuperAdmin
           ? '<span class="pill pill-admin" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">👑 SUPERADMIN</span>'
           : `

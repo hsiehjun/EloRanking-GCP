@@ -126,8 +126,7 @@ function switchTab(tabName) {
     }
     const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
       const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
-      const userEmail = ((currentUser && currentUser.email) ? currentUser.email : '').toLowerCase();
-      return userEmail === 'swimgeek751@gmail.com' || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+      return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
     })();
     if (!canAccessTO) {
       switchTab('community');
@@ -459,8 +458,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (targetTab === 'event-studio') {
     const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
       const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();
-      const userEmail = ((currentUser && currentUser.email) ? currentUser.email : '').toLowerCase();
-      return userEmail === 'swimgeek751@gmail.com' || userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee';
+      return userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || Boolean(currentUser && (currentUser.is_admin || currentUser.can_access_to));
     })();
     if (!canAccessTO) {
       targetTab = 'community';

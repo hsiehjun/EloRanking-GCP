@@ -796,7 +796,10 @@ class AuthManager:
                             data = dict(row)
                             data["session_token"] = session_token
                             user_email = (data.get("email") or "").strip().lower()
-                            data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else (str(row.get("role") or "player").lower())
+                            superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+                            data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
+                            data["is_admin"] = bool(data["role"] == "admin")
+                            data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
                             data["bcp_connected"] = bool(data.get("bcp_user_id"))
 
                             # Touch last_active_at periodically (at most once every 5 minutes)
@@ -842,7 +845,10 @@ class AuthManager:
                 if row:
                     data = dict(row)
                     user_email = (data.get("email") or "").strip().lower()
-                    data["role"] = "admin" if user_email == "swimgeek751@gmail.com" else (str(row.get("role") or "player").lower())
+                    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+                    data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
+                    data["is_admin"] = bool(data["role"] == "admin")
+                    data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None
