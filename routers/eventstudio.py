@@ -78,8 +78,24 @@ class CreateEventPayload(BaseModel):
     hide_placings: Optional[bool] = False
     require_lists: Optional[bool] = False
     passwordless_scoring: Optional[bool] = True
-    ticket_price: Optional[int] = 0
-    using_online_reg: Optional[bool] = False
+
+    # BCP Online Registration & Ticketing Configuration
+    using_online_reg: Optional[bool] = True
+    num_tickets: Optional[int] = None
+    ticket_price: Optional[float] = 0.0
+    ticket_currency: Optional[str] = "usd"
+    disable_checkin: Optional[bool] = False
+    private_event: Optional[bool] = False
+    collect_shipping: Optional[bool] = False
+    shipping_mandatory: Optional[bool] = False
+    shipping_description: Optional[str] = ""
+    lists_locked: Optional[bool] = False
+    list_submission_locked: Optional[bool] = False
+    lists_at_checkin: Optional[bool] = False
+    factions_locked: Optional[bool] = False
+    ranked_tables: Optional[bool] = False
+    require_pairing_publish: Optional[bool] = False
+
     time_zone: Optional[str] = "America/Los_Angeles"
     bcp_token: Optional[str] = None
     event_type: Optional[str] = "Singles Event"  # "Singles Event", "Doubles Event", "Teams Event"
@@ -303,6 +319,39 @@ async def api_eventstudio_get_event(event_id: str, request: Request):
         except Exception:
             pass
 
+    if ev and isinstance(ev.get("raw_json"), dict):
+        rj = ev["raw_json"]
+        if "using_online_reg" not in ev:
+            ev["using_online_reg"] = rj.get("usingOnlineReg", True)
+        if "num_tickets" not in ev:
+            ev["num_tickets"] = rj.get("numTickets", ev.get("capacity", 32))
+        if "ticket_price" not in ev:
+            ev["ticket_price"] = rj.get("ticketPrice", 0.0)
+        if "ticket_currency" not in ev:
+            ev["ticket_currency"] = rj.get("ticketCurrency", "usd")
+        if "disable_checkin" not in ev:
+            ev["disable_checkin"] = rj.get("disableCheckin", False)
+        if "private_event" not in ev:
+            ev["private_event"] = rj.get("privateEvent", False)
+        if "shipping_details" not in ev:
+            ev["shipping_details"] = rj.get("shippingDetails", {"requested": False, "mandatory": False, "description": ""})
+        if "hide_lists" not in ev:
+            ev["hide_lists"] = rj.get("hideLists", False)
+        if "lists_at_checkin" not in ev:
+            ev["lists_at_checkin"] = rj.get("listsAtCheckin", False)
+        if "lists_locked" not in ev:
+            ev["lists_locked"] = rj.get("listsLocked", False)
+        if "factions_locked" not in ev:
+            ev["factions_locked"] = rj.get("factionsLocked", False)
+        if "hide_roster" not in ev:
+            ev["hide_roster"] = rj.get("hideRoster", False)
+        if "hide_placings" not in ev:
+            ev["hide_placings"] = rj.get("hidePlacings", False)
+        if "passwordless_scoring" not in ev:
+            ev["passwordless_scoring"] = rj.get("passwordlessScoring", True)
+        if "ranked_tables" not in ev:
+            ev["ranked_tables"] = rj.get("rankedTables", False)
+
     return {
         "success": True,
         "event": ev
@@ -427,9 +476,26 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                     "timeZone": tz_str,
                     **({"coordinate": [float(payload.lng), float(payload.lat)]} if payload.lat is not None and payload.lng is not None else {})
                 },
-                "ticketPrice": int((payload.ticket_price or 0) * 100) if payload.using_online_reg else 0,
+                "ticketPrice": float(payload.ticket_price or 0.0),
+                "amount": float(payload.ticket_price or 0.0),
+                "currency": str(payload.ticket_currency or "usd").lower(),
+                "ticketCurrency": str(payload.ticket_currency or "usd").lower(),
+                "availableCurrencies": [str(payload.ticket_currency or "usd").lower()],
+                "pricingDict": {str(payload.ticket_currency or "usd").lower(): float(payload.ticket_price or 0.0)},
+                "numTickets": int(payload.num_tickets or payload.capacity or 32),
                 "usingOnlineReg": bool(payload.using_online_reg),
-                "shippingDetails": {"requested": False},
+                "disableCheckin": bool(payload.disable_checkin),
+                "privateEvent": bool(payload.private_event),
+                "shippingDetails": {
+                    "requested": bool(payload.collect_shipping),
+                    "mandatory": bool(payload.shipping_mandatory),
+                    "description": str(payload.shipping_description or "")
+                },
+                "listsLocked": bool(payload.lists_locked),
+                "listSubmissionLocked": bool(payload.list_submission_locked or payload.lists_locked),
+                "listsAtCheckin": bool(payload.lists_at_checkin or payload.require_lists),
+                "factionsLocked": bool(payload.factions_locked),
+                "rankedTables": bool(payload.ranked_tables),
                 "eventDescription": payload.mission_pack or "Created via OmniTactica Event Studio",
                 "eventDescriptionMarkup": payload.mission_pack or "Created via OmniTactica Event Studio"
             }
@@ -459,6 +525,18 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
                 if new_id:
                     event_id = str(new_id)
                     bcp_created = True
+
+                    # Configure event registration, ticketing, and rules on BCP
+                    try:
+                        cfg_dict = payload.model_dump() if hasattr(payload, "model_dump") else (payload.dict() if hasattr(payload, "dict") else vars(payload))
+                        bcp_adapter.configure_event_registration(
+                            event_id,
+                            cfg_dict,
+                            user_id=user_id,
+                            explicit_token=acc_tok
+                        )
+                    except Exception as cfg_err:
+                        logger.warning(f"Notice configuring BCP event registration for {event_id}: {cfg_err}")
 
                     # Submit to circuit if chosen
                     if payload.circuit_id:
@@ -493,6 +571,51 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
     start_date_str = str(payload.start_date or now_date_str)
     end_date_str = str(payload.end_date or start_date_str)
 
+    raw_event_cfg = {
+        "usingOnlineReg": bool(payload.using_online_reg),
+        "using_online_reg": bool(payload.using_online_reg),
+        "numTickets": int(payload.num_tickets or payload.capacity or 32),
+        "num_tickets": int(payload.num_tickets or payload.capacity or 32),
+        "ticketPrice": float(payload.ticket_price or 0.0),
+        "ticket_price": float(payload.ticket_price or 0.0),
+        "amount": float(payload.ticket_price or 0.0),
+        "currency": str(payload.ticket_currency or "usd").lower(),
+        "ticketCurrency": str(payload.ticket_currency or "usd").lower(),
+        "ticket_currency": str(payload.ticket_currency or "usd").lower(),
+        "disableCheckin": bool(payload.disable_checkin),
+        "disable_checkin": bool(payload.disable_checkin),
+        "privateEvent": bool(payload.private_event),
+        "private_event": bool(payload.private_event),
+        "shippingDetails": {
+            "requested": bool(payload.collect_shipping),
+            "mandatory": bool(payload.shipping_mandatory),
+            "description": str(payload.shipping_description or "")
+        },
+        "shipping_details": {
+            "requested": bool(payload.collect_shipping),
+            "mandatory": bool(payload.shipping_mandatory),
+            "description": str(payload.shipping_description or "")
+        },
+        "hideLists": bool(payload.hide_lists),
+        "hide_lists": bool(payload.hide_lists),
+        "hideRoster": bool(payload.hide_roster),
+        "hide_roster": bool(payload.hide_roster),
+        "hidePlacings": bool(payload.hide_placings),
+        "hide_placings": bool(payload.hide_placings),
+        "listsLocked": bool(payload.lists_locked),
+        "lists_locked": bool(payload.lists_locked),
+        "listSubmissionLocked": bool(payload.list_submission_locked or payload.lists_locked),
+        "list_submission_locked": bool(payload.list_submission_locked or payload.lists_locked),
+        "listsAtCheckin": bool(payload.lists_at_checkin or payload.require_lists),
+        "lists_at_checkin": bool(payload.lists_at_checkin or payload.require_lists),
+        "factionsLocked": bool(payload.factions_locked),
+        "factions_locked": bool(payload.factions_locked),
+        "rankedTables": bool(payload.ranked_tables),
+        "ranked_tables": bool(payload.ranked_tables),
+        "passwordlessScoring": bool(payload.passwordless_scoring if payload.passwordless_scoring is not None else True),
+        "passwordless_scoring": bool(payload.passwordless_scoring if payload.passwordless_scoring is not None else True)
+    }
+
     saved = db.save_studio_event({
         "id": event_id,
         "name": payload.name,
@@ -518,6 +641,23 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "mission_pack": payload.mission_pack,
         "organizer_id": user_id,
         "organizer_bcp_id": bcp_user_id,
+        "using_online_reg": bool(payload.using_online_reg),
+        "num_tickets": int(payload.num_tickets or payload.capacity or 32),
+        "ticket_price": float(payload.ticket_price or 0.0),
+        "ticket_currency": str(payload.ticket_currency or "usd").lower(),
+        "disable_checkin": bool(payload.disable_checkin),
+        "private_event": bool(payload.private_event),
+        "collect_shipping": bool(payload.collect_shipping),
+        "shipping_details": raw_event_cfg["shippingDetails"],
+        "hide_lists": bool(payload.hide_lists),
+        "hide_roster": bool(payload.hide_roster),
+        "hide_placings": bool(payload.hide_placings),
+        "lists_locked": bool(payload.lists_locked),
+        "lists_at_checkin": bool(payload.lists_at_checkin or payload.require_lists),
+        "factions_locked": bool(payload.factions_locked),
+        "passwordless_scoring": bool(payload.passwordless_scoring if payload.passwordless_scoring is not None else True),
+        "ranked_tables": bool(payload.ranked_tables),
+        "raw_json": raw_event_cfg,
         "roster": [],
         "pairings": {str(r): [] for r in range(1, (payload.rounds or 5) + 1)}
     })
@@ -590,9 +730,16 @@ async def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], r
                 "country": country
             }
         if "points" in payload: bcp_set_fields["points"] = int(payload["points"])
-        if "capacity" in payload: bcp_set_fields["totalPlayers"] = int(payload["capacity"])
+        if "capacity" in payload:
+            bcp_set_fields["totalPlayers"] = int(payload["capacity"])
+            if "num_tickets" not in payload and "numTickets" not in payload:
+                bcp_set_fields["numTickets"] = int(payload["capacity"])
         if "num_rounds" in payload or "rounds" in payload:
             bcp_set_fields["numberOfRounds"] = int(payload.get("num_rounds") or payload.get("rounds"))
+        if "default_round_length" in payload or "defaultRoundLength" in payload:
+            bcp_set_fields["defaultRoundLength"] = int(payload.get("default_round_length") or payload.get("defaultRoundLength"))
+        if "pairing_style" in payload or "pairingStyle" in payload:
+            bcp_set_fields["pairingStyle"] = str(payload.get("pairing_style") or payload.get("pairingStyle")).title()
         if "tier" in payload: bcp_set_fields["eventType"] = payload["tier"]
         if "event_type" in payload:
             et_val = str(payload["event_type"]).lower()
@@ -607,9 +754,75 @@ async def api_eventstudio_update_event(event_id: str, payload: Dict[str, Any], r
             ev["event_type"] = "doubles" if is_doubles else ("teams" if is_teams else "singles")
             ev["team_size"] = team_sz
 
+        # Registration, Ticketing, and Player Access Controls
+        if "using_online_reg" in payload or "usingOnlineReg" in payload:
+            bcp_set_fields["usingOnlineReg"] = bool(payload.get("using_online_reg", payload.get("usingOnlineReg")))
+        if "num_tickets" in payload or "numTickets" in payload:
+            bcp_set_fields["numTickets"] = int(payload.get("num_tickets", payload.get("numTickets")))
+
+        if "ticket_price" in payload or "ticketPrice" in payload:
+            tp = float(payload.get("ticket_price", payload.get("ticketPrice") or 0.0))
+            curr = str(payload.get("ticket_currency") or payload.get("currency") or "usd").lower()
+            bcp_set_fields["ticketPrice"] = tp
+            bcp_set_fields["amount"] = tp
+            bcp_set_fields["currency"] = curr
+            bcp_set_fields["ticketCurrency"] = curr
+            bcp_set_fields["availableCurrencies"] = [curr]
+            bcp_set_fields["pricingDict"] = {curr: tp}
+
+        if "disable_checkin" in payload or "disableCheckin" in payload:
+            bcp_set_fields["disableCheckin"] = bool(payload.get("disable_checkin", payload.get("disableCheckin")))
+        if "private_event" in payload or "privateEvent" in payload:
+            bcp_set_fields["privateEvent"] = bool(payload.get("private_event", payload.get("privateEvent")))
+
+        if "collect_shipping" in payload or "shipping_details" in payload or "shippingDetails" in payload:
+            s_req = bool(payload.get("collect_shipping", False))
+            s_mand = False
+            s_desc = ""
+            if isinstance(payload.get("shipping_details"), dict):
+                s_req = bool(payload["shipping_details"].get("requested", s_req))
+                s_mand = bool(payload["shipping_details"].get("mandatory", False))
+                s_desc = str(payload["shipping_details"].get("description", ""))
+            elif isinstance(payload.get("shippingDetails"), dict):
+                s_req = bool(payload["shippingDetails"].get("requested", s_req))
+                s_mand = bool(payload["shippingDetails"].get("mandatory", False))
+                s_desc = str(payload["shippingDetails"].get("description", ""))
+            bcp_set_fields["shippingDetails"] = {
+                "requested": s_req,
+                "mandatory": s_mand,
+                "description": s_desc
+            }
+
+        # Rules, Privacy, and List Controls
+        if "hide_lists" in payload or "hideLists" in payload:
+            bcp_set_fields["hideLists"] = bool(payload.get("hide_lists", payload.get("hideLists")))
+        if "hide_roster" in payload or "hideRoster" in payload:
+            bcp_set_fields["hideRoster"] = bool(payload.get("hide_roster", payload.get("hideRoster")))
+        if "hide_placings" in payload or "hidePlacings" in payload:
+            bcp_set_fields["hidePlacings"] = bool(payload.get("hide_placings", payload.get("hidePlacings")))
+        if "lists_locked" in payload or "listsLocked" in payload:
+            bcp_set_fields["listsLocked"] = bool(payload.get("lists_locked", payload.get("listsLocked")))
+        if "list_submission_locked" in payload or "listSubmissionLocked" in payload:
+            bcp_set_fields["listSubmissionLocked"] = bool(payload.get("list_submission_locked", payload.get("listSubmissionLocked")))
+        if "lists_at_checkin" in payload or "listsAtCheckin" in payload or "require_lists" in payload:
+            bcp_set_fields["listsAtCheckin"] = bool(payload.get("lists_at_checkin", payload.get("listsAtCheckin", payload.get("require_lists"))))
+        if "factions_locked" in payload or "factionsLocked" in payload:
+            bcp_set_fields["factionsLocked"] = bool(payload.get("factions_locked", payload.get("factionsLocked")))
+        if "passwordless_scoring" in payload or "passwordlessScoring" in payload:
+            bcp_set_fields["passwordlessScoring"] = bool(payload.get("passwordless_scoring", payload.get("passwordlessScoring")))
+        if "ranked_tables" in payload or "rankedTables" in payload:
+            bcp_set_fields["rankedTables"] = bool(payload.get("ranked_tables", payload.get("rankedTables")))
+
+        bcp_set_fields["listOptions"] = {"allowsFiles": True, "allowsText": True, "allowsImages": True}
+
         if bcp_set_fields:
             bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}"
-            resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"set": bcp_set_fields}, user_id=user_id)
+            resp_data, err_msg = execute_bcp_api_call(
+                bcp_url,
+                method="POST",
+                json_data={"set": bcp_set_fields, "unset": {"placingRecordType": True, "eventFormat": True}},
+                user_id=user_id
+            )
             if resp_data is not None or not err_msg:
                 bcp_updated = True
                 logger.info(f"✅ Successfully updated BCP tournament {event_id}")

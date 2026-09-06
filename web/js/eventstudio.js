@@ -443,6 +443,19 @@ async function submitCreateTournament() {
   const passwordlessInput = document.getElementById("create-event-passwordless");
   const hidePlacingsInput = document.getElementById("create-event-hide-placings");
 
+  // BCP Online Registration & Ticketing Options
+  const regBcpRadio = document.getElementById("create-event-reg-bcp");
+  const usingOnlineReg = regBcpRadio ? regBcpRadio.checked : true;
+  const numTicketsInput = document.getElementById("create-event-num-tickets");
+  const ticketPriceInput = document.getElementById("create-event-ticket-price");
+  const currencyInput = document.getElementById("create-event-currency");
+  const allowCheckinInput = document.getElementById("create-event-allow-checkin");
+  const privateEventInput = document.getElementById("create-event-private");
+  const shipYesRadio = document.getElementById("create-event-ship-yes");
+  const listsLockedInput = document.getElementById("create-event-lists-locked");
+  const factionsLockedInput = document.getElementById("create-event-factions-locked");
+  const hideRosterInput = document.getElementById("create-event-hide-roster");
+
   const btn = document.getElementById("btn-submit-create-event");
   const status = document.getElementById("create-event-status");
 
@@ -472,6 +485,10 @@ async function submitCreateTournament() {
     return;
   }
 
+  const numTicketsVal = numTicketsInput ? parseInt(numTicketsInput.value, 10) : (capacityInput ? parseInt(capacityInput.value, 10) : 32);
+  const ticketPriceVal = ticketPriceInput ? parseFloat(ticketPriceInput.value) || 0 : 0;
+  const ticketCurrencyVal = currencyInput ? currencyInput.value : "usd";
+
   const payload = {
     name: name,
     game_system_id: gameSystemInput ? gameSystemInput.value : "WGMSzfKFYA",
@@ -486,7 +503,7 @@ async function submitCreateTournament() {
     default_round_length: roundLengthInput ? parseInt(roundLengthInput.value, 10) : 9000,
     start_date: startInput ? startInput.value : "",
     end_date: endInput ? endInput.value : (startInput ? startInput.value : ""),
-    capacity: capacityInput ? parseInt(capacityInput.value, 10) : 32,
+    capacity: numTicketsVal,
     points: pointsInput ? parseInt(pointsInput.value, 10) : 2000,
     venue: venueStr,
     address: elAddress && elAddress.value ? elAddress.value.trim() : venueStr,
@@ -498,8 +515,26 @@ async function submitCreateTournament() {
     lat: elLat && elLat.value ? parseFloat(elLat.value) : 32.7157,
     lng: elLng && elLng.value ? parseFloat(elLng.value) : -117.1611,
     location_verified: verifiedEl ? verifiedEl.value === "true" : true,
+
+    // BCP Online Registration & Ticketing
+    using_online_reg: usingOnlineReg,
+    num_tickets: numTicketsVal,
+    ticket_price: ticketPriceVal,
+    ticket_currency: ticketCurrencyVal,
+    disable_checkin: allowCheckinInput ? !allowCheckinInput.checked : false,
+    private_event: privateEventInput ? privateEventInput.checked : false,
+    collect_shipping: shipYesRadio ? shipYesRadio.checked : false,
+    shipping_mandatory: false,
+    shipping_description: "",
+
+    // Rules & Privacy
     hide_lists: hideListsInput ? hideListsInput.checked : true,
     require_lists: requireListsInput ? requireListsInput.checked : true,
+    lists_at_checkin: requireListsInput ? requireListsInput.checked : true,
+    lists_locked: listsLockedInput ? listsLockedInput.checked : false,
+    list_submission_locked: false,
+    factions_locked: factionsLockedInput ? factionsLockedInput.checked : false,
+    hide_roster: hideRosterInput ? hideRosterInput.checked : false,
     passwordless_scoring: passwordlessInput ? passwordlessInput.checked : true,
     hide_placings: hidePlacingsInput ? hidePlacingsInput.checked : false,
     bcp_token: getBcpToken()
@@ -564,6 +599,14 @@ async function submitCreateTournament() {
       btn.textContent = "🚀 Create & Register on BCP";
     }
     if (status) status.style.display = "none";
+  }
+}
+
+function toggleCreateRegMode() {
+  const regBcp = document.getElementById("create-event-reg-bcp");
+  const ticketOptions = document.getElementById("create-bcp-ticket-options");
+  if (ticketOptions) {
+    ticketOptions.style.display = (regBcp && regBcp.checked) ? "block" : "none";
   }
 }
 
@@ -757,7 +800,7 @@ async function loadTournamentWorkspace(eventId) {
 
 function switchManageSubtab(subtabName) {
   studioState.activeSubtab = subtabName;
-  const subtabs = ["roster", "pairings", "standings", "meta"];
+  const subtabs = ["roster", "pairings", "standings", "meta", "settings"];
 
   subtabs.forEach(tab => {
     const viewEl = document.getElementById(`manage-subtab-${tab}`);
@@ -776,6 +819,7 @@ function switchManageSubtab(subtabName) {
   else if (subtabName === "pairings") renderPairingsSubtab();
   else if (subtabName === "standings") renderStandingsSubtab();
   else if (subtabName === "meta") renderMetaSubtab();
+  else if (subtabName === "settings") renderSettingsSubtab();
 }
 
 function renderRosterSubtab() {
@@ -1701,6 +1745,253 @@ function renderMetaSubtab() {
 }
 
 /* ==========================================================================
+   SUBTAB 5: TOURNAMENT SETTINGS & BCP REGISTRATION
+   ========================================================================== */
+
+function renderSettingsSubtab() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const statusEl = document.getElementById("manage-settings-status");
+  if (statusEl) statusEl.style.display = "none";
+
+  // Tournament Information
+  const nameEl = document.getElementById("settings-event-name");
+  const tierEl = document.getElementById("settings-event-tier");
+  const pairStyleEl = document.getElementById("settings-event-pairing-style");
+  const roundsEl = document.getElementById("settings-event-rounds");
+  const ptsEl = document.getElementById("settings-event-points");
+  const roundLenEl = document.getElementById("settings-event-round-length");
+  const sDateEl = document.getElementById("settings-event-start-date");
+  const eDateEl = document.getElementById("settings-event-end-date");
+  const venueEl = document.getElementById("settings-event-venue");
+
+  if (nameEl) nameEl.value = ev.name || "";
+  if (tierEl) {
+    const tier = ev.tier || ev.format || "Grand Tournament";
+    tierEl.value = tier;
+    if (!tierEl.value) tierEl.value = "Grand Tournament";
+  }
+  if (pairStyleEl) {
+    const ps = String(ev.pairing_style || ev.pairingStyle || "Swiss");
+    pairStyleEl.value = ps.charAt(0).toUpperCase() + ps.slice(1).toLowerCase();
+    if (!pairStyleEl.value) pairStyleEl.value = "Swiss";
+  }
+  if (roundsEl) roundsEl.value = ev.num_rounds || ev.rounds || 5;
+  if (ptsEl) ptsEl.value = ev.points || 2000;
+  if (roundLenEl) roundLenEl.value = String(ev.default_round_length || ev.defaultRoundLength || 9000);
+  if (sDateEl) sDateEl.value = ev.event_date ? String(ev.event_date).split("T")[0] : (ev.start_date ? String(ev.start_date).split("T")[0] : "");
+  if (eDateEl) eDateEl.value = ev.end_date ? String(ev.end_date).split("T")[0] : (sDateEl ? sDateEl.value : "");
+  if (venueEl) venueEl.value = [ev.venue, ev.address, ev.city, ev.state].filter(Boolean).join(", ") || (ev.venue || "");
+
+  // Registration & Ticketing
+  const regBcpRadio = document.getElementById("settings-reg-bcp");
+  const regManualRadio = document.getElementById("settings-reg-manual");
+  const usingOnlineReg = ev.using_online_reg !== false && ev.usingOnlineReg !== false;
+  if (regBcpRadio) regBcpRadio.checked = usingOnlineReg;
+  if (regManualRadio) regManualRadio.checked = !usingOnlineReg;
+
+  const numTicketsEl = document.getElementById("settings-event-num-tickets");
+  const ticketPriceEl = document.getElementById("settings-event-ticket-price");
+  const currencyEl = document.getElementById("settings-event-currency");
+  const allowCheckinEl = document.getElementById("settings-event-allow-checkin");
+  const privateEventEl = document.getElementById("settings-event-private");
+  const shipNoRadio = document.getElementById("settings-ship-no");
+  const shipYesRadio = document.getElementById("settings-ship-yes");
+
+  if (numTicketsEl) numTicketsEl.value = ev.num_tickets || ev.numTickets || ev.capacity || 32;
+  if (ticketPriceEl) ticketPriceEl.value = ev.ticket_price != null ? ev.ticket_price : (ev.ticketPrice != null ? ev.ticketPrice : 0);
+  if (currencyEl) currencyEl.value = (ev.ticket_currency || ev.currency || "usd").toLowerCase();
+  if (allowCheckinEl) allowCheckinEl.checked = !(ev.disable_checkin === true || ev.disableCheckin === true);
+  if (privateEventEl) privateEventEl.checked = !!(ev.private_event || ev.privateEvent);
+
+  const shippingRequested = !!(
+    (ev.shipping_details && ev.shipping_details.requested) ||
+    (ev.shippingDetails && ev.shippingDetails.requested) ||
+    ev.collect_shipping
+  );
+  if (shipYesRadio) shipYesRadio.checked = shippingRequested;
+  if (shipNoRadio) shipNoRadio.checked = !shippingRequested;
+
+  // Rules & Privacy
+  const hideListsEl = document.getElementById("settings-event-hide-lists");
+  const requireListsEl = document.getElementById("settings-event-require-lists");
+  const listsLockedEl = document.getElementById("settings-event-lists-locked");
+  const factionsLockedEl = document.getElementById("settings-event-factions-locked");
+  const passwordlessEl = document.getElementById("settings-event-passwordless");
+  const hidePlacingsEl = document.getElementById("settings-event-hide-placings");
+  const hideRosterEl = document.getElementById("settings-event-hide-roster");
+  const rankedTablesEl = document.getElementById("settings-event-ranked-tables");
+
+  if (hideListsEl) hideListsEl.checked = ev.hide_lists !== false && ev.hideLists !== false;
+  if (requireListsEl) requireListsEl.checked = !!(ev.require_lists || ev.lists_at_checkin || ev.listsAtCheckin);
+  if (listsLockedEl) listsLockedEl.checked = !!(ev.lists_locked || ev.listsLocked);
+  if (factionsLockedEl) factionsLockedEl.checked = !!(ev.factions_locked || ev.factionsLocked);
+  if (passwordlessEl) passwordlessEl.checked = ev.passwordless_scoring !== false && ev.passwordlessScoring !== false;
+  if (hidePlacingsEl) hidePlacingsEl.checked = !!(ev.hide_placings || ev.hidePlacings);
+  if (hideRosterEl) hideRosterEl.checked = !!(ev.hide_roster || ev.hideRoster);
+  if (rankedTablesEl) rankedTablesEl.checked = !!(ev.ranked_tables || ev.rankedTables);
+
+  toggleSettingsRegMode();
+}
+
+function toggleSettingsRegMode() {
+  const regBcp = document.getElementById("settings-reg-bcp");
+  const ticketOptions = document.getElementById("settings-bcp-ticket-options");
+  if (ticketOptions) {
+    ticketOptions.style.display = (regBcp && regBcp.checked) ? "block" : "none";
+  }
+}
+
+async function saveTournamentSettings() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const statusEl = document.getElementById("manage-settings-status");
+  const btn = document.getElementById("btn-save-event-settings");
+
+  // Collect values
+  const nameEl = document.getElementById("settings-event-name");
+  const tierEl = document.getElementById("settings-event-tier");
+  const pairStyleEl = document.getElementById("settings-event-pairing-style");
+  const roundsEl = document.getElementById("settings-event-rounds");
+  const ptsEl = document.getElementById("settings-event-points");
+  const roundLenEl = document.getElementById("settings-event-round-length");
+  const sDateEl = document.getElementById("settings-event-start-date");
+  const eDateEl = document.getElementById("settings-event-end-date");
+  const venueEl = document.getElementById("settings-event-venue");
+
+  const regBcpRadio = document.getElementById("settings-reg-bcp");
+  const usingOnlineReg = regBcpRadio ? regBcpRadio.checked : true;
+  const numTicketsEl = document.getElementById("settings-event-num-tickets");
+  const ticketPriceEl = document.getElementById("settings-event-ticket-price");
+  const currencyEl = document.getElementById("settings-event-currency");
+  const allowCheckinEl = document.getElementById("settings-event-allow-checkin");
+  const privateEventEl = document.getElementById("settings-event-private");
+  const shipYesRadio = document.getElementById("settings-ship-yes");
+
+  const hideListsEl = document.getElementById("settings-event-hide-lists");
+  const requireListsEl = document.getElementById("settings-event-require-lists");
+  const listsLockedEl = document.getElementById("settings-event-lists-locked");
+  const factionsLockedEl = document.getElementById("settings-event-factions-locked");
+  const passwordlessEl = document.getElementById("settings-event-passwordless");
+  const hidePlacingsEl = document.getElementById("settings-event-hide-placings");
+  const hideRosterEl = document.getElementById("settings-event-hide-roster");
+  const rankedTablesEl = document.getElementById("settings-event-ranked-tables");
+
+  const newName = nameEl ? nameEl.value.trim() : ev.name;
+  if (!newName) {
+    alert("Please enter a tournament name.");
+    if (nameEl) nameEl.focus();
+    return;
+  }
+
+  const numTicketsVal = numTicketsEl ? parseInt(numTicketsEl.value, 10) : (ev.num_tickets || ev.capacity || 32);
+  const ticketPriceVal = ticketPriceEl ? parseFloat(ticketPriceEl.value) || 0 : 0;
+  const ticketCurrencyVal = currencyEl ? currencyEl.value : "usd";
+
+  const payload = {
+    name: newName,
+    tier: tierEl ? tierEl.value : (ev.tier || "Grand Tournament"),
+    pairing_style: pairStyleEl ? pairStyleEl.value : "Swiss",
+    num_rounds: roundsEl ? parseInt(roundsEl.value, 10) : (ev.num_rounds || 5),
+    points: ptsEl ? parseInt(ptsEl.value, 10) : (ev.points || 2000),
+    default_round_length: roundLenEl ? parseInt(roundLenEl.value, 10) : (ev.default_round_length || 9000),
+    start_date: sDateEl ? sDateEl.value : (ev.start_date || ""),
+    event_date: sDateEl ? sDateEl.value : (ev.event_date || ""),
+    end_date: eDateEl ? eDateEl.value : (sDateEl ? sDateEl.value : ""),
+    venue: venueEl ? venueEl.value.trim() : (ev.venue || ""),
+    capacity: numTicketsVal,
+
+    // BCP Online Registration & Ticketing
+    using_online_reg: usingOnlineReg,
+    num_tickets: numTicketsVal,
+    ticket_price: ticketPriceVal,
+    ticket_currency: ticketCurrencyVal,
+    disable_checkin: allowCheckinEl ? !allowCheckinEl.checked : false,
+    private_event: privateEventEl ? privateEventEl.checked : false,
+    collect_shipping: shipYesRadio ? shipYesRadio.checked : false,
+
+    // Rules & Privacy
+    hide_lists: hideListsEl ? hideListsEl.checked : true,
+    require_lists: requireListsEl ? requireListsEl.checked : false,
+    lists_at_checkin: requireListsEl ? requireListsEl.checked : false,
+    lists_locked: listsLockedEl ? listsLockedEl.checked : false,
+    factions_locked: factionsLockedEl ? factionsLockedEl.checked : false,
+    passwordless_scoring: passwordlessEl ? passwordlessEl.checked : true,
+    hide_placings: hidePlacingsEl ? hidePlacingsEl.checked : false,
+    hide_roster: hideRosterEl ? hideRosterEl.checked : false,
+    ranked_tables: rankedTablesEl ? rankedTablesEl.checked : false
+  };
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = "⏳ Saving & Syncing to BCP...";
+  }
+  if (statusEl) {
+    statusEl.style.display = "block";
+    statusEl.style.background = "rgba(56, 189, 248, 0.1)";
+    statusEl.style.borderColor = "rgba(56, 189, 248, 0.3)";
+    statusEl.style.color = "#38bdf8";
+    statusEl.innerHTML = "Saving settings and syncing registration parameters to Best Coast Pairings...";
+  }
+
+  try {
+    const res = await window.api.updateStudioEvent(ev.id, payload);
+    if (res && res.success) {
+      const updated = res.event || payload;
+      studioState.activeTournament = { ...ev, ...updated, ...payload };
+
+      if (Array.isArray(studioState.eventsList)) {
+        const idx = studioState.eventsList.findIndex(e => e.id === ev.id);
+        if (idx >= 0) {
+          studioState.eventsList[idx] = { ...studioState.eventsList[idx], ...updated, ...payload };
+        }
+      }
+
+      // Update header DOM
+      const nameHeader = document.getElementById("manage-event-name");
+      const locHeader = document.getElementById("manage-event-location");
+      const dateHeader = document.getElementById("manage-event-date");
+      const roundsPtsHeader = document.getElementById("manage-event-rounds-pts");
+
+      if (nameHeader) nameHeader.textContent = payload.name;
+      if (locHeader && payload.venue) locHeader.textContent = payload.venue;
+      if (dateHeader) dateHeader.textContent = payload.event_date ? String(payload.event_date).split("T")[0] : "Date TBD";
+      if (roundsPtsHeader) roundsPtsHeader.textContent = `${payload.num_rounds} Rounds (${payload.points} pts)`;
+
+      if (statusEl) {
+        statusEl.style.background = "rgba(16, 185, 129, 0.1)";
+        statusEl.style.borderColor = "rgba(16, 185, 129, 0.3)";
+        statusEl.style.color = "#10b981";
+        const bcpMsg = res.bcp_updated ? " Synced to Best Coast Pairings live!" : "";
+        statusEl.innerHTML = `✅ Tournament settings saved successfully!${bcpMsg}`;
+      }
+    } else {
+      if (statusEl) {
+        statusEl.style.background = "rgba(239, 68, 68, 0.1)";
+        statusEl.style.borderColor = "rgba(239, 68, 68, 0.3)";
+        statusEl.style.color = "#ef4444";
+        statusEl.innerHTML = `❌ Failed to update settings: ${res?.error || "Unknown error"}`;
+      }
+    }
+  } catch (err) {
+    console.error("Save settings error:", err);
+    if (statusEl) {
+      statusEl.style.background = "rgba(239, 68, 68, 0.1)";
+      statusEl.style.borderColor = "rgba(239, 68, 68, 0.3)";
+      statusEl.style.color = "#ef4444";
+      statusEl.innerHTML = `❌ Error: ${err.message || err}`;
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = "💾 Save & Sync to BCP";
+    }
+  }
+}
+
+/* ==========================================================================
    ROSTER ACTIONS & MODAL
    ========================================================================== */
 
@@ -1991,6 +2282,10 @@ window.submitSwapPlayers = submitSwapPlayers;
 window.addPairingTable = addPairingTable;
 window.toggleTableBye = toggleTableBye;
 window.removePairingTable = removePairingTable;
+window.toggleCreateRegMode = toggleCreateRegMode;
+window.toggleSettingsRegMode = toggleSettingsRegMode;
+window.renderSettingsSubtab = renderSettingsSubtab;
+window.saveTournamentSettings = saveTournamentSettings;
 
 function toggleTeamOptions(context) {
   const typeEl = document.getElementById(`${context}-event-type`);

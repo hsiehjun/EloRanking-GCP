@@ -247,9 +247,94 @@
             <input type="hidden" id="create-event-loc-verified" value="true">
           </div>
 
+          <!-- BCP Registration & Ticketing Options -->
+          <div class="form-group" style="grid-column: 1 / -1; background: rgba(56, 189, 248, 0.03); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: var(--radius-md); padding: 1.15rem; margin-top: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="font-weight: 700; color: #38bdf8; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem;">
+                <span>🎟️</span> <span>Best Coast Pairings Registration & Tickets</span>
+              </div>
+              <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.7rem;">BCP API SYNC READY</span>
+            </div>
+
+            <!-- Registration Method Radio Group -->
+            <div style="display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.65rem; cursor: pointer; background: rgba(255,255,255,0.02); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border);">
+                <input type="radio" name="create-event-reg-mode" id="create-event-reg-bcp" value="bcp" checked onchange="toggleCreateRegMode()" style="margin-top: 0.2rem;">
+                <div>
+                  <div style="font-weight: 600; color: #fff; font-size: 0.86rem;">Use BCP's online registration (Recommended)</div>
+                  <div style="color: var(--text-muted); font-size: 0.77rem; margin-top: 2px;">Players can find your tournament on the Best Coast Pairings mobile app & web directory, purchase tickets, register their army list, and self check-in.</div>
+                </div>
+              </label>
+
+              <label style="display: flex; align-items: flex-start; gap: 0.65rem; cursor: pointer; background: rgba(255,255,255,0.02); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border);">
+                <input type="radio" name="create-event-reg-mode" id="create-event-reg-manual" value="manual" onchange="toggleCreateRegMode()" style="margin-top: 0.2rem;">
+                <div>
+                  <div style="font-weight: 600; color: #fff; font-size: 0.86rem;">Manually enter roster & registration</div>
+                  <div style="color: var(--text-muted); font-size: 0.77rem; margin-top: 2px;">Tournament Organizer manually adds competitors or imports roster lists. Online registration is disabled on BCP.</div>
+                </div>
+              </label>
+            </div>
+
+            <!-- Online Registration Configuration Details -->
+            <div id="create-bcp-ticket-options" style="display: block; border-top: 1px dashed rgba(56,189,248,0.2); padding-top: 0.95rem;">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; margin-bottom: 0.95rem;">
+                <div>
+                  <label class="form-label" style="font-size: 0.78rem;">Number of Tickets *</label>
+                  <input type="number" id="create-event-num-tickets" class="form-input" value="32" min="1" max="2500" style="padding: 0.4rem 0.65rem; font-size: 0.85rem;">
+                </div>
+                <div>
+                  <label class="form-label" style="font-size: 0.78rem;">Ticket Price ($)</label>
+                  <input type="number" id="create-event-ticket-price" class="form-input" value="0" min="0" step="1" style="padding: 0.4rem 0.65rem; font-size: 0.85rem;" placeholder="0 for Free Event">
+                </div>
+                <div>
+                  <label class="form-label" style="font-size: 0.78rem;">Currency</label>
+                  <select id="create-event-currency" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.85rem;">
+                    <option value="usd" selected>USD ($)</option>
+                    <option value="gbp">GBP (£)</option>
+                    <option value="eur">EUR (€)</option>
+                    <option value="cad">CAD ($)</option>
+                    <option value="aud">AUD ($)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Check-In, Privacy, and Shipping Toggles -->
+              <div style="display: flex; flex-direction: column; gap: 0.7rem; font-size: 0.82rem; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 0.85rem; border-radius: 6px;">
+                <label style="display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer;">
+                  <input type="checkbox" id="create-event-allow-checkin" checked style="margin-top: 0.15rem;">
+                  <div>
+                    <span style="font-weight: 600; color: #f1f5f9;">📱 Player Mobile Self Check-In</span>
+                    <div style="font-size: 0.74rem; color: var(--text-muted);">Players can check-in themselves on their phones via BCP starting 24 hours prior to event start.</div>
+                  </div>
+                </label>
+
+                <label style="display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer;">
+                  <input type="checkbox" id="create-event-private" style="margin-top: 0.15rem;">
+                  <div>
+                    <span style="font-weight: 600; color: #f1f5f9;">🔒 Private Event</span>
+                    <div style="font-size: 0.74rem; color: var(--text-muted);">Require players to enter a unique access code to register or view pairings.</div>
+                  </div>
+                </label>
+
+                <div>
+                  <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.25rem;">📦 Shipping Details Collection</div>
+                  <div style="font-size: 0.74rem; color: var(--text-muted); margin-bottom: 0.45rem;">Do you need to collect players' physical mailing addresses for prize shipment or swag?</div>
+                  <div style="display: flex; gap: 1rem;">
+                    <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                      <input type="radio" name="create-event-shipping-req" id="create-event-ship-no" value="no" checked> No
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                      <input type="radio" name="create-event-shipping-req" id="create-event-ship-yes" value="yes"> Yes (Collect Mailing Address)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Advanced BCP Rules & Privacy Options -->
           <div class="form-group" style="grid-column: 1 / -1; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-top: 0.5rem;">
-            <div style="font-weight: 700; color: #fff; font-size: 0.85rem; margin-bottom: 0.75rem;">🛡️ Army List & Player Privacy Options</div>
+            <div style="font-weight: 700; color: #fff; font-size: 0.85rem; margin-bottom: 0.75rem;">🛡️ Army List, Scoring & Privacy Options</div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; font-size: 0.82rem; color: #cbd5e1;">
               <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                 <input type="checkbox" id="create-event-hide-lists" checked> Hide Army Lists until Round 1
@@ -262,6 +347,15 @@
               </label>
               <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                 <input type="checkbox" id="create-event-hide-placings"> Hide Placings until End
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="create-event-hide-roster"> Hide Roster until Start
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="create-event-lists-locked"> Lock Army Lists (No Edits)
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="create-event-factions-locked"> Lock Factions
               </label>
             </div>
           </div>
@@ -303,6 +397,7 @@
               <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
               <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()">▶️</button>
             </div>
+            <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="switchManageSubtab('settings')">⚙️ Settings</button>
             <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Open on BCP</a>
           </div>
         </div>
@@ -313,6 +408,7 @@
           <button class="es-subtab-btn" id="btn-subtab-pairings" onclick="switchManageSubtab('pairings')">⚔️ Pairings & Scores</button>
           <button class="es-subtab-btn" id="btn-subtab-standings" onclick="switchManageSubtab('standings')">🏆 Live Standings</button>
           <button class="es-subtab-btn" id="btn-subtab-meta" onclick="switchManageSubtab('meta')">📊 Metagame Stats</button>
+          <button class="es-subtab-btn" id="btn-subtab-settings" onclick="switchManageSubtab('settings')">⚙️ Registration & Settings</button>
         </div>
       </div>
 
@@ -408,6 +504,199 @@
           <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem;">
             <h4 style="color: #fff; margin: 0 0 0.85rem; font-size: 1rem;">Faction Win Rates (This Event)</h4>
             <div id="meta-winrate-bars" style="display: flex; flex-direction: column; gap: 0.65rem;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUBTAB 5: Event Settings & BCP Registration -->
+      <div id="manage-subtab-settings" class="manage-subview" style="display: none;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; max-width: 960px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <h3 style="margin: 0 0 0.25rem; color: #fff; font-size: 1.2rem; font-family: var(--font-heading);">Tournament Settings & BCP Online Registration</h3>
+              <p style="margin: 0; color: var(--text-muted); font-size: 0.82rem;">Configure ticketing, player self check-in, army list privacy, and sync live parameters with Best Coast Pairings.</p>
+            </div>
+            <button class="btn btn-primary" id="btn-save-event-settings" style="font-size: 0.82rem; padding: 0.45rem 1rem;" onclick="saveTournamentSettings()">💾 Save & Sync to BCP</button>
+          </div>
+
+          <div id="manage-settings-status" style="display: none; margin-bottom: 1.25rem; padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem;"></div>
+
+          <!-- Section 1: Tournament Basics -->
+          <div style="margin-bottom: 1.5rem;">
+            <div style="font-weight: 700; color: #38bdf8; font-size: 0.92rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.4rem;">
+              <span>🏆</span> <span>Tournament Information</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem;">
+              <div style="grid-column: 1 / -1;">
+                <label class="form-label">Tournament Name *</label>
+                <input type="text" id="settings-event-name" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">Format / Tier</label>
+                <select id="settings-event-tier" class="form-input">
+                  <option value="Grand Tournament">Grand Tournament</option>
+                  <option value="Major">Major</option>
+                  <option value="Rogue Trader Tournament (RTT)">Rogue Trader Tournament (RTT)</option>
+                  <option value="League">League / Narrative</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Pairing Style</label>
+                <select id="settings-event-pairing-style" class="form-input">
+                  <option value="Swiss">Swiss</option>
+                  <option value="Random">Random</option>
+                  <option value="Single Elimination">Single Elimination</option>
+                  <option value="Double Elimination">Double Elimination</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Number of Rounds</label>
+                <input type="number" id="settings-event-rounds" class="form-input" min="1" max="12">
+              </div>
+              <div>
+                <label class="form-label">Points Limit</label>
+                <input type="number" id="settings-event-points" class="form-input" min="500" max="3000" step="500">
+              </div>
+              <div>
+                <label class="form-label">Default Round Length</label>
+                <select id="settings-event-round-length" class="form-input">
+                  <option value="9000">2 Hours 30 Minutes (9000s)</option>
+                  <option value="10800">3 Hours 00 Minutes (10800s)</option>
+                  <option value="7200">2 Hours 00 Minutes (7200s)</option>
+                  <option value="6300">1 Hour 45 Minutes (6300s)</option>
+                </select>
+              </div>
+              <div>
+                <label class="form-label">Start Date</label>
+                <input type="date" id="settings-event-start-date" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">End Date</label>
+                <input type="date" id="settings-event-end-date" class="form-input">
+              </div>
+              <div style="grid-column: 1 / -1;">
+                <label class="form-label">Venue & Address</label>
+                <input type="text" id="settings-event-venue" class="form-input">
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 2: BCP Registration & Ticketing -->
+          <div style="margin-bottom: 1.5rem; background: rgba(56, 189, 248, 0.03); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: var(--radius-md); padding: 1.15rem;">
+            <div style="font-weight: 700; color: #38bdf8; font-size: 0.92rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.45rem;">
+              <span>🎟️</span> <span>BCP Registration & Tickets Configuration</span>
+            </div>
+
+            <!-- Registration Method -->
+            <div style="display: flex; flex-direction: column; gap: 0.65rem; margin-bottom: 1rem;">
+              <label style="display: flex; align-items: flex-start; gap: 0.65rem; cursor: pointer; background: rgba(255,255,255,0.02); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border);">
+                <input type="radio" name="settings-event-reg-mode" id="settings-reg-bcp" value="bcp" onchange="toggleSettingsRegMode()" style="margin-top: 0.2rem;">
+                <div>
+                  <div style="font-weight: 600; color: #fff; font-size: 0.86rem;">Use BCP's online registration</div>
+                  <div style="color: var(--text-muted); font-size: 0.77rem; margin-top: 2px;">Players can discover the event on Best Coast Pairings app and website, claim tickets, and submit army lists.</div>
+                </div>
+              </label>
+
+              <label style="display: flex; align-items: flex-start; gap: 0.65rem; cursor: pointer; background: rgba(255,255,255,0.02); padding: 0.65rem 0.85rem; border-radius: 6px; border: 1px solid var(--border);">
+                <input type="radio" name="settings-event-reg-mode" id="settings-reg-manual" value="manual" onchange="toggleSettingsRegMode()" style="margin-top: 0.2rem;">
+                <div>
+                  <div style="font-weight: 600; color: #fff; font-size: 0.86rem;">Manually enter roster & registration</div>
+                  <div style="color: var(--text-muted); font-size: 0.77rem; margin-top: 2px;">Online registration closed on BCP. TO manually registers competitors.</div>
+                </div>
+              </label>
+            </div>
+
+            <div id="settings-bcp-ticket-options">
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; margin-bottom: 0.95rem;">
+                <div>
+                  <label class="form-label" style="font-size: 0.78rem;">Number of Tickets *</label>
+                  <input type="number" id="settings-event-num-tickets" class="form-input" min="1" max="2500" style="padding: 0.4rem 0.65rem; font-size: 0.85rem;">
+                </div>
+                <div>
+                  <label class="form-label" style="font-size: 0.78rem;">Ticket Price ($)</label>
+                  <input type="number" id="settings-event-ticket-price" class="form-input" min="0" step="1" style="padding: 0.4rem 0.65rem; font-size: 0.85rem;">
+                </div>
+                <div>
+                  <label class="form-label" style="font-size: 0.78rem;">Currency</label>
+                  <select id="settings-event-currency" class="form-input" style="padding: 0.4rem 0.65rem; font-size: 0.85rem;">
+                    <option value="usd">USD ($)</option>
+                    <option value="gbp">GBP (£)</option>
+                    <option value="eur">EUR (€)</option>
+                    <option value="cad">CAD ($)</option>
+                    <option value="aud">AUD ($)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Check-In, Privacy, and Shipping Toggles -->
+              <div style="display: flex; flex-direction: column; gap: 0.7rem; font-size: 0.82rem; color: #cbd5e1; background: rgba(0,0,0,0.2); padding: 0.85rem; border-radius: 6px;">
+                <label style="display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer;">
+                  <input type="checkbox" id="settings-event-allow-checkin" style="margin-top: 0.15rem;">
+                  <div>
+                    <span style="font-weight: 600; color: #f1f5f9;">📱 Player Mobile Self Check-In</span>
+                    <div style="font-size: 0.74rem; color: var(--text-muted);">Players can check-in themselves on their phones via BCP starting 24 hours prior to event start.</div>
+                  </div>
+                </label>
+
+                <label style="display: flex; align-items: flex-start; gap: 0.55rem; cursor: pointer;">
+                  <input type="checkbox" id="settings-event-private" style="margin-top: 0.15rem;">
+                  <div>
+                    <span style="font-weight: 600; color: #f1f5f9;">🔒 Private Event</span>
+                    <div style="font-size: 0.74rem; color: var(--text-muted);">Require players to enter a unique access code to register or view pairings.</div>
+                  </div>
+                </label>
+
+                <div>
+                  <div style="font-weight: 600; color: #f1f5f9; margin-bottom: 0.25rem;">📦 Shipping Details Collection</div>
+                  <div style="font-size: 0.74rem; color: var(--text-muted); margin-bottom: 0.45rem;">Do you need to collect players' physical mailing addresses for prize shipment or swag?</div>
+                  <div style="display: flex; gap: 1rem;">
+                    <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                      <input type="radio" name="settings-event-shipping-req" id="settings-ship-no" value="no"> No
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.4rem; cursor: pointer;">
+                      <input type="radio" name="settings-event-shipping-req" id="settings-ship-yes" value="yes"> Yes (Collect Mailing Address)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 3: Rules & Privacy -->
+          <div style="margin-bottom: 1.5rem; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.15rem;">
+            <div style="font-weight: 700; color: #fff; font-size: 0.92rem; margin-bottom: 0.85rem; display: flex; align-items: center; gap: 0.45rem;">
+              <span>🛡️</span> <span>Army List, Scoring & Privacy Rules</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.85rem; font-size: 0.82rem; color: #cbd5e1;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-hide-lists"> Hide Army Lists until Round 1
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-require-lists"> Require Lists at Check-In
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-lists-locked"> Lock Army Lists (No Edits)
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-factions-locked"> Lock Faction Choices
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-passwordless"> Passwordless Player Scoring
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-hide-placings"> Hide Placings until End
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-hide-roster"> Hide Roster until Start
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                <input type="checkbox" id="settings-event-ranked-tables"> Ranked Tables
+              </label>
+            </div>
+          </div>
+
+          <div style="display: flex; justify-content: flex-end; gap: 0.75rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+            <button class="btn btn-primary" style="font-size: 0.85rem; padding: 0.55rem 1.25rem;" onclick="saveTournamentSettings()">💾 Save & Sync to BCP</button>
           </div>
         </div>
       </div>

@@ -28,6 +28,10 @@ except ImportError:
         def __init__(self, **kwargs):
             for k, v in kwargs.items():
                 setattr(self, k, v)
+        def dict(self, *args, **kwargs):
+            return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
+        def model_dump(self, *args, **kwargs):
+            return self.dict(*args, **kwargs)
 
 try:
     from psycopg2 import extras

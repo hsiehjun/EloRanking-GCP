@@ -3457,6 +3457,28 @@ class PostgresDatabase:
                     if ev.get(d_key) and hasattr(ev[d_key], "isoformat"):
                         ev[d_key] = ev[d_key].isoformat()
 
+                if isinstance(ev.get("raw_json"), dict):
+                    rj = ev["raw_json"]
+                    for f_key, rj_key, d_val in [
+                        ("using_online_reg", "usingOnlineReg", True),
+                        ("num_tickets", "numTickets", ev.get("capacity", 32)),
+                        ("ticket_price", "ticketPrice", 0.0),
+                        ("ticket_currency", "ticketCurrency", "usd"),
+                        ("disable_checkin", "disableCheckin", False),
+                        ("private_event", "privateEvent", False),
+                        ("shipping_details", "shippingDetails", {"requested": False, "mandatory": False, "description": ""}),
+                        ("hide_lists", "hideLists", False),
+                        ("lists_at_checkin", "listsAtCheckin", False),
+                        ("lists_locked", "listsLocked", False),
+                        ("factions_locked", "factionsLocked", False),
+                        ("hide_roster", "hideRoster", False),
+                        ("hide_placings", "hidePlacings", False),
+                        ("passwordless_scoring", "passwordlessScoring", True),
+                        ("ranked_tables", "rankedTables", False),
+                    ]:
+                        if f_key not in ev:
+                            ev[f_key] = rj.get(rj_key, d_val)
+
                 return ev
 
     def save_studio_event(self, event_data: Dict[str, Any]) -> Dict[str, Any]:

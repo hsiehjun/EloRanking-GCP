@@ -40,13 +40,15 @@ class BcpAdapter:
         """
         Executes HTTP call to BCP API with Cognito token management and retry logic.
         """
-        from core import get_auth_manager
-        auth_mgr = get_auth_manager()
-
         tok = explicit_token
         if not tok and user_id:
-            tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
-            tok = tok_dict.get("access_token") or tok_dict.get("id_token")
+            try:
+                from core import get_auth_manager
+                auth_mgr = get_auth_manager()
+                tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+                tok = tok_dict.get("access_token") or tok_dict.get("id_token")
+            except Exception as auth_err:
+                logger.warning(f"Notice retrieving BCP tokens for user {user_id}: {auth_err}")
 
         if not tok:
             logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
@@ -88,19 +90,24 @@ class BcpAdapter:
         # 2. If 401 or 403, retry with alternate token (id_token vs access_token) or force-refresh
         if status in (401, 403) and user_id:
             logger.info(f"🔄 [BCP API] Status {status} on {method} {url}. Attempting token retry / refresh...")
-            tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
-            alt_tok = tok_dict.get("id_token") if tok == tok_dict.get("access_token") else tok_dict.get("access_token")
-            if alt_tok and alt_tok != tok:
-                data, status, err = _do_request(alt_tok)
-                if data is not None:
-                    return data, None
-
-            fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
-            for cand_tok in [fresh_dict.get("access_token"), fresh_dict.get("id_token")]:
-                if cand_tok and cand_tok != tok and cand_tok != alt_tok:
-                    data, status, err = _do_request(cand_tok)
+            try:
+                from core import get_auth_manager
+                auth_mgr = get_auth_manager()
+                tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+                alt_tok = tok_dict.get("id_token") if tok == tok_dict.get("access_token") else tok_dict.get("access_token")
+                if alt_tok and alt_tok != tok:
+                    data, status, err = _do_request(alt_tok)
                     if data is not None:
                         return data, None
+
+                fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
+                for cand_tok in [fresh_dict.get("access_token"), fresh_dict.get("id_token")]:
+                    if cand_tok and cand_tok != tok and cand_tok != alt_tok:
+                        data, status, err = _do_request(cand_tok)
+                        if data is not None:
+                            return data, None
+            except Exception as ref_err:
+                logger.warning(f"Notice during token retry / refresh for user {user_id}: {ref_err}")
 
         if err:
             logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
@@ -394,6 +401,97 @@ class BcpAdapter:
 
         logger.info(f"✅ Fetched {len(events_list)} registered events for user {user_id} from BCP")
         return True, None, events_list
+
+    @classmethod
+    def configure_event_registration(
+        cls,
+        event_id: str,
+        settings: Dict[str, Any],
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Configures tournament registration, ticketing, and scoring rules on BCP
+        via POST /v1/events/{event_id} with {"set": {...}, "unset": {...}}.
+        """
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid or clean_eid.startswith("ES-"):
+            return True, None, None
+
+        url = f"{BCP_API_BASE}/events/{clean_eid}"
+
+        using_online_reg = bool(settings.get("using_online_reg", settings.get("usingOnlineReg", True)))
+        num_tickets = int(settings.get("num_tickets") or settings.get("numTickets") or settings.get("capacity") or 32)
+        ticket_price = float(settings.get("ticket_price") or settings.get("ticketPrice") or 0.0)
+        currency = str(settings.get("ticket_currency") or settings.get("currency") or "usd").lower()
+
+        shipping_req = bool(settings.get("collect_shipping", False))
+        shipping_mand = bool(settings.get("shipping_mandatory", False))
+        shipping_desc = str(settings.get("shipping_description", ""))
+        if isinstance(settings.get("shipping_details"), dict):
+            shipping_req = bool(settings["shipping_details"].get("requested", shipping_req))
+            shipping_mand = bool(settings["shipping_details"].get("mandatory", shipping_mand))
+            shipping_desc = str(settings["shipping_details"].get("description", shipping_desc))
+        elif isinstance(settings.get("shippingDetails"), dict):
+            shipping_req = bool(settings["shippingDetails"].get("requested", shipping_req))
+            shipping_mand = bool(settings["shippingDetails"].get("mandatory", shipping_mand))
+            shipping_desc = str(settings["shippingDetails"].get("description", shipping_desc))
+
+        set_dict: Dict[str, Any] = {
+            "usingOnlineReg": using_online_reg,
+            "numTickets": num_tickets,
+            "ticketPrice": ticket_price,
+            "amount": ticket_price,
+            "currency": currency,
+            "ticketCurrency": currency,
+            "availableCurrencies": [currency],
+            "pricingDict": {currency: ticket_price},
+            "playerPaysFees": bool(settings.get("player_pays_fees", settings.get("playerPaysFees", False))),
+            "disableCheckin": bool(settings.get("disable_checkin", settings.get("disableCheckin", False))),
+            "privateEvent": bool(settings.get("private_event", settings.get("privateEvent", False))),
+            "shippingDetails": {
+                "requested": shipping_req,
+                "mandatory": shipping_mand,
+                "description": shipping_desc
+            },
+            "hideLists": bool(settings.get("hide_lists", settings.get("hideLists", True))),
+            "listOptions": {"allowsFiles": True, "allowsText": True, "allowsImages": True},
+            "listsLocked": bool(settings.get("lists_locked", settings.get("listsLocked", False))),
+            "listSubmissionLocked": bool(settings.get("list_submission_locked", settings.get("listSubmissionLocked", False))),
+            "listsAtCheckin": bool(settings.get("lists_at_checkin", settings.get("listsAtCheckin", settings.get("require_lists", False)))),
+            "factionsLocked": bool(settings.get("factions_locked", settings.get("factionsLocked", False))),
+            "hideRoster": bool(settings.get("hide_roster", settings.get("hideRoster", False))),
+            "hidePlacings": bool(settings.get("hide_placings", settings.get("hidePlacings", False))),
+            "hidePlayerCount": False,
+            "passwordlessScoring": bool(settings.get("passwordless_scoring", settings.get("passwordlessScoring", True))),
+            "enablePasswords": True,
+            "rankedTables": bool(settings.get("ranked_tables", settings.get("rankedTables", False))),
+            "requirePairingPublish": bool(settings.get("require_pairing_publish", settings.get("requirePairingPublish", False)))
+        }
+
+        if settings.get("name"):
+            set_dict["name"] = settings["name"]
+        if settings.get("num_rounds") or settings.get("rounds") or settings.get("numberOfRounds"):
+            set_dict["numberOfRounds"] = int(settings.get("num_rounds") or settings.get("rounds") or settings.get("numberOfRounds"))
+        if settings.get("default_round_length") or settings.get("defaultRoundLength"):
+            set_dict["defaultRoundLength"] = int(settings.get("default_round_length") or settings.get("defaultRoundLength"))
+        if settings.get("pairing_style") or settings.get("pairingStyle"):
+            set_dict["pairingStyle"] = str(settings.get("pairing_style") or settings.get("pairingStyle")).title()
+
+        payload = {
+            "set": set_dict,
+            "unset": {
+                "placingRecordType": True,
+                "eventFormat": True
+            }
+        }
+
+        data, err = cls.execute_call(url, method="POST", json_data=payload, user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            logger.info(f"✅ Successfully configured BCP registration & settings for event {clean_eid}")
+            return True, None, data
+
+        return False, (err or "Failed to configure BCP registration"), None
 
 # Module-level instance
 bcp_adapter = BcpAdapter()

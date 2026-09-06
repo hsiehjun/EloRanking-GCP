@@ -78,6 +78,56 @@ def test_bcp_adapter_submit_scores_url():
         assert kwargs['json_data']['gameData']['player2Score'] == 72
     print("✅ test_bcp_adapter_submit_scores_url passed!")
 
+def test_bcp_adapter_configure_registration_payload():
+    """Verify configure_event_registration sends exact BCP endpoint and payload with set and unset."""
+    with patch.object(BcpAdapter, 'execute_call') as mock_exec:
+        mock_exec.return_value = ({'success': True}, None)
+        settings = {
+            "using_online_reg": True,
+            "num_tickets": 16,
+            "ticket_price": 30.0,
+            "ticket_currency": "usd",
+            "disable_checkin": False,
+            "private_event": True,
+            "collect_shipping": True,
+            "shipping_details": {"requested": True, "mandatory": False, "description": "T-shirt shipment"},
+            "hide_lists": True,
+            "lists_locked": True,
+            "factions_locked": True,
+            "hide_roster": False,
+            "hide_placings": True,
+            "passwordless_scoring": True,
+            "ranked_tables": True
+        }
+        success, err, data = bcp_adapter.configure_event_registration("uMkb9a3qmW3m", settings, explicit_token="tok_123")
+        assert success is True
+        assert err is None
+        args, kwargs = mock_exec.call_args
+        assert args[0] == f"{BCP_API_BASE}/events/uMkb9a3qmW3m"
+        assert kwargs["method"] == "POST"
+        body = kwargs["json_data"]
+        assert "set" in body and "unset" in body
+        assert body["unset"] == {"placingRecordType": True, "eventFormat": True}
+        s = body["set"]
+        assert s["usingOnlineReg"] is True
+        assert s["numTickets"] == 16
+        assert s["ticketPrice"] == 30.0
+        assert s["amount"] == 30.0
+        assert s["currency"] == "usd"
+        assert s["pricingDict"] == {"usd": 30.0}
+        assert s["disableCheckin"] is False
+        assert s["privateEvent"] is True
+        assert s["shippingDetails"]["requested"] is True
+        assert s["shippingDetails"]["description"] == "T-shirt shipment"
+        assert s["hideLists"] is True
+        assert s["listsLocked"] is True
+        assert s["factionsLocked"] is True
+        assert s["hidePlacings"] is True
+        assert s["passwordlessScoring"] is True
+        assert s["rankedTables"] is True
+        assert s["listOptions"] == {"allowsFiles": True, "allowsText": True, "allowsImages": True}
+    print("✅ test_bcp_adapter_configure_registration_payload passed!")
+
 def test_swiss_pairings_generation():
     """Verify local Swiss pairing generator creates valid, Elo-predicted table matchups."""
     test_event = {
@@ -208,7 +258,8 @@ def test_eventstudio_create_and_delete_flow():
     with patch("routers.eventstudio._get_to_session_or_403", return_value=mock_user), \
          patch("routers.eventstudio.get_auth_manager") as mock_auth, \
          patch("routers.eventstudio.get_database") as mock_db, \
-         patch("routers.eventstudio.execute_bcp_api_call") as mock_bcp:
+         patch("routers.eventstudio.execute_bcp_api_call") as mock_bcp, \
+         patch.object(bcp_adapter, "configure_event_registration", return_value=(True, None, {"success": True})) as mock_cfg:
         
         auth_inst = MagicMock()
         auth_inst.get_valid_bcp_tokens.return_value = {"access_token": "acc_tok_123", "id_token": "id_tok_123"}
@@ -227,7 +278,10 @@ def test_eventstudio_create_and_delete_flow():
             city="San Diego",
             state="CA",
             rounds=5,
-            points=2000
+            points=2000,
+            using_online_reg=True,
+            num_tickets=64,
+            ticket_price=45.0
         )
 
         res = asyncio.run(api_eventstudio_create_event(payload, req))
@@ -240,6 +294,14 @@ def test_eventstudio_create_and_delete_flow():
         assert call_args[0][0] == f"{BCP_API_BASE}/events"
         assert call_args[1]["json_data"]["ownerId"] == "MEV83VFANA"
         assert call_args[1]["explicit_token"] == "acc_tok_123"
+
+        # Verify registration configuration called with ticket details
+        mock_cfg.assert_called_once()
+        cfg_args, cfg_kwargs = mock_cfg.call_args
+        assert cfg_args[0] == "BCP_EV_999"
+        assert cfg_args[1]["using_online_reg"] is True
+        assert cfg_args[1]["num_tickets"] == 64
+        assert cfg_args[1]["ticket_price"] == 45.0
 
         # Verify Event Deletion
         mock_bcp.return_value = ({"success": True}, None)
@@ -256,6 +318,7 @@ if __name__ == '__main__':
     test_bcp_adapter_start_event_url()
     test_bcp_adapter_register_player_payload()
     test_bcp_adapter_submit_scores_url()
+    test_bcp_adapter_configure_registration_payload()
     test_swiss_pairings_generation()
     test_start_event_local_first()
     test_score_submission_local_save()
