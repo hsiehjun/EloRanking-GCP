@@ -13,10 +13,25 @@ logger = logging.getLogger("elo_ranking.firestore")
 
 try:
     from google.cloud import firestore
+    try:
+        from google.cloud.firestore_v1.base_query import FieldFilter
+    except ImportError:
+        try:
+            from google.cloud.firestore import FieldFilter
+        except ImportError:
+            FieldFilter = None
     FIRESTORE_AVAILABLE = True
 except ImportError:
     FIRESTORE_AVAILABLE = False
+    FieldFilter = None
     logger.warning("google-cloud-firestore package not found locally. Running in in-memory fallback mode.")
+
+
+def _apply_where(target: Any, field_path: str, op_string: str, value: Any) -> Any:
+    """Applies where filter using modern FieldFilter keyword syntax when available, avoiding deprecation UserWarning."""
+    if FieldFilter is not None:
+        return target.where(filter=FieldFilter(field_path, op_string, value))
+    return target.where(field_path, op_string, value)
 
 class FirestoreRoomEngine:
     """Manages hot ephemeral match rooms in Cloud Firestore ('rooms/{match_id}')."""
@@ -153,7 +168,7 @@ class FirestoreRoomEngine:
         if self._client:
             try:
                 col = self._client.collection("rooms")
-                query = col.where("status", "==", "in_progress").limit(limit)
+                query = _apply_where(col, "status", "==", "in_progress").limit(limit)
                 for doc in query.stream():
                     d = doc.to_dict()
                     rkey = d.get("roomKey") or d.get("matchId") or doc.id
@@ -398,7 +413,7 @@ class FirestoreRoomEngine:
         for col_name in ["connect_user_sync", "connect_chats"]:
             try:
                 col_ref = self._client.collection(col_name)
-                expired_docs = col_ref.where("expiresAt", "<=", now_dt).limit(100).stream()
+                expired_docs = _apply_where(col_ref, "expiresAt", "<=", now_dt).limit(100).stream()
                 batch = self._client.batch()
                 count = 0
                 for doc in expired_docs:
@@ -412,7 +427,7 @@ class FirestoreRoomEngine:
 
         try:
             rooms_ref = self._client.collection("rooms")
-            expired_rooms = rooms_ref.where("expiresAt", "<=", now_ts).limit(100).stream()
+            expired_rooms = _apply_where(rooms_ref, "expiresAt", "<=", now_ts).limit(100).stream()
             batch = self._client.batch()
             count = 0
             for doc in expired_rooms:

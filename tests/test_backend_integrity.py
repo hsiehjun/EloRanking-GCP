@@ -165,8 +165,39 @@ def test_route_parity():
         assert len(extra) == 0, f"Extra routes: {extra}"
     print(f"✅ Route parity verified: exactly 185 routes registered with 100% path and method parity!")
 
+def test_firestore_where_filter_modernization():
+    """Verify that firestore_db._apply_where uses FieldFilter when available and avoids positional UserWarning."""
+    from unittest.mock import MagicMock, patch
+    import firestore_db
+    mock_target = MagicMock()
+
+    class MockFieldFilter:
+        def __init__(self, field, op, val):
+            self.field = field
+            self.op = op
+            self.val = val
+
+    # 1. With FieldFilter
+    with patch.object(firestore_db, "FieldFilter", MockFieldFilter):
+        firestore_db._apply_where(mock_target, "status", "==", "in_progress")
+        assert mock_target.where.called
+        kwargs = mock_target.where.call_args.kwargs
+        assert "filter" in kwargs
+        assert kwargs["filter"].field == "status"
+        assert kwargs["filter"].op == "=="
+        assert kwargs["filter"].val == "in_progress"
+
+    # 2. Fallback without FieldFilter
+    mock_target.reset_mock()
+    with patch.object(firestore_db, "FieldFilter", None):
+        firestore_db._apply_where(mock_target, "status", "==", "in_progress")
+        mock_target.where.assert_called_once_with("status", "==", "in_progress")
+
+    print("✅ Firestore FieldFilter modernization and fallback verified!")
+
 if __name__ == "__main__":
     test_py_compile()
     test_ast_undefined_names()
     test_route_parity()
+    test_firestore_where_filter_modernization()
     print("🎉 ALL BACKEND INTEGRITY AND PARITY TESTS PASSED!")
