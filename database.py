@@ -3442,6 +3442,51 @@ class PostgresDatabase:
         except Exception:
             return False
 
+    def has_event_matches(self, event_id: str) -> bool:
+        """Checks if an event has any recorded matches."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT 1 FROM matches WHERE event_id = %s LIMIT 1;", (event_id,))
+                    return bool(cursor.fetchone())
+        except Exception:
+            return False
+
+    def prune_event_participants(self, event_id: str, active_player_ids: set) -> int:
+        """Removes participants from an event who are no longer on the active BCP roster."""
+        if not event_id:
+            return 0
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    if active_player_ids:
+                        cursor.execute("""
+                        DELETE FROM event_participants
+                        WHERE event_id = %s
+                          AND NOT (player_id = ANY(%s))
+                          AND NOT EXISTS (
+                              SELECT 1 FROM matches m
+                              WHERE m.event_id = event_participants.event_id
+                                AND (m.player1_id = event_participants.player_id OR m.player2_id = event_participants.player_id)
+                          );
+                        """, (event_id, list(active_player_ids)))
+                    else:
+                        cursor.execute("""
+                        DELETE FROM event_participants
+                        WHERE event_id = %s
+                          AND NOT EXISTS (
+                              SELECT 1 FROM matches m
+                              WHERE m.event_id = event_participants.event_id
+                                AND (m.player1_id = event_participants.player_id OR m.player2_id = event_participants.player_id)
+                          );
+                        """, (event_id,))
+                    deleted = cursor.rowcount
+                conn.commit()
+                return deleted
+        except Exception as e:
+            logger.warning(f"Notice pruning event participants for {event_id}: {e}")
+            return 0
+
     def save_user_army_list(self, user_id: Optional[str], list_data: Dict[str, Any]) -> Dict[str, Any]:
         """Saves or updates a user army list in the database."""
         list_id = str(list_data.get("id") or f"list_{uuid.uuid4().hex[:10]}")
@@ -3639,7 +3684,7 @@ class PostgresDatabase:
         1. events: updates or inserts event metadata (name, dates, venue, points, rounds, total_players)
         2. event_participants: links the player to the event with their faction, detachment, list submission, check-in status
         """
-        if not user_id or not events:
+        if not user_id or events is None:
             return self.get_user_registered_tournaments(user_id) if user_id else []
         try:
             return self._execute_save_registered_tournaments(user_id, events)
@@ -3669,9 +3714,45 @@ class PostgresDatabase:
         except Exception as e:
             logger.debug(f"User lookup in save_user_registered_tournaments notice: {e}")
 
+        pids = list({user_id, target_pid})
+        active_bcp_event_ids = [
+            str(ev.get("bcp_event_id") or ev.get("id") or "").strip()
+            for ev in (events or [])
+            if (ev.get("bcp_event_id") or ev.get("id"))
+        ]
+
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                for ev in events:
+                # 1. Prune registrations for events the user is no longer enrolled in on BCP
+                # Safeguards:
+                # - Never prune native Event Studio tournaments ('ES-%')
+                # - Never prune if player actually played matches in that event
+                if active_bcp_event_ids:
+                    cursor.execute("""
+                    DELETE FROM event_participants
+                    WHERE player_id = ANY(%s)
+                      AND SUBSTRING(event_id, 1, 3) != 'ES-'
+                      AND NOT (event_id = ANY(%s))
+                      AND NOT EXISTS (
+                          SELECT 1 FROM matches m
+                          WHERE m.event_id = event_participants.event_id
+                            AND (m.player1_id = event_participants.player_id OR m.player2_id = event_participants.player_id)
+                      );
+                    """, (pids, active_bcp_event_ids))
+                else:
+                    cursor.execute("""
+                    DELETE FROM event_participants
+                    WHERE player_id = ANY(%s)
+                      AND SUBSTRING(event_id, 1, 3) != 'ES-'
+                      AND NOT EXISTS (
+                          SELECT 1 FROM matches m
+                          WHERE m.event_id = event_participants.event_id
+                            AND (m.player1_id = event_participants.player_id OR m.player2_id = event_participants.player_id)
+                      );
+                    """, (pids,))
+
+                # 2. Upsert active events and player's registration details
+                for ev in (events or []):
                     bcp_event_id = str(ev.get("bcp_event_id") or ev.get("id") or "").strip()
                     if not bcp_event_id:
                         continue

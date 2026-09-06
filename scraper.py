@@ -34,6 +34,7 @@ class BestCoastPairingsScraper:
 
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 2) -> Optional[Dict[str, Any]]:
         """Makes an HTTP GET request to BCP API with headers, error handling, and retries."""
+        self.last_http_code = None
         query_str = f"?{urllib.parse.urlencode(params)}" if params else ""
         url = f"{BCP_API_BASE}{endpoint}{query_str}"
 
@@ -42,9 +43,11 @@ class BestCoastPairingsScraper:
                 time.sleep(self.request_delay)
                 req = urllib.request.Request(url, headers=self.headers)
                 with urllib.request.urlopen(req, timeout=10) as response:
+                    self.last_http_code = response.status
                     content = response.read().decode("utf-8")
                     return json.loads(content)
             except urllib.error.HTTPError as e:
+                self.last_http_code = e.code
                 body = e.read().decode("utf-8", errors="ignore")
                 logger.warning(f"HTTP {e.code} on {endpoint} (Attempt {attempt}/{max_retries}): {body[:150]}")
                 if e.code == 429:
@@ -166,12 +169,19 @@ class BestCoastPairingsScraper:
             if ev_data and isinstance(ev_data, dict):
                 ev_data["id"] = ev_data.get("id") or event_id
                 self.db.upsert_event(ev_data)
+            elif ev_data is None and getattr(self, "last_http_code", None) == 404 and not str(event_id).startswith("ES-"):
+                if hasattr(self.db, "has_event_matches") and not self.db.has_event_matches(event_id):
+                    logger.info(f"Event {event_id} returned 404 on BCP and has no matches; removing from DB.")
+                    if hasattr(self.db, "delete_studio_event"):
+                        self.db.delete_studio_event(event_id)
+                    return 0
         except Exception as e:
             logger.debug(f"Could not update event metadata in sync_event_roster for {event_id}: {e}")
 
         enrolled_players = self.fetch_event_players(event_id)
+        active_player_ids = set()
         count = 0
-        for p in enrolled_players:
+        for p in (enrolled_players or []):
             user = p.get("user") or {}
             user_id = user.get("id") or p.get("userId") or p.get("id")
             if not user_id:
@@ -230,6 +240,8 @@ class BestCoastPairingsScraper:
             if p.get("userId"):
                 ids_to_upsert.add(p.get("userId"))
 
+            active_player_ids.update(ids_to_upsert)
+
             for pid in ids_to_upsert:
                 self.db.upsert_player(pid, first_name, last_name, full_name, team=team_name)
                 self.db.upsert_event_participant(
@@ -247,6 +259,24 @@ class BestCoastPairingsScraper:
                     pod_num=pod_num
                 )
             count += 1
+
+        # Prune dropped / unregistered participants from DB if we queried BCP successfully
+        if enrolled_players is not None and hasattr(self.db, "prune_event_participants"):
+            self.db.prune_event_participants(event_id, active_player_ids)
+            # Update total_players count in events to reflect active roster
+            try:
+                if hasattr(self.db, "get_connection"):
+                    with self.db.get_connection() as conn:
+                        with conn.cursor() as cursor:
+                            cursor.execute("""
+                            UPDATE events 
+                            SET total_players = (SELECT COUNT(*) FROM event_participants WHERE event_id = %s)
+                            WHERE id = %s;
+                            """, (event_id, event_id))
+                        conn.commit()
+            except Exception as e:
+                logger.debug(f"Notice updating total_players for event {event_id}: {e}")
+
         return count
 
     def parse_and_store_match(self, event_data: Dict[str, Any], pairing: Dict[str, Any]) -> Optional[Dict[str, Any]]:

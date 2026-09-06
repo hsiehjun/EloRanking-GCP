@@ -276,10 +276,90 @@ def test_bcp_adapter_fetch_user_registered_events_canonical_url():
     print("✅ Canonical BCP v1 single-call registered events fetching verified!")
 
 
+def test_unregistered_tournament_pruning_and_empty_list_handling():
+    """Verify that unregistering from an event prunes event_participants and empty list [] is processed."""
+    from database import PostgresDatabase
+    db = PostgresDatabase.__new__(PostgresDatabase)
+
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+    executed_sqls = []
+    def record_execute(sql, params=None):
+        executed_sqls.append((str(sql), params))
+        if 'SELECT player_id' in str(sql):
+            mock_cursor.fetchone.return_value = ('player_target_1', 'Player One')
+        elif 'SELECT' in str(sql) and 'FROM events' in str(sql):
+            mock_cursor.fetchall.return_value = []
+
+    mock_cursor.execute.side_effect = record_execute
+
+    with patch.object(db, 'get_connection', return_value=mock_conn):
+        # Case 1: Active list has 1 event. User previously had another event that was dropped.
+        active_events = [{
+            'bcp_event_id': 'bcp_ev_active_1',
+            'event_name': 'Active Tournament',
+            'event_date': '2026-11-01T10:00:00Z',
+            'points_limit': 2000
+        }]
+        db.save_user_registered_tournaments('user_1', active_events)
+        delete_calls = [sql for sql, params in executed_sqls if 'DELETE FROM event_participants' in sql]
+        assert len(delete_calls) >= 1, "Must execute DELETE FROM event_participants to prune un-enrolled events"
+        assert 'NOT (event_id = ANY(%s))' in delete_calls[0], "Must exclude active events from deletion"
+
+        # Case 2: User unregisters from ALL events -> events = []
+        executed_sqls.clear()
+        db.save_user_registered_tournaments('user_1', [])
+        delete_empty_calls = [sql for sql, params in executed_sqls if 'DELETE FROM event_participants' in sql]
+        assert len(delete_empty_calls) >= 1, "Must execute DELETE FROM event_participants when events is empty []"
+        assert 'NOT EXISTS' in delete_empty_calls[0], "Must safeguard against deleting tournaments with match history"
+
+    print("✅ Unregistered tournament pruning and empty list [] handling verified!")
+
+
+def test_scraper_sync_event_roster_pruning_and_404_deletion():
+    """Verify that sync_event_roster prunes dropped players and deletes 404 BCP events."""
+    from scraper import BestCoastPairingsScraper
+    mock_db = MagicMock()
+    scraper = BestCoastPairingsScraper(db=mock_db)
+
+    # 1. Test pruning when a player unregisters/drops
+    mock_db.has_event_matches.return_value = False
+    mock_db.prune_event_participants.return_value = 1
+
+    with patch.object(scraper, 'fetch_event_details', return_value={"id": "ev_123", "name": "Tourney 1"}), \
+         patch.object(scraper, 'fetch_event_players', return_value=[
+             {"id": "p1", "name": "Player 1", "user": {"id": "p1", "firstName": "Alice", "lastName": "Smith"}}
+         ]):
+        count = scraper.sync_event_roster("ev_123")
+        assert count == 1
+        assert mock_db.prune_event_participants.call_count == 1
+        call_args = mock_db.prune_event_participants.call_args[0]
+        assert call_args[0] == "ev_123"
+        assert "p1" in call_args[1]
+
+    # 2. Test deletion when event is deleted from BCP (HTTP 404)
+    scraper.last_http_code = 404
+    mock_db.reset_mock()
+    mock_db.has_event_matches.return_value = False
+
+    with patch.object(scraper, 'fetch_event_details', return_value=None):
+        count = scraper.sync_event_roster("ev_deleted_999")
+        assert count == 0
+        assert mock_db.delete_studio_event.call_count == 1
+        assert mock_db.delete_studio_event.call_args[0][0] == "ev_deleted_999"
+
+    print("✅ scraper sync_event_roster pruning and 404 deletion verified!")
+
+
 if __name__ == '__main__':
     test_database_unified_events_sync_methods()
     test_database_sync_events_and_participants_sql_execution()
     test_api_user_sync_registered_tournaments_resilience()
     test_schema_precheck_uses_events_and_participants()
     test_bcp_adapter_fetch_user_registered_events_canonical_url()
+    test_unregistered_tournament_pruning_and_empty_list_handling()
+    test_scraper_sync_event_roster_pruning_and_404_deletion()
     print('ALL UNIFIED REGISTERED TOURNAMENTS SYNC TESTS PASSED!')
