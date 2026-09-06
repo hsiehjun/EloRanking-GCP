@@ -2611,17 +2611,62 @@ function initGooglePlaces() {
 
 window.initGooglePlaces = initGooglePlaces;
 
-async function loadGoogleMapsSdk() {
+let _mapsSdkLoadingPromise = null;
+
+async function loadGoogleMapsSdk(callback) {
   if (typeof google !== "undefined" && google.maps && google.maps.places) {
-    initGooglePlaces();
+    if (typeof initGooglePlaces === "function") initGooglePlaces();
+    if (typeof attachAllPlacesAutocompletes === "function") attachAllPlacesAutocompletes();
+    if (typeof callback === "function") callback();
+    return;
   }
+  if (_mapsSdkLoadingPromise) {
+    if (typeof callback === "function") {
+      _mapsSdkLoadingPromise.then(() => callback());
+    }
+    return _mapsSdkLoadingPromise;
+  }
+
+  _mapsSdkLoadingPromise = (async () => {
+    try {
+      const res = await fetch("/api/config/maps-key");
+      if (!res.ok) return;
+      const data = await res.json();
+      const apiKey = (data && data.key) ? data.key.trim() : "";
+      if (!apiKey) return;
+      if (document.querySelector('script[src*="maps.googleapis.com"]')) return;
+
+      await new Promise((resolve) => {
+        window.__onGoogleMapsSdkReady = () => {
+          if (typeof initGooglePlaces === "function") initGooglePlaces();
+          if (typeof attachAllPlacesAutocompletes === "function") attachAllPlacesAutocompletes();
+          if (typeof initStoresGoogleMap === "function" && document.getElementById("comm-stores-map")) {
+            initStoresGoogleMap();
+          }
+          if (typeof callback === "function") callback();
+          resolve();
+        };
+
+        const script = document.createElement("script");
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&loading=async&libraries=places&callback=__onGoogleMapsSdkReady`;
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => resolve();
+        document.head.appendChild(script);
+      });
+    } catch (err) {
+      console.warn("Notice loading Google Maps SDK:", err);
+    }
+  })();
+
+  return _mapsSdkLoadingPromise;
 }
 
 window.loadGoogleMapsSdk = loadGoogleMapsSdk;
 
 // Automatically load Google Maps SDK
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", loadGoogleMapsSdk);
+  document.addEventListener("DOMContentLoaded", () => loadGoogleMapsSdk());
 } else {
   loadGoogleMapsSdk();
 }

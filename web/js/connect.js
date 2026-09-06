@@ -2362,6 +2362,8 @@ if (typeof window !== 'undefined') {
 async function initConnectGooglePlaces() {
   if (typeof google !== 'undefined' && google.maps && google.maps.places) {
     attachAllPlacesAutocompletes();
+  } else if (typeof loadGoogleMapsSdk === 'function') {
+    loadGoogleMapsSdk(attachAllPlacesAutocompletes);
   }
 }
 

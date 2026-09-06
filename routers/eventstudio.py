@@ -685,11 +685,12 @@ VERIFIED_TOURNAMENT_CITIES = [
     {"city": "Rome", "state": "Lazio", "country": "Italy", "lat": 41.9028, "lng": 12.4964, "label": "Rome, Italy"}
 ]
 
-@router.get("/api/config/maps-key", summary="Check Maps service availability")
+@router.get("/api/config/maps-key", summary="Get Maps client configuration")
 async def api_get_maps_key():
-    # Security: Never expose raw Google Maps API keys to client browsers.
-    key = os.environ.get("GOOGLE_MAPS_API_KEY", GOOGLE_MAPS_API_KEY)
-    return {"configured": bool(key)}
+    # Supports separate GOOGLE_MAPS_CLIENT_KEY (restricted to omnitactica.com) or GOOGLE_MAPS_API_KEY
+    key = os.environ.get("GOOGLE_MAPS_CLIENT_KEY", os.environ.get("GOOGLE_MAPS_API_KEY", GOOGLE_MAPS_API_KEY))
+    clean_key = (key or "").strip()
+    return {"key": clean_key, "configured": bool(clean_key)}
 
 
 

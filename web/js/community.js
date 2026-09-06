@@ -2291,6 +2291,13 @@ function initStoresGoogleMap(stores = null) {
   if (typeof google === 'undefined' || !google.maps || !google.maps.Map) {
     if (fallbackContainer) fallbackContainer.style.display = 'block';
     mapContainer.style.display = 'none';
+    if (typeof loadGoogleMapsSdk === 'function') {
+      loadGoogleMapsSdk(() => {
+        if (typeof google !== 'undefined' && google.maps && google.maps.Map) {
+          initStoresGoogleMap(stores);
+        }
+      });
+    }
     return;
   }
 
