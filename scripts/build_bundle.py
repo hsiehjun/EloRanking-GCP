@@ -66,6 +66,21 @@ def build_bundle():
         print(f"  ✓ Processed {mod_name} ({len(raw_content)} -> {len(minified)} bytes)")
 
     full_bundle = "\n\n".join(bundled_parts)
+    
+    import shutil
+    import subprocess
+    esbuild_bin = shutil.which("esbuild")
+    if esbuild_bin:
+        print("  ⚡ Running esbuild AST optimizer, variable mangler, and compressor...")
+        res = subprocess.run(
+            [esbuild_bin, "--minify", "--legal-comments=none"],
+            input=full_bundle.encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True
+        )
+        full_bundle = res.stdout.decode("utf-8")
+
     OUTPUT_BUNDLE.write_text(full_bundle, encoding="utf-8")
     
     bundle_bytes = len(full_bundle.encode("utf-8"))
