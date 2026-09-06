@@ -4699,6 +4699,7 @@ body.is-authenticated #floating-chat-widget {
     box-shadow: none !important;
     overscroll-behavior: none;
     touch-action: pan-y;
+    transition: none !important;
   }
   .floating-chat-window.keyboard-visible {
     height: var(--chat-viewport-height) !important;
@@ -4796,6 +4797,7 @@ body.is-authenticated #floating-chat-widget {
 }
 .oc-messages-list {
   flex: 1;
+  min-height: 0;
   padding: 1.25rem;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;

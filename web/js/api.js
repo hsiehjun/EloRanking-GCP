@@ -912,6 +912,11 @@ window.api = {
     });
   },
 
+  // Community Hub: Revoke Pending Request
+  async revokeConnectRequest(requestId) {
+    return this.respondConnectRequest(requestId, 'revoke');
+  },
+
   // Community Hub: Get Thread Messages
   async getConnectMessages(requestId) {
     return this._fetchJson(`/api/connect/request/${encodeURIComponent(requestId)}/messages?_t=${Date.now()}`, {

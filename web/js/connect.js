@@ -1028,14 +1028,17 @@ function renderRequestsList(requests = connectState.requestsList, myId = null) {
     if (outgoingPending.length > 0) {
       sentCount.textContent = outgoingPending.length;
       sentList.innerHTML = outgoingPending.map(req => `
-        <div class="oc-pending-card" style="border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6);">
+        <div class="oc-pending-card" style="border-color: rgba(56, 189, 248, 0.3); background: rgba(15, 23, 42, 0.6); cursor: pointer;" onclick="selectPendingRequest('${req.id}')">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
             <span style="font-weight: 800; color: #fff; font-size: 0.85rem;">${escapeHtml(req.receiver_name)}</span>
             <span class="oc-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border-color: rgba(56, 189, 248, 0.3);">${Math.round(req.receiver_elo || 1500)} Elo</span>
           </div>
           ${req.note ? `<div style="font-size: 0.74rem; color: #94a3b8; font-style: italic; margin-bottom: 5px; line-height: 1.35;">"${escapeHtml(req.note)}"</div>` : ''}
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: #f59e0b; font-weight: 600;">
-            <span>⏳ Waiting for response...</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; margin-top: 6px;">
+            <span style="color: #f59e0b; font-weight: 600;">⏳ Waiting for response...</span>
+            <button type="button" onclick="event.stopPropagation(); handleRevokeRequest('${req.id}', '${escapeHtml(req.receiver_name)}')" class="btn btn-outline" style="min-height: 26px; padding: 0.18rem 0.55rem; font-size: 0.7rem; border-color: rgba(239, 68, 68, 0.45); color: #f87171; border-radius: 5px; font-weight: 700;" title="Revoke chat request">
+              ✕ Revoke
+            </button>
           </div>
         </div>
       `).join('');
@@ -1115,6 +1118,9 @@ function selectPendingRequest(requestId) {
     layout.classList.add('is-viewing-chat');
   }
 
+  const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id || '';
+  const isSender = (req.sender_id === myId);
+
   const header = document.getElementById('chat-active-header');
   const inputForm = document.getElementById('chat-input-form');
   const msgContainer = document.getElementById('chat-messages-container');
@@ -1125,63 +1131,98 @@ function selectPendingRequest(requestId) {
     const eloEl = document.getElementById('chat-active-elo');
     const subEl = document.getElementById('chat-active-sub');
     const avatarEl = document.getElementById('chat-active-avatar');
-    if (nameEl) nameEl.textContent = req.sender_name || 'Player';
-    if (eloEl) eloEl.textContent = `${Math.round(req.sender_elo || 1500)} Elo`;
-    if (avatarEl) avatarEl.textContent = (req.sender_name || 'P').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
-    if (subEl) subEl.textContent = `Pending Chat Request`;
+    const displayName = isSender ? (req.receiver_name || 'Player') : (req.sender_name || 'Player');
+    const displayElo = Math.round(isSender ? (req.receiver_elo || 1500) : (req.sender_elo || 1500));
+    if (nameEl) nameEl.textContent = displayName;
+    if (eloEl) eloEl.textContent = `${displayElo} Elo`;
+    if (avatarEl) avatarEl.textContent = displayName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    if (subEl) subEl.textContent = isSender ? `Outgoing Request • Waiting for Response` : `Incoming Chat Request`;
   }
 
   // Hide standard message input for pending request review
   if (inputForm) inputForm.style.display = 'none';
 
   if (msgContainer) {
-    msgContainer.innerHTML = `
-      <div style="max-width: 520px; margin: 2rem auto; width: 100%; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
-        <div style="text-align: center; margin-bottom: 1.25rem;">
-          <div style="font-size: 2.5rem; margin-bottom: 0.35rem;">💬</div>
-          <h3 style="font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Incoming Chat Request</h3>
-          <p style="font-size: 0.8rem; color: #94a3b8; margin: 0;">
-            <strong style="color: #38bdf8;">${escapeHtml(req.sender_name)}</strong> (${Math.round(req.sender_elo || 1500)} Elo) wants to connect on OmniTactica.
-          </p>
-        </div>
-
-        <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
-          <div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.4rem; letter-spacing: 0.05em;">Message</div>
-          <div style="font-size: 0.92rem; color: #f8fafc; font-style: italic; line-height: 1.45;">
-            "${escapeHtml(req.note || 'Hey! Would love to connect and play some games!')}"
+    if (isSender) {
+      msgContainer.innerHTML = `
+        <div style="max-width: 520px; margin: 2rem auto; width: 100%; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
+          <div style="text-align: center; margin-bottom: 1.25rem;">
+            <div style="font-size: 2.5rem; margin-bottom: 0.35rem;">⏳</div>
+            <h3 style="font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Outgoing Chat Request</h3>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin: 0;">
+              Waiting for <strong style="color: #38bdf8;">${escapeHtml(req.receiver_name)}</strong> (${Math.round(req.receiver_elo || 1500)} Elo) to accept your request.
+            </p>
           </div>
-          ${req.proposed_venue ? `
-            <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.78rem; color: #cbd5e1; display: flex; flex-direction: column; gap: 0.3rem;">
-              <div>📍 Proposed Venue: <strong style="color: #38bdf8;">${escapeHtml(req.proposed_venue)}</strong></div>
-              <div>⚔️ Points: <strong style="color: #fff;">${req.proposed_points || 2000} pts</strong>${req.proposed_date ? ` • 📅 Date: <strong style="color: #fff;">${escapeHtml(req.proposed_date)}</strong>` : ''}</div>
+
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.4rem; letter-spacing: 0.05em;">Your Note</div>
+            <div style="font-size: 0.92rem; color: #f8fafc; font-style: italic; line-height: 1.45;">
+              "${escapeHtml(req.note || 'Hey! Would love to connect and play some games!')}"
             </div>
-          ` : ''}
-        </div>
+            ${req.proposed_venue ? `
+              <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.78rem; color: #cbd5e1; display: flex; flex-direction: column; gap: 0.3rem;">
+                <div>📍 Proposed Venue: <strong style="color: #38bdf8;">${escapeHtml(req.proposed_venue)}</strong></div>
+                <div>⚔️ Points: <strong style="color: #fff;">${req.proposed_points || 2000} pts</strong>${req.proposed_date ? ` • 📅 Date: <strong style="color: #fff;">${escapeHtml(req.proposed_date)}</strong>` : ''}</div>
+              </div>
+            ` : ''}
+          </div>
 
-        <!-- Inline Response Box -->
-        <div id="pending-respond-box" style="display: none; margin-bottom: 1.25rem;">
-          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.35rem;">Your Reply to ${escapeHtml(req.sender_name)}:</label>
-          <textarea id="pending-reply-input" class="search-input" style="width: 100%; min-height: 75px; box-sizing: border-box; resize: vertical;" placeholder="Type your response..."></textarea>
-          <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
-            <button onclick="document.getElementById('pending-respond-box').style.display = 'none'" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.78rem;">Cancel</button>
-            <button onclick="submitPendingResponse('${req.id}')" class="btn btn-primary" style="padding: 0.4rem 1rem; font-size: 0.78rem; font-weight: 700;">Send Reply & Accept</button>
+          <div style="display: flex; gap: 0.6rem; justify-content: center;">
+            <button onclick="handleRevokeRequest('${req.id}', '${escapeHtml(req.receiver_name)}')" class="btn btn-outline" style="border-color: rgba(239,68,68,0.5); color: #f87171; padding: 0.6rem 1.25rem; font-weight: 700; font-size: 0.84rem;">
+              ✕ Revoke Request
+            </button>
           </div>
         </div>
+      `;
+    } else {
+      msgContainer.innerHTML = `
+        <div style="max-width: 520px; margin: 2rem auto; width: 100%; padding: 1.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-md);">
+          <div style="text-align: center; margin-bottom: 1.25rem;">
+            <div style="font-size: 2.5rem; margin-bottom: 0.35rem;">💬</div>
+            <h3 style="font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0 0 0.3rem;">Incoming Chat Request</h3>
+            <p style="font-size: 0.8rem; color: #94a3b8; margin: 0;">
+              <strong style="color: #38bdf8;">${escapeHtml(req.sender_name)}</strong> (${Math.round(req.sender_elo || 1500)} Elo) wants to connect on OmniTactica.
+            </p>
+          </div>
 
-        <!-- Main Action Buttons -->
-        <div id="pending-actions-bar" style="display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
-          <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.84rem;">
-            ✓ Accept
-          </button>
-          <button onclick="document.getElementById('pending-respond-box').style.display = 'block'; document.getElementById('pending-reply-input').focus();" class="btn btn-outline" style="flex: 1; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.84rem; border-color: #38bdf8; color: #38bdf8;">
-            💬 Respond
-          </button>
-          <button onclick="handleDeclineRequest('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="padding: 0.6rem 0.9rem; font-size: 0.84rem; border-color: rgba(239,68,68,0.4); color: #f87171;">
-            ✕ Decline
-          </button>
+          <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.4rem; letter-spacing: 0.05em;">Message</div>
+            <div style="font-size: 0.92rem; color: #f8fafc; font-style: italic; line-height: 1.45;">
+              "${escapeHtml(req.note || 'Hey! Would love to connect and play some games!')}"
+            </div>
+            ${req.proposed_venue ? `
+              <div style="margin-top: 0.85rem; padding-top: 0.65rem; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.78rem; color: #cbd5e1; display: flex; flex-direction: column; gap: 0.3rem;">
+                <div>📍 Proposed Venue: <strong style="color: #38bdf8;">${escapeHtml(req.proposed_venue)}</strong></div>
+                <div>⚔️ Points: <strong style="color: #fff;">${req.proposed_points || 2000} pts</strong>${req.proposed_date ? ` • 📅 Date: <strong style="color: #fff;">${escapeHtml(req.proposed_date)}</strong>` : ''}</div>
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Inline Response Box -->
+          <div id="pending-respond-box" style="display: none; margin-bottom: 1.25rem;">
+            <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.35rem;">Your Reply to ${escapeHtml(req.sender_name)}:</label>
+            <textarea id="pending-reply-input" class="search-input" style="width: 100%; min-height: 75px; box-sizing: border-box; resize: vertical;" placeholder="Type your response..."></textarea>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+              <button onclick="document.getElementById('pending-respond-box').style.display = 'none'" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.78rem;">Cancel</button>
+              <button onclick="submitPendingResponse('${req.id}')" class="btn btn-primary" style="padding: 0.4rem 1rem; font-size: 0.78rem; font-weight: 700;">Send Reply & Accept</button>
+            </div>
+          </div>
+
+          <!-- Main Action Buttons -->
+          <div id="pending-actions-bar" style="display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
+            <button onclick="respondToRequest('${req.id}', 'accept')" class="btn btn-primary" style="flex: 1; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.84rem;">
+              ✓ Accept
+            </button>
+            <button onclick="document.getElementById('pending-respond-box').style.display = 'block'; document.getElementById('pending-reply-input').focus();" class="btn btn-outline" style="flex: 1; padding: 0.6rem 1rem; font-weight: 700; font-size: 0.84rem; border-color: #38bdf8; color: #38bdf8;">
+              💬 Respond
+            </button>
+            <button onclick="handleDeclineRequest('${req.id}', '${escapeHtml(req.sender_name)}')" class="btn btn-outline" style="padding: 0.6rem 0.9rem; font-size: 0.84rem; border-color: rgba(239,68,68,0.4); color: #f87171;">
+              ✕ Decline
+            </button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
   }
 }
 window.selectPendingRequest = selectPendingRequest;
@@ -1210,6 +1251,16 @@ function handleDeclineRequest(requestId, senderName) {
 }
 window.handleDeclineRequest = handleDeclineRequest;
 
+async function handleRevokeRequest(requestId, receiverName) {
+  if (confirm(`Are you sure you want to revoke the pending chat request to ${receiverName || 'this player'}?`)) {
+    await respondToRequest(requestId, 'revoke');
+    if (typeof showNotification === 'function') {
+      showNotification('Chat request revoked', 'info');
+    }
+  }
+}
+window.handleRevokeRequest = handleRevokeRequest;
+
 async function respondToRequest(requestId, action, message = '') {
   // Snapshot previous state for rollback on error
   const prevRequests = JSON.parse(JSON.stringify(connectState.requestsList || []));
@@ -1227,7 +1278,7 @@ async function respondToRequest(requestId, action, message = '') {
     connectState.activeRequestId = requestId;
     renderRequestsList(connectState.requestsList, myId);
     selectConversation(requestId);
-  } else if (action === 'decline') {
+  } else if (action === 'decline' || action === 'revoke' || action === 'cancel') {
     connectState.requestsList = connectState.requestsList.filter(r => r.id !== requestId);
     if (connectState.activeRequestId === requestId) {
       connectState.activeRequestId = null;
@@ -1239,10 +1290,14 @@ async function respondToRequest(requestId, action, message = '') {
       if (msgContainer) msgContainer.innerHTML = `
         <div style="text-align: center; margin: auto; color: #64748b;">
           <div style="font-size: 2.2rem; margin-bottom: 0.4rem;">💬</div>
-          <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">Request declined</p>
+          <p style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #94a3b8;">${action === 'revoke' || action === 'cancel' ? 'Request revoked' : 'Request declined'}</p>
           <p style="margin: 4px 0 0; font-size: 0.78rem;">Select a conversation from the sidebar.</p>
         </div>
       `;
+      const layout = document.querySelector('.oc-chat-layout');
+      if (layout && window.innerWidth <= 768) {
+        layout.classList.remove('is-viewing-chat');
+      }
     }
     renderRequestsList(connectState.requestsList, myId);
   }
@@ -1252,9 +1307,10 @@ async function respondToRequest(requestId, action, message = '') {
   if (fsDb) {
     try {
       const now = Date.now();
+      const newStatus = action === 'accept' ? 'accepted' : (action === 'revoke' || action === 'cancel' ? 'cancelled' : 'declined');
       fsDb.collection('connect_chats').doc(requestId).set({
         requestId: requestId,
-        status: action === 'accept' ? 'accepted' : 'declined',
+        status: newStatus,
         updatedAt: now
       }, { merge: true }).catch(() => {});
 
@@ -1647,6 +1703,7 @@ async function selectConversation(requestId) {
 
   // Durable sync from backend (seeds Firestore if newly opened & updates request details)
   await refreshActiveMessages(false);
+  scrollChatToBottom(true, false);
   if (typeof updateUnreadCountBadge === 'function') {
     updateUnreadCountBadge();
   }
@@ -1686,7 +1743,9 @@ function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
   });
 
   const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
-  const wasNearBottom = (msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight) < 100;
+  const wasNearBottom = (msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight) < 250;
+  const isMobile = window.innerWidth <= 768;
+  const isKeyboard = document.getElementById('floating-chat-window')?.classList.contains('keyboard-visible');
 
   msgContainer.innerHTML = deduped.map(m => {
     const isMe = (m.sender_id === myId);
@@ -1718,10 +1777,8 @@ function renderChatMessages(messages, scrollOnlyIfNearBottom = true) {
     `;
   }).join('');
 
-  if (!scrollOnlyIfNearBottom || wasNearBottom) {
-    requestAnimationFrame(() => {
-      msgContainer.scrollTop = msgContainer.scrollHeight;
-    });
+  if (!scrollOnlyIfNearBottom || wasNearBottom || isMobile || isKeyboard) {
+    scrollChatToBottom(true, false);
   }
 }
 
@@ -2100,6 +2157,38 @@ window.addEventListener('keydown', (e) => {
 /* --------------------------------------------------------------------------
    MOBILE VIRTUAL KEYBOARD & VIEWPORT RESIZE MANAGEMENT
    -------------------------------------------------------------------------- */
+function scrollChatToBottom(force = true, smooth = false) {
+  const msgContainer = document.getElementById('chat-messages-container');
+  if (!msgContainer) return;
+
+  const performScroll = () => {
+    try {
+      if (smooth) {
+        msgContainer.scrollTo({ top: msgContainer.scrollHeight, behavior: 'smooth' });
+      } else {
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+      }
+    } catch (e) {
+      msgContainer.scrollTop = msgContainer.scrollHeight;
+    }
+
+    if (msgContainer.lastElementChild) {
+      try {
+        msgContainer.lastElementChild.scrollIntoView({ block: 'end', behavior: smooth ? 'smooth' : 'instant' });
+      } catch (e) {}
+    }
+  };
+
+  performScroll();
+  requestAnimationFrame(performScroll);
+  // Staggered triggers ensure alignment during virtual keyboard slide-up and layout reflow
+  setTimeout(performScroll, 50);
+  setTimeout(performScroll, 120);
+  setTimeout(performScroll, 250);
+  setTimeout(performScroll, 400);
+}
+window.scrollChatToBottom = scrollChatToBottom;
+
 function handleVisualViewportResize() {
   const win = document.getElementById('floating-chat-window');
   if (!win || win.style.display === 'none') return;
@@ -2133,12 +2222,7 @@ function handleVisualViewportResize() {
     win.classList.remove('keyboard-visible');
   }
 
-  const msgContainer = document.getElementById('chat-messages-container');
-  if (msgContainer) {
-    requestAnimationFrame(() => {
-      msgContainer.scrollTop = msgContainer.scrollHeight;
-    });
-  }
+  scrollChatToBottom(true, false);
 }
 window.handleVisualViewportResize = handleVisualViewportResize;
 
@@ -2153,10 +2237,12 @@ function setupChatInputViewportListeners() {
         window.scrollTo(0, 0);
         document.body.scrollTop = 0;
         handleVisualViewportResize();
+        scrollChatToBottom(true, false);
       }, 50);
       setTimeout(() => {
         window.scrollTo(0, 0);
         handleVisualViewportResize();
+        scrollChatToBottom(true, false);
       }, 320);
     }
   });
@@ -2167,7 +2253,14 @@ function setupChatInputViewportListeners() {
         window.scrollTo(0, 0);
         document.body.scrollTop = 0;
         handleVisualViewportResize();
+        scrollChatToBottom(true, false);
       }, 50);
+    }
+  });
+
+  input.addEventListener('input', () => {
+    if (window.innerWidth <= 768) {
+      scrollChatToBottom(true, false);
     }
   });
 }

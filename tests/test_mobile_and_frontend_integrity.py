@@ -1072,6 +1072,50 @@ def test_my_hub_mobile_restructuring():
     print("✅ My Hub mobile subtabs navigation, overview preview cards, and search filters verified!")
 
 
+def test_chat_auto_scroll_and_revoke_request():
+    """Verify backend and frontend support for chat auto-scroll on keyboard resize and revoking pending match requests."""
+    db_py = (root_dir / "database.py").read_text(encoding="utf-8")
+    connect_router = (root_dir / "routers" / "connect.py").read_text(encoding="utf-8")
+    api_js = (root_dir / "web" / "js" / "api.js").read_text(encoding="utf-8")
+    connect_js = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+
+    # 1. database.py responds to revoke/cancel
+    assert 'action in ("revoke", "cancel")' in db_py, "database.py missing revoke/cancel check in respond_match_request"
+    assert 'req["sender_id"] != user_id' in db_py, "database.py must verify sender_id for revocation"
+    assert '"cancelled" if action in ("revoke", "cancel")' in db_py, "database.py must set status to cancelled on revocation"
+    assert "AND mr.status NOT IN ('declined', 'cancelled', 'revoked')" in db_py, \
+        "database.py must exclude cancelled and revoked requests from active lists"
+
+    # 2. routers/connect.py responds to revoke/cancel
+    assert 'action in ("revoke", "cancel")' in connect_router, "routers/connect.py missing revoke/cancel handling"
+    assert '"cancelled"' in connect_router, "routers/connect.py must record cancelled status"
+
+    # 3. web/js/api.js exposes revokeConnectRequest
+    assert "revokeConnectRequest(requestId)" in api_js, "api.js missing revokeConnectRequest method"
+    assert "this.respondConnectRequest(requestId, 'revoke')" in api_js, "api.js revokeConnectRequest must pass 'revoke' action"
+
+    # 4. web/js/connect.js implements robust scrollChatToBottom with keyboard handling
+    assert "function scrollChatToBottom(" in connect_js, \
+        "connect.js missing scrollChatToBottom function"
+    assert "msgContainer.scrollTop = msgContainer.scrollHeight;" in connect_js, \
+        "connect.js scrollChatToBottom must set msgContainer.scrollTop to scrollHeight"
+    assert "handleVisualViewportResize" in connect_js, "connect.js missing handleVisualViewportResize"
+    assert "setupChatInputViewportListeners" in connect_js, "connect.js missing setupChatInputViewportListeners"
+    assert "handleRevokeRequest" in connect_js, "connect.js missing handleRevokeRequest"
+    assert "selectPendingRequest" in connect_js, "connect.js missing selectPendingRequest"
+    assert "Outgoing Chat Request" in connect_js, "connect.js missing Outgoing Chat Request detail title"
+    assert "Revoke Request" in connect_js, "connect.js missing Revoke Request button"
+
+    # 5. web/css/styles.css disables desktop transition on mobile and sets min-height: 0
+    assert "transition: none !important;" in styles_css, \
+        "styles.css must disable height transition on mobile floating-chat-window to avoid scroll desync"
+    assert "min-height: 0;" in styles_css, \
+        "styles.css .oc-messages-list must have min-height: 0 for proper flex container shrinking"
+
+    print("✅ Mobile chat auto-scroll and request revocation backend & frontend verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1100,7 +1144,9 @@ if __name__ == "__main__":
     test_event_modal_mobile_layout_and_no_register()
     test_mobile_chat_keyboard_viewport_adjustment()
     test_my_hub_mobile_restructuring()
+    test_chat_auto_scroll_and_revoke_request()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
+
 
 
 

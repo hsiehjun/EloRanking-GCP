@@ -4504,7 +4504,7 @@ class PostgresDatabase:
             LEFT JOIN match_requests mr ON (
                 (mr.sender_id = %s AND mr.receiver_id = p.player_id) OR
                 (mr.receiver_id = %s AND mr.sender_id = p.player_id)
-            ) AND mr.status != 'declined'
+            ) AND mr.status NOT IN ('declined', 'cancelled', 'revoked')
             WHERE p.is_active = TRUE
               AND p.player_id != %s
               AND p.latitude IS NOT NULL 
@@ -4664,12 +4664,12 @@ class PostgresDatabase:
                 return {"success": True, "request_id": req_id}
 
     def respond_match_request(self, request_id: str, user_id: str, action: str, reply_message: Optional[str] = None) -> Dict[str, Any]:
-        """Accepts, declines, or blocks a match request."""
+        """Accepts, declines, blocks, or revokes a match request."""
         action = action.lower().strip()
-        if action not in ("accept", "decline", "block"):
-            return {"success": False, "error": "Action must be accept, decline, or block"}
+        if action not in ("accept", "decline", "block", "revoke", "cancel"):
+            return {"success": False, "error": "Action must be accept, decline, block, or revoke"}
 
-        new_status = "accepted" if action == "accept" else ("declined" if action == "decline" else "blocked")
+        new_status = "accepted" if action == "accept" else ("declined" if action == "decline" else ("cancelled" if action in ("revoke", "cancel") else "blocked"))
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 cursor.execute("""
@@ -4679,8 +4679,15 @@ class PostgresDatabase:
                 if not req:
                     return {"success": False, "error": "Request not found"}
 
+                # Sender can revoke/cancel a pending request
+                if action in ("revoke", "cancel"):
+                    if req["sender_id"] != user_id:
+                        return {"success": False, "error": "Only the sender can revoke this request"}
+                    if req["status"] != "pending":
+                        return {"success": False, "error": "Only pending requests can be revoked"}
+
                 # Receiver can accept/decline; either party can block
-                if action in ("accept", "decline") and req["receiver_id"] != user_id:
+                elif action in ("accept", "decline") and req["receiver_id"] != user_id:
                     return {"success": False, "error": "Only the recipient can accept or decline this request"}
 
                 cursor.execute("""
@@ -4754,7 +4761,7 @@ class PostgresDatabase:
                     LEFT JOIN player_ratings spr ON (su.player_id = spr.player_id OR su.id = spr.player_id)
                     LEFT JOIN player_ratings rpr ON (ru.player_id = rpr.player_id OR ru.id = rpr.player_id)
                     WHERE (mr.sender_id = %s OR mr.receiver_id = %s)
-                      AND mr.status != 'declined'
+                      AND mr.status NOT IN ('declined', 'cancelled', 'revoked')
                     ORDER BY mr.updated_at DESC;
                 """, (user_id, user_id, user_id))
                 return [dict(r) for r in cursor.fetchall()]

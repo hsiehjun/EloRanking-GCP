@@ -195,7 +195,7 @@ async def api_respond_connect_request(request_id: str, payload: MatchRespondPayl
         sender_id = req_info.get("sender_id")
         receiver_id = req_info.get("receiver_id")
         participants = [p for p in [sender_id, receiver_id] if p]
-        status = res.get("status") or ("accepted" if payload.action == "accept" else "declined")
+        status = res.get("status") or ("accepted" if payload.action == "accept" else ("cancelled" if payload.action in ("revoke", "cancel") else "declined"))
         fs_engine.update_chat_status(request_id, status, participants=participants)
         fs_engine.notify_user_requests_updated(participants, reason=f"request_{payload.action}")
         if payload.action == "accept":
