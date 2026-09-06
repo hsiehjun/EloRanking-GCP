@@ -28,6 +28,9 @@ window.api = {
         return { error: `Server returned non-JSON response (${res.status})` };
       }
     } catch (netErr) {
+      if (netErr && netErr.name === 'AbortError') {
+        return { aborted: true };
+      }
       console.error(`Network error on ${url}:`, netErr);
       return { error: netErr.message };
     }
@@ -994,7 +997,7 @@ window.api = {
     return this._fetchJson(`/api/community/reverse_geocode?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
   },
 
-  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null, includeBcp = false) {
+  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null, includeBcp = false, fetchOptions = {}) {
     if (typeof lat === 'string' && lng == null) {
       region = lat;
       lat = null;
@@ -1009,9 +1012,11 @@ window.api = {
     if (region) params.set('region', region);
     if (includeBcp) params.set('include_bcp', 'true');
 
-    return this._fetchJson(`/api/community/overview?${params.toString()}`, {
+    const options = Object.assign({
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
-    });
+    }, fetchOptions);
+
+    return this._fetchJson(`/api/community/overview?${params.toString()}`, options);
   },
 
   // Community Hub: Live BCP upcoming tournaments (asynchronous)

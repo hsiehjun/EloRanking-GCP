@@ -451,10 +451,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   let targetTab = hashVal || params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
   const shouldOpenChat = (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats');
-  if (shouldOpenChat) targetTab = 'my-hub';
-  if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') targetTab = 'community';
-  if (targetTab === 'eventstudio') targetTab = 'event-studio';
-  if (targetTab === 'community-hub' || targetTab === 'communityhub') targetTab = 'community';
+  if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') {
+    // switchTab handles these aliases and sets the correct communitySubtab
+  } else if (targetTab === 'community-hub' || targetTab === 'communityhub') {
+    targetTab = 'community';
+  }
   if (targetTab === 'event-studio') {
     const canAccessTO = typeof isUserTO === 'function' ? isUserTO(currentUser) : (() => {
       const userRole = ((currentUser && currentUser.role) ? currentUser.role : 'player').toLowerCase();

@@ -23,6 +23,8 @@ const communityState = {
   storesLoading: false,
   currentStoreTournaments: [],
   overview: null,
+  overviewKey: null,
+  overviewLoadedAt: null,
   isLoading: false,
   chatMessages: [],
   chatPollingInterval: null,
@@ -40,6 +42,7 @@ async function initCommunityHub(targetSubtab = null) {
   const savedLng = localStorage.getItem('comm_lng');
   const savedRad = localStorage.getItem('comm_radius_v2') || localStorage.getItem('comm_radius');
   const savedLoc = localStorage.getItem('comm_loc_name');
+  const hasManualOverride = !!localStorage.getItem('comm_manual_override');
 
   if (savedLat && savedLng) {
     communityState.lat = parseFloat(savedLat);
@@ -56,30 +59,80 @@ async function initCommunityHub(targetSubtab = null) {
     communityState.locationName = savedLoc;
   }
 
-  // 2. Initialize LFG profile & Google Places for Sparring Radar if available
-  if (typeof window.api?.getConnectProfile === 'function') {
-    try {
-      const res = await window.api.getConnectProfile();
-      if (res && res.success && res.profile) {
-        if (typeof connectState !== 'undefined') {
-          connectState.userProfile = res.profile;
+  // 2. Concurrently resolve LFG profile & upfront GPS (if permission granted and no manual override)
+  const profilePromise = (typeof window.api?.getConnectProfile === 'function')
+    ? window.api.getConnectProfile().catch((e) => {
+        console.warn("Notice loading LFG profile for Community Hub:", e);
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const quickGpsPromise = (!hasManualOverride && typeof navigator !== 'undefined' && navigator.permissions?.query && navigator.geolocation)
+    ? (async () => {
+        try {
+          const perm = await Promise.race([
+            navigator.permissions.query({ name: 'geolocation' }),
+            new Promise((resolve) => setTimeout(() => resolve(null), 350))
+          ]);
+          if (perm && perm.state === 'granted') {
+            return await new Promise((resolve) => {
+              navigator.geolocation.getCurrentPosition(
+                resolve,
+                () => resolve(null),
+                { enableHighAccuracy: true, timeout: 1500, maximumAge: 300000 }
+              );
+            });
+          }
+        } catch (e) {
+          return null;
         }
-        if (typeof renderTopBarOptions === 'function') {
-          renderTopBarOptions(res.profile);
-        }
-        // If no saved coords, adopt from profile
-        if (communityState.lat == null && res.profile.latitude && res.profile.longitude) {
-          communityState.lat = parseFloat(res.profile.latitude);
-          communityState.lng = parseFloat(res.profile.longitude);
-          communityState.locationName = res.profile.home_venue_name || res.profile.city || 'My Location';
-        }
-      }
-    } catch (e) {
-      console.warn("Notice loading LFG profile for Community Hub:", e);
+        return null;
+      })()
+    : Promise.resolve(null);
+
+  const [res, gpsPos] = await Promise.all([profilePromise, quickGpsPromise]);
+
+  if (res && res.success && res.profile) {
+    if (typeof connectState !== 'undefined') {
+      connectState.userProfile = res.profile;
+    }
+    if (typeof renderTopBarOptions === 'function') {
+      renderTopBarOptions(res.profile);
+    }
+    // If no saved coords and no GPS, adopt from profile
+    if (communityState.lat == null && !gpsPos && res.profile.latitude && res.profile.longitude) {
+      communityState.lat = parseFloat(res.profile.latitude);
+      communityState.lng = parseFloat(res.profile.longitude);
+      communityState.locationName = res.profile.home_venue_name || res.profile.city || 'My Location';
     }
   }
 
-  // 3. Fallback default coordinates if neither localStorage nor profile set
+  // If GPS returned real coordinates upfront, use them before the first fetch
+  if (gpsPos && gpsPos.coords) {
+    const gLat = gpsPos.coords.latitude;
+    const gLng = gpsPos.coords.longitude;
+    communityState.lat = gLat;
+    communityState.lng = gLng;
+    localStorage.setItem('comm_lat', String(gLat));
+    localStorage.setItem('comm_lng', String(gLng));
+    localStorage.setItem('comm_exact_gps', 'true');
+
+    if (!communityState.locationName || (savedLat && Math.abs(gLat - parseFloat(savedLat)) > 0.05)) {
+      if (typeof findClosestKnownCity === 'function') {
+        const closest = findClosestKnownCity(gLat, gLng, 15.0);
+        if (closest && closest.name) {
+          communityState.locationName = closest.name;
+          localStorage.setItem('comm_loc_name', closest.name);
+        } else {
+          communityState.locationName = `GPS (${gLat.toFixed(2)}, ${gLng.toFixed(2)})`;
+        }
+      } else {
+        communityState.locationName = `GPS (${gLat.toFixed(2)}, ${gLng.toFixed(2)})`;
+      }
+    }
+  }
+
+  // 3. Fallback default coordinates if neither localStorage, GPS, nor profile set
   if (communityState.lat == null || communityState.lng == null) {
     communityState.lat = 32.7157;
     communityState.lng = -117.1611;
@@ -110,15 +163,6 @@ async function initCommunityHub(targetSubtab = null) {
   });
 
   await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
-
-  // If geolocation permission is already granted, refresh with true high-accuracy GPS
-  if (typeof navigator !== 'undefined' && navigator.permissions && navigator.permissions.query) {
-    navigator.permissions.query({ name: 'geolocation' }).then((perm) => {
-      if (perm.state === 'granted' && !localStorage.getItem('comm_manual_override')) {
-        detectCommunityGPS(false);
-      }
-    }).catch(() => {});
-  }
 }
 
 /**
@@ -222,26 +266,35 @@ function setSubtabLoaderIfEmpty(container, html) {
   if (container.innerHTML && container.innerHTML.trim() === html.trim()) {
     return;
   }
-  // Check if container already contains an active spinner and matching radius text
+  // Check if container already contains an active spinner
   const hasSpinner = container.querySelector('.spinner') ||
     container.querySelector('[style*="animation: spin"]') ||
     container.querySelector('[style*="animation:spin"]');
-  if (hasSpinner && container.textContent && (
-    container.textContent.includes(`within ${communityState.radiusMiles} Miles`) ||
-    container.textContent.includes(`within ${communityState.radiusMiles} miles`)
-  )) {
-    return;
+  if (hasSpinner) {
+    // If spinner is already running, update location text in-place rather than tearing down DOM
+    const textEl = container.querySelector('div[style*="font-weight: 600"], div[style*="font-weight:600"]');
+    if (textEl) {
+      const locSuffix = communityState.locationName ? ` of ${escapeHtml(communityState.locationName)}` : '';
+      if (communityState.activeSubtab === 'tournaments') {
+        textEl.textContent = `Finding Tournaments within ${communityState.radiusMiles} Miles${locSuffix}...`;
+      } else if (communityState.activeSubtab === 'scene') {
+        textEl.textContent = `Finding Competitors within ${communityState.radiusMiles} Miles${locSuffix}...`;
+      }
+      return;
+    }
   }
   container.innerHTML = html;
 }
 
 let _activeCommunityHubPromise = null;
 let _activeCommunityHubKey = null;
+let _communityRequestSeq = 0;
+let _activeCommunityHubAbortController = null;
 
 /**
  * Load complete Community Hub data for coordinates and radius
  */
-async function loadCommunityHub(lat = null, lng = null, radius = null, locationName = null) {
+async function loadCommunityHub(lat = null, lng = null, radius = null, locationName = null, force = false) {
   if (lat != null && lng != null) {
     communityState.lat = parseFloat(lat);
     communityState.lng = parseFloat(lng);
@@ -259,6 +312,23 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     return _activeCommunityHubPromise;
   }
 
+  const hasExistingData = (communityState.overview != null && communityState.overviewKey === requestKey);
+
+  // If data for this exact location & radius is already in memory and fresh (< 60s), avoid redundant network round-trip
+  if (!force && hasExistingData && communityState.overviewLoadedAt && (Date.now() - communityState.overviewLoadedAt < 60000)) {
+    return communityState.overview;
+  }
+
+  // If a previous request for a different location/radius is still in-flight, cancel it immediately!
+  if (_activeCommunityHubAbortController) {
+    try {
+      _activeCommunityHubAbortController.abort();
+    } catch (e) {}
+  }
+  _activeCommunityHubAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const fetchSignal = _activeCommunityHubAbortController ? _activeCommunityHubAbortController.signal : null;
+  const mySeq = ++_communityRequestSeq;
+
   // Sync radius select dropdown
   const radSelect = document.getElementById('comm-radius-select');
   if (radSelect && radSelect.value !== String(communityState.radiusMiles)) {
@@ -271,22 +341,24 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
     location_name: communityState.locationName
   });
 
-  // Show responsive loading indicators ONLY in the active subview idempotently (lazy subtabs keep clean state)
-  const tourneyView = document.getElementById('comm-tournaments-content');
-  if (tourneyView && communityState.activeSubtab === 'tournaments') {
-    setSubtabLoaderIfEmpty(tourneyView, getCommunitySubtabLoaderHtml('tournaments'));
-  }
-  const sceneView = document.getElementById('comm-scene-content');
-  if (sceneView && communityState.activeSubtab === 'scene') {
-    setSubtabLoaderIfEmpty(sceneView, getCommunitySubtabLoaderHtml('scene'));
-  }
-  const playersGrid = document.getElementById('players-grid');
-  if (playersGrid && communityState.activeSubtab === 'radar') {
-    setSubtabLoaderIfEmpty(playersGrid, getCommunitySubtabLoaderHtml('radar'));
-  }
-  const storesGrid = document.getElementById('comm-stores-grid');
-  if (storesGrid && communityState.activeSubtab === 'stores') {
-    setSubtabLoaderIfEmpty(storesGrid, getCommunitySubtabLoaderHtml('stores'));
+  // Show loading indicators ONLY if we don't already have rendered data for this key
+  if (!hasExistingData) {
+    const tourneyView = document.getElementById('comm-tournaments-content');
+    if (tourneyView && communityState.activeSubtab === 'tournaments') {
+      setSubtabLoaderIfEmpty(tourneyView, getCommunitySubtabLoaderHtml('tournaments'));
+    }
+    const sceneView = document.getElementById('comm-scene-content');
+    if (sceneView && communityState.activeSubtab === 'scene') {
+      setSubtabLoaderIfEmpty(sceneView, getCommunitySubtabLoaderHtml('scene'));
+    }
+    const playersGrid = document.getElementById('players-grid');
+    if (playersGrid && communityState.activeSubtab === 'radar') {
+      setSubtabLoaderIfEmpty(playersGrid, getCommunitySubtabLoaderHtml('radar'));
+    }
+    const storesGrid = document.getElementById('comm-stores-grid');
+    if (storesGrid && communityState.activeSubtab === 'stores') {
+      setSubtabLoaderIfEmpty(storesGrid, getCommunitySubtabLoaderHtml('stores'));
+    }
   }
 
   communityState.isLoading = true;
@@ -298,77 +370,97 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
         communityState.lat,
         communityState.lng,
         communityState.radiusMiles,
-      communityState.locationName
-    );
-    if (!data || !data.success) {
-      throw new Error(data?.error || 'Failed to load community data');
-    }
-    communityState.overview = data;
+        communityState.locationName,
+        null,
+        false,
+        fetchSignal ? { signal: fetchSignal } : {}
+      );
 
-    // Update location details
-    if (data.location?.location_name) {
-      communityState.locationName = data.location.location_name;
-    }
-    if (data.location?.lat != null && data.location?.lng != null) {
-      communityState.lat = parseFloat(data.location.lat);
-      communityState.lng = parseFloat(data.location.lng);
-      localStorage.setItem('comm_lat', String(communityState.lat));
-      localStorage.setItem('comm_lng', String(communityState.lng));
-      localStorage.setItem('comm_loc_name', communityState.locationName);
-      if (typeof connectState !== 'undefined' && connectState.userProfile) {
-        connectState.userProfile.latitude = communityState.lat;
-        connectState.userProfile.longitude = communityState.lng;
-        connectState.userProfile.home_venue_name = communityState.locationName;
-        connectState.userProfile.radius_miles = communityState.radiusMiles;
+      // Check if this request was aborted or superseded by a newer location request while in flight
+      if (data && data.aborted) {
+        return;
+      }
+      if (mySeq !== _communityRequestSeq) {
+        return;
+      }
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'Failed to load community data');
+      }
+
+      communityState.overview = data;
+      communityState.overviewKey = requestKey;
+      communityState.overviewLoadedAt = Date.now();
+
+      // Update location details
+      if (data.location?.location_name) {
+        communityState.locationName = data.location.location_name;
+      }
+      if (data.location?.lat != null && data.location?.lng != null) {
+        communityState.lat = parseFloat(data.location.lat);
+        communityState.lng = parseFloat(data.location.lng);
+        localStorage.setItem('comm_lat', String(communityState.lat));
+        localStorage.setItem('comm_lng', String(communityState.lng));
+        localStorage.setItem('comm_loc_name', communityState.locationName);
+        if (typeof connectState !== 'undefined' && connectState.userProfile) {
+          connectState.userProfile.latitude = communityState.lat;
+          connectState.userProfile.longitude = communityState.lng;
+          connectState.userProfile.home_venue_name = communityState.locationName;
+          connectState.userProfile.radius_miles = communityState.radiusMiles;
+        }
+      }
+
+      // Render region/location header info
+      renderCommunityHeader(data.location || data.region);
+
+      // Render current active subtab
+      renderCurrentSubtab();
+
+      // Auto-refresh Sparring Radar players count & data in background only if on radar subtab
+      if (communityState.activeSubtab === 'radar' && typeof loadNearbyPlayers === 'function') {
+        loadNearbyPlayers();
+      }
+
+      // Asynchronously fetch live BCP upcoming tournaments in background without blocking initial render
+      fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
+    } catch (err) {
+      if (mySeq !== _communityRequestSeq) return;
+      if (err && (err.name === 'AbortError' || err.message === 'The user aborted a request.')) return;
+
+      console.error('Failed to load community hub:', err);
+      const tourneyView = document.getElementById('comm-tournaments-content');
+      if (tourneyView) {
+        tourneyView.innerHTML = `
+          <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+            <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Tournaments</h4>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+              ${escapeHtml(err.message || 'An unexpected error occurred while fetching tournament data.')}
+            </p>
+            <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
+          </div>
+        `;
+      }
+      const sceneView = document.getElementById('comm-scene-content');
+      if (sceneView) {
+        sceneView.innerHTML = `
+          <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+            <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Competitors</h4>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+              ${escapeHtml(err.message || 'An unexpected error occurred while fetching competitor data.')}
+            </p>
+            <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
+          </div>
+        `;
+      }
+    } finally {
+      if (mySeq === _communityRequestSeq) {
+        communityState.isLoading = false;
+        _activeCommunityHubPromise = null;
+        _activeCommunityHubKey = null;
+        _activeCommunityHubAbortController = null;
       }
     }
-
-    // Render region/location header info
-    renderCommunityHeader(data.location || data.region);
-
-    // Render current active subtab
-    renderCurrentSubtab();
-
-    // Auto-refresh Sparring Radar players count & data in background only if on radar subtab
-    if (communityState.activeSubtab === 'radar' && typeof loadNearbyPlayers === 'function') {
-      loadNearbyPlayers();
-    }
-
-    // Asynchronously fetch live BCP upcoming tournaments in background without blocking initial render
-    fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
-  } catch (err) {
-    console.error('Failed to load community hub:', err);
-    const tourneyView = document.getElementById('comm-tournaments-content');
-    if (tourneyView) {
-      tourneyView.innerHTML = `
-        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
-          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Tournaments</h4>
-          <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-            ${escapeHtml(err.message || 'An unexpected error occurred while fetching tournament data.')}
-          </p>
-          <button class="btn btn-primary" onclick="loadCommunityHub()">🔄 Retry</button>
-        </div>
-      `;
-    }
-    const sceneView = document.getElementById('comm-scene-content');
-    if (sceneView) {
-      sceneView.innerHTML = `
-        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
-          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
-          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Competitors</h4>
-          <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-            ${escapeHtml(err.message || 'An unexpected error occurred while fetching competitor data.')}
-          </p>
-          <button class="btn btn-primary" onclick="loadCommunityHub()">🔄 Retry</button>
-        </div>
-      `;
-    }
-  } finally {
-    communityState.isLoading = false;
-    _activeCommunityHubPromise = null;
-    _activeCommunityHubKey = null;
-  }
   })();
 
   return _activeCommunityHubPromise;
@@ -493,10 +585,10 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
   const prevRad = communityState.radiusMiles;
   const newRad = radius ? (parseInt(radius, 10) || prevRad) : prevRad;
 
-  // Check if coordinates and radius are virtually unchanged (e.g. within 500m / 0.005 deg)
+  // Check if coordinates and radius are virtually unchanged (e.g. within ~1 mile / 0.015 deg)
   const isCoordSame = (prevLat != null && prevLng != null && finalLat != null && finalLng != null) &&
-    Math.abs(finalLat - prevLat) < 0.005 &&
-    Math.abs(finalLng - prevLng) < 0.005;
+    Math.abs(finalLat - prevLat) < 0.015 &&
+    Math.abs(finalLng - prevLng) < 0.015;
   const isRadiusSame = newRad === prevRad;
 
   if (finalLat != null && finalLng != null) {
@@ -530,17 +622,19 @@ function updateCommunityLocation(lat, lng, locationName, radius = null) {
     location_name: communityState.locationName
   });
 
-  // If coordinates are unchanged (< 500m) and radius is unchanged, and data is either already
+  // If coordinates are unchanged and radius is unchanged, and data is either already
   // loaded or currently in-flight, avoid triggering a redundant duplicate hub reload / spinner flicker.
   if (isCoordSame && isRadiusSame && (communityState.overview != null || communityState.isLoading)) {
-    return;
+    return Promise.resolve(communityState.overview);
   }
 
-  loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
+  const loadPromise = loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, true);
 
   if (communityState.activeSubtab === 'stores' && typeof loadLocalGameStores === 'function') {
     loadLocalGameStores(true);
   }
+
+  return loadPromise;
 }
 
 /**
