@@ -686,6 +686,9 @@ function openTournamentRegistrationModal(eventId, eventName) {
 }
 
 function closeTournamentRegistrationModal() {
+  if (typeof closeModal === 'function') {
+    closeModal('modal-tournament-register');
+  }
   const modal = document.getElementById('modal-tournament-register');
   if (modal) modal.style.display = 'none';
 }

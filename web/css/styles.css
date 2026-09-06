@@ -544,21 +544,12 @@ tbody tr:hover {
   overflow-y: auto;
   box-sizing: border-box;
 }
-#event-modal, #team-modal, #faction-modal {
+#event-modal, #team-modal, #faction-modal, #player-modal, #scorecard-modal, #modal-tournament-register {
   z-index: 1000;
 }
-#player-modal {
-  z-index: 1100 !important;
-}
-#scorecard-modal {
-  z-index: 1150 !important;
-}
 #bcp-link-modal, #user-settings-modal {
-  z-index: 1200 !important;
+  z-index: 1000;
   overflow-x: hidden !important;
-}
-#modal-tournament-register {
-  z-index: 1300 !important;
 }
 #user-settings-modal .modal-card {
   width: 100%;

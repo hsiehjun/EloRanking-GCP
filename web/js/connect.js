@@ -2543,11 +2543,17 @@ function openProposeMatchModal(playerId, playerName, defaultVenue) {
   }
 
   modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  }
   setTimeout(attachProposeVenueAutocomplete, 100);
 }
 window.openProposeMatchModal = openProposeMatchModal;
 
 function closeProposeMatchModal() {
+  if (typeof closeModal === 'function') {
+    closeModal('propose-match-modal');
+  }
   const modal = document.getElementById('propose-match-modal');
   if (modal) modal.style.display = 'none';
   const noteEl = document.getElementById('propose-note');

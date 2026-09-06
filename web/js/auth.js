@@ -500,7 +500,11 @@ function openBcpLinkModal() {
     if (formView) formView.style.display = 'block';
   }
 
-  modal.classList.add('active');
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+  }
 
   // Auto-focus email input so Chrome and password managers immediately detect active credentials
   if (!isConnected || (formView && formView.style.display !== 'none')) {
@@ -517,8 +521,12 @@ function openBcpLinkModal() {
 }
 
 function closeBcpLinkModal() {
-  const modal = document.getElementById('bcp-link-modal');
-  if (modal) modal.classList.remove('active');
+  if (typeof closeModal === 'function') {
+    closeModal('bcp-link-modal');
+  } else {
+    const modal = document.getElementById('bcp-link-modal');
+    if (modal) modal.classList.remove('active');
+  }
   const passInput = document.getElementById('bcp-link-password');
   if (passInput) passInput.value = '';
 }
@@ -802,12 +810,20 @@ function openUserSettingsModal() {
 
   loadActiveSessionsList();
   loadUserSettingsLocation();
-  modal.classList.add('active');
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+  }
 }
 
 function closeUserSettingsModal() {
-  const modal = document.getElementById('user-settings-modal');
-  if (modal) modal.classList.remove('active');
+  if (typeof closeModal === 'function') {
+    closeModal('user-settings-modal');
+  } else {
+    const modal = document.getElementById('user-settings-modal');
+    if (modal) modal.classList.remove('active');
+  }
 }
 
 async function handleSaveDisplayName(e) {
@@ -1551,6 +1567,9 @@ async function openInviteModal() {
   const modal = document.getElementById('invite-players-modal');
   if (!modal) return;
   modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  }
   await refreshUserInviteCode(false);
 }
 
@@ -1558,6 +1577,9 @@ function closeInviteModal() {
   if (inviteCountdownTimer) {
     clearInterval(inviteCountdownTimer);
     inviteCountdownTimer = null;
+  }
+  if (typeof closeModal === 'function') {
+    closeModal('invite-players-modal');
   }
   const modal = document.getElementById('invite-players-modal');
   if (modal) modal.style.display = 'none';
