@@ -1674,6 +1674,11 @@ class PostgresDatabase:
                     p1_score = m.get("player1_score") or 0
                     p2_score = m.get("player2_score") or 0
                     r_num = m.get("round", 1)
+                    is_done = m.get("is_done", True)
+
+                    # Skip unplayed / in-progress pairings from Swiss match records and standings
+                    if not is_done and not m.get("winner_id") and (p1_score == 0 and p2_score == 0):
+                        continue
 
                     is_p1_win = m.get("winner_id") == p1_id or (m.get("winner_id") is None and p1_score > p2_score)
                     is_p2_win = m.get("winner_id") == p2_id or (m.get("winner_id") is None and p2_score > p1_score)

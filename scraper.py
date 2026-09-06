@@ -7,7 +7,7 @@ from typing import Any, Dict, Generator, List, Optional
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID
@@ -135,8 +135,8 @@ class BestCoastPairingsScraper:
 
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
         """Fetches registered player roster for an event from BCP with official placings and tiebreaker metrics."""
-        # 1. Fetch from /events/{event_id}/players with placings=true
-        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 1000, "placings": "true"})
+        # 1. Fetch from /events/{event_id}/players with placings=true (supporting super-majors up to 2500 competitors)
+        resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500, "placings": "true"})
         players = []
         if resp:
             if isinstance(resp, dict):
@@ -164,7 +164,7 @@ class BestCoastPairingsScraper:
 
     def fetch_event_teams(self, event_id: str) -> List[Dict[str, Any]]:
         """Fetches registered teams and official team placings from BCP for a team tournament."""
-        resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 1000, "placings": "true"})
+        resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 2500, "placings": "true"})
         teams = []
         if resp:
             if isinstance(resp, dict):
@@ -456,7 +456,11 @@ class BestCoastPairingsScraper:
         if isinstance(p2_faction, dict):
             p2_faction = p2_faction.get("name", "")
 
-        is_bye = bool(p2_user_id is None or p2_name == "BYE" or pairing.get("isBye"))
+        is_bye = bool(
+            p2_user_id is None or p2_name == "BYE" or 
+            p1_user_id is None or p1_name == "BYE" or 
+            pairing.get("isBye")
+        )
 
         # Scores and results
         p1_game = pairing.get("player1Game") or {}
@@ -468,30 +472,47 @@ class BestCoastPairingsScraper:
         p1_result = p1_game.get("result")  # 2: Win, 0: Loss, 1: Draw
         p2_result = p2_game.get("result")
 
+        is_done = bool(pairing.get("isDone", True))
+        has_scores = p1_score is not None and p2_score is not None
+        has_results = p1_result is not None and p2_result is not None
+
+        # Guard: if match is still in progress and no scores/results entered, avoid treating as premature draw
+        is_unplayed = (not is_done) and (
+            (not has_scores or (p1_score == 0 and p2_score == 0)) and
+            (not has_results or (p1_result == 0 and p2_result == 0))
+        )
+
         winner_id = None
         loser_id = None
         is_draw = False
 
         if is_bye:
-            winner_id = p1_user_id
+            if p1_name == "BYE" or not p1_user_id:
+                winner_id = p2_user_id
+            else:
+                winner_id = p1_user_id
             loser_id = None
-        elif p1_result is not None and p2_result is not None:
+        elif is_unplayed:
+            winner_id = None
+            loser_id = None
+            is_draw = False
+        elif has_results:
             if p1_result == 2 and p2_result == 0:
                 winner_id = p1_user_id
                 loser_id = p2_user_id
             elif p2_result == 2 and p1_result == 0:
                 winner_id = p2_user_id
                 loser_id = p1_user_id
-            elif p1_result == 1 or p2_result == 1 or p1_result == p2_result:
+            elif p1_result == 1 or p2_result == 1 or (p1_result == p2_result and (is_done or has_scores)):
                 is_draw = True
-        elif p1_score is not None and p2_score is not None:
+        elif has_scores:
             if p1_score > p2_score:
                 winner_id = p1_user_id
                 loser_id = p2_user_id
             elif p2_score > p1_score:
                 winner_id = p2_user_id
                 loser_id = p1_user_id
-            else:
+            elif is_done:
                 is_draw = True
 
         # Upsert players into database
@@ -592,8 +613,12 @@ class BestCoastPairingsScraper:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")
 
         try:
-            raw_rounds = event_data.get("numberOfRounds") or event_data.get("currentRound") or 3
-            num_rounds = min(max(1, int(raw_rounds)), 12)
+            rounds_dict = event_data.get("rounds") or {}
+            dict_rounds = 0
+            if isinstance(rounds_dict, dict):
+                dict_rounds = max([int(k) for k in rounds_dict.keys() if str(k).isdigit()] or [0])
+            raw_rounds = event_data.get("numberOfRounds") or event_data.get("currentRound") or dict_rounds or 3
+            num_rounds = min(max(int(raw_rounds or 3), dict_rounds), 12)
         except Exception:
             num_rounds = 3
 
@@ -658,14 +683,29 @@ class BestCoastPairingsScraper:
     def sync_upcoming_events(self, max_pages_per_month: int = 15) -> int:
         """Fetches live future upcoming tournaments across multiple monthly windows (next 3-4 months) from Best Coast Pairings API and caches them."""
         now_dt = datetime.now(timezone.utc)
-        
-        # Monthly windows to ensure full global coverage without hitting API pagination limits
-        month_windows = [
-            (now_dt.strftime("%Y-%m-%dT00:00:00.000Z"), datetime(now_dt.year, 8, 31, 23, 59, 59, tzinfo=timezone.utc).strftime("%Y-%m-%dT23:59:59.999Z")),
-            ("2026-09-01T00:00:00.000Z", "2026-09-30T23:59:59.999Z"),
-            ("2026-10-01T00:00:00.000Z", "2026-10-31T23:59:59.999Z"),
-            ("2026-11-01T00:00:00.000Z", "2026-11-30T23:59:59.999Z")
-        ]
+        curr_year = now_dt.year
+        curr_month = now_dt.month
+        month_windows = []
+
+        # Dynamic rolling monthly windows (next 4 months) to ensure full global coverage without date expiration
+        for i in range(4):
+            m = curr_month + i
+            y = curr_year + (m - 1) // 12
+            m = ((m - 1) % 12) + 1
+            if i == 0:
+                start_dt = now_dt
+            else:
+                start_dt = datetime(y, m, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+            next_m = m + 1
+            next_y = y + (next_m - 1) // 12
+            next_m = ((next_m - 1) % 12) + 1
+            end_dt = datetime(next_y, next_m, 1, 0, 0, 0, tzinfo=timezone.utc) - timedelta(milliseconds=1)
+
+            month_windows.append((
+                start_dt.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                end_dt.strftime("%Y-%m-%dT%H:%M:%S.999Z")
+            ))
         
         total_synced = 0
 

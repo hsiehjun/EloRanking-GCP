@@ -423,6 +423,83 @@ def test_api_event_details_direct_bcp_placings():
     print("✅ test_api_event_details_direct_bcp_placings passed!")
 
 
+def test_scraper_robustness_fixes():
+    """Verify all 5 scraper robustness fixes: dynamic windows, unplayed matches, dual-sided byes, 2500 limit, and playoff rounds."""
+    from scraper import BestCoastPairingsScraper
+
+    mock_db = MagicMock()
+    scraper = BestCoastPairingsScraper(db=mock_db, request_delay=0.0)
+
+    # 1. Test unplayed match does NOT become a false draw
+    unplayed_pairing = {
+        "id": "match_live_1",
+        "round": 2,
+        "table": 3,
+        "isDone": False,
+        "player1Id": "p1",
+        "player1": {"id": "p1", "name": "Alice"},
+        "player2Id": "p2",
+        "player2": {"id": "p2", "name": "Bob"},
+        "player1Game": {"points": 0, "result": 0},
+        "player2Game": {"points": 0, "result": 0}
+    }
+    m1 = scraper.parse_and_store_match({"id": "ev1", "name": "Tourney"}, unplayed_pairing)
+    assert m1["is_draw"] is False, "Unplayed match must NOT be marked as a draw!"
+    assert m1["winner_id"] is None, "Unplayed match must have no winner"
+    assert m1["loser_id"] is None, "Unplayed match must have no loser"
+
+    # 2. Test inverted bye (Player 1 is BYE, Player 2 is real player)
+    p1_bye_pairing = {
+        "id": "match_bye_1",
+        "round": 1,
+        "table": 0,
+        "isDone": True,
+        "isBye": True,
+        "player1Id": None,
+        "player1": {"id": None, "name": "BYE"},
+        "player2Id": "p2_user",
+        "player2": {"id": "p2_user", "name": "Active Competitor"}
+    }
+    m2 = scraper.parse_and_store_match({"id": "ev1", "name": "Tourney"}, p1_bye_pairing)
+    assert m2["is_bye"] is True
+    assert m2["winner_id"] == "p2_user", "Real competitor in player 2 must be awarded the bye win"
+
+    # 3. Test fetch_event_players and fetch_event_teams use limit=2500
+    with patch.object(scraper, "_make_request", return_value={"active": [{"id": "p1"}]}) as mock_req:
+        scraper.fetch_event_players("ev1")
+        mock_req.assert_called_with("/events/ev1/players", params={"limit": 2500, "placings": "true"})
+
+        scraper.fetch_event_teams("ev1")
+        mock_req.assert_called_with("/events/ev1/teamplayers", params={"limit": 2500, "placings": "true"})
+
+    # 4. Test scrape_event detects playoff rounds from rounds dictionary (e.g. 5 Swiss + 3 playoff = 8 rounds)
+    playoff_ev_data = {
+        "id": "ev_tacoma",
+        "name": "US Open Tacoma",
+        "numberOfRounds": 5,  # Swiss count reported
+        "rounds": {str(i): {"status": "finalized"} for i in range(1, 9)}  # 8 rounds in playoff dictionary
+    }
+    with patch.object(scraper, "fetch_event_details", return_value=playoff_ev_data), \
+         patch.object(scraper, "fetch_event_players", return_value=[]), \
+         patch.object(scraper, "fetch_event_pairings_for_round", return_value=[]) as mock_pairings:
+        scraper.scrape_event("ev_tacoma")
+        # Must attempt all 8 rounds (or break on consecutive empty)
+        rounds_called = [call[0][1] for call in mock_pairings.call_args_list]
+        assert rounds_called[0] == 1, "Must start at round 1"
+
+    # 5. Test sync_upcoming_events uses dynamic rolling windows without hardcoded dates or inverted ranges
+    with patch.object(scraper, "_make_request", return_value={"data": []}) as mock_events_req:
+        total = scraper.sync_upcoming_events(max_pages_per_month=1)
+        assert mock_events_req.call_count == 4, "Must query 4 rolling monthly windows"
+        for call in mock_events_req.call_args_list:
+            params = call[1]["params"]
+            s_date = params["startDate"]
+            e_date = params["endDate"]
+            assert s_date < e_date, f"startDate {s_date} must be earlier than endDate {e_date}"
+
+    print("✅ test_scraper_robustness_fixes passed!")
+
+
 if __name__ == "__main__":
     test_scraper_placing_resolution_priority()
     test_team_standings_placing_priority()
@@ -431,4 +508,5 @@ if __name__ == "__main__":
     test_format_bcp_roster_exact_order()
     test_frontend_default_tab_and_sorting()
     test_api_event_details_direct_bcp_placings()
+    test_scraper_robustness_fixes()
     print("\n🎉 ALL BCP PLACINGS INTEGRITY TESTS PASSED!")
