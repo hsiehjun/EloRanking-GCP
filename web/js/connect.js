@@ -1835,13 +1835,47 @@ async function refreshActiveMessages(scrollOnlyIfNearBottom = true) {
 }
 
 async function handleSendChatMessage(e) {
-  e.preventDefault();
+  if (e && typeof e.preventDefault === 'function') {
+    e.preventDefault();
+  }
   if (!connectState.activeRequestId) return;
   const input = document.getElementById('chat-input-text');
   const text = input ? input.value.trim() : '';
-  if (!text) return;
+  if (!text) {
+    if (input) {
+      try { input.focus({ preventScroll: true }); } catch (err) { input.focus(); }
+    }
+    return;
+  }
 
   input.value = '';
+
+  // Explicitly retain input focus so mobile virtual keyboard does not dismiss when sending back-to-back messages
+  if (input) {
+    try {
+      input.focus({ preventScroll: true });
+    } catch (err) {
+      input.focus();
+    }
+    requestAnimationFrame(() => {
+      if (document.activeElement !== input) {
+        try {
+          input.focus({ preventScroll: true });
+        } catch (err) {
+          input.focus();
+        }
+      }
+    });
+    setTimeout(() => {
+      if (document.activeElement !== input) {
+        try {
+          input.focus({ preventScroll: true });
+        } catch (err) {
+          input.focus();
+        }
+      }
+    }, 50);
+  }
 
   const myId = (typeof currentUser !== 'undefined' && currentUser?.id) || connectState.userProfile?.player_id || connectState.userProfile?.id;
   const myName = (typeof currentUser !== 'undefined' && currentUser?.display_name) || 'You';
@@ -2202,9 +2236,12 @@ function handleVisualViewportResize() {
 
   const vv = window.visualViewport;
   const currentHeight = vv ? Math.round(vv.height) : window.innerHeight;
-  const offsetTop = vv ? Math.round(vv.offsetTop) : 0;
-  // If visual viewport height is noticeably smaller than window.innerHeight, the keyboard is open
-  const isKeyboard = (window.innerHeight - currentHeight) > 100;
+  const offsetTop = vv ? Math.round(vv.offsetTop || 0) : 0;
+  // If visual viewport height is noticeably smaller than screen/window or chat input is focused with reduced height
+  const screenH = (window.screen && window.screen.height) ? window.screen.height : window.innerHeight;
+  const inputEl = document.getElementById('chat-input-text');
+  const isInputFocused = (inputEl && document.activeElement === inputEl);
+  const isKeyboard = (window.innerHeight - currentHeight) > 100 || (screenH - currentHeight) > 150 || (isInputFocused && currentHeight < 650);
 
   document.documentElement.style.setProperty('--chat-viewport-height', `${currentHeight}px`);
   document.documentElement.style.setProperty('--chat-viewport-top', `${offsetTop}px`);
@@ -2228,6 +2265,42 @@ window.handleVisualViewportResize = handleVisualViewportResize;
 
 function setupChatInputViewportListeners() {
   const input = document.getElementById('chat-input-text');
+  const inputForm = document.getElementById('chat-input-form');
+  const sendBtn = inputForm ? inputForm.querySelector('.oc-chat-send-btn') : null;
+
+  if (sendBtn && !sendBtn._hasPreventBlur) {
+    sendBtn._hasPreventBlur = true;
+    sendBtn.addEventListener('pointerdown', (e) => {
+      // Prevent tapping/clicking the Send button from blurring the text input
+      e.preventDefault();
+    });
+    sendBtn.addEventListener('mousedown', (e) => {
+      // Prevent mouse click from blurring input on desktop
+      e.preventDefault();
+    });
+    sendBtn.addEventListener('touchstart', () => {
+      // Keep input focused on touch devices
+      const inp = document.getElementById('chat-input-text');
+      if (inp && document.activeElement !== inp) {
+        try { inp.focus({ preventScroll: true }); } catch (err) { inp.focus(); }
+      }
+    }, { passive: true });
+  }
+
+  // Allow dismissing the keyboard when user taps message history area to read or scroll
+  const msgContainer = document.getElementById('chat-messages-container');
+  if (msgContainer && !msgContainer._hasKeyboardDismissListeners) {
+    msgContainer._hasKeyboardDismissListeners = true;
+    msgContainer.addEventListener('click', (e) => {
+      if (!e.target.closest('a') && !e.target.closest('button')) {
+        const inp = document.getElementById('chat-input-text');
+        if (inp && document.activeElement === inp) {
+          inp.blur();
+        }
+      }
+    });
+  }
+
   if (!input || input._hasViewportListeners) return;
   input._hasViewportListeners = true;
 

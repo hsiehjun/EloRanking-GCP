@@ -628,7 +628,7 @@
             <!-- Active Interactive Input Bar -->
             <div style="padding: 0.75rem 1.25rem; background: #0f172a; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 0.5rem; align-items: center;">
               <input type="text" id="demo-chat-input" placeholder="Type a message or match details and press Enter..." onkeydown="if(event.key==='Enter') sendDemoChatMessage()" style="flex: 1; background: #090f1d; border: 1px solid rgba(255,255,255,0.15); color: #fff; padding: 0.6rem 0.9rem; border-radius: 8px; font-size: 0.82rem;">
-              <button type="button" onclick="sendDemoChatMessage()" style="background: #0284c7; color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; cursor: pointer;">
+              <button type="button" onclick="sendDemoChatMessage()" onpointerdown="event.preventDefault()" onmousedown="event.preventDefault()" style="background: #0284c7; color: #fff; border: none; padding: 0.6rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; cursor: pointer;">
                 Send
               </button>
             </div>
@@ -1705,6 +1705,7 @@
         container.scrollTop = container.scrollHeight;
       }
       input.value = '';
+      try { input.focus({ preventScroll: true }); } catch(err) { input.focus(); }
 
       setTimeout(function() {
         if (!container) return;

@@ -1185,6 +1185,45 @@ def test_registered_tournaments_module():
     print("✅ Registered Tournaments and Top Elo Trajectory module verified!")
 
 
+def test_mobile_chat_keyboard_persistence_back_to_back():
+    """Verify that sending chat messages preserves keyboard and focus for back-to-back messaging."""
+    app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    connect_js = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+    index_html = (root_dir / "web" / "index.html").read_text(encoding="utf-8")
+
+    # 1. Verify app.html Send button suppresses blur on pointerdown and mousedown
+    assert 'onpointerdown="event.preventDefault()"' in app_html, \
+        "app.html .oc-chat-send-btn must have onpointerdown='event.preventDefault()'"
+    assert 'onmousedown="event.preventDefault()"' in app_html, \
+        "app.html .oc-chat-send-btn must have onmousedown='event.preventDefault()'"
+
+    # 2. Verify connect.js retains input focus on send and through next frames
+    assert "input.focus({ preventScroll: true });" in connect_js, \
+        "connect.js handleSendChatMessage must retain focus with preventScroll: true"
+    assert "requestAnimationFrame(() => {" in connect_js, \
+        "connect.js must re-affirm focus on next animation frame"
+
+    # 3. Verify setupChatInputViewportListeners protects focus on pointerdown/mousedown/touchstart
+    assert "sendBtn.addEventListener('pointerdown'" in connect_js, \
+        "connect.js must add pointerdown listener to chat send button"
+    assert "sendBtn.addEventListener('touchstart'" in connect_js, \
+        "connect.js must add touchstart listener to keep input focused"
+
+    # 4. Verify message history tap allows intentional keyboard dismissal
+    assert "msgContainer.addEventListener('click'" in connect_js, \
+        "connect.js must allow tapping chat message background to blur/dismiss keyboard"
+    assert "inp.blur();" in connect_js, \
+        "connect.js message container click must blur input"
+
+    # 5. Verify index.html demo chat supports seamless back-to-back focus retention
+    assert 'onpointerdown="event.preventDefault()"' in index_html, \
+        "index.html demo chat send button must have onpointerdown='event.preventDefault()'"
+    assert "input.focus({ preventScroll: true });" in index_html, \
+        "index.html sendDemoChatMessage must retain input focus"
+
+    print("✅ Mobile chat keyboard persistence & back-to-back messaging verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1215,6 +1254,7 @@ if __name__ == "__main__":
     test_my_hub_mobile_restructuring()
     test_chat_auto_scroll_and_revoke_request()
     test_registered_tournaments_module()
+    test_mobile_chat_keyboard_persistence_back_to_back()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 
