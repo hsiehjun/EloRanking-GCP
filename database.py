@@ -1119,19 +1119,6 @@ class PostgresDatabase:
                 """, (json.dumps(team_standings or []), event_id))
             conn.commit()
 
-    def mark_event_concluded(self, event_id: str) -> None:
-        """Marks an event as ended in the database."""
-        if not event_id:
-            return
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                UPDATE events
-                SET is_ended = TRUE
-                WHERE id = %s;
-                """, (event_id,))
-            conn.commit()
-
     def upsert_event_participants_batch(
         self,
         event_id: str,

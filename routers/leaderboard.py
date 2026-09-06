@@ -796,7 +796,6 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
 # API: Tournament Details & Round Pairings
 @router.get("/api/event/{event_id}", summary="Get tournament metadata, placings, and round pairings")
 async def api_event_details(event_id: str, force_sync: bool = False):
-    import threading
     db = get_database()
     event_id_str = event_id.strip()
 
@@ -808,128 +807,39 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         if studio_ev:
             event_details = studio_ev
 
-    # Check if tournament is concluded by explicit flag, round completion, or past event date
-    is_concluded = False
-    if event_details:
-        if event_details.get("is_ended"):
-            is_concluded = True
-        elif event_details.get("num_rounds") and event_details.get("current_round") and event_details["current_round"] >= event_details["num_rounds"] and event_details["num_rounds"] > 0:
-            is_concluded = True
-        elif event_details.get("event_date"):
-            try:
-                ev_dt_str = str(event_details["event_date"]).replace("Z", "+00:00")
-                ev_dt = datetime.fromisoformat(ev_dt_str)
-                if datetime.now(timezone.utc) - ev_dt.astimezone(timezone.utc) > timedelta(days=3):
-                    is_concluded = True
-            except Exception:
-                pass
-
-        if is_concluded and not event_details.get("is_ended"):
-            event_details["is_ended"] = True
-            try:
-                if hasattr(db, "mark_event_concluded"):
-                    db.mark_event_concluded(event_id_str)
-            except Exception as ex:
-                logger.warning(f"Could not mark event {event_id_str} concluded: {ex}")
-
-    # Auto-query BCP if:
-    # 1) Not a native Event Studio tournament
-    # 2) User explicitly requested force_sync
-    # 3) Event is not yet in DB
-    # 4) Event has missing placings or missing pod brackets
-    has_data = bool(event_details and event_details.get("players") and event_details.get("matches"))
-    has_missing_placings = bool(
-        event_details and 
-        event_details.get("players") and 
-        sum(1 for p in event_details.get("players", []) if p.get("official_placement")) < min(len(event_details.get("players", [])), 4)
-    )
-    needs_roster_sync = (
-        not is_native_studio and (
-            force_sync or 
-            not has_data or 
-            has_missing_placings or
-            (event_details and all(p.get("pod_num") is None for p in event_details.get("players", [])) and (event_details.get("num_rounds", 0) >= 6 or event_details.get("total_players", 0) >= 48))
-        )
-    )
-
-    # When fresh results are required or force_sync was requested:
-    # Query BCP immediately to get the exact competitor array, attach it to response,
-    # and synchronously persist to backend DB so PostgreSQL permanently has official placings.
-    if not is_native_studio and needs_roster_sync:
-        try:
-            scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
-            bcp_players = scraper.fetch_event_players(event_id_str)
-            if bcp_players:
-                try:
-                    scraper.ingest_event_roster(event_id_str, bcp_players)
-                except Exception as ex:
-                    logger.warning(f"Synchronous DB roster update notice for {event_id_str}: {ex}")
-
-                existing_players = (event_details.get("players") if event_details else None)
-                formatted_players = format_bcp_roster_to_players(bcp_players, existing_players)
-                if event_details:
-                    event_details["players"] = formatted_players
-                    event_details["total_players"] = len(formatted_players)
-                    event_details["sync_in_progress"] = False
-                    _active_event_syncs.discard(event_id_str)
-                    return event_details
-        except Exception as e:
-            logger.warning(f"Direct BCP fetch notice for {event_id_str}: {e}")
-
-    # If event details exist in DB, return them
-    if event_details:
-        if is_concluded or event_details.get("is_ended"):
-            _active_event_syncs.discard(event_id_str)
-            event_details["sync_in_progress"] = False
-            return event_details
-
-        is_syncing = event_id_str in _active_event_syncs
-        if needs_roster_sync and not is_syncing:
-            _active_event_syncs.add(event_id_str)
-            is_syncing = True
-            def bg_roster_sync(eid: str, scrape_full: bool):
-                try:
-                    scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
-                    scraper.sync_event_roster(eid)
-                    if scrape_full:
-                        scraper.scrape_event(eid)
-                except Exception as e:
-                    logger.warning(f"Failed to sync BCP details in background for event {eid}: {e}")
-                finally:
-                    _active_event_syncs.discard(eid)
-            threading.Thread(target=bg_roster_sync, args=(event_id_str, not has_data), daemon=True).start()
-        elif not is_native_studio and not is_syncing:
-            # Background refresh for live ongoing tournament
-            _active_event_syncs.add(event_id_str)
-            is_syncing = True
-            def bg_live_scrape(eid: str):
-                try:
-                    scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
-                    scraper.scrape_event(eid)
-                except Exception:
-                    pass
-                finally:
-                    _active_event_syncs.discard(eid)
-            threading.Thread(target=bg_live_scrape, args=(event_id_str,), daemon=True).start()
-
-        event_details["sync_in_progress"] = is_syncing
+    if is_native_studio:
+        if not event_details:
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
+        event_details["sync_in_progress"] = False
         return event_details
 
-    if is_native_studio:
-        raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found")
-
-    # Event is not yet in database: do initial fetch/scrape synchronously so we have data
-    try:
-        scraper = BestCoastPairingsScraper(db=db)
-        scraper.sync_event_roster(event_id_str)
-        scraper.scrape_event(event_id_str)
-        event_details = db.get_event_details(event_id_str)
-    except Exception as e:
-        logger.warning(f"Failed to sync BCP details for event {event_id_str}: {e}")
-
+    # If event is not yet in DB, scrape/sync it first so we have the metadata/matches/elo
     if not event_details:
-        raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found on Best Coast Pairings")
+        try:
+            scraper = BestCoastPairingsScraper(db=db)
+            scraper.sync_event_roster(event_id_str)
+            scraper.scrape_event(event_id_str)
+            event_details = db.get_event_details(event_id_str)
+        except Exception as e:
+            logger.warning(f"Failed to sync BCP details for event {event_id_str}: {e}")
 
+        if not event_details:
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found on Best Coast Pairings")
+
+    # For BCP events: Event info / Elo / Matches come strictly from our DB.
+    # The tournament placing is strictly a direct call to BCP.
+    try:
+        scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+        bcp_players = scraper.fetch_event_players(event_id_str)
+        if bcp_players:
+            existing_players = event_details.get("players", [])
+            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players)
+            event_details["players"] = formatted_players
+            event_details["total_players"] = len(formatted_players)
+    except Exception as e:
+        logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
+
+    event_details["sync_in_progress"] = False
     return event_details
 
 
