@@ -1004,6 +1004,35 @@ def test_event_modal_mobile_layout_and_no_register():
     print("✅ Tournament pop-up modal verified free of register button with optimized mobile layout!")
 
 
+def test_mobile_chat_keyboard_viewport_adjustment():
+    """Verify that mobile chat window adjusts height to visualViewport on virtual keyboard open,
+    eliminates iOS layout shifts, prevents input auto-zoom, and keeps single messages fully in view."""
+    app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    theme_css = (root_dir / "web" / "css" / "theme.css").read_text(encoding="utf-8")
+    connect_js = (root_dir / "web" / "js" / "connect.js").read_text(encoding="utf-8")
+
+    # 1. Viewport meta tag includes interactive-widget=resizes-content
+    assert "interactive-widget=resizes-content" in app_html, "app.html missing interactive-widget=resizes-content"
+
+    # 2. theme.css locks body as fixed when chat-mode-active
+    assert "body.chat-mode-active {" in theme_css, "body.chat-mode-active missing in theme.css"
+    assert "position: fixed;" in theme_css, "body.chat-mode-active missing position: fixed"
+
+    # 3. styles.css uses CSS variable for chat viewport height and top
+    assert "--chat-viewport-height" in styles_css, "styles.css missing --chat-viewport-height"
+    assert "--chat-viewport-top" in styles_css, "styles.css missing --chat-viewport-top"
+    assert ".floating-chat-window.keyboard-visible" in styles_css, "styles.css missing .floating-chat-window.keyboard-visible"
+    assert "font-size: 16px !important;" in styles_css, "styles.css missing 16px font-size to prevent iOS input auto-zoom"
+
+    # 4. connect.js implements handleVisualViewportResize and setupChatInputViewportListeners
+    assert "handleVisualViewportResize" in connect_js, "connect.js missing handleVisualViewportResize"
+    assert "setupChatInputViewportListeners" in connect_js, "connect.js missing setupChatInputViewportListeners"
+    assert "window.visualViewport" in connect_js, "connect.js missing window.visualViewport event listeners"
+    assert "keyboard-visible" in connect_js, "connect.js missing keyboard-visible class toggle"
+    print("✅ Mobile chat keyboard visual viewport height adjustment & iOS scroll lock verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1030,6 +1059,7 @@ if __name__ == "__main__":
     test_eventstudio_guard_and_faction_default()
     test_community_subtab_loading_unification()
     test_event_modal_mobile_layout_and_no_register()
+    test_mobile_chat_keyboard_viewport_adjustment()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
 
 

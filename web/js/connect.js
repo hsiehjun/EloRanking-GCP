@@ -1501,6 +1501,8 @@ function toggleFloatingChat(forceState) {
 
     if (window.innerWidth <= 768) {
       document.body.classList.add('chat-mode-active');
+      setupChatInputViewportListeners();
+      handleVisualViewportResize();
     }
 
     if (typeof loadUserRequests === 'function') loadUserRequests();
@@ -1522,10 +1524,15 @@ function toggleFloatingChat(forceState) {
     }
   } else {
     win.style.display = 'none';
+    win.style.height = '';
+    win.style.top = '';
+    win.classList.remove('keyboard-visible');
     bubble.classList.remove('active');
     if (widget) widget.classList.remove('is-open');
 
     document.body.classList.remove('chat-mode-active');
+    const input = document.getElementById('chat-input-text');
+    if (input) input.blur();
 
     if (typeof stopChatPolling === 'function') stopChatPolling();
     if (typeof detachChatSnapshot === 'function') detachChatSnapshot();
@@ -1534,6 +1541,8 @@ function toggleFloatingChat(forceState) {
 window.toggleFloatingChat = toggleFloatingChat;
 
 function backToChatList() {
+  const input = document.getElementById('chat-input-text');
+  if (input) input.blur();
   const layout = document.querySelector('.oc-chat-layout');
   if (layout) {
     layout.classList.remove('is-viewing-chat');
@@ -1542,6 +1551,7 @@ function backToChatList() {
   if (typeof detachChatSnapshot === 'function') {
     detachChatSnapshot();
   }
+  handleVisualViewportResize();
 
   const convoList = document.getElementById('chat-conversations-list');
   if (convoList) {
@@ -1629,6 +1639,11 @@ async function selectConversation(requestId) {
 
   // Attach real-time Firestore push listener
   attachChatSnapshot(requestId);
+
+  setupChatInputViewportListeners();
+  if (window.innerWidth <= 768) {
+    handleVisualViewportResize();
+  }
 
   // Durable sync from backend (seeds Firestore if newly opened & updates request details)
   await refreshActiveMessages(false);
@@ -2081,6 +2096,99 @@ window.addEventListener('keydown', (e) => {
     }
   }
 });
+
+/* --------------------------------------------------------------------------
+   MOBILE VIRTUAL KEYBOARD & VIEWPORT RESIZE MANAGEMENT
+   -------------------------------------------------------------------------- */
+function handleVisualViewportResize() {
+  const win = document.getElementById('floating-chat-window');
+  if (!win || win.style.display === 'none') return;
+
+  if (window.innerWidth > 768) {
+    win.style.height = '';
+    win.style.top = '';
+    win.classList.remove('keyboard-visible');
+    return;
+  }
+
+  const vv = window.visualViewport;
+  const currentHeight = vv ? Math.round(vv.height) : window.innerHeight;
+  const offsetTop = vv ? Math.round(vv.offsetTop) : 0;
+  // If visual viewport height is noticeably smaller than window.innerHeight, the keyboard is open
+  const isKeyboard = (window.innerHeight - currentHeight) > 100;
+
+  document.documentElement.style.setProperty('--chat-viewport-height', `${currentHeight}px`);
+  document.documentElement.style.setProperty('--chat-viewport-top', `${offsetTop}px`);
+
+  win.style.height = `${currentHeight}px`;
+  win.style.top = `${offsetTop}px`;
+
+  if (isKeyboard) {
+    win.classList.add('keyboard-visible');
+    if (window.scrollY !== 0 || document.documentElement.scrollTop !== 0) {
+      window.scrollTo(0, 0);
+      document.body.scrollTop = 0;
+    }
+  } else {
+    win.classList.remove('keyboard-visible');
+  }
+
+  const msgContainer = document.getElementById('chat-messages-container');
+  if (msgContainer) {
+    requestAnimationFrame(() => {
+      msgContainer.scrollTop = msgContainer.scrollHeight;
+    });
+  }
+}
+window.handleVisualViewportResize = handleVisualViewportResize;
+
+function setupChatInputViewportListeners() {
+  const input = document.getElementById('chat-input-text');
+  if (!input || input._hasViewportListeners) return;
+  input._hasViewportListeners = true;
+
+  input.addEventListener('focus', () => {
+    if (window.innerWidth <= 768) {
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        document.body.scrollTop = 0;
+        handleVisualViewportResize();
+      }, 50);
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        handleVisualViewportResize();
+      }, 320);
+    }
+  });
+
+  input.addEventListener('blur', () => {
+    if (window.innerWidth <= 768) {
+      setTimeout(() => {
+        window.scrollTo(0, 0);
+        document.body.scrollTop = 0;
+        handleVisualViewportResize();
+      }, 50);
+    }
+  });
+}
+window.setupChatInputViewportListeners = setupChatInputViewportListeners;
+
+if (typeof window !== 'undefined') {
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+    window.visualViewport.addEventListener('scroll', () => {
+      const win = document.getElementById('floating-chat-window');
+      if (win && win.style.display !== 'none' && window.innerWidth <= 768) {
+        handleVisualViewportResize();
+        if (window.scrollY !== 0) {
+          window.scrollTo(0, 0);
+          document.body.scrollTop = 0;
+        }
+      }
+    });
+  }
+  window.addEventListener('resize', handleVisualViewportResize);
+}
 
 /* --------------------------------------------------------------------------
    GOOGLE PLACES AUTOCOMPLETE

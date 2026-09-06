@@ -64,6 +64,8 @@ body.chat-mode-active {
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  position: fixed;
+  width: 100%;
 }
 body.chat-mode-active #app-shell {
   height: 100vh;
