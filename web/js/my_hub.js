@@ -110,6 +110,90 @@ async function loadMyHubDashboard() {
   }
 }
 
+let currentHubMobileTab = 'overview';
+
+function switchHubMobileTab(tab) {
+  currentHubMobileTab = tab || 'overview';
+  const hubContainer = document.getElementById('my-hub-container');
+  if (hubContainer) {
+    hubContainer.setAttribute('data-active-tab', currentHubMobileTab);
+  }
+
+  // Update mobile tab buttons
+  document.querySelectorAll('.hub-mobile-tab-btn').forEach(btn => {
+    if (btn.getAttribute('data-tab') === currentHubMobileTab) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+
+  // Re-render SVG trajectory if returning to overview
+  if (currentHubMobileTab === 'overview' && myHubData && myHubData.history) {
+    setTimeout(() => renderHubTrajectory(myHubData.history), 50);
+  }
+
+  // Scroll to proper viewport position on mobile
+  if (window.innerWidth <= 768) {
+    if (currentHubMobileTab === 'overview') {
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    } else {
+      const tabsBar = document.querySelector('.hub-mobile-tabs-bar');
+      if (tabsBar) {
+        const header = document.getElementById('app-header');
+        const headerH = header ? header.offsetHeight : 52;
+        const tabsRect = tabsBar.getBoundingClientRect();
+        const targetY = window.pageYOffset + tabsRect.top - headerH;
+        window.scrollTo({ top: Math.max(0, targetY), behavior: 'instant' });
+      }
+    }
+  }
+}
+
+function filterHubHistory(query) {
+  const q = (query || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('#hub-history-table tbody tr');
+  rows.forEach(tr => {
+    if (!q) {
+      tr.style.display = '';
+      return;
+    }
+    const text = tr.textContent.toLowerCase();
+    tr.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+
+function filterHubMatrix(query) {
+  const q = (query || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('#hub-matchup-table tbody tr');
+  rows.forEach(tr => {
+    if (!q) {
+      tr.style.display = '';
+      return;
+    }
+    const faction = (tr.getAttribute('data-faction') || tr.textContent).toLowerCase();
+    tr.style.display = faction.includes(q) ? '' : 'none';
+  });
+}
+
+function filterHubFaction(query) {
+  const q = (query || '').trim().toLowerCase();
+  const rows = document.querySelectorAll('#hub-faction-table tbody tr');
+  rows.forEach(tr => {
+    if (!q) {
+      tr.style.display = '';
+      return;
+    }
+    const faction = (tr.getAttribute('data-faction') || tr.textContent).toLowerCase();
+    tr.style.display = faction.includes(q) ? '' : 'none';
+  });
+}
+
+window.switchHubMobileTab = switchHubMobileTab;
+window.filterHubHistory = filterHubHistory;
+window.filterHubMatrix = filterHubMatrix;
+window.filterHubFaction = filterHubFaction;
+
 function renderMyHub(data) {
   const container = document.getElementById('my-hub-content');
   if (!container || !data) return;
@@ -150,8 +234,9 @@ function renderMyHub(data) {
         : (currentUser && currentUser.display_name) || (currentUser && currentUser.email ? currentUser.email.split('@')[0] : 'Competitor'));
 
   let html = `
-    <!-- Top Competitor Banner -->
-    <div class="competitor-banner">
+    <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubMobileTab || 'overview'}">
+      <!-- Top Competitor Banner -->
+      <div class="competitor-banner">
       <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
         <div class="competitor-avatar">🏆</div>
         <div>
@@ -207,8 +292,27 @@ function renderMyHub(data) {
 
 
 
+    <!-- Mobile Subtabs Navigation Bar (Visible <=768px only) -->
+    <div class="hub-mobile-tabs-bar">
+      <button class="hub-mobile-tab-btn ${(!currentHubMobileTab || currentHubMobileTab === 'overview') ? 'active' : ''}" data-tab="overview" onclick="switchHubMobileTab('overview')">
+        <span>🌟 Overview</span>
+      </button>
+      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matches' ? 'active' : ''}" data-tab="matches" onclick="switchHubMobileTab('matches')">
+        <span>📜 Matches</span>
+        ${totalHistoryMatches > 0 ? `<span class="hub-tab-count">${totalHistoryMatches}</span>` : ''}
+      </button>
+      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matrix' ? 'active' : ''}" data-tab="matrix" onclick="switchHubMobileTab('matrix')">
+        <span>🎯 Matrix</span>
+        ${matchups.length > 0 ? `<span class="hub-tab-count">${matchups.length}</span>` : ''}
+      </button>
+      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'mastery' ? 'active' : ''}" data-tab="mastery" onclick="switchHubMobileTab('mastery')">
+        <span>🛡️ Mastery</span>
+        ${factionMastery.length > 0 ? `<span class="hub-tab-count">${factionMastery.length}</span>` : ''}
+      </button>
+    </div>
+
     <!-- 2-Column Row 1: Half-Sized Army Lists & Elo Trajectory -->
-    <div class="hub-grid-2col" style="margin-top: 1.25rem;">
+    <div class="hub-grid-2col hub-row-trajectory" style="margin-top: 1.25rem;">
 
       <!-- Card: Half-Sized Army Lists & Rosters -->
       <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
@@ -244,11 +348,151 @@ function renderMyHub(data) {
 
     </div>
 
+    <!-- Mobile Overview Quick-Jump Preview Cards (Mobile-Only) -->
+    <div class="hub-overview-previews">
+      ${(activeMatches && activeMatches.length > 0) ? `
+        <div class="hub-card" style="border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.05);">
+          <div style="font-size: 0.72rem; color: #10b981; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
+            <span>🟢 ACTIVE MATCH IN PROGRESS</span>
+            <span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Live Game</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${activeMatches.slice(0, 1).map(m => {
+              const mid = m.match_id || m.id || '';
+              const rNum = m.round || m.current_round || 1;
+              return `
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                  <div>
+                    <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(m.p1_name || 'Player 1')} (${m.p1_score || 0}) vs ${escapeHtml(m.p2_name || 'Player 2')} (${m.p2_score || 0})</b>
+                    <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
+                      Round ${rNum} • ${escapeHtml(m.p1_faction || 'Army 1')} vs ${escapeHtml(m.p2_faction || 'Army 2')}
+                    </div>
+                  </div>
+                  <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
+                    ▶️ Resume
+                  </a>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Overview Preview 1: Recent Matches (Latest 3) -->
+      <div class="hub-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📜 Recent Matches</h3>
+            <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Latest 3</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} career matches</span>
+        </div>
+        ${history.length > 0 ? `
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            ${history.slice().reverse().slice(0, 3).map(h => {
+              const delta = Number(h.delta_elo || 0);
+              const isPos = delta >= 0;
+              const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
+              return `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.8rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
+                  <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      <span style="color: var(--text-muted); font-size: 0.72rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</span>
+                      <span class="cell-ellipsis" style="color: #fff; font-size: 0.82rem; font-weight: 700;">${escapeHtml(h.opponent_name || 'Opponent')}</span>
+                    </div>
+                    <div class="cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;">${escapeHtml(h.event_name || 'Event')}</div>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
+                    ${res}
+                    <span style="color: ${isPos ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono); font-size:0.75rem; font-weight:700; min-width: 44px; text-align: right;">
+                      ${isPos ? '+' : ''}${delta.toFixed(1)}
+                    </span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          <button class="hub-view-all-btn" onclick="switchHubMobileTab('matches')">
+            <span>View All Career Matches (${history.length})</span>
+            <span class="hub-btn-arrow">➔</span>
+          </button>
+        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
+      </div>
+
+      <!-- Overview Preview 2: Matchup Matrix Highlights -->
+      <div class="hub-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎯 Matchup Highlights</h3>
+            <span class="badge" style="background: rgba(168,85,247,0.12); color: #c084fc; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Versus</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">${matchups.length} Armies Faced</span>
+        </div>
+        ${matchups.length > 0 ? `
+          ${renderMatchupSpotlightCards(matchupSpotlights)}
+          <div style="display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.65rem;">
+            ${matchups.slice(0, 3).map(m => `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
+                <div style="min-width: 0; flex: 1;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(m.enemy_faction)}</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted);">${m.total_encounters} encounters • <span style="color:var(--win); font-weight:600;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:600;">${m.losses}L</span></div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 100px; justify-content: flex-end;">
+                  <div style="width: 50px; background: rgba(255,255,255,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
+                    <div style="width: ${Math.min(100, Number(m.win_rate))}%; background: ${Number(m.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height: 100%;"></div>
+                  </div>
+                  <b style="font-size: 0.78rem; font-family: var(--font-mono); color: #fff;">${Number(m.win_rate).toFixed(0)}%</b>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <button class="hub-view-all-btn" onclick="switchHubMobileTab('matrix')">
+            <span>Explore Full Matchup Matrix (${matchups.length} Armies)</span>
+            <span class="hub-btn-arrow">➔</span>
+          </button>
+        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>'}
+      </div>
+
+      <!-- Overview Preview 3: Faction Mastery Overview -->
+      <div class="hub-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🛡️ Faction Mastery Overview</h3>
+            <span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Career</span>
+          </div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">${factionMastery.length} Armies Logged</span>
+        </div>
+        ${factionMastery.length > 0 ? `
+          ${renderFactionMasterySpotlightCards(factionSpotlights)}
+          <div style="display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.65rem;">
+            ${factionMastery.slice(0, 2).map(fm => `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
+                <div style="min-width: 0; flex: 1;">
+                  <div style="font-size: 0.82rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(fm.faction)}</div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted);">${fm.games} games • <span style="color:var(--win); font-weight:600;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:600;">${fm.losses}L</span></div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 100px; justify-content: flex-end;">
+                  <div style="width: 50px; background: rgba(255,255,255,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
+                    <div style="width: ${Math.min(100, Number(fm.win_rate))}%; background: ${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height: 100%;"></div>
+                  </div>
+                  <b style="font-size: 0.78rem; font-family: var(--font-mono); color: #fff;">${Number(fm.win_rate).toFixed(0)}%</b>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          <button class="hub-view-all-btn" onclick="switchHubMobileTab('mastery')">
+            <span>View Full Faction Mastery & Intel</span>
+            <span class="hub-btn-arrow">➔</span>
+          </button>
+        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>'}
+      </div>
+    </div>
+
     <!-- 2-Column Row 2: Faction Mastery & Matchup Matrix -->
-    <div class="hub-grid-2col" style="margin-top: 1.25rem;">
+    <div class="hub-grid-2col hub-row-mastery-matrix" style="margin-top: 1.25rem;">
       
       <!-- Card 3: Faction Mastery Breakdown -->
-      <div class="hub-card">
+      <div class="hub-card hub-card-mastery">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.25rem;">
           <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
           ${factionMastery.length > 0 ? `
@@ -258,6 +502,9 @@ function renderMyHub(data) {
           ` : ''}
         </div>
         ${factionMastery.length > 0 ? `
+          <div style="margin-bottom: 0.65rem;">
+            <input type="text" class="hub-search-input" placeholder="🔍 Search army..." oninput="filterHubFaction(this.value)">
+          </div>
           ${renderFactionMasterySpotlightCards(factionSpotlights)}
           <div class="hub-table-wrapper">
             <table id="hub-faction-table" class="hub-table">
@@ -300,7 +547,7 @@ function renderMyHub(data) {
       </div>
 
       <!-- Card 4: Matchup Matrix vs Enemy Factions -->
-      <div class="hub-card">
+      <div class="hub-card hub-card-matrix">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.25rem;">
           <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
           ${matchups.length > 0 ? `
@@ -310,6 +557,9 @@ function renderMyHub(data) {
           ` : ''}
         </div>
         ${matchups.length > 0 ? `
+          <div style="margin-bottom: 0.65rem;">
+            <input type="text" class="hub-search-input" placeholder="🔍 Search enemy faction..." oninput="filterHubMatrix(this.value)">
+          </div>
           ${renderMatchupSpotlightCards(matchupSpotlights)}
           <div class="hub-table-wrapper">
             <table id="hub-matchup-table" class="hub-table">
@@ -351,15 +601,18 @@ function renderMyHub(data) {
     </div>
 
     <!-- 2-Column Row 3: Career Match History & Live Game Tracker History -->
-    <div class="hub-grid-2col" style="margin-top: 1.25rem;">
+    <div class="hub-grid-2col hub-row-matches-tracker" style="margin-top: 1.25rem;">
 
       <!-- Card 5: Half-Sized Career Match History -->
-      <div class="hub-card">
+      <div class="hub-card hub-card-history">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📜 Career Match History</h3>
           <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} matches</span>
         </div>
         ${history.length > 0 ? `
+          <div style="margin-bottom: 0.65rem;">
+            <input type="text" class="hub-search-input" placeholder="🔍 Filter matches by opponent, tournament, or result..." oninput="filterHubHistory(this.value)">
+          </div>
           <div class="hub-table-wrapper">
             <table id="hub-history-table" class="hub-table">
               <thead>
@@ -401,7 +654,7 @@ function renderMyHub(data) {
       </div>
 
       <!-- Card 6: 3-Tier 11th Edition Live Game Tracker & Match History -->
-      <div class="hub-card">
+      <div class="hub-card hub-card-tracker">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
             <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Active Matches & History</h3>
@@ -521,6 +774,7 @@ function renderMyHub(data) {
       </div>
 
     </div>
+  </div> <!-- /my-hub-container -->
   `;
 
   container.innerHTML = html;

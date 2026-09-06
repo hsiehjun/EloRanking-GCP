@@ -2638,6 +2638,87 @@ input, select, textarea {
   border-radius: 6px !important;
 }
 
+/* Hub Mobile Subtabs & Overview Restructuring Base Styles */
+.hub-mobile-tabs-bar {
+  display: none;
+}
+
+.hub-overview-previews {
+  display: none !important;
+}
+
+.hub-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.8rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm, 6px);
+  color: #fff;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.hub-search-input:focus {
+  border-color: #38bdf8;
+  background: rgba(15, 23, 42, 0.9);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.hub-search-input::placeholder {
+  color: var(--text-muted, #64748b);
+  font-size: 0.76rem;
+}
+
+.hub-view-all-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  margin-top: 0.85rem;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: var(--radius-md, 8px);
+  color: #38bdf8;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.hub-view-all-btn:hover {
+  background: rgba(56, 189, 248, 0.16);
+  border-color: rgba(56, 189, 248, 0.5);
+  transform: translateY(-1px);
+}
+
+.hub-view-all-btn:active {
+  transform: translateY(0);
+}
+
+.hub-btn-arrow {
+  font-size: 0.85rem;
+  transition: transform 0.2s ease;
+}
+
+.hub-view-all-btn:hover .hub-btn-arrow {
+  transform: translateX(3px);
+}
+
+.hub-tab-count {
+  background: rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  font-size: 0.7rem;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   .hub-card {
     padding: 1rem 0.75rem;
@@ -2743,6 +2824,123 @@ input, select, textarea {
   #hub-tracker-history-table td:nth-child(2)::before { content: "Players & Armies"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-tracker-history-table td:nth-child(3)::before { content: "Final Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-tracker-history-table td:nth-child(4)::before { content: "Scorecard"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Mobile Sticky Sub-tabs Navigation Bar */
+  .hub-mobile-tabs-bar {
+    display: flex !important;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(11, 15, 25, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    position: sticky;
+    top: 52px;
+    z-index: 30;
+    padding: 0.6rem 0.25rem 0.65rem 0.25rem;
+    margin: 0.75rem 0 1rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .hub-mobile-tabs-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hub-mobile-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 9999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-secondary, #94a3b8);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+  }
+
+  .hub-mobile-tab-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  .hub-mobile-tab-btn.active {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.2) 0%, rgba(2, 132, 199, 0.25) 100%);
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #38bdf8;
+    font-weight: 700;
+    box-shadow: 0 2px 8px rgba(56, 189, 248, 0.15);
+  }
+
+  .hub-mobile-tab-btn.active .hub-tab-count {
+    background: rgba(56, 189, 248, 0.25);
+    color: #38bdf8;
+  }
+
+  /* Responsive Display Rules for Hub Tabs on Mobile */
+  
+  /* Overview Tab: show trajectory and overview previews, hide heavy rows */
+  .my-hub-container[data-active-tab="overview"] .hub-overview-previews {
+    display: flex !important;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .my-hub-container[data-active-tab="overview"] .hub-row-mastery-matrix,
+  .my-hub-container[data-active-tab="overview"] .hub-row-matches-tracker {
+    display: none !important;
+  }
+
+  /* Matches Tab: hide trajectory & previews, hide mastery-matrix row, show matches-tracker row */
+  .my-hub-container[data-active-tab="matches"] .hub-row-trajectory,
+  .my-hub-container[data-active-tab="matches"] .hub-row-mastery-matrix,
+  .my-hub-container[data-active-tab="matches"] .hub-overview-previews {
+    display: none !important;
+  }
+  .my-hub-container[data-active-tab="matches"] .hub-row-matches-tracker {
+    display: flex !important;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  /* Matrix Tab: hide trajectory, previews, matches row; in mastery-matrix row show only matrix */
+  .my-hub-container[data-active-tab="matrix"] .hub-row-trajectory,
+  .my-hub-container[data-active-tab="matrix"] .hub-row-matches-tracker,
+  .my-hub-container[data-active-tab="matrix"] .hub-overview-previews {
+    display: none !important;
+  }
+  .my-hub-container[data-active-tab="matrix"] .hub-row-mastery-matrix {
+    display: flex !important;
+    flex-direction: column;
+  }
+  .my-hub-container[data-active-tab="matrix"] .hub-card-mastery {
+    display: none !important;
+  }
+  .my-hub-container[data-active-tab="matrix"] .hub-card-matrix {
+    display: block !important;
+  }
+
+  /* Mastery Tab: hide trajectory, previews, matches row; in mastery-matrix row show only mastery */
+  .my-hub-container[data-active-tab="mastery"] .hub-row-trajectory,
+  .my-hub-container[data-active-tab="mastery"] .hub-row-matches-tracker,
+  .my-hub-container[data-active-tab="mastery"] .hub-overview-previews {
+    display: none !important;
+  }
+  .my-hub-container[data-active-tab="mastery"] .hub-row-mastery-matrix {
+    display: flex !important;
+    flex-direction: column;
+  }
+  .my-hub-container[data-active-tab="mastery"] .hub-card-matrix {
+    display: none !important;
+  }
+  .my-hub-container[data-active-tab="mastery"] .hub-card-mastery {
+    display: block !important;
+  }
 }
 
 

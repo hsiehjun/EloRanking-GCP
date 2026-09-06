@@ -1033,6 +1033,45 @@ def test_mobile_chat_keyboard_viewport_adjustment():
     print("✅ Mobile chat keyboard visual viewport height adjustment & iOS scroll lock verified!")
 
 
+def test_my_hub_mobile_restructuring():
+    root_dir = Path(__file__).resolve().parent.parent
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+
+    # 1. Desktop baseline: tabs bar & previews hidden on desktop
+    assert ".hub-mobile-tabs-bar {\n  display: none;" in styles_css or ".hub-mobile-tabs-bar {\n  display: none" in styles_css, \
+        "styles.css must hide .hub-mobile-tabs-bar by default on desktop"
+    assert ".hub-overview-previews {\n  display: none !important;" in styles_css, \
+        "styles.css must hide .hub-overview-previews on desktop"
+
+    # 2. Mobile sticky subtabs & active tab display switching
+    assert ".hub-mobile-tabs-bar {" in styles_css, "styles.css missing mobile .hub-mobile-tabs-bar rule"
+    assert "position: sticky;" in styles_css, "hub-mobile-tabs-bar must be sticky"
+    assert '.my-hub-container[data-active-tab="overview"]' in styles_css, \
+        "styles.css missing data-active-tab='overview' rule"
+    assert '.my-hub-container[data-active-tab="matches"]' in styles_css, \
+        "styles.css missing data-active-tab='matches' rule"
+    assert '.my-hub-container[data-active-tab="matrix"]' in styles_css, \
+        "styles.css missing data-active-tab='matrix' rule"
+    assert '.my-hub-container[data-active-tab="mastery"]' in styles_css, \
+        "styles.css missing data-active-tab='mastery' rule"
+
+    # 3. my_hub.js mobile sub-tab controller & search filter handlers
+    assert "let currentHubMobileTab = 'overview';" in my_hub_js, "my_hub.js missing currentHubMobileTab state"
+    assert "function switchHubMobileTab(tab)" in my_hub_js, "my_hub.js missing switchHubMobileTab function"
+    assert "function filterHubHistory(query)" in my_hub_js, "my_hub.js missing filterHubHistory function"
+    assert "function filterHubMatrix(query)" in my_hub_js, "my_hub.js missing filterHubMatrix function"
+    assert "function filterHubFaction(query)" in my_hub_js, "my_hub.js missing filterHubFaction function"
+
+    # 4. Overview preview cards and quick-jump navigation buttons
+    assert "hub-overview-previews" in my_hub_js, "my_hub.js must render hub-overview-previews container"
+    assert "switchHubMobileTab('matches')" in my_hub_js, "my_hub.js missing jump to matches tab"
+    assert "switchHubMobileTab('matrix')" in my_hub_js, "my_hub.js missing jump to matrix tab"
+    assert "switchHubMobileTab('mastery')" in my_hub_js, "my_hub.js missing jump to mastery tab"
+
+    print("✅ My Hub mobile subtabs navigation, overview preview cards, and search filters verified!")
+
+
 if __name__ == "__main__":
     test_styles_css_mobile_rules()
     test_my_hub_js_no_inline_scroll_trap()
@@ -1060,7 +1099,9 @@ if __name__ == "__main__":
     test_community_subtab_loading_unification()
     test_event_modal_mobile_layout_and_no_register()
     test_mobile_chat_keyboard_viewport_adjustment()
+    test_my_hub_mobile_restructuring()
     print("\n🎉 ALL MOBILE EXPERIENCE & FRONTEND INTEGRITY TESTS PASSED!")
+
 
 
 
