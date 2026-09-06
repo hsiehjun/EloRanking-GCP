@@ -6497,6 +6497,69 @@ class PostgresDatabase:
 
                         local_competitors.append(p_dict)
 
+                if not local_competitors:
+                    # Fallback: Query local players by geographic proximity from player_lfg_profiles
+                    cursor.execute("""
+                        SELECT 
+                            p.player_id,
+                            COALESCE(pr.player_name, p.home_venue_name, 'Competitor') as player_name,
+                            COALESCE(pr.current_elo, 1500.0) as current_elo,
+                            COALESCE(pr.peak_elo, 1500.0) as peak_elo,
+                            COALESCE(pr.top_faction, p.factions, 'Unknown Faction') as top_faction,
+                            COALESCE(pr.team, '') as team,
+                            COALESCE(pr.matches_played, 0) as matches_played,
+                            COALESCE(pr.wins, 0) as wins,
+                            COALESCE(pr.losses, 0) as losses,
+                            COALESCE(pr.draws, 0) as draws,
+                            COALESCE(pr.win_rate, 0.0) as win_rate,
+                            u.id as account_user_id,
+                            u.display_name as account_display_name,
+                            CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
+                        FROM player_lfg_profiles p
+                        LEFT JOIN player_ratings pr ON p.player_id = pr.player_id
+                        LEFT JOIN users u ON (
+                            (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = p.player_id)
+                            OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = p.player_id)
+                            OR u.id = p.player_id
+                        )
+                        WHERE p.latitude BETWEEN %s AND %s AND p.longitude BETWEEN %s AND %s
+                        ORDER BY pr.current_elo DESC NULLS LAST
+                        LIMIT 50;
+                    """, (min_lat, max_lat, min_lng, max_lng))
+                    for r in cursor.fetchall():
+                        p_dict = dict(r)
+                        p_dict["regional_events_count"] = 0
+                        p_dict["shared_events_count"] = 0
+                        p_dict["shared_event_names"] = []
+                        p_dict["has_shared_events"] = False
+                        p_dict["recent_local_event"] = None
+                        p_dict["local_elo"] = round(float(p_dict.get("current_elo") or 1500.0), 1)
+                        p_dict["local_peak_elo"] = round(float(p_dict.get("peak_elo") or 1500.0), 1)
+                        p_dict["local_matches"] = p_dict.get("matches_played") or 0
+                        p_dict["local_wins"] = p_dict.get("wins") or 0
+                        p_dict["local_losses"] = p_dict.get("losses") or 0
+                        p_dict["local_draws"] = p_dict.get("draws") or 0
+                        p_dict["local_record"] = f"{p_dict['local_wins']}-{p_dict['local_losses']}-{p_dict['local_draws']}"
+                        p_dict["local_win_rate"] = round(float(p_dict.get("win_rate") or 0.0), 1)
+                        p_dict["local_top_faction"] = p_dict.get("top_faction")
+                        p_dict["is_provisional"] = True
+                        if p_dict.get("current_elo"): p_dict["current_elo"] = round(float(p_dict["current_elo"]), 1)
+                        if p_dict.get("peak_elo"): p_dict["peak_elo"] = round(float(p_dict["peak_elo"]), 1)
+                        if p_dict.get("win_rate"): p_dict["win_rate"] = round(float(p_dict["win_rate"]), 1)
+                        comp_elo = float(p_dict.get("local_elo") or 1500.0)
+                        baseline = float(user_elo) if user_elo is not None else 1500.0
+                        elo_diff = comp_elo - baseline
+                        p_dict["elo_delta"] = round(abs(elo_diff), 1)
+                        p_dict["elo_diff"] = round(elo_diff, 1)
+                        p_dict["user_elo"] = round(user_elo, 1) if user_elo is not None else None
+                        p_dict["user_local_elo"] = None
+                        p_dict["can_chat"] = bool(p_dict.get("has_account"))
+                        p_dict["is_self"] = bool(
+                            (current_player_id and p_dict["player_id"] == current_player_id) or
+                            (current_user_id and p_dict.get("account_user_id") == current_user_id)
+                        )
+                        local_competitors.append(p_dict)
+
                 # 4. Local Player Leaderboard (Option 3: Hybrid Local Ranking)
                 # Qualified local regulars (>= 5 matches or >= 2 events) rank first by Local Elo.
                 # Provisional competitors (< 5 matches and 1 event) rank below qualified players.
@@ -6601,6 +6664,29 @@ class PostgresDatabase:
                         if td.get("top_player_elo"): td["top_player_elo"] = float(td["top_player_elo"])
                         if td.get("team_win_rate"): td["team_win_rate"] = float(td["team_win_rate"])
                         local_teams.append(td)
+
+                if not local_teams and local_competitors:
+                    team_groups = collections.defaultdict(lambda: {"members": 0, "elos": [], "top_name": "Roster Ace", "top_elo": 1500.0})
+                    for c in local_competitors:
+                        tm = (c.get("team") or "").strip()
+                        if tm and tm.lower() not in ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-'):
+                            team_groups[tm]["members"] += 1
+                            c_elo = float(c.get("current_elo") or 1500.0)
+                            team_groups[tm]["elos"].append(c_elo)
+                            if c_elo > team_groups[tm]["top_elo"]:
+                                team_groups[tm]["top_elo"] = c_elo
+                                team_groups[tm]["top_name"] = c.get("player_name") or "Roster Ace"
+                    for idx, (tname, tdata) in enumerate(sorted(team_groups.items(), key=lambda x: (sum(x[1]["elos"])/len(x[1]["elos"]), x[1]["members"]), reverse=True)[:50], start=1):
+                        local_teams.append({
+                            "rank": idx,
+                            "team_name": tname,
+                            "local_members_count": tdata["members"],
+                            "avg_elo": round(sum(tdata["elos"]) / len(tdata["elos"]), 1),
+                            "top_player_elo": round(tdata["top_elo"], 1),
+                            "top_player_name": tdata["top_name"],
+                            "regional_events_count": 1,
+                            "team_win_rate": 50.0
+                        })
 
                 radius_int = int(round(radius_miles))
                 result = {

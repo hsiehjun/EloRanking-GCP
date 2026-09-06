@@ -692,6 +692,17 @@ function switchCommunitySubtab(subtabName) {
     if (el) el.style.display = (s === subtabName) ? 'block' : 'none';
   });
 
+  // If switching to scene subview, synchronize scene toggle buttons to match current communityState.sceneView
+  if (subtabName === 'scene') {
+    const mode = communityState.sceneView || 'leaderboard';
+    const btnLead = document.getElementById('comm-scene-toggle-leaderboard');
+    const btnTeams = document.getElementById('comm-scene-toggle-teams');
+    const btnComp = document.getElementById('comm-scene-toggle-competitors');
+    if (btnLead) btnLead.classList.toggle('active', mode === 'leaderboard');
+    if (btnTeams) btnTeams.classList.toggle('active', mode === 'teams');
+    if (btnComp) btnComp.classList.toggle('active', mode === 'competitors');
+  }
+
   renderCurrentSubtab();
 }
 
@@ -707,6 +718,28 @@ function renderCurrentSubtab() {
     loadLocalGameStores();
   } else if (communityState.activeSubtab === 'scene') {
     renderCurrentSceneView();
+  }
+}
+
+/**
+ * Force refreshes the tournaments subtab with spinning visual feedback
+ */
+async function refreshCommunityTournaments(btnElement = null) {
+  const btn = btnElement || document.getElementById('comm-btn-refresh-tournaments') || document.querySelector('#comm-subview-tournaments .comm-toolbar-btn');
+  const icon = btn ? (btn.querySelector('.refresh-icon') || btn.querySelector('span')) : null;
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.classList.add('spinning');
+
+  try {
+    await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, true);
+    renderCommunityEvents();
+    fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
+  } catch (err) {
+    console.error('Failed to refresh tournaments:', err);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.classList.remove('spinning');
   }
 }
 
@@ -1240,13 +1273,13 @@ function renderCompetitorCard(c) {
     `;
   } else if (c.can_chat) {
     actionButton = `
-      <button class="btn btn-primary" style="width: 100%; font-size: 0.78rem; padding: 0.48rem 0.75rem; justify-content: center; font-weight: 700;" onclick="challengeCompetitor('${escapeHtml(c.player_id)}', '${escapeHtml(name)}')">
+      <button class="btn btn-primary" style="width: 100%; font-size: 0.78rem; padding: 0.48rem 0.75rem; justify-content: center; font-weight: 700;" data-target-id="${escapeHtml(c.account_user_id || c.player_id)}" data-player-name="${escapeHtml(name)}" onclick="challengeCompetitor(this.dataset.targetId, this.dataset.playerName)">
         💬 Challenge / Chat
       </button>
     `;
   } else {
     actionButton = `
-      <button class="btn btn-outline" style="width: 100%; font-size: 0.78rem; padding: 0.48rem 0.75rem; justify-content: center; color: #94a3b8; border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.02);" onclick="showUnregisteredCompetitorAlert('${escapeHtml(name)}')">
+      <button class="btn btn-outline" style="width: 100%; font-size: 0.78rem; padding: 0.48rem 0.75rem; justify-content: center; color: #94a3b8; border-color: rgba(255,255,255,0.15); background: rgba(255,255,255,0.02);" data-player-name="${escapeHtml(name)}" onclick="showUnregisteredCompetitorAlert(this.dataset.playerName)">
         🔒 Chat (Unregistered)
       </button>
     `;
@@ -1267,11 +1300,11 @@ function renderCompetitorCard(c) {
   return `
     <div class="comm-competitor-card">
       <div style="display: flex; gap: 12px; align-items: flex-start; margin-bottom: 0.7rem;">
-        <div class="comm-player-avatar" onclick="openPlayerModal('${escapeHtml(c.player_id)}')" title="View profile for ${escapeHtml(name)}">
+        <div class="comm-player-avatar" data-player-id="${escapeHtml(c.player_id)}" onclick="openPlayerModal(this.dataset.playerId)" title="View profile for ${escapeHtml(name)}">
           ${escapeHtml(initials)}
         </div>
         <div style="flex: 1; min-width: 0;">
-          <div style="font-weight: 800; font-size: 1.02rem; color: #fff; line-height: 1.3; cursor: pointer; word-break: break-word;" onclick="openPlayerModal('${escapeHtml(c.player_id)}')" title="Click to view profile">
+          <div style="font-weight: 800; font-size: 1.02rem; color: #fff; line-height: 1.3; cursor: pointer; word-break: break-word;" data-player-id="${escapeHtml(c.player_id)}" onclick="openPlayerModal(this.dataset.playerId)" title="Click to view profile">
             ${escapeHtml(name)}
           </div>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
@@ -1317,6 +1350,8 @@ function challengeCompetitor(playerId, playerName) {
   }
   if (typeof openProposeMatchModal === 'function') {
     openProposeMatchModal(playerId, playerName);
+  } else if (typeof handlePlayerChatClick === 'function') {
+    handlePlayerChatClick(playerId, playerName, playerId);
   } else {
     switchCommunitySubtab('radar');
   }
@@ -1327,6 +1362,27 @@ function challengeCompetitor(playerId, playerName) {
  */
 function showUnregisteredCompetitorAlert(playerName) {
   alert(`${playerName} is verified on local tournament rosters, but has not yet registered an account on OmniTactica. Direct chat and match proposals will be enabled once they register or link their BCP account!`);
+}
+
+/**
+ * Force refreshes the local leaderboard & competitors scene subtab with spinning visual feedback
+ */
+async function refreshCommunityScene(btnElement = null) {
+  const btn = btnElement || document.getElementById('comm-btn-refresh-scene') || document.querySelector('#comm-subview-scene .comm-toolbar-btn');
+  const icon = btn ? (btn.querySelector('.refresh-icon') || btn.querySelector('span')) : null;
+
+  if (btn) btn.disabled = true;
+  if (icon) icon.classList.add('spinning');
+
+  try {
+    await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, true);
+    renderCurrentSceneView();
+  } catch (err) {
+    console.error('Failed to refresh local scene:', err);
+  } finally {
+    if (btn) btn.disabled = false;
+    if (icon) icon.classList.remove('spinning');
+  }
 }
 
 /**
@@ -1351,6 +1407,9 @@ function renderCurrentSceneView() {
 
   if (!communityState.overview) {
     setSubtabLoaderIfEmpty(container, getCommunitySubtabLoaderHtml('scene'));
+    if (!communityState.isLoading) {
+      loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);
+    }
     return;
   }
 
@@ -1421,7 +1480,7 @@ function renderCommunityTeamsLeaderboard() {
       const topName = t.top_player_name || 'Competitor';
 
       html += `
-        <tr onclick="if(typeof openTeamModal==='function') openTeamModal('${escapeHtml(t.team_name)}')" style="cursor: pointer;">
+        <tr data-team-name="${escapeHtml(t.team_name)}" onclick="if(typeof openTeamModal==='function') openTeamModal(this.dataset.teamName)" style="cursor: pointer;">
           <td style="text-align: center; font-weight: 800; font-family: monospace; color: ${rank <= 3 ? '#f59e0b' : '#94a3b8'};">
             ${rankDisplay}
           </td>
@@ -1521,7 +1580,7 @@ function renderCommunityLeaderboard() {
 
       const isSelf = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === row.player_id || currentUser.id === row.account_user_id));
       const chatPill = (row.has_account && !isSelf) ? `
-        <button type="button" class="btn-chat-pill" title="Send Chat Request" onclick="event.stopPropagation(); handlePlayerChatClick('${escapeHtml(row.player_id)}', '${escapeHtml(row.player_name || '')}', '${row.account_user_id || ''}')">
+        <button type="button" class="btn-chat-pill" title="Send Chat Request" data-player-id="${escapeHtml(row.player_id)}" data-player-name="${escapeHtml(row.player_name || '')}" data-user-id="${escapeHtml(row.account_user_id || '')}" onclick="event.stopPropagation(); handlePlayerChatClick(this.dataset.playerId, this.dataset.playerName, this.dataset.userId)">
           💬 Chat
         </button>
       ` : '';
@@ -1536,7 +1595,7 @@ function renderCommunityLeaderboard() {
       const wrColor = (localMatches > 0 && wrNum >= 60) ? '#10b981' : (localMatches > 0 && wrNum >= 45 ? '#38bdf8' : '#94a3b8');
 
       html += `
-        <tr onclick="openPlayerModal('${escapeHtml(row.player_id)}')" style="cursor: pointer;">
+        <tr data-player-id="${escapeHtml(row.player_id)}" onclick="openPlayerModal(this.dataset.playerId)" style="cursor: pointer;">
           <td style="text-align: center; font-weight: 800; font-family: monospace; color: ${rank <= 3 ? '#f59e0b' : '#94a3b8'};">
             ${rankDisplay}
           </td>
@@ -2843,7 +2902,14 @@ window.setCommunityEventsFilter = setCommunityEventsFilter;
 window.challengeCompetitor = challengeCompetitor;
 window.showUnregisteredCompetitorAlert = showUnregisteredCompetitorAlert;
 window.setCommunitySceneView = setCommunitySceneView;
+window.renderCurrentSceneView = renderCurrentSceneView;
+window.renderCommunityLeaderboard = renderCommunityLeaderboard;
+window.renderCommunityCompetitors = renderCommunityCompetitors;
 window.renderCommunityTeamsLeaderboard = renderCommunityTeamsLeaderboard;
+window.renderCommunityEvents = renderCommunityEvents;
+window.refreshCommunityTournaments = refreshCommunityTournaments;
+window.refreshCommunityScene = refreshCommunityScene;
+window.loadCommunityOverview = (force = true) => loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, force);
 window.renderCommunityChat = renderCommunityChat;
 window.setCommunityChatMode = setCommunityChatMode;
 

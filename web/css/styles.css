@@ -1079,6 +1079,10 @@ tbody tr:hover {
   margin: 0 auto;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.spinning {
+  display: inline-block;
+  animation: spin 0.75s linear infinite;
+}
 
 .empty-state {
   text-align: center;

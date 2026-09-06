@@ -344,8 +344,8 @@
 
             <div class="comm-toolbar-right">
               <span id="comm-tournaments-summary" class="comm-toolbar-meta"></span>
-              <button onclick="if(typeof loadCommunityOverview==='function') loadCommunityOverview(); else if(typeof loadCommunityHub==='function') loadCommunityHub();" class="btn btn-outline comm-toolbar-btn">
-                <span>🔄</span> <span>Refresh</span>
+              <button id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn">
+                <span class="refresh-icon">🔄</span> <span>Refresh</span>
               </button>
             </div>
           </div>
@@ -433,8 +433,8 @@
 
             <div class="comm-toolbar-right">
               <span id="comm-scene-summary" class="comm-toolbar-meta">Verified circuit</span>
-              <button onclick="if(typeof loadCommunityOverview==='function') loadCommunityOverview(); else if(typeof loadCommunityHub==='function') loadCommunityHub();" class="btn btn-outline comm-toolbar-btn">
-                <span>🔄</span> <span>Refresh</span>
+              <button id="comm-btn-refresh-scene" onclick="refreshCommunityScene(this)" class="btn btn-outline comm-toolbar-btn">
+                <span class="refresh-icon">🔄</span> <span>Refresh</span>
               </button>
             </div>
           </div>
@@ -2236,7 +2236,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=2.0"></script>
+  <script src="/js/app.bundle.min.js?v=2.1"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
