@@ -3284,6 +3284,7 @@ async function submitEventRegistration() {
   }
 
   const eventId = activeRegistrationEvent.event_id || activeRegistrationEvent.id;
+  const submitBtn = document.getElementById('event-reg-submit-btn');
   const nameInput = document.getElementById('event-reg-name');
   const emailInput = document.getElementById('event-reg-email');
   const factionSelect = document.getElementById('event-reg-faction');

@@ -172,6 +172,116 @@ def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dic
         )
     return session
 
+def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+    """
+    Directly queries Best Coast Pairings API for event details, live competitor roster,
+    and round pairings. Zero backend DB mutation.
+    """
+    try:
+        from scraper import BestCoastPairingsScraper
+        db = get_database()
+        scraper = BestCoastPairingsScraper(db=db)
+        bcp_event = scraper.fetch_event_details(event_id)
+        if not bcp_event or not isinstance(bcp_event, dict):
+            return None
+
+        loc = bcp_event.get("location") if isinstance(bcp_event.get("location"), dict) else {}
+        raw_rounds = bcp_event.get("numberOfRounds") or bcp_event.get("numRounds") or 5
+        raw_pts = bcp_event.get("points") or 2000
+        raw_cap = bcp_event.get("totalPlayers") or bcp_event.get("capacity") or 32
+        cur_round = bcp_event.get("currentRound") or 1
+        started = bool(bcp_event.get("started") or (bcp_event.get("currentRound", 0) > 0))
+        ended = bool(bcp_event.get("ended"))
+
+        # 1. Fetch live roster directly from BCP API
+        raw_roster = scraper.fetch_event_players(event_id)
+        if not raw_roster:
+            raw_roster = scraper.fetch_event_teams(event_id)
+
+        roster = []
+        for idx, p in enumerate(raw_roster or []):
+            if not isinstance(p, dict):
+                continue
+            u = p.get("user") if isinstance(p.get("user"), dict) else {}
+            fn = u.get("firstName") or p.get("firstName") or ""
+            ln = u.get("lastName") or p.get("lastName") or ""
+            full_name = p.get("name") or f"{fn} {ln}".strip() or "Competitor"
+            team_val = p.get("team")
+            if isinstance(team_val, dict):
+                team_name = team_val.get("name") or ""
+            else:
+                team_name = str(team_val or p.get("teamName") or p.get("club") or "")
+
+            pid = str(p.get("id") or u.get("id") or f"P-{idx}")
+            roster.append({
+                "id": pid,
+                "player_id": pid,
+                "user_id": str(p.get("userId") or u.get("id") or ""),
+                "name": full_name,
+                "first_name": fn,
+                "last_name": ln,
+                "email": u.get("email") or p.get("email") or "",
+                "faction": p.get("army") or p.get("faction") or p.get("armyName") or "Unassigned",
+                "detachment": p.get("detachment") or "",
+                "team": team_name,
+                "checked_in": bool(p.get("checkedIn") or p.get("checked_in")),
+                "dropped": bool(p.get("dropped")),
+                "army_list": p.get("armyList") or p.get("army_list") or "",
+                "paid": bool(p.get("paid", True)),
+                "placing": p.get("placing") or p.get("place") or p.get("rank"),
+                "points": p.get("points") or p.get("battlePoints") or 0,
+            })
+
+        # 2. Fetch live round pairings if event has started
+        pairings_map = {}
+        if started:
+            for r in range(1, int(cur_round) + 1):
+                r_pairings = scraper.fetch_event_pairings_for_round(event_id, r)
+                if r_pairings:
+                    pairings_map[str(r)] = r_pairings
+
+        return {
+            "id": event_id,
+            "name": bcp_event.get("name", "BCP Tournament"),
+            "tier": bcp_event.get("eventType") or bcp_event.get("tier") or "Grand Tournament",
+            "event_date": bcp_event.get("eventDate") or bcp_event.get("startDate"),
+            "end_date": bcp_event.get("endDate") or bcp_event.get("eventEndDate"),
+            "city": bcp_event.get("city") or loc.get("city"),
+            "state": bcp_event.get("state") or loc.get("state"),
+            "country": bcp_event.get("country") or loc.get("country"),
+            "venue": bcp_event.get("venueName") or loc.get("venueName") or loc.get("name") or bcp_event.get("venue"),
+            "num_rounds": raw_rounds,
+            "points": raw_pts,
+            "capacity": raw_cap,
+            "current_round": cur_round,
+            "started": started,
+            "is_ended": ended,
+            "bcp_synced": True,
+            "bcp_status": "synced",
+            "organizer_id": user["id"] if user else None,
+            "organizer_bcp_id": bcp_event.get("ownerId") or bcp_event.get("owner_Id"),
+            "raw_json": bcp_event,
+            "using_online_reg": bcp_event.get("usingOnlineReg", True),
+            "num_tickets": bcp_event.get("numTickets", raw_cap),
+            "ticket_price": bcp_event.get("ticketPrice", 0.0),
+            "ticket_currency": bcp_event.get("ticketCurrency", "usd"),
+            "disable_checkin": bcp_event.get("disableCheckin", False),
+            "private_event": bcp_event.get("privateEvent", False),
+            "hide_lists": bcp_event.get("hideLists", False),
+            "hide_roster": bcp_event.get("hideRoster", False),
+            "hide_placings": bcp_event.get("hidePlacings", False),
+            "lists_locked": bcp_event.get("listsLocked", False),
+            "factions_locked": bcp_event.get("factionsLocked", False),
+            "passwordless_scoring": bcp_event.get("passwordlessScoring", True),
+            "ranked_tables": bcp_event.get("rankedTables", False),
+            "roster": roster,
+            "total_players": len(roster),
+            "pairings": pairings_map,
+        }
+    except Exception as err:
+        logger.warning(f"Error fetching live BCP event {event_id}: {err}")
+        return None
+
 @router.get("/api/eventstudio/events", summary="List organizer tournaments")
 async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str] = Query(None)):
     user = _get_to_session_or_403(request)
@@ -184,7 +294,10 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
     if not user_id and not bcp_user_id and not player_id:
         return {"success": True, "count": 0, "events": []}
 
-    # Check BCP for any tournaments hosted by this organizer
+    bcp_events = []
+    seen_ids = set()
+
+    # Query BCP directly for tournaments hosted by this organizer (zero DB mutations)
     if user_id or bcp_token:
         try:
             start_range = "2025-09-01T07:00:00.000Z"
@@ -192,62 +305,54 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
             sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
             bcp_raw, err = execute_bcp_api_call(sync_url, method="GET", user_id=user_id, explicit_token=bcp_token)
 
-            bcp_event_ids = set()
-            bcp_sync_succeeded = False
+            if not bcp_raw:
+                sync_url_v1 = f"{BCP_API_BASE}/events?limit=100&toEvents=true"
+                bcp_raw, err = execute_bcp_api_call(sync_url_v1, method="GET", user_id=user_id, explicit_token=bcp_token)
 
             if bcp_raw:
-                bcp_sync_succeeded = True
                 items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
                 for item in (items if isinstance(items, list) else []):
                     if not isinstance(item, dict): continue
-                    bcp_id = str(item.get("id") or item.get("_id"))
-                    if db.is_event_deleted(bcp_id):
+                    bcp_id = str(item.get("id") or item.get("_id") or "")
+                    if not bcp_id or bcp_id in seen_ids:
                         continue
-                    bcp_event_ids.add(bcp_id)
+                    seen_ids.add(bcp_id)
                     loc = item.get("location") if isinstance(item.get("location"), dict) else {}
-                    
-                    # Preserve existing local fields/roster/pairings if present
-                    existing = db.get_studio_event(bcp_id) or {}
-                    merged = {
-                        **existing,
+                    bcp_events.append({
                         "id": bcp_id,
-                        "name": existing.get("name") or item.get("name", "BCP Tournament"),
-                        "tier": existing.get("tier") or item.get("eventType") or item.get("tier") or "Grand Tournament",
-                        "event_date": existing.get("event_date") or item.get("eventDate") or item.get("startDate"),
-                        "end_date": existing.get("end_date") or item.get("endDate") or item.get("eventEndDate"),
-                        "city": existing.get("city") or item.get("city") or loc.get("city"),
-                        "state": existing.get("state") or item.get("state") or loc.get("state"),
-                        "country": existing.get("country") or item.get("country") or loc.get("country"),
-                        "venue": existing.get("venue") or item.get("venueName") or loc.get("venueName") or loc.get("name"),
-                        "num_rounds": existing.get("num_rounds") or item.get("numberOfRounds") or item.get("numRounds") or 5,
-                        "points": existing.get("points") or item.get("points") or 2000,
-                        "capacity": existing.get("capacity") or item.get("totalPlayers") or item.get("capacity") or 32,
+                        "name": item.get("name", "BCP Tournament"),
+                        "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
+                        "event_date": item.get("eventDate") or item.get("startDate"),
+                        "end_date": item.get("endDate") or item.get("eventEndDate"),
+                        "city": item.get("city") or loc.get("city"),
+                        "state": item.get("state") or loc.get("state"),
+                        "country": item.get("country") or loc.get("country"),
+                        "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or loc.get("venue"),
+                        "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
+                        "points": item.get("points") or 2000,
+                        "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
                         "organizer_id": user_id,
                         "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
                         "bcp_synced": True,
                         "bcp_status": "synced"
-                    }
-                    db.save_studio_event(merged)
-
-                # If BCP sync succeeded, inspect existing tournaments in OmniTactica:
-                # If an event has a BCP ID but is no longer present in the organizer's active BCP events,
-                # mark it as deleted on BCP (preserving it locally in OmniTactica)
-                if bcp_sync_succeeded:
-                    existing_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
-                    for ev in existing_events:
-                        ev_id = ev.get("id", "")
-                        if not ev_id.startswith("ES-") and ev_id not in bcp_event_ids:
-                            db.delete_studio_event(ev_id, organizer_id=user_id)
+                    })
         except Exception as se:
-            logger.info(f"Notice syncing BCP organizer events: {se}")
+            logger.info(f"Notice querying BCP organizer events: {se}")
 
-    # Fetch tournaments created by or explicitly linked to this user/TO
-    events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
+    # Also include local ES- events (if any exist) or fallback to DB if BCP query didn't return events
+    local_events = [
+        ev for ev in db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
+        if str(ev.get("id", "")).startswith("ES-") and str(ev.get("id", "")) not in seen_ids
+    ]
+    all_events = bcp_events + local_events
+
+    if not all_events:
+        all_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
 
     return {
         "success": True,
-        "count": len(events),
-        "events": events
+        "count": len(all_events),
+        "events": all_events
     }
 
 @router.get("/api/eventstudio/event/{event_id}", summary="Get tournament details, roster, and round pairings")
@@ -258,66 +363,19 @@ async def api_eventstudio_get_event(event_id: str, request: Request):
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
 
+    # For BCP events, query directly from BCP API without relying on or mutating backend DB
+    if not event_id.startswith("ES-"):
+        bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+        if bcp_ev:
+            return {"success": True, "event": bcp_ev}
+
     ev = db.get_studio_event(event_id)
     if not ev:
-        # Try direct BCP lookup and auto-link
-        try:
-            import urllib.request, json
-            bcp_url = f"{BCP_API_BASE}/events/{event_id}"
-            req = urllib.request.Request(bcp_url, headers=DEFAULT_HEADERS)
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                if resp.status == 200:
-                    item = json.loads(resp.read().decode("utf-8"))
-                    if isinstance(item, dict) and item.get("name"):
-                        loc = item.get("location") if isinstance(item.get("location"), dict) else {}
-                        saved = db.save_studio_event({
-                            "id": str(item.get("id") or item.get("_id") or event_id),
-                            "name": item.get("name", "BCP Tournament"),
-                            "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
-                            "event_date": item.get("eventDate") or item.get("startDate"),
-                            "end_date": item.get("endDate") or item.get("eventEndDate"),
-                            "city": item.get("city") or loc.get("city"),
-                            "state": item.get("state") or loc.get("state"),
-                            "country": item.get("country") or loc.get("country"),
-                            "venue": item.get("venueName") or loc.get("venueName") or loc.get("name"),
-                            "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
-                            "points": item.get("points") or 2000,
-                            "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
-                            "organizer_id": user["id"] if user else None,
-                            "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or (user.get("bcp_user_id") if user else None),
-                            "bcp_synced": True,
-                            "bcp_status": "synced"
-                        })
-                        return {"success": True, "event": saved}
-        except Exception as fe:
-            logger.info(f"Direct BCP event fetch notice for {event_id}: {fe}")
-
         # Fallback to standard event lookup
         full_ev = db.get_tournament_details(event_id)
         if full_ev:
             return {"success": True, "event": full_ev}
         raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
-
-    # If it's a BCP event, check if it's still alive on BCP
-    if not event_id.startswith("ES-") and ev.get("bcp_status") != "deleted_on_bcp":
-        try:
-            import urllib.request
-            bcp_check_url = f"{BCP_API_BASE}/events/{event_id}"
-            req = urllib.request.Request(bcp_check_url, headers=DEFAULT_HEADERS)
-            try:
-                with urllib.request.urlopen(req, timeout=5) as check_resp:
-                    if check_resp.status == 200:
-                        if not ev.get("bcp_synced"):
-                            ev["bcp_synced"] = True
-                            ev["bcp_status"] = "synced"
-                            db.save_studio_event(ev)
-            except urllib.error.HTTPError as che:
-                if che.code in (404, 400, 410):
-                    ev["bcp_status"] = "deleted_on_bcp"
-                    ev["bcp_synced"] = False
-                    db.save_studio_event(ev)
-        except Exception:
-            pass
 
     if ev and isinstance(ev.get("raw_json"), dict):
         rj = ev["raw_json"]
@@ -616,7 +674,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "passwordless_scoring": bool(payload.passwordless_scoring if payload.passwordless_scoring is not None else True)
     }
 
-    saved = db.save_studio_event({
+    event_dict = {
         "id": event_id,
         "name": payload.name,
         "tier": payload.tier,
@@ -660,7 +718,13 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "raw_json": raw_event_cfg,
         "roster": [],
         "pairings": {str(r): [] for r in range(1, (payload.rounds or 5) + 1)}
-    })
+    }
+
+    if bcp_created:
+        # BCP registration succeeded: strictly live on BCP, zero DB mutation. Scraper will pick it up.
+        saved = event_dict
+    else:
+        saved = db.save_studio_event(event_dict)
 
     return {
         "success": True,
@@ -1521,12 +1585,20 @@ async def api_eventstudio_save_pairings(event_id: str, payload: Dict[str, Any], 
 @router.post("/api/eventstudio/event/{event_id}/roster", summary="Update event competitor roster")
 async def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], request: Request):
     _get_to_session_or_403(request)
+    roster = payload.get("roster") or []
+    if not event_id.startswith("ES-"):
+        # Strictly BCP event: do not mutate local DB
+        return {
+            "success": True,
+            "roster_count": len(roster),
+            "event": {"id": event_id, "roster": roster, "total_players": len(roster)}
+        }
+
     db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    roster = payload.get("roster") or []
     ev["roster"] = roster
     ev["total_players"] = len(roster)
     saved = db.save_studio_event(ev)
