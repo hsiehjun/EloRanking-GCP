@@ -1039,7 +1039,8 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
           const numTickets = Number(ev.num_tickets || 0);
           const totalPlayers = Number(ev.total_players || 0);
           const isSoldOut = numTickets > 0 && totalPlayers >= numTickets;
-          const ticketPrice = Number(ev.ticket_price || 0);
+          let ticketPrice = Number(ev.ticket_price || 0);
+          if (ticketPrice >= 100) ticketPrice = ticketPrice / 100;
           const usingOnlineReg = ev.using_online_reg !== false;
           const externalUrl = ev.external_url || null;
 

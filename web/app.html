@@ -1851,10 +1851,10 @@
             <span id="event-tab-teams-count" class="subtab-count-badge">0</span>
           </button>
           <button id="event-subtab-results" class="subtab-btn active" onclick="switchEventModalTab('results')">
-            <span>🏆 Tournament Results</span>
+            <span>🏆 Standings & Competitors</span>
             <span id="event-tab-results-count" class="subtab-count-badge">0</span>
           </button>
-          <button id="event-subtab-elo" class="subtab-btn" onclick="switchEventModalTab('elo')">
+          <button id="event-subtab-elo" class="subtab-btn" onclick="switchEventModalTab('elo')" style="display: none;">
             <span>⭐ Participant Elo Rankings</span>
             <span id="event-tab-elo-count" class="subtab-count-badge">0</span>
           </button>
@@ -1902,7 +1902,7 @@
                   <th class="sortable sorted-asc" onclick="sortTable('event-results', 'placement')">Rank</th>
                   <th class="sortable" onclick="sortTable('event-results', 'full_name')">Player</th>
                   <th class="sortable" onclick="sortTable('event-results', 'faction')">Faction</th>
-                  <th class="sortable" onclick="sortTable('event-results', 'event_wins')">Tournament Record</th>
+                  <th class="sortable" onclick="sortTable('event-results', 'event_wins')">Record / Status</th>
                   <th class="sortable" onclick="sortTable('event-results', 'event_battle_points')">Battle Points</th>
                   <th class="sortable" onclick="sortTable('event-results', 'current_elo')">Current Elo</th>
                 </tr>

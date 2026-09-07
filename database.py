@@ -59,6 +59,23 @@ except ImportError:
 logger = logging.getLogger("elo.db_postgres")
 
 
+def normalize_ticket_price(val: Any) -> float:
+    """Normalizes ticket price to dollars.
+    Best Coast Pairings / Stripe integration returns ticket prices in integer cents
+    (e.g., 3000 = $30.00, 3500 = $35.00, 2500 = $25.00).
+    Values >= 100 are converted from cents to dollars; values < 100 are assumed to already be in dollars.
+    """
+    try:
+        v = float(val or 0.0)
+    except (ValueError, TypeError):
+        return 0.0
+    if v <= 0:
+        return 0.0
+    if v >= 100.0:
+        return round(v / 100.0, 2)
+    return round(v, 2)
+
+
 class PostgresDatabase:
     """Manages high-concurrency, MVCC PostgreSQL storage for events, matches, ratings, and players."""
 
@@ -1657,7 +1674,7 @@ class PostgresDatabase:
                     COALESCE(pr.peak_elo, 1500.0) as peak_elo,
                     COALESCE(pr.win_rate, 0.0) as global_win_rate
                 FROM event_participants ep
-                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                LEFT JOIN player_ratings pr ON (ep.player_id = pr.player_id OR (pr.player_name IS NOT NULL AND LOWER(pr.player_name) = LOWER(ep.full_name)))
                 WHERE ep.event_id = %s;
                 """, (event_id,))
                 participants = {r["player_id"]: dict(r) for r in cursor.fetchall()}
@@ -2007,8 +2024,13 @@ class PostgresDatabase:
                             if norm_name and norm_name not in ("player", "player 1", "player 2", "bye"):
                                 seen_names.add(norm_name)
 
+                has_matches = len(matches) > 0
                 for rank_idx, p in enumerate(final_players, 1):
-                    p["placement"] = p.get("official_placement") or rank_idx
+                    if has_official_placements or has_matches:
+                        p["placement"] = p.get("official_placement") or rank_idx
+                    else:
+                        p["placement"] = p.get("official_placement") or None
+                    p["rank"] = rank_idx
 
                 res["players"] = final_players
                 res["roster"] = roster_list
@@ -2303,12 +2325,12 @@ class PostgresDatabase:
                 SELECT 
                     ep.event_id,
                     ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_field_elo,
-                    MAX(COALESCE(pr.current_elo, 1500.0)) as top_seed_elo,
+                    COALESCE(MAX(pr.current_elo), 1500.0) as top_seed_elo,
                     COUNT(DISTINCT ep.player_id) as total_enrolled,
-                    COUNT(DISTINCT CASE WHEN pr.player_id IS NOT NULL THEN ep.player_id ELSE NULL END) as rated_players_count
+                    COUNT(DISTINCT CASE WHEN pr.player_id IS NOT NULL OR pr.current_elo IS NOT NULL THEN ep.player_id ELSE NULL END) as rated_players_count
                 FROM event_participants ep
-                LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
-                WHERE ep.event_id = ANY(%s)
+                LEFT JOIN player_ratings pr ON (ep.player_id = pr.player_id OR (pr.player_name IS NOT NULL AND LOWER(pr.player_name) = LOWER(ep.full_name)))
+                WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
                 GROUP BY ep.event_id;
                 """, (event_ids,))
                 rows = cursor.fetchall()
@@ -5940,7 +5962,7 @@ class PostgresDatabase:
             using_online_reg = bool(ev.get("usingOnlineReg", ev.get("using_online_reg", True)))
             ticket_price = 0.0
             try:
-                ticket_price = float(ev.get("ticket_price") if ev.get("ticket_price") is not None else (ev.get("ticketPrice") or ev.get("amount") or 0.0))
+                ticket_price = normalize_ticket_price(ev.get("ticket_price") if ev.get("ticket_price") is not None else (ev.get("ticketPrice") or ev.get("amount") or 0.0))
             except (ValueError, TypeError):
                 ticket_price = 0.0
             ticket_currency = str(ev.get("ticketCurrency") or ev.get("currency") or "usd").lower()
@@ -6344,7 +6366,7 @@ class PostgresDatabase:
                     db_ev.setdefault("using_online_reg", bool(rj.get("usingOnlineReg", rj.get("using_online_reg", True))))
                     t_price = 0.0
                     try:
-                        t_price = float(rj.get("ticket_price") if rj.get("ticket_price") is not None else (rj.get("ticketPrice") or rj.get("amount") or 0.0))
+                        t_price = normalize_ticket_price(rj.get("ticket_price") if rj.get("ticket_price") is not None else (rj.get("ticketPrice") or rj.get("amount") or 0.0))
                     except (ValueError, TypeError):
                         t_price = 0.0
                     db_ev.setdefault("ticket_price", t_price)

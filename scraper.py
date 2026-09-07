@@ -134,7 +134,9 @@ class BestCoastPairingsScraper:
         return []
 
     def fetch_event_players(self, event_id: str) -> List[Dict[str, Any]]:
-        """Fetches registered player roster for an event from BCP with official placings and tiebreaker metrics."""
+        """Fetches registered player roster for an event from BCP with official placings and tiebreaker metrics.
+        Ensures both complete registered roster and official placings are retrieved.
+        """
         # 1. Fetch from /events/{event_id}/players with placings=true (supporting super-majors up to 2500 competitors)
         resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500, "placings": "true"})
         players = []
@@ -149,16 +151,57 @@ class BestCoastPairingsScraper:
             elif isinstance(resp, list):
                 players = resp
 
-        # 2. If empty, fallback to full event details object
-        if not players:
-            ev_data = self.fetch_event_details(event_id)
-            if ev_data and isinstance(ev_data, dict):
-                if "players" in ev_data and isinstance(ev_data["players"], list):
-                    players = ev_data["players"]
-                elif "placings" in ev_data and isinstance(ev_data["placings"], list):
-                    players = ev_data["placings"]
-                elif "users" in ev_data and isinstance(ev_data["users"], list):
-                    players = ev_data["users"]
+        # 2. Also fetch complete roster without placings filter to capture all enrolled competitors
+        # (BCP excludes unplaced competitors when placings=true is queried)
+        roster_resp = self._make_request(f"/events/{event_id}/players", params={"limit": 2500})
+        roster_players = []
+        if roster_resp:
+            if isinstance(roster_resp, dict):
+                if "active" in roster_resp and isinstance(roster_resp["active"], list):
+                    roster_players = roster_resp["active"]
+                elif "data" in roster_resp and isinstance(roster_resp["data"], list):
+                    roster_players = roster_resp["data"]
+                elif "players" in roster_resp and isinstance(roster_resp["players"], list):
+                    roster_players = roster_resp["players"]
+            elif isinstance(roster_resp, list):
+                roster_players = roster_resp
+
+        if roster_players:
+            if players:
+                # Merge placing metrics from `players` onto `roster_players`
+                plc_map = {}
+                for p in players:
+                    u = p.get("user") or {}
+                    for kid in (u.get("id"), p.get("userId"), p.get("id")):
+                        if kid:
+                            plc_map[str(kid).strip()] = p
+
+                for rp in roster_players:
+                    u = rp.get("user") or {}
+                    matched = None
+                    for kid in (u.get("id"), rp.get("userId"), rp.get("id")):
+                        if kid and str(kid).strip() in plc_map:
+                            matched = plc_map[str(kid).strip()]
+                            break
+                    if matched:
+                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "points", "battlePoints", "totalPoints", "metrics", "total_metrics", "podNum"):
+                            if matched.get(k) is not None:
+                                rp[k] = matched[k]
+                return roster_players
+            return roster_players
+
+        if players:
+            return players
+
+        # 3. If empty, fallback to full event details object
+        ev_data = self.fetch_event_details(event_id)
+        if ev_data and isinstance(ev_data, dict):
+            if "players" in ev_data and isinstance(ev_data["players"], list):
+                players = ev_data["players"]
+            elif "placings" in ev_data and isinstance(ev_data["placings"], list):
+                players = ev_data["placings"]
+            elif "users" in ev_data and isinstance(ev_data["users"], list):
+                players = ev_data["users"]
 
         return players
 
@@ -176,6 +219,38 @@ class BestCoastPairingsScraper:
                     teams = resp["teamplayers"]
             elif isinstance(resp, list):
                 teams = resp
+
+        # Also fetch without placings to capture all enrolled teams if placings=true returns empty/fewer
+        roster_resp = self._make_request(f"/events/{event_id}/teamplayers", params={"limit": 2500})
+        roster_teams = []
+        if roster_resp:
+            if isinstance(roster_resp, dict):
+                if "active" in roster_resp and isinstance(roster_resp["active"], list):
+                    roster_teams = roster_resp["active"]
+                elif "data" in roster_resp and isinstance(roster_resp["data"], list):
+                    roster_teams = roster_resp["data"]
+                elif "teamplayers" in roster_resp and isinstance(roster_resp["teamplayers"], list):
+                    roster_teams = roster_resp["teamplayers"]
+            elif isinstance(roster_resp, list):
+                roster_teams = roster_resp
+
+        if roster_teams:
+            if teams:
+                plc_map = {}
+                for t in teams:
+                    tid = t.get("id") or t.get("teamPlayerId")
+                    if tid:
+                        plc_map[str(tid).strip()] = t
+                for rt in roster_teams:
+                    tid = rt.get("id") or rt.get("teamPlayerId")
+                    if tid and str(tid).strip() in plc_map:
+                        mt = plc_map[str(tid).strip()]
+                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "overallPlacing", "metrics"):
+                            if mt.get(k) is not None:
+                                rt[k] = mt[k]
+                return roster_teams
+            return roster_teams
+
         return teams
 
     def ingest_event_roster(self, event_id: str, enrolled_players: List[Dict[str, Any]], teams: Optional[List[Dict[str, Any]]] = None) -> int:

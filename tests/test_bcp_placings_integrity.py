@@ -467,10 +467,10 @@ def test_scraper_robustness_fixes():
     # 3. Test fetch_event_players and fetch_event_teams use limit=2500
     with patch.object(scraper, "_make_request", return_value={"active": [{"id": "p1"}]}) as mock_req:
         scraper.fetch_event_players("ev1")
-        mock_req.assert_called_with("/events/ev1/players", params={"limit": 2500, "placings": "true"})
+        mock_req.assert_any_call("/events/ev1/players", params={"limit": 2500, "placings": "true"})
 
         scraper.fetch_event_teams("ev1")
-        mock_req.assert_called_with("/events/ev1/teamplayers", params={"limit": 2500, "placings": "true"})
+        mock_req.assert_any_call("/events/ev1/teamplayers", params={"limit": 2500, "placings": "true"})
 
     # 4. Test scrape_event detects playoff rounds from rounds dictionary (e.g. 5 Swiss + 3 playoff = 8 rounds)
     playoff_ev_data = {

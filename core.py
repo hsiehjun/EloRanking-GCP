@@ -183,7 +183,7 @@ except ImportError:
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
             GOOGLE_MAPS_API_KEY
         )
-        from database import Database, get_db
+        from database import Database, get_db, normalize_ticket_price
         from scraper import BestCoastPairingsScraper
         from elo import EloEngine
         from auth import get_auth_manager, _decode_jwt_payload

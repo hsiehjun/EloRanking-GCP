@@ -688,9 +688,9 @@ async def api_events_recommended(
 
 _active_event_syncs: set = set()
 
-def format_bcp_roster_to_players(raw_players: list, existing_players: list = None) -> list:
+def format_bcp_roster_to_players(raw_players: list, existing_players: list = None, db = None) -> list:
     """Formats raw BCP competitors preserving exact BCP tournament placing order,
-    pulling Elo ratings and match records from DB, and official placings strictly from BCP."""
+    pulling Elo ratings from player_ratings DB, and official placings strictly from BCP."""
     existing_by_id = {}
     existing_by_name = {}
     for p in (existing_players or []):
@@ -702,6 +702,70 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if fname:
             existing_by_name[fname.strip().lower()] = p
 
+    # Determine if any player has an official placement from BCP
+    has_any_placing = False
+    for p in raw_players:
+        for k in ("placing", "manualPlacing", "overallPlacing"):
+            val = p.get(k)
+            if val is not None and not isinstance(val, bool):
+                try:
+                    if int(val) > 0:
+                        has_any_placing = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+        if has_any_placing:
+            break
+
+    # Read-only query to player_ratings for fresh ratings
+    candidate_pids = set()
+    candidate_names = set()
+    for p in raw_players:
+        u = p.get("user") or {}
+        for k in (u.get("id"), p.get("userId"), p.get("id"), u.get("userId")):
+            if k:
+                candidate_pids.add(str(k))
+        fn = u.get("firstName") or p.get("firstName") or ""
+        ln = u.get("lastName") or p.get("lastName") or ""
+        name = f"{fn} {ln}".strip() or p.get("name")
+        if name:
+            candidate_names.add(name.strip().lower())
+
+    db_ratings_by_id = {}
+    db_ratings_by_name = {}
+    if db and (candidate_pids or candidate_names):
+        try:
+            with db.get_connection() as conn:
+                cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
+                cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
+                with conn.cursor(**cursor_kw) as cursor:
+                    cursor.execute("""
+                        SELECT player_id, player_name, current_elo, peak_elo, win_rate, top_faction, team
+                        FROM player_ratings
+                        WHERE player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s));
+                    """, (list(candidate_pids), list(candidate_names)))
+                    for row in cursor.fetchall():
+                        if isinstance(row, dict) or hasattr(row, "keys"):
+                            r = dict(row)
+                        elif isinstance(row, (list, tuple)):
+                            r = {
+                                "player_id": row[0] if len(row) > 0 else None,
+                                "player_name": row[1] if len(row) > 1 else None,
+                                "current_elo": row[2] if len(row) > 2 else 1500.0,
+                                "peak_elo": row[3] if len(row) > 3 else 1500.0,
+                                "win_rate": row[4] if len(row) > 4 else 0.0,
+                                "top_faction": row[5] if len(row) > 5 else None,
+                                "team": row[6] if len(row) > 6 else None,
+                            }
+                        else:
+                            continue
+                        if r.get("player_id"):
+                            db_ratings_by_id[str(r["player_id"])] = r
+                        if r.get("player_name"):
+                            db_ratings_by_name[str(r["player_name"]).strip().lower()] = r
+        except Exception as e:
+            logger.debug(f"DB ratings read-only lookup notice: {e}")
+
     formatted = []
     for idx, p in enumerate(raw_players):
         u = p.get("user") or {}
@@ -711,49 +775,50 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         pid = str(u.get("id") or p.get("userId") or p.get("id") or f"bcp_{idx}")
 
         placing_num = None
-        manual_val = p.get("manualPlacing")
-        if manual_val is not None and not isinstance(manual_val, bool):
-            try:
-                mv = int(manual_val)
-                if mv > 0: placing_num = mv
-            except (ValueError, TypeError): pass
-
-        if placing_num is None:
-            comp_place = p.get("placing")
-            if comp_place is not None and not isinstance(comp_place, bool):
+        if has_any_placing:
+            manual_val = p.get("manualPlacing")
+            if manual_val is not None and not isinstance(manual_val, bool):
                 try:
-                    cp = int(comp_place)
-                    if cp > 0: placing_num = cp
+                    mv = int(manual_val)
+                    if mv > 0: placing_num = mv
                 except (ValueError, TypeError): pass
 
-        if placing_num is None:
-            for ak in ("place", "rank", "placement", "ranking"):
-                val = p.get(ak)
-                if val is not None and not isinstance(val, bool):
+            if placing_num is None:
+                comp_place = p.get("placing")
+                if comp_place is not None and not isinstance(comp_place, bool):
                     try:
-                        pv = int(val)
-                        if pv > 0:
-                            placing_num = pv
-                            break
+                        cp = int(comp_place)
+                        if cp > 0: placing_num = cp
                     except (ValueError, TypeError): pass
 
-        if placing_num is None:
-            overall = p.get("overallPlacing")
-            if overall is not None and not isinstance(overall, bool):
-                try:
-                    ov = int(overall)
-                    if ov > 0: placing_num = ov
-                except (ValueError, TypeError): pass
+            if placing_num is None:
+                for ak in ("place", "rank", "placement", "ranking"):
+                    val = p.get(ak)
+                    if val is not None and not isinstance(val, bool):
+                        try:
+                            pv = int(val)
+                            if pv > 0:
+                                placing_num = pv
+                                break
+                        except (ValueError, TypeError): pass
 
-        if placing_num is None:
-            placing_num = idx + 1
+            if placing_num is None:
+                overall = p.get("overallPlacing")
+                if overall is not None and not isinstance(overall, bool):
+                    try:
+                        ov = int(overall)
+                        if ov > 0: placing_num = ov
+                    except (ValueError, TypeError): pass
+
+            if placing_num is None:
+                placing_num = idx + 1
 
         faction_obj = p.get("faction") or {}
         faction_name = faction_obj.get("name") if isinstance(faction_obj, dict) else (str(faction_obj) if faction_obj else "Unknown")
         team_obj = p.get("team") or {}
         team_name = team_obj.get("name") if isinstance(team_obj, dict) else (str(team_obj) if team_obj else "")
 
-        # Lookup candidate IDs in DB
+        # Lookup candidate IDs in existing or DB ratings
         candidate_ids = [
             str(u.get("id")) if u.get("id") else None,
             str(p.get("userId")) if p.get("userId") else None,
@@ -768,19 +833,29 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if not cached:
             cached = existing_by_name.get(full_name.strip().lower())
 
+        db_rating = None
+        for cid in candidate_ids:
+            if cid and cid in db_ratings_by_id:
+                db_rating = db_ratings_by_id[cid]
+                break
+        if not db_rating:
+            db_rating = db_ratings_by_name.get(full_name.strip().lower())
+
         if cached:
             player_dict = dict(cached)
-            # Tournament placing is strictly from BCP
             player_dict["placement"] = placing_num
             player_dict["official_placement"] = placing_num
-            player_dict["rank"] = placing_num
+            player_dict["rank"] = placing_num or (idx + 1)
             player_dict["player_id"] = str(cached.get("player_id") or pid)
+            if db_rating:
+                player_dict["current_elo"] = float(db_rating.get("current_elo") or player_dict.get("current_elo") or 1500.0)
+                player_dict["peak_elo"] = float(db_rating.get("peak_elo") or player_dict.get("peak_elo") or 1500.0)
             if not player_dict.get("full_name") or player_dict["full_name"] in ("Player", "Player 1", "Player 2"):
                 player_dict["full_name"] = full_name
             if not player_dict.get("faction") or player_dict["faction"] == "Unknown":
-                player_dict["faction"] = faction_name
+                player_dict["faction"] = faction_name if faction_name != "Unknown" else (db_rating.get("top_faction") if db_rating else "Unknown")
             if not player_dict.get("team"):
-                player_dict["team"] = team_name
+                player_dict["team"] = team_name or (db_rating.get("team") if db_rating else "")
             if p.get("podNum") is not None:
                 player_dict["pod_num"] = p.get("podNum")
             if p.get("dropped") is not None:
@@ -808,27 +883,42 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                         try: bps = int(mv)
                         except (ValueError, TypeError): pass
 
+            current_elo = float(db_rating.get("current_elo") or 1500.0) if db_rating else 1500.0
+            peak_elo = float(db_rating.get("peak_elo") or 1500.0) if db_rating else 1500.0
+            resolved_fac = faction_name if faction_name != "Unknown" else (db_rating.get("top_faction") if db_rating else "Unknown")
+            resolved_team = team_name or (db_rating.get("team") if db_rating else "")
+
             formatted.append({
                 "player_id": pid,
                 "full_name": full_name,
-                "faction": faction_name,
-                "team": team_name,
+                "faction": resolved_fac,
+                "team": resolved_team,
                 "placement": placing_num,
                 "official_placement": placing_num,
-                "rank": placing_num,
+                "rank": placing_num or (idx + 1),
                 "pod_num": p.get("podNum") or p.get("pod_num"),
                 "event_wins": wins,
                 "event_losses": losses,
                 "event_draws": draws,
                 "event_matches_count": int(wins + losses + draws),
                 "event_battle_points": bps or p.get("points") or 0,
-                "current_elo": 1500.0,
-                "peak_elo": 1500.0,
+                "current_elo": current_elo,
+                "peak_elo": peak_elo,
                 "dropped": bool(p.get("dropped")),
                 "checked_in": bool(p.get("checkedIn"))
             })
 
-    formatted.sort(key=lambda x: (x.get("placement") or 999999))
+    if not has_any_placing:
+        formatted.sort(key=lambda x: -float(x.get("current_elo") or 1500.0))
+        for rank_idx, p in enumerate(formatted, 1):
+            p["rank"] = rank_idx
+            p["placement"] = None
+            p["official_placement"] = None
+    else:
+        formatted.sort(key=lambda x: (x.get("placement") or 999999, -float(x.get("current_elo") or 1500.0)))
+        for rank_idx, p in enumerate(formatted, 1):
+            p["rank"] = p.get("placement") or rank_idx
+
     return formatted
 
 
@@ -852,29 +942,53 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         event_details["sync_in_progress"] = False
         return event_details
 
-    # If event is not yet in DB, scrape/sync it first so we have the metadata/matches/elo
+    # If event is not yet in DB, fetch details directly from BCP API without mutating DB
     if not event_details:
         try:
-            scraper = BestCoastPairingsScraper(db=db)
-            scraper.sync_event_roster(event_id_str)
-            scraper.scrape_event(event_id_str)
-            event_details = db.get_event_details(event_id_str)
+            scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+            ev_data = scraper.fetch_event_details(event_id_str)
+            if ev_data and isinstance(ev_data, dict):
+                loc = ev_data.get("location") or {}
+                event_details = {
+                    "id": event_id_str,
+                    "name": ev_data.get("name") or "Tournament Details",
+                    "event_date": ev_data.get("eventDate") or ev_data.get("startDate") or "",
+                    "end_date": ev_data.get("endDate") or "",
+                    "city": loc.get("city") or "",
+                    "state": loc.get("state") or "",
+                    "country": loc.get("country") or "United States",
+                    "total_players": ev_data.get("totalPlayers") or 0,
+                    "num_rounds": ev_data.get("numberOfRounds") or ev_data.get("numRounds") or 0,
+                    "current_round": ev_data.get("currentRound") or 0,
+                    "is_ended": bool(ev_data.get("isEnded", False)),
+                    "pairings_status": ev_data.get("pairingsStatus", "draft"),
+                    "raw_json": ev_data,
+                    "matches": [],
+                    "players": [],
+                    "roster": []
+                }
         except Exception as e:
-            logger.warning(f"Failed to sync BCP details for event {event_id_str}: {e}")
+            logger.warning(f"Failed to fetch BCP details for event {event_id_str}: {e}")
 
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found on Best Coast Pairings")
 
-    # For BCP events: Event info / Elo / Matches come strictly from our DB.
-    # The tournament placing is strictly a direct call to BCP.
+    # For BCP events: Event info / Matches come from DB.
+    # Tournament placing and live roster come strictly from BCP API (strictly zero DB writes).
     try:
         scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
         bcp_players = scraper.fetch_event_players(event_id_str)
+        if not bcp_players:
+            bcp_players = scraper.fetch_event_teams(event_id_str)
         if bcp_players:
             existing_players = event_details.get("players", [])
-            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players)
+            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db)
             event_details["players"] = formatted_players
             event_details["total_players"] = len(formatted_players)
+            elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]
+            if elos:
+                event_details["avg_field_elo"] = round(sum(elos) / len(elos), 1)
+                event_details["top_seed_elo"] = max(elos)
     except Exception as e:
         logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
 
@@ -884,26 +998,8 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
 @router.post("/api/event/{event_id}/sync-roster", summary="Quietly persist raw BCP roster to backend DB")
 async def api_sync_event_roster_payload(event_id: str, request: Request):
-    """Allows frontend to quietly persist live BCP competitor roster to PostgreSQL in background."""
-    import threading
-    db = get_database()
-    try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-    raw_players = payload.get("players") or []
-    if not raw_players:
-        return {"success": False, "message": "No players in payload"}
-
-    event_id_str = event_id.strip()
-    def bg_client_ingest(eid: str, roster: list):
-        try:
-            s = BestCoastPairingsScraper(db=db, request_delay=0.0)
-            s.ingest_event_roster(eid, roster)
-        except Exception as e:
-            logger.warning(f"Background client BCP ingest notice for {eid}: {e}")
-    threading.Thread(target=bg_client_ingest, args=(event_id_str, raw_players), daemon=True).start()
-    return {"success": True, "count": len(raw_players)}
+    """No-op endpoint: roster is fetched live via BCP API and DB updates are strictly via scheduled scraping."""
+    return {"success": True, "notice": "Roster is fetched live via BCP API"}
 
 
 # API: Cloud Scheduler Cron Sync

@@ -73,6 +73,17 @@ def test_database_upcoming_events_normalization():
             "ticketPrice": 0.0,
             "externalUrl": "https://convention.example.com/tickets",
             "coordinate": [-117.16, 32.71]
+        },
+        {
+            "id": "bcp_paid_cents",
+            "name": "Second City Games 40k",
+            "eventDate": "2026-11-20T09:00:00Z",
+            "totalPlayers": 12,
+            "usingOnlineReg": True,
+            "ticketPrice": 3000,
+            "ticketCurrency": "USD",
+            "numTickets": 32,
+            "coordinate": [-117.16, 32.71]
         }
     ]
 
@@ -87,7 +98,7 @@ def test_database_upcoming_events_normalization():
 
         normalized = db.fetch_bcp_upcoming_events(user_lat=32.71, user_lng=-117.16, radius_miles=50.0)
 
-    assert len(normalized) == 4, f"Expected 4 normalized events, got {len(normalized)}"
+    assert len(normalized) == 5, f"Expected 5 normalized events, got {len(normalized)}"
     
     # 1. Free event
     free_ev = next(e for e in normalized if e["id"] == "bcp_free_1")
@@ -110,6 +121,10 @@ def test_database_upcoming_events_normalization():
     # 4. External event
     ext_ev = next(e for e in normalized if e["id"] == "bcp_ext_4")
     assert ext_ev["external_url"] == "https://convention.example.com/tickets"
+
+    # 5. Cents normalization (3000 -> $30.00)
+    cents_ev = next(e for e in normalized if e["id"] == "bcp_paid_cents")
+    assert cents_ev["ticket_price"] == 30.0, f"Expected 30.0, got {cents_ev['ticket_price']}"
 
     print("✅ Database fetch_bcp_upcoming_events registration normalization verified!")
 
@@ -367,13 +382,29 @@ def test_community_registration_endpoints():
             assert ex.status_code == 400
             assert "closed" in ex.detail.lower()
 
-        # Case D: Successfully register for Free event
+        # Case D: Successfully register for Free BCP event (strictly BCP API, zero DB writes)
         with patch("bcp_adapter.BcpAdapter.register_player", return_value=(True, None, {"id": "bcp_reg_123"})):
             res_reg = asyncio.run(api_community_event_register("ev_free_101", payload, mock_req, token="test_token"))
             assert res_reg["success"] is True
             assert res_reg["is_registered"] is True
             assert res_reg["bcp_synced"] is True
-            assert mock_db.add_user_registered_tournament.called
+            assert not mock_db.add_user_registered_tournament.called, "BCP event registration must NOT write to backend DB"
+
+        # Case E: Successfully register for native Event Studio event (persists locally in DB)
+        mock_db.get_studio_event.return_value = {
+            "id": "ES-free_101",
+            "name": "OmniTactica Studio RTT",
+            "using_online_reg": True,
+            "ticket_price": 0.0,
+            "num_tickets": 32,
+            "total_players": 8,
+            "roster": []
+        }
+        res_es = asyncio.run(api_community_event_register("ES-free_101", payload, mock_req, token="test_token"))
+        assert res_es["success"] is True
+        assert res_es["is_registered"] is True
+        assert res_es["bcp_synced"] is False
+        assert mock_db.add_user_registered_tournament.called, "Event Studio registration must write to backend DB"
 
     print("✅ Community registration GET & POST endpoints verified across all tiers!")
 

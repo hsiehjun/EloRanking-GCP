@@ -103,7 +103,7 @@ async function refreshCurrentEventModal(e) {
     refreshBtn.disabled = true;
     refreshBtn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Syncing...';
   }
-  await openEventModal(currentOpenEventId, true, currentEventModalTab || 'elo');
+  await openEventModal(currentOpenEventId, true, currentEventModalTab || 'results');
   if (refreshBtn) {
     refreshBtn.disabled = false;
     refreshBtn.innerHTML = '<span>🔄 Refresh Live</span>';
@@ -275,14 +275,12 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const hasPlacings = placementsCount > 0 || eventMatchesCache.length > 0;
 
     if (!hasCachedRows || !currentEventModalTab) {
-      if (initialTab) {
+      if (initialTab && initialTab !== 'elo') {
         switchEventModalTab(initialTab);
-      } else if (hasPlacings) {
-        switchEventModalTab('results');
-      } else if (hasStandings) {
+      } else if (hasStandings && !hasPlacings) {
         switchEventModalTab('teams');
       } else {
-        switchEventModalTab('elo');
+        switchEventModalTab('results');
       }
     }
 
@@ -439,9 +437,8 @@ function getEventModalCrossTabSuggestions(currentTab) {
   };
 
   const tabsConfig = [
-    { key: 'results', label: 'Tournament Results', icon: '🏆', count: counts.results },
+    { key: 'results', label: 'Standings & Competitors', icon: '🏆', count: counts.results },
     { key: 'matches', label: 'Match Pairings', icon: '⚔️', count: counts.matches },
-    { key: 'elo', label: 'Elo Ratings', icon: '⭐', count: counts.elo },
     { key: 'teams', label: 'Team Standings', icon: '🛡️', count: counts.teams }
   ];
 
@@ -497,6 +494,7 @@ window.handleEventModalSearch = handleEventModalSearch;
 window.clearEventModalSearch = clearEventModalSearch;
 
 function switchEventModalTab(tabKey) {
+  if (tabKey === 'elo') tabKey = 'results';
   currentEventModalTab = tabKey || 'results';
   const btnTeams = document.getElementById('event-subtab-teams');
   const btnResults = document.getElementById('event-subtab-results');
@@ -518,12 +516,8 @@ function switchEventModalTab(tabKey) {
     if (btnMatches) btnMatches.classList.add('active');
     if (viewMatches) viewMatches.style.display = 'block';
     renderEventPairingsRows();
-  } else if (tabKey === 'elo') {
-    if (btnElo) btnElo.classList.add('active');
-    if (viewElo) viewElo.style.display = 'block';
-    renderEventEloRows();
   } else {
-    // default to 'results' tab
+    // default to 'results' tab (Standings & Competitors)
     if (btnResults) btnResults.classList.add('active');
     if (viewResults) viewResults.style.display = 'block';
     renderEventResultsRows();
@@ -594,33 +588,32 @@ function renderEventResultsRows() {
   const tbody = document.getElementById('event-results-body');
   if (!tbody) return;
 
-  const hasPlacements = eventPlayersCache && eventPlayersCache.some(p => p.placement && p.placement > 0);
-  if ((!eventMatchesCache || eventMatchesCache.length === 0) && !hasPlacements) {
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
-          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🛡️ Tournament Not Started / No Match Placings Yet</div>
-          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
-            Official match placings and battle points will be calculated here once tournament rounds conclude.<br>
-            Switch to the <a href="javascript:void(0)" onclick="switchEventModalTab('elo')" style="color:var(--accent); text-decoration:underline; font-weight:600;">⭐ Participant Elo Rankings</a> tab to view all ${eventPlayersCache.length} enrolled competitors.
-          </div>
-        </td>
-      </tr>`;
-    return;
-  }
-
   if (!eventPlayersCache || eventPlayersCache.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No participant match records found for this tournament.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No registered competitors found for this tournament yet.</td></tr>';
     return;
   }
 
-  // Ensure eventPlayersCache is strictly ordered by placement / rank
-  const sortCfg = (typeof currentSort !== 'undefined' && currentSort['event-results']) || { field: 'placement', asc: true };
+  const hasPlacements = eventPlayersCache && eventPlayersCache.some(p => p.placement && p.placement > 0);
+  const hasMatches = eventMatchesCache && eventMatchesCache.length > 0;
+  const isStarted = Boolean(hasPlacements || hasMatches);
+
+  // Sorting
+  const sortCfg = (typeof currentSort !== 'undefined' && currentSort['event-results']) || {
+    field: isStarted ? 'placement' : 'current_elo',
+    asc: isStarted ? true : false
+  };
+
   if (sortCfg.field === 'placement' || sortCfg.field === 'rank') {
     eventPlayersCache.sort((a, b) => {
-      const plA = (a.placement && a.placement > 0) ? a.placement : 999999;
-      const plB = (b.placement && b.placement > 0) ? b.placement : 999999;
+      const plA = (a.placement && a.placement > 0) ? a.placement : (a.rank || 999999);
+      const plB = (b.placement && b.placement > 0) ? b.placement : (b.rank || 999999);
       return sortCfg.asc ? (plA - plB) : (plB - plA);
+    });
+  } else if (sortCfg.field === 'current_elo') {
+    eventPlayersCache.sort((a, b) => {
+      const eloA = Number(a.current_elo || 1500);
+      const eloB = Number(b.current_elo || 1500);
+      return sortCfg.asc ? (eloA - eloB) : (eloB - eloA);
     });
   } else if (typeof sortClientArray === 'function') {
     eventPlayersCache = sortClientArray(eventPlayersCache, sortCfg.field, sortCfg.asc);
@@ -671,8 +664,29 @@ function renderEventResultsRows() {
     const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
     const drawStr = p.event_draws ? ` - ${p.event_draws}D` : '';
 
+    const rankDisplay = (p.placement && p.placement > 0)
+      ? `#${p.placement}`
+      : (isStarted ? `#${p.rank || (idx + 1)}` : `#${p.rank || (idx + 1)} Seed`);
+
+    const recordDisplay = isStarted
+      ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
+          ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
+        </td>`
+      : `<td>
+          ${p.checked_in
+            ? '<span style="color:var(--win); font-weight:600; font-size:0.85rem;">✅ Checked In</span>'
+            : '<span style="color:var(--text-muted); font-size:0.85rem;">📋 Enrolled</span>'
+          }
+        </td>`;
+
+    const pointsDisplay = isStarted
+      ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
+          ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
+        </td>`
+      : `<td style="color:var(--text-muted); font-family:var(--font-mono);">-</td>`;
+
     tr.innerHTML = `
-      <td class="rank-cell">#${p.placement && p.placement > 0 ? p.placement : (idx + 1)}</td>
+      <td class="rank-cell">${rankDisplay}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.full_name || 'Player')}</span>
@@ -682,12 +696,8 @@ function renderEventResultsRows() {
       <td>
         <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}</span>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
-        ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
-      </td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
-        ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
-      </td>
+      ${recordDisplay}
+      ${pointsDisplay}
       <td class="elo-badge ${eloBadgeClass}">
         ${Number(p.current_elo || 1500).toFixed(1)}
       </td>
@@ -1125,7 +1135,7 @@ async function submitTournamentRegistration(e) {
       }
       setTimeout(() => {
         closeTournamentRegistrationModal();
-        openEventModal(eventId, true, 'elo');
+        openEventModal(eventId, true, 'results');
       }, 1200);
     } else {
       if (msg) {

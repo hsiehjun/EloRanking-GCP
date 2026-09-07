@@ -21,7 +21,8 @@ from core import (
     BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
     DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
-    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
+    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
+    normalize_ticket_price
 )
 
 router = APIRouter(tags=["Regional Community Hub"])
@@ -91,6 +92,113 @@ async def api_community_bcp_upcoming(
 
 _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
 
+def compute_live_bcp_field_stats(eid: str, db) -> Dict[str, Any]:
+    """Fetches live roster from BCP API and computes field avg / top seed Elo without mutating backend DB."""
+    try:
+        s = BestCoastPairingsScraper(db=db, request_delay=0.0)
+        roster = s.fetch_event_players(eid)
+        if not roster:
+            roster = s.fetch_event_teams(eid)
+        if not roster:
+            return {
+                "event_id": eid,
+                "avg_field_elo": None,
+                "top_seed_elo": None,
+                "total_enrolled": 0,
+                "rated_players_count": 0,
+                "status": "empty"
+            }
+
+        candidate_pids = set()
+        candidate_names = set()
+        for p in roster:
+            u = p.get("user") or {}
+            for k in (u.get("id"), p.get("userId"), p.get("id"), u.get("userId")):
+                if k:
+                    candidate_pids.add(str(k))
+            fn = u.get("firstName") or p.get("firstName") or ""
+            ln = u.get("lastName") or p.get("lastName") or ""
+            name = f"{fn} {ln}".strip() or p.get("name")
+            if name:
+                candidate_names.add(name.strip().lower())
+
+        ratings_by_id = {}
+        ratings_by_name = {}
+        if candidate_pids or candidate_names:
+            try:
+                with db.get_connection() as conn:
+                    cursor_factory = getattr(extras, "RealDictCursor", None) if extras else None
+                    cursor_kw = {"cursor_factory": cursor_factory} if cursor_factory else {}
+                    with conn.cursor(**cursor_kw) as cursor:
+                        cursor.execute("""
+                            SELECT player_id, player_name, current_elo
+                            FROM player_ratings
+                            WHERE player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s));
+                        """, (list(candidate_pids), list(candidate_names)))
+                        for row in cursor.fetchall():
+                            if isinstance(row, dict) or hasattr(row, "keys"):
+                                r = dict(row)
+                                pid = r.get("player_id")
+                                pname = r.get("player_name")
+                                elo = r.get("current_elo")
+                            elif isinstance(row, (list, tuple)):
+                                pid = row[0] if len(row) > 0 else None
+                                pname = row[1] if len(row) > 1 else None
+                                elo = row[2] if len(row) > 2 else 1500.0
+                            else:
+                                continue
+                            if pid:
+                                ratings_by_id[str(pid)] = float(elo or 1500.0)
+                            if pname:
+                                ratings_by_name[str(pname).strip().lower()] = float(elo or 1500.0)
+            except Exception as ex:
+                logger.debug(f"Read-only player ratings query notice for {eid}: {ex}")
+
+        elos = []
+        rated_count = 0
+        for p in roster:
+            u = p.get("user") or {}
+            matched_elo = None
+            for k in (u.get("id"), p.get("userId"), p.get("id"), u.get("userId")):
+                if k and str(k) in ratings_by_id:
+                    matched_elo = ratings_by_id[str(k)]
+                    break
+            if matched_elo is None:
+                fn = u.get("firstName") or p.get("firstName") or ""
+                ln = u.get("lastName") or p.get("lastName") or ""
+                name = f"{fn} {ln}".strip() or p.get("name")
+                if name and name.strip().lower() in ratings_by_name:
+                    matched_elo = ratings_by_name[name.strip().lower()]
+
+            if matched_elo is not None:
+                rated_count += 1
+                elos.append(matched_elo)
+            else:
+                elos.append(1500.0)
+
+        avg_field_elo = round(sum(elos) / len(elos), 1) if elos else 1500.0
+        top_seed_elo = max(elos) if elos else 1500.0
+
+        return {
+            "event_id": eid,
+            "avg_field_elo": avg_field_elo,
+            "top_seed_elo": top_seed_elo,
+            "total_enrolled": len(roster),
+            "rated_players_count": rated_count,
+            "status": "active"
+        }
+    except Exception as e:
+        logger.debug(f"compute_live_bcp_field_stats notice for {eid}: {e}")
+        return {
+            "event_id": eid,
+            "avg_field_elo": None,
+            "top_seed_elo": None,
+            "total_enrolled": 0,
+            "rated_players_count": 0,
+            "status": "empty"
+        }
+
+
 @router.get("/api/community/events/field_stats", summary="Get or compute live average field Elo and top seed Elo")
 @router.post("/api/community/events/field_stats", summary="Get or compute live average field Elo and top seed Elo")
 async def api_community_events_field_stats(
@@ -122,23 +230,25 @@ async def api_community_events_field_stats(
     results: Dict[str, Any] = {}
     missing_ids: List[str] = []
 
-    # Check in-memory cache first (15-minute TTL)
+    # Check in-memory cache first (15-minute TTL for populated stats, 60s for empty stats)
     for eid in target_ids:
         cached = _community_field_stats_cache.get(eid)
-        if cached and (now_ts - cached.get("timestamp", 0) < 900):
-            results[eid] = cached.get("stats", {})
-        else:
-            missing_ids.append(eid)
+        if cached:
+            ttl = 900 if int(cached.get("stats", {}).get("total_enrolled") or 0) > 0 else 60
+            if (now_ts - cached.get("timestamp", 0) < ttl):
+                results[eid] = cached.get("stats", {})
+                continue
+        missing_ids.append(eid)
 
     if missing_ids:
         db = get_database()
-        # 1. Query existing DB participants
+        # 1. Query existing DB participants (read-only)
         db_stats = db.get_events_field_stats(missing_ids)
         need_bcp_sync: List[str] = []
 
         for eid in missing_ids:
             stat = db_stats.get(eid)
-            # If DB already has participants, cache and return
+            # If DB already has participants from prior scraping, cache and return
             if stat and int(stat.get("total_enrolled") or 0) > 0:
                 results[eid] = stat
                 _community_field_stats_cache[eid] = {
@@ -148,31 +258,31 @@ async def api_community_events_field_stats(
             else:
                 need_bcp_sync.append(eid)
 
-        # 2. For events without participants in DB, fetch live roster from BCP concurrently
+        # 2. For events without participants in DB, compute live from BCP API (strictly zero DB writes)
         if need_bcp_sync:
-            def fetch_and_sync_one(eid_to_sync: str):
-                try:
-                    s = BestCoastPairingsScraper(db=db, request_delay=0.0)
-                    s.sync_event_roster(eid_to_sync)
-                except Exception as err:
-                    logger.debug(f"Async live roster sync notice for {eid_to_sync}: {err}")
-
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync))) as executor:
-                futures = [executor.submit(fetch_and_sync_one, eid) for eid in need_bcp_sync]
-                concurrent.futures.wait(futures, timeout=3.5)
-
-            # Re-query DB for newly synced events
-            newly_synced_stats = db.get_events_field_stats(need_bcp_sync)
-            for eid in need_bcp_sync:
-                stat = newly_synced_stats.get(eid)
-                if stat and int(stat.get("total_enrolled") or 0) > 0:
+                future_map = {executor.submit(compute_live_bcp_field_stats, eid, db): eid for eid in need_bcp_sync}
+                done, not_done = concurrent.futures.wait(future_map.keys(), timeout=6.0)
+                for fut in done:
+                    eid = future_map[fut]
+                    try:
+                        stat = fut.result()
+                    except Exception:
+                        stat = {
+                            "event_id": eid,
+                            "avg_field_elo": None,
+                            "top_seed_elo": None,
+                            "total_enrolled": 0,
+                            "rated_players_count": 0,
+                            "status": "empty"
+                        }
                     results[eid] = stat
                     _community_field_stats_cache[eid] = {
                         "timestamp": now_ts,
                         "stats": stat
                     }
-                else:
-                    # Empty roster or unlisted event
+                for fut in not_done:
+                    eid = future_map[fut]
                     empty_stat = {
                         "event_id": eid,
                         "avg_field_elo": None,
@@ -342,7 +452,7 @@ async def api_community_event_registration(
     ticket_price = 0.0
     try:
         raw_price = ev.get("ticket_price") if ev.get("ticket_price") is not None else ev.get("ticketPrice", rj.get("ticketPrice", rj.get("ticket_price", 0.0)))
-        ticket_price = float(raw_price or 0.0)
+        ticket_price = normalize_ticket_price(raw_price)
     except (ValueError, TypeError):
         ticket_price = 0.0
 
@@ -511,7 +621,7 @@ async def api_community_event_register(
     ticket_price = 0.0
     try:
         raw_price = ev.get("ticket_price") if ev.get("ticket_price") is not None else ev.get("ticketPrice", rj.get("ticketPrice", rj.get("ticket_price", 0.0)))
-        ticket_price = float(raw_price or 0.0)
+        ticket_price = normalize_ticket_price(raw_price)
     except (ValueError, TypeError):
         ticket_price = 0.0
 
@@ -608,9 +718,7 @@ async def api_community_event_register(
         "checked_in": False
     }
 
-    # 1. Sync with Best Coast Pairings API (if BCP event)
-    bcp_registered = False
-    bcp_err = None
+    # 1. Best Coast Pairings Events: strictly register via BCP API (zero backend DB writes)
     if not clean_eid.startswith("ES-"):
         try:
             from bcp_adapter import BcpAdapter
@@ -622,12 +730,33 @@ async def api_community_event_register(
                 is_team=False
             )
             if not bcp_registered:
-                logger.info(f"Notice: BCP API register response: {bcp_err}. Proceeding with local registration.")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"BCP registration failed: {bcp_err or 'Unable to complete registration with Best Coast Pairings'}"
+                )
+        except HTTPException:
+            raise
         except Exception as bcp_ex:
-            logger.warning(f"Notice during BCP API registration for {clean_eid}: {bcp_ex}")
-            bcp_err = str(bcp_ex)
+            logger.warning(f"Error during BCP API registration for {clean_eid}: {bcp_ex}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to communicate with Best Coast Pairings: {bcp_ex}"
+            )
 
-    # 2. Persist registration locally in OmniTactica database
+        return {
+            "success": True,
+            "message": f"Successfully registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!",
+            "event_id": clean_eid,
+            "event_name": ev.get("name") or "Tournament",
+            "player_name": full_name,
+            "faction": faction,
+            "detachment": detachment,
+            "bcp_synced": True,
+            "bcp_notice": None,
+            "is_registered": True
+        }
+
+    # 2. Native Event Studio Tournament: Persist locally in OmniTactica database
     effective_user_id = user_id or f"anon_{secrets.token_hex(6)}"
     event_reg_record = {
         "id": clean_eid,
@@ -653,22 +782,20 @@ async def api_community_event_register(
 
     saved_ok = db.add_user_registered_tournament(effective_user_id, event_reg_record)
 
-    # If it is an Event Studio tournament, also add to the studio roster
-    if clean_eid.startswith("ES-"):
-        try:
-            roster = list(ev.get("roster") or [])
-            new_p = {
-                "id": user.get("player_id") if user else effective_user_id,
-                "name": full_name,
-                "faction": faction,
-                "detachment": detachment,
-                "army_list": army_list,
-                "checked_in": False
-            }
-            roster.append(new_p)
-            db.save_studio_roster(clean_eid, roster)
-        except Exception as es_err:
-            logger.debug(f"Event Studio roster update notice: {es_err}")
+    try:
+        roster = list(ev.get("roster") or [])
+        new_p = {
+            "id": user.get("player_id") if user else effective_user_id,
+            "name": full_name,
+            "faction": faction,
+            "detachment": detachment,
+            "army_list": army_list,
+            "checked_in": False
+        }
+        roster.append(new_p)
+        db.save_studio_roster(clean_eid, roster)
+    except Exception as es_err:
+        logger.debug(f"Event Studio roster update notice: {es_err}")
 
     return {
         "success": True,
@@ -678,8 +805,8 @@ async def api_community_event_register(
         "player_name": full_name,
         "faction": faction,
         "detachment": detachment,
-        "bcp_synced": bool(bcp_registered),
-        "bcp_notice": bcp_err if not bcp_registered else None,
+        "bcp_synced": False,
+        "bcp_notice": None,
         "is_registered": True
     }
 
