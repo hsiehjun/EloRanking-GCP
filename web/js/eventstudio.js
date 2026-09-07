@@ -299,6 +299,25 @@ async function syncBcpOrganizerEvents() {
   }
 }
 
+async function refreshStudioEvents(btn) {
+  const refreshBtns = btn ? [btn] : document.querySelectorAll("#btn-refresh-managed-tournaments");
+  refreshBtns.forEach(b => {
+    b.disabled = true;
+    b.innerHTML = '<span class="refresh-icon spinning" style="display:inline-block;">🔄</span> Refreshing...';
+  });
+
+  try {
+    await loadStudioEvents();
+  } catch (err) {
+    console.warn("Notice refreshing managed tournaments:", err);
+  } finally {
+    refreshBtns.forEach(b => {
+      b.disabled = false;
+      b.innerHTML = '<span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh';
+    });
+  }
+}
+
 async function loadStudioEvents() {
   const user = (typeof currentUser !== 'undefined') ? currentUser : null;
   const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
@@ -310,8 +329,8 @@ async function loadStudioEvents() {
     const res = await window.api.getStudioEvents();
     studioState.eventsList = (res && Array.isArray(res.events)) ? res.events : [];
     
-    const countEl = document.getElementById("es-events-count");
-    if (countEl) countEl.textContent = studioState.eventsList.length;
+    const countEls = document.querySelectorAll("#es-events-count");
+    countEls.forEach(el => { el.textContent = studioState.eventsList.length; });
 
     renderEventsDirectory();
   } catch (err) {
@@ -341,6 +360,7 @@ function switchStudioTab(tabName, eventId = null) {
 
   if (studioState.activeTab === "events") {
     renderEventsDirectory();
+    loadStudioEvents(); // Background refresh so latest BCP changes appear without manual reload
   } else if (studioState.activeTab === "create") {
     if (typeof initGooglePlaces === 'function') {
       setTimeout(initGooglePlaces, 50);
@@ -374,6 +394,8 @@ function renderEventsDirectory() {
       const rounds = ev.num_rounds || ev.rounds || 5;
       const tier = ev.tier || "Grand Tournament";
       const roster = ev.roster || [];
+      const playerCount = (typeof ev.total_players === 'number') ? ev.total_players : (Array.isArray(ev.roster) ? ev.roster.length : 0);
+      const capacity = ev.capacity || ev.num_tickets || 32;
       const location = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
       const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
       const isBcp = ev.id && !ev.id.startsWith("ES-");
@@ -399,7 +421,7 @@ function renderEventsDirectory() {
             <h4 style="margin: 0 0 0.4rem; color: #fff; font-size: 1.15rem; font-family: var(--font-heading); cursor: pointer;" onclick="switchStudioTab('manage', '${escapeHtml(ev.id)}')">${escapeHtml(ev.name)}</h4>
             <div style="font-size: 0.8rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.25rem;">
               <div>📅 ${escapeHtml(dateStr)} • 📍 ${escapeHtml(location)}</div>
-              <div>👥 <b>${roster.length} / ${ev.capacity || 32}</b> Players • 🎲 <b>${rounds}</b> Rounds (${ev.points || 2000} pts)</div>
+              <div>👥 <b>${playerCount} / ${capacity}</b> Players • 🎲 <b>${rounds}</b> Rounds (${ev.points || 2000} pts)</div>
               ${isDeletedOnBcp ? '<div style="color: #ef4444; font-size: 0.75rem; font-weight: 600; margin-top: 0.2rem;">⚠️ Event deleted on BCP — preserved as local</div>' : ''}
             </div>
           </div>
@@ -2256,6 +2278,7 @@ function escapeHtml(str) {
 // Global window bindings for Event Studio
 window.initStudio = initStudio;
 window.loadStudioEvents = loadStudioEvents;
+window.refreshStudioEvents = refreshStudioEvents;
 window.switchStudioTab = switchStudioTab;
 window.renderEventsDirectory = renderEventsDirectory;
 window.submitCreateTournament = submitCreateTournament;

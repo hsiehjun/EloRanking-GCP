@@ -119,6 +119,9 @@
           <h3 style="margin: 0; color: #fff; font-size: 1.2rem;">Your Managed Tournaments</h3>
           <span class="es-sec-sub" style="font-size: 0.8rem; color: var(--text-muted);">Tournaments organized by your BCP account or created in Event Studio</span>
         </div>
+        <button id="btn-refresh-managed-tournaments" class="btn btn-outline" style="font-size: 0.82rem; padding: 0.4rem 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem;" onclick="refreshStudioEvents(this)" title="Refresh tournaments from Best Coast Pairings">
+          <span class="refresh-icon" style="display: inline-block;">🔄</span> Refresh
+        </button>
       </div>
       <div class="es-events-grid" id="es-events-list">
         <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3.5rem 1.5rem; text-align: center;">

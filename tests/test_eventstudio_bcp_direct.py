@@ -228,6 +228,54 @@ def test_bcp_register_player_already_registered_check():
 
     print("✅ test_bcp_register_player_already_registered_check passed!")
 
+def test_managed_tournaments_refresh_button_and_player_counts():
+    """Verify refresh button exists in UI, refreshStudioEvents is in bundle, and list API maps player count."""
+    # 1. UI buttons exist
+    app_html = (root_dir / "web" / "app.html").read_text()
+    es_html = (root_dir / "web" / "eventstudio.html").read_text()
+    assert "btn-refresh-managed-tournaments" in app_html
+    assert "refreshStudioEvents(this)" in app_html
+    assert "btn-refresh-managed-tournaments" in es_html
+    assert "refreshStudioEvents(this)" in es_html
+
+    # 2. Bundle contains refreshStudioEvents
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text()
+    assert "refreshStudioEvents" in bundle_js
+
+    # 3. List events mapping
+    from routers.eventstudio import api_eventstudio_list_events
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer tok"}
+    mock_req.cookies = {}
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "to_1", "role": "TO"}
+    mock_db = MagicMock()
+    mock_db.get_studio_events.return_value = []
+
+    bcp_mock_events = {
+        "data": [
+            {
+                "id": "bcp_ev_test_1",
+                "name": "Hsiehjun Test",
+                "totalPlayers": 8,
+                "numTickets": 32,
+                "eventType": "Grand Tournament"
+            }
+        ]
+    }
+
+    with patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.execute_bcp_api_call", return_value=(bcp_mock_events, None)):
+        res = asyncio.run(api_eventstudio_list_events(mock_req))
+        assert res["success"] is True
+        assert len(res["events"]) == 1
+        ev = res["events"][0]
+        assert ev["total_players"] == 8
+        assert ev["capacity"] == 32
+
+    print("✅ test_managed_tournaments_refresh_button_and_player_counts passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -236,4 +284,5 @@ if __name__ == "__main__":
     test_eventstudio_remove_player_calls_bcp_delete()
     test_community_overview_no_unbound_local_elo()
     test_bcp_register_player_already_registered_check()
+    test_managed_tournaments_refresh_button_and_player_counts()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")

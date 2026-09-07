@@ -318,11 +318,13 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
                         continue
                     seen_ids.add(bcp_id)
                     loc = item.get("location") if isinstance(item.get("location"), dict) else {}
+                    capacity = int(item.get("numTickets") or item.get("capacity") or 32)
+                    reg_players = int(item.get("totalPlayers") if item.get("totalPlayers") is not None else (item.get("numPlayers") or item.get("checkedInPlayers") or 0))
                     bcp_events.append({
                         "id": bcp_id,
                         "name": item.get("name", "BCP Tournament"),
                         "tier": item.get("eventType") or item.get("tier") or "Grand Tournament",
-                        "event_date": item.get("eventDate") or item.get("startDate"),
+                        "event_date": item.get("eventDate") or item.get("startDate") or item.get("eventStartDate"),
                         "end_date": item.get("endDate") or item.get("eventEndDate"),
                         "city": item.get("city") or loc.get("city"),
                         "state": item.get("state") or loc.get("state"),
@@ -330,7 +332,8 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
                         "venue": item.get("venueName") or loc.get("venueName") or loc.get("name") or loc.get("venue"),
                         "num_rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
                         "points": item.get("points") or 2000,
-                        "capacity": item.get("totalPlayers") or item.get("capacity") or 32,
+                        "capacity": capacity,
+                        "total_players": reg_players,
                         "organizer_id": user_id,
                         "organizer_bcp_id": item.get("ownerId") or item.get("owner_Id") or bcp_user_id or player_id,
                         "bcp_synced": True,
