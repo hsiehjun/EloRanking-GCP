@@ -559,12 +559,19 @@ window.api = {
 
   // Submit Match Score to EventStudio / BCP
   async submitScoreToBcp(payload) {
+    const bcpTok = (typeof this.getBcpToken === 'function' ? this.getBcpToken() : '') || (typeof getBcpToken === 'function' ? getBcpToken() : '');
+    const headers = { 'Content-Type': 'application/json' };
+    if (bcpTok) headers['X-BCP-Token'] = bcpTok;
     return this._fetchJson('/api/eventstudio/submit_score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: headers,
+      body: JSON.stringify({
+        ...payload,
+        ...(bcpTok && !payload.bcp_token ? { bcp_token: bcpTok } : {})
+      })
     });
   },
+
 
   // EventStudio: List Managed Events
   async getStudioEvents(options = {}) {
@@ -816,12 +823,19 @@ window.api = {
 
   // EventStudio: Submit Score
   async submitStudioScore(payload) {
+    const bcpTok = (typeof this.getBcpToken === 'function' ? this.getBcpToken() : '') || (typeof getBcpToken === 'function' ? getBcpToken() : '');
+    const headers = { 'Content-Type': 'application/json' };
+    if (bcpTok) headers['X-BCP-Token'] = bcpTok;
     return this._fetchJson('/api/eventstudio/submit_score', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: headers,
+      body: JSON.stringify({
+        ...payload,
+        ...(bcpTok && !payload.bcp_token ? { bcp_token: bcpTok } : {})
+      })
     });
   },
+
 
   // EventStudio: Create Judge Call (from Game Room)
   async createJudgeCall(payload) {

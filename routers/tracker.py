@@ -54,6 +54,7 @@ class TrackerCreatePayload(BaseModel):
     round_num: Optional[int] = None
     table_num: Optional[int] = None
     match_id: Optional[str] = None
+    pairing_id: Optional[str] = None
 
 class TrackerJoinPayload(BaseModel):
     token: Optional[str] = None
@@ -219,6 +220,12 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     if match_id:
         if match_id in TRACKER_ROOMS:
             existing = TRACKER_ROOMS[match_id]
+            if payload and payload.pairing_id and not existing.get("pairing_id"):
+                existing["pairing_id"] = payload.pairing_id
+                if isinstance(existing.get("state"), dict):
+                    existing["state"]["pairing_id"] = payload.pairing_id
+                    if isinstance(existing["state"].get("game"), dict):
+                        existing["state"]["game"]["pairingId"] = payload.pairing_id
             u_id = user["id"] if user else None
             p1_id = existing.get("user_id_p1")
             p2_id = existing.get("user_id_p2")
@@ -379,6 +386,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "event_id": payload.event_id if payload else None,
         "round_num": payload.round_num if payload else 1,
         "table_num": payload.table_num if payload else None,
+        "pairing_id": payload.pairing_id if payload else None,
         "user_id_p1": user_id_p1,
         "user_id_p2": user_id_p2,
         "game": {
@@ -407,7 +415,8 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
             "cp": True,
             "eventId": payload.event_id if payload else None,
             "roundNum": payload.round_num if payload else 1,
-            "tableNum": payload.table_num if payload else None
+            "tableNum": payload.table_num if payload else None,
+            "pairingId": payload.pairing_id if payload else None
         },
         "p1": {
             "score": 0,

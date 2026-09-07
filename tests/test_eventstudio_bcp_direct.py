@@ -748,6 +748,86 @@ def test_tracker_room_creation_for_both_players():
     TRACKER_ROOMS.pop(match_id, None)
     print("✅ test_tracker_room_creation_for_both_players passed!")
 
+def test_eventstudio_submit_score_resolves_live_bcp_pairing_id():
+    """Verify that submit_score for a BCP tournament resolves live pairing ID when omitted."""
+    from routers.eventstudio import api_eventstudio_submit_score, SubmitScorePayload
+    from bcp_adapter import BcpAdapter
+
+    mock_db = MagicMock()
+    mock_db.get_studio_event.return_value = None  # Live BCP tournament not in studio_events DB
+
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "usr_999", "email": "to@example.com"}
+    mock_auth.get_valid_bcp_tokens.return_value = {
+        "id_token": "valid_bcp_id_token_xyz",
+        "access_token": "valid_bcp_access_token_xyz"
+    }
+
+    mock_pairings = [
+        {"id": "Dk3uJcya3Kjz", "table": 1, "round": 1, "player1Id": "p1", "player2Id": "p2"}
+    ]
+
+    req = MagicMock()
+    req.headers = {"Authorization": "Bearer native_omnitactica_session_token"}
+    req.cookies = {}
+
+    payload = SubmitScorePayload(
+        event_id="sy5pqLqvkdpU",
+        table=1,
+        round_num=1,
+        p1_score=90,
+        p2_score=60,
+        source_app="GameTracker-OmniTactica"
+    )
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch.object(BcpAdapter, "fetch_event_pairings", return_value=(True, None, mock_pairings)) as mock_fetch, \
+         patch.object(BcpAdapter, "submit_pairing_scores", return_value=(True, None)) as mock_submit:
+
+        res = asyncio.run(api_eventstudio_submit_score(payload, req))
+        assert res["success"] is True
+        assert res["bcp_synced"] is True
+        assert res["pairing_id"] == "Dk3uJcya3Kjz"
+
+        # Verify submit_pairing_scores called with real BCP pairing ID, not "1"
+        mock_submit.assert_called_once()
+        _, kwargs = mock_submit.call_args
+        assert kwargs["pairing_id"] == "Dk3uJcya3Kjz"
+        assert kwargs["p1_score"] == 90
+        assert kwargs["p2_score"] == 60
+        # Verify it used BCP id_token, NOT the native session token
+        assert kwargs["explicit_token"] == "valid_bcp_id_token_xyz"
+        assert kwargs["user_id"] == "usr_999"
+
+    print("✅ test_eventstudio_submit_score_resolves_live_bcp_pairing_id passed!")
+
+def test_bcp_adapter_submit_pairing_scores_guards_and_payload():
+    """Verify BcpAdapter.submit_pairing_scores rejects numeric table IDs and constructs correct gameData."""
+    from bcp_adapter import BcpAdapter
+
+    # Reject numeric table string
+    ok, err = BcpAdapter.submit_pairing_scores("1", 80, 20)
+    assert ok is False
+    assert "Invalid pairing_id" in err
+
+    # Valid pairing ID
+    with patch.object(BcpAdapter, "execute_call", return_value=({"success": True}, None)) as mock_exec:
+        ok, err = BcpAdapter.submit_pairing_scores("Dk3uJcya3Kjz", 85, 45, user_id="usr_123")
+        assert ok is True
+        mock_exec.assert_called_once()
+        args, kwargs = mock_exec.call_args
+        assert "pairings/Dk3uJcya3Kjz/submitScores" in args[0]
+        payload = kwargs["json_data"]
+        assert payload["gameData"]["player1Score"] == 85
+        assert payload["gameData"]["player2Score"] == 45
+        assert payload["gameData"]["player1Points"] == 85
+        assert payload["gameData"]["player2Points"] == 45
+        assert payload["gameData"]["player1Result"] == 2  # Win
+        assert payload["gameData"]["player2Result"] == 0  # Loss
+
+    print("✅ test_bcp_adapter_submit_pairing_scores_guards_and_payload passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -767,4 +847,7 @@ if __name__ == "__main__":
     test_workspace_refresh_live_button_exists()
     test_competitors_can_track_pairings()
     test_tracker_room_creation_for_both_players()
+    test_eventstudio_submit_score_resolves_live_bcp_pairing_id()
+    test_bcp_adapter_submit_pairing_scores_guards_and_payload()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
+

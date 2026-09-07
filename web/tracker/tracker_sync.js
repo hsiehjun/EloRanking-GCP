@@ -549,28 +549,34 @@
       return Math.min(100, Math.min(50, pri) + Math.min(40, sec) + paint);
     }
 
+    const urlParams = new URLSearchParams(window.location.search);
     const p1Score = getVp(st.p1 || {});
     const p2Score = getVp(st.p2 || {});
-    const eventId = game.eventId || st.event_id || 'Casual';
-    const roundNum = game.roundNum || st.round_num || 1;
-    const tableNum = game.tableNum || st.table_num || 1;
+    const eventId = game.eventId || st.event_id || urlParams.get('event_id') || 'Casual';
+    const roundNum = game.roundNum || st.round_num || urlParams.get('round_num') || 1;
+    const tableNum = game.tableNum || st.table_num || urlParams.get('table_num') || 1;
+    const pairingId = game.pairingId || st.pairing_id || (st.game && st.game.pairingId) || urlParams.get('pairing_id') || null;
+    const bcpTok = (typeof window.getBcpToken === 'function' ? window.getBcpToken() : '') || localStorage.getItem('bcp_jwt') || localStorage.getItem('bcp_token') || null;
 
     try {
       const resp = await fetch('/api/eventstudio/submit_score', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
+          'Authorization': `Bearer ${getAuthToken()}`,
+          ...(bcpTok ? { 'X-BCP-Token': bcpTok } : {})
         },
         body: JSON.stringify({
           event_id: eventId,
           table: Number(tableNum) || 1,
           round_num: Number(roundNum) || 1,
+          pairing_id: pairingId,
           p1_score: p1Score,
           p2_score: p2Score,
           p1_name: game.p1Name || st.p1_name || 'Player 1',
           p2_name: game.p2Name || st.p2_name || 'Player 2',
           source_app: 'GameTracker-OmniTactica',
+          bcp_token: bcpTok,
           game_details: {
             match_id: matchId,
             first_turn: firstTurnVal,
@@ -580,21 +586,35 @@
         })
       });
 
+      const resData = await resp.json().catch(() => ({}));
+      if (!resp.ok || resData.success === false) {
+        throw new Error(resData.error || resData.detail || 'Score submission failed');
+      }
+
       if (statusEl) {
         statusEl.style.display = 'block';
-        statusEl.style.color = '#10b981';
-        statusEl.innerHTML = `✅ Score successfully synced with Best Coast Pairings & archived in Elo database!`;
+        if (resData.bcp_synced) {
+          statusEl.style.color = '#10b981';
+          statusEl.innerHTML = `✅ Score successfully synced with Best Coast Pairings & archived in Elo database!`;
+        } else if (resData.bcp_notice) {
+          statusEl.style.color = '#f59e0b';
+          statusEl.innerHTML = `⚠️ Score archived in database. Best Coast Pairings notice: ${resData.bcp_notice}`;
+        } else {
+          statusEl.style.color = '#10b981';
+          statusEl.innerHTML = `✅ Score successfully archived in database!`;
+        }
       }
       if (btn) {
-        btn.style.background = '#10b981';
-        btn.textContent = '✓ SUBMITTED TO BCP';
+        btn.style.background = resData.bcp_synced ? '#10b981' : '#0284c7';
+        btn.textContent = resData.bcp_synced ? '✓ SUBMITTED TO BCP' : '✓ SAVED IN DB';
       }
 
       st.is_finished = true;
-      st.bcp_submitted = true;
+      st.bcp_submitted = Boolean(resData.bcp_synced);
       st.who_went_first = firstTurnVal;
       saveLocalState(st);
       notifyStateChanged();
+
     } catch (err) {
       if (statusEl) {
         statusEl.style.display = 'block';

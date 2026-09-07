@@ -1644,7 +1644,8 @@ class AuthManager:
 
     def get_valid_bcp_token(self, user_id: str, force_refresh: bool = False) -> Optional[str]:
         tokens = self.get_valid_bcp_tokens(user_id, force_refresh=force_refresh)
-        return tokens.get("access_token") or tokens.get("id_token")
+        return tokens.get("id_token") or tokens.get("access_token")
+
 
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""

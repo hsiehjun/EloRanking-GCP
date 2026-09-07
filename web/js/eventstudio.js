@@ -1218,11 +1218,33 @@ async function saveTableScore(tableNum) {
   }
 
   try {
-    await window.api.saveStudioPairings(ev.id, {
-      round: currentRound,
-      pairings: roundPairings
-    });
-    alert(`Table ${tableNum} score saved!`);
+    if (!String(ev.id).startsWith("ES-")) {
+      const pid = match ? (match.id || match.bcp_pairing_id) : null;
+      const res = await window.api.submitStudioScore({
+        event_id: ev.id,
+        table: Number(tableNum) || 1,
+        round_num: Number(currentRound) || 1,
+        p1_score: p1Score,
+        p2_score: p2Score,
+        pairing_id: pid,
+        p1_name: match ? (match.p1_name || match.player1_name) : 'Player 1',
+        p2_name: match ? (match.p2_name || match.player2_name) : 'Player 2',
+        source_app: 'EventStudio'
+      });
+      if (res && res.bcp_synced) {
+        alert(`Table ${tableNum} score saved & synced to Best Coast Pairings!`);
+      } else if (res && res.bcp_notice) {
+        alert(`Table ${tableNum} score saved locally. BCP notice: ${res.bcp_notice}`);
+      } else {
+        alert(`Table ${tableNum} score saved!`);
+      }
+    } else {
+      await window.api.saveStudioPairings(ev.id, {
+        round: currentRound,
+        pairings: roundPairings
+      });
+      alert(`Table ${tableNum} score saved!`);
+    }
   } catch (err) {
     console.error("Error saving score:", err);
     alert(`Failed to save score: ${err.message || err}`);

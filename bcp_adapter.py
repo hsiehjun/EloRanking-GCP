@@ -49,7 +49,7 @@ class BcpAdapter:
                 from core import get_auth_manager
                 auth_mgr = get_auth_manager()
                 tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
-                tok = tok_dict.get("access_token") or tok_dict.get("id_token")
+                tok = tok_dict.get("id_token") or tok_dict.get("access_token")
             except Exception as auth_err:
                 logger.warning(f"Notice retrieving BCP tokens for user {user_id}: {auth_err}")
 
@@ -109,25 +109,23 @@ class BcpAdapter:
                 from core import get_auth_manager
                 auth_mgr = get_auth_manager()
                 tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
-                alt_tok = tok_dict.get("id_token") if tok == tok_dict.get("access_token") else tok_dict.get("access_token")
-                if alt_tok and alt_tok != tok:
-                    data, status, err = _do_request(alt_tok)
+                id_tok = tok_dict.get("id_token")
+                acc_tok = tok_dict.get("access_token")
+                candidates = [t for t in [id_tok, acc_tok] if t and t != tok]
+                for cand in candidates:
+                    data, status, err = _do_request(cand)
                     if data is not None or status in (200, 201, 204):
                         return data if data is not None else {}, None
 
                 # Force refresh from /oauth/token if initial tokens failed
                 fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
-                fresh_acc = fresh_dict.get("access_token")
-                if fresh_acc and fresh_acc != tok and fresh_acc != alt_tok:
-                    data, status, err = _do_request(fresh_acc)
-                    if data is not None or status in (200, 201, 204):
-                        return data if data is not None else {}, None
-
                 fresh_id = fresh_dict.get("id_token")
-                if fresh_id and fresh_id != tok and fresh_id != alt_tok and fresh_id != fresh_acc:
-                    data, status, err = _do_request(fresh_id)
-                    if data is not None or status in (200, 201, 204):
-                        return data if data is not None else {}, None
+                fresh_acc = fresh_dict.get("access_token")
+                for fresh_cand in [fresh_id, fresh_acc]:
+                    if fresh_cand and fresh_cand != tok and fresh_cand not in candidates:
+                        data, status, err = _do_request(fresh_cand)
+                        if data is not None or status in (200, 201, 204):
+                            return data if data is not None else {}, None
             except Exception as ref_err:
                 logger.warning(f"Notice during token retry / refresh for user {user_id}: {ref_err}")
 
@@ -781,8 +779,11 @@ class BcpAdapter:
         Submits match scores to BCP for a specific pairing using newapi submitScores endpoint.
         """
         clean_pid = str(pairing_id or "").strip()
-        if not clean_pid:
-            return False, "Missing pairing_id for BCP score submission"
+        if not clean_pid or clean_pid.isdigit():
+            return False, f"Invalid pairing_id '{clean_pid}' for BCP score submission"
+
+        p1_res = 2 if p1_score > p2_score else (1 if p1_score == p2_score else 0)
+        p2_res = 2 if p2_score > p1_score else (1 if p1_score == p2_score else 0)
 
         url = f"{BCP_API_BASE}/pairings/{clean_pid}/submitScores"
         payload: Dict[str, Any] = {
@@ -790,6 +791,10 @@ class BcpAdapter:
             "gameData": {
                 "player1Score": int(p1_score),
                 "player2Score": int(p2_score),
+                "player1Points": int(p1_score),
+                "player2Points": int(p2_score),
+                "player1Result": p1_res,
+                "player2Result": p2_res,
                 "metrics": []
             }
         }

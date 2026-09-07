@@ -50,6 +50,7 @@ class SubmitScorePayload(BaseModel):
     source_app: Optional[str] = "EventStudio"
     game_details: Optional[Dict[str, Any]] = None
     bcp_token: Optional[str] = None
+    pairing_id: Optional[str] = None
 
 class CreateEventPayload(BaseModel):
     name: str
@@ -2578,50 +2579,91 @@ async def api_eventstudio_get_standings(event_id: str, request: Request):
 async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Request):
     db = get_database()
     auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    token = payload.bcp_token or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     
-    # If user has a native session with linked BCP token
+    # 1. Resolve native session & user
+    auth_header = request.headers.get("Authorization", "")
+    bearer_tok = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
     session_token = request.cookies.get("session_token")
-    user = auth_mgr.get_session(session_token) if session_token else None
+    user = None
+    if session_token:
+        user = auth_mgr.get_session(session_token)
+    if not user and bearer_tok:
+        user = auth_mgr.get_session(bearer_tok)
     user_id = user["id"] if user else None
-    if not token and user:
-        token = auth_mgr.get_valid_bcp_token(user_id)
+
+    # 2. Resolve BCP token (Payload > X-BCP-Token > User Linked Token > Bearer if not native session)
+    bcp_token = payload.bcp_token or request.headers.get("X-BCP-Token")
+    if not bcp_token and user_id:
+        tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+        bcp_token = tok_dict.get("id_token") or tok_dict.get("access_token")
+    if not bcp_token and not user and bearer_tok and bearer_tok.startswith("eyJ"):
+        bcp_token = bearer_tok
+
+    # 3. Fallback to event organizer BCP token if caller has none
+    if not bcp_token and not payload.event_id.startswith("ES-"):
+        try:
+            ev_data, _ = bcp_adapter.fetch_event_details(payload.event_id)
+            if ev_data and ev_data.get("ownerId"):
+                with db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT id FROM users WHERE bcp_user_id = %s LIMIT 1;", (ev_data["ownerId"],))
+                        orow = cur.fetchone()
+                        if orow:
+                            to_toks = auth_mgr.get_valid_bcp_tokens(orow[0])
+                            bcp_token = to_toks.get("id_token") or to_toks.get("access_token")
+                            if not user_id:
+                                user_id = orow[0]
+        except Exception as oe:
+            logger.debug(f"Notice resolving TO BCP token for event {payload.event_id}: {oe}")
 
     logger.info(f"EventStudio: Submitting Table {payload.table} Round {payload.round_num} Score ({payload.p1_score} - {payload.p2_score}) Source: {payload.source_app}")
     
-    # 1. Update OmniTactica Local Studio Event Database FIRST (Local-First Guarantee)
+    # 4. Update OmniTactica Local Studio Event Database FIRST (Local-First Guarantee)
     ev = db.get_studio_event(payload.event_id)
-    bcp_pairing_id = None
+    bcp_pairing_id = payload.pairing_id if (payload.pairing_id and not str(payload.pairing_id).isdigit() and len(str(payload.pairing_id)) > 3) else None
     if ev:
         pairings_map = ev.get("pairings") or {}
         round_pairings = pairings_map.get(str(payload.round_num)) or []
         for match in round_pairings:
-            if match.get("table") == payload.table:
+            if match.get("table") == payload.table or str(match.get("table")) == str(payload.table):
                 match["p1_score"] = payload.p1_score
                 match["p2_score"] = payload.p2_score
                 match["is_done"] = True
-                bcp_pairing_id = match.get("bcp_pairing_id") or match.get("id")
+                if not bcp_pairing_id:
+                    bcp_pairing_id = match.get("bcp_pairing_id") or match.get("id")
                 break
         pairings_map[str(payload.round_num)] = round_pairings
         ev["pairings"] = pairings_map
         db.save_studio_event(ev)
 
-    # 2. Push to BCP via BcpAdapter if linked
+    # 5. Resolve live BCP pairing ID if missing for BCP-synced tournaments
+    if not bcp_pairing_id and not payload.event_id.startswith("ES-"):
+        try:
+            _, _, p_list = bcp_adapter.fetch_event_pairings(payload.event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
+            for p in p_list:
+                if p.get("table") == payload.table or str(p.get("table")) == str(payload.table):
+                    bcp_pairing_id = p.get("id") or p.get("bcp_pairing_id")
+                    break
+        except Exception as pe:
+            logger.warning(f"Notice resolving live BCP pairing ID for table {payload.table}: {pe}")
+
+    # 6. Push to BCP via BcpAdapter if pairing ID is known
     bcp_synced = False
     bcp_notice = None
-    if token and not payload.event_id.startswith("ES-"):
-        pairing_target = bcp_pairing_id or str(payload.table)
+    if bcp_pairing_id and not payload.event_id.startswith("ES-"):
         bcp_synced, bcp_err = bcp_adapter.submit_pairing_scores(
-            pairing_id=pairing_target,
+            pairing_id=bcp_pairing_id,
             p1_score=payload.p1_score,
             p2_score=payload.p2_score,
             game_data=payload.game_details or {},
             user_id=user_id,
-            explicit_token=token
+            explicit_token=bcp_token
         )
         if not bcp_synced:
             bcp_notice = bcp_err
+    elif not payload.event_id.startswith("ES-"):
+        bcp_notice = f"Could not resolve BCP pairing ID for table {payload.table} round {payload.round_num}"
+        logger.warning(f"⚠️ {bcp_notice}")
 
     return {
         "success": True,
@@ -2630,6 +2672,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         "round_num": payload.round_num,
         "p1_score": payload.p1_score,
         "p2_score": payload.p2_score,
+        "pairing_id": bcp_pairing_id,
         "source_app": payload.source_app,
         "bcp_synced": bcp_synced,
         "bcp_notice": bcp_notice

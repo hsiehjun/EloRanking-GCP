@@ -1502,8 +1502,9 @@ function renderEventPairingsRows() {
         const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
         const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
         const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
+        const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
         const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
-        actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
+        actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
       } 
       // 3. If match has an active tracker room and user is a spectator
       else if (!hasScore && hasTrackerGame && !canEdit) {
@@ -1547,7 +1548,7 @@ function renderEventPairingsRows() {
   });
 }
 
-async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id) {
+async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, pairingId = '') {
   const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
   
   let p1Fac = null;
@@ -1577,6 +1578,7 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
       event_id: eventId,
       round_num: roundNum,
       table_num: tableNum,
+      pairing_id: pairingId || null,
       p1_name: p1Name,
       p2_name: p2Name,
       p1_faction: p1Fac,
@@ -1588,7 +1590,8 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
     console.warn('Auto room connect notice:', e);
   }
 
-  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}`;
+  const pParam = pairingId ? `&pairing_id=${encodeURIComponent(pairingId)}` : '';
+  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}${pParam}`;
 }
 
 /* ==========================================================================
