@@ -1806,38 +1806,62 @@ async function populateEventPlayerDetails(regData) {
   const factionSelect = document.getElementById('player-reg-faction');
   const detachmentSelect = document.getElementById('player-reg-detachment');
 
-  if (factionSelect && factions && factions.length > 0) {
-    let matchedFaction = null;
-    if (reg.army_id) {
-      matchedFaction = factions.find(f => String(f.id).trim() === String(reg.army_id).trim());
-    }
-    if (!matchedFaction && reg.faction) {
-      const targetFac = String(reg.faction).trim().toLowerCase();
-      matchedFaction = factions.find(f => {
-        const fName = String(f.name || '').trim().toLowerCase();
-        return fName === targetFac || fName.includes(targetFac) || targetFac.includes(fName);
-      });
-    }
-    if (matchedFaction) {
-      factionSelect.value = matchedFaction.id;
-      onPlayerFactionChange(matchedFaction.id);
+  if (factionSelect) {
+    if (factions && factions.length > 0) {
+      let matchedFaction = null;
+      if (reg.army_id) {
+        matchedFaction = factions.find(f => String(f.id).trim() === String(reg.army_id).trim());
+      }
+      if (!matchedFaction && reg.faction) {
+        const targetFac = String(reg.faction).trim().toLowerCase();
+        matchedFaction = factions.find(f => {
+          const fName = String(f.name || '').trim().toLowerCase();
+          return fName === targetFac || fName.includes(targetFac) || targetFac.includes(fName);
+        });
+      }
+      if (matchedFaction) {
+        factionSelect.value = matchedFaction.id;
+        onPlayerFactionChange(matchedFaction.id);
 
-      if (detachmentSelect) {
-        const subFactions = matchedFaction.subFactions || [];
-        let matchedSub = null;
-        if (reg.sub_faction_id) {
-          matchedSub = subFactions.find(sf => String(sf.id).trim() === String(reg.sub_faction_id).trim());
+        if (detachmentSelect) {
+          const subFactions = matchedFaction.subFactions || [];
+          let matchedSub = null;
+          if (reg.sub_faction_id) {
+            matchedSub = subFactions.find(sf => String(sf.id).trim() === String(reg.sub_faction_id).trim());
+          }
+          if (!matchedSub && reg.detachment) {
+            const targetDet = String(reg.detachment).trim().toLowerCase();
+            matchedSub = subFactions.find(sf => {
+              const sfName = String(sf.name || '').trim().toLowerCase();
+              return sfName === targetDet || sfName.includes(targetDet) || targetDet.includes(sfName);
+            });
+          }
+          if (matchedSub) {
+            detachmentSelect.value = matchedSub.id;
+          } else if (reg.detachment || reg.sub_faction_id) {
+            const opt = document.createElement('option');
+            opt.value = reg.sub_faction_id || reg.detachment;
+            opt.innerText = reg.detachment || reg.sub_faction_id;
+            opt.selected = true;
+            detachmentSelect.appendChild(opt);
+            detachmentSelect.value = opt.value;
+          }
         }
-        if (!matchedSub && reg.detachment) {
-          const targetDet = String(reg.detachment).trim().toLowerCase();
-          matchedSub = subFactions.find(sf => {
-            const sfName = String(sf.name || '').trim().toLowerCase();
-            return sfName === targetDet || sfName.includes(targetDet) || targetDet.includes(sfName);
-          });
+      } else if (reg.faction || reg.army_id) {
+        const opt = document.createElement('option');
+        opt.value = reg.army_id || reg.faction;
+        opt.innerText = reg.faction || reg.army_id;
+        opt.selected = true;
+        factionSelect.appendChild(opt);
+        factionSelect.value = opt.value;
+        if (detachmentSelect && (reg.detachment || reg.sub_faction_id)) {
+          detachmentSelect.innerHTML = `<option value="${escapeHtml(reg.sub_faction_id || reg.detachment)}" selected>${escapeHtml(reg.detachment || reg.sub_faction_id)}</option>`;
         }
-        if (matchedSub) {
-          detachmentSelect.value = matchedSub.id;
-        }
+      }
+    } else if (reg.faction || reg.army_id) {
+      factionSelect.innerHTML = `<option value="${escapeHtml(reg.army_id || reg.faction)}" selected>${escapeHtml(reg.faction || reg.army_id)}</option>`;
+      if (detachmentSelect && (reg.detachment || reg.sub_faction_id)) {
+        detachmentSelect.innerHTML = `<option value="${escapeHtml(reg.sub_faction_id || reg.detachment)}" selected>${escapeHtml(reg.detachment || reg.sub_faction_id)}</option>`;
       }
     }
   }

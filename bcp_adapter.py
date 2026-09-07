@@ -515,10 +515,68 @@ class BcpAdapter:
         return False, (err or "BCP player drop failed"), None
 
     @classmethod
+    def fetch_armylist(
+        cls,
+        list_id: str,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Fetches an army list from BCP via GET /v1/armylists/{list_id}.
+        Returns (success, error, data).
+        """
+        clean_lid = str(list_id or "").strip()
+        if not clean_lid:
+            return False, "Missing list_id", None
+
+        url = f"{BCP_API_BASE}/armylists/{clean_lid}"
+        data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
+        if data and isinstance(data, dict):
+            return True, None, data
+        return False, (err or "Failed to fetch army list from BCP"), None
+
+    @classmethod
+    def fetch_event_current_player(
+        cls,
+        event_id: str,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Fetches the authenticated user's current tournament player registration from BCP
+        via GET /v1/events/{event_id}/currentPlayer.
+        If listId is present in response, also queries /v1/armylists/{listId} to fetch full armyListText.
+        """
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid:
+            return False, "Missing event_id", None
+
+        url = f"{BCP_API_BASE}/events/{clean_eid}/currentPlayer"
+        data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=explicit_token)
+        if not data or not isinstance(data, dict) or not data.get("id"):
+            return False, (err or "No current player found for event"), None
+
+        # If listId is present and armyListText is not yet populated, fetch from /v1/armylists/{listId}
+        list_id = str(data.get("listId") or "").strip()
+        if list_id and not data.get("armyListText"):
+            try:
+                ok_list, _, list_data = cls.fetch_armylist(list_id, user_id=user_id, explicit_token=explicit_token)
+                if ok_list and list_data and isinstance(list_data, dict):
+                    data["armyListText"] = list_data.get("armyListText") or list_data.get("listText") or ""
+                    if not data.get("armyId") and list_data.get("armyId"):
+                        data["armyId"] = list_data.get("armyId")
+                    if not data.get("subFactionId") and list_data.get("subFactionId"):
+                        data["subFactionId"] = list_data.get("subFactionId")
+            except Exception as ex:
+                logger.debug(f"Notice fetching army list {list_id} for current player: {ex}")
+
+        return True, None, data
+
+    @classmethod
     def resolve_event_player_id(
         cls,
         event_id: str,
-        user_id: str,
+        user_id: Optional[str] = None,
         candidate_pid: Optional[str] = None,
         explicit_token: Optional[str] = None,
         ignore_candidate: bool = False
@@ -535,9 +593,15 @@ class BcpAdapter:
             if clean_cand and clean_cand != clean_eid and not clean_cand.startswith("user_") and not clean_cand.startswith("ES-") and len(clean_cand) >= 8:
                 return clean_cand
 
-        from core import get_auth_manager
-        auth_mgr = get_auth_manager()
-        user_info = auth_mgr.get_user_by_id(user_id) if user_id else None
+        user_info = None
+        auth_mgr = None
+        try:
+            from core import get_auth_manager
+            auth_mgr = get_auth_manager()
+            user_info = auth_mgr.get_user_by_id(user_id) if user_id else None
+        except Exception as auth_ex:
+            logger.debug(f"Notice resolving user in resolve_event_player_id: {auth_ex}")
+
         bcp_user_id = str((user_info or {}).get("bcp_user_id") or (user_info or {}).get("player_id") or "").strip()
         user_email = str((user_info or {}).get("bcp_email") or (user_info or {}).get("email") or "").lower().strip()
         user_display = str((user_info or {}).get("display_name") or (user_info or {}).get("full_name") or (user_info or {}).get("name") or "").strip()
@@ -546,12 +610,24 @@ class BcpAdapter:
         u_ln = (parts[1] if len(parts) > 1 else "").strip().lower()
 
         tok = explicit_token
-        if not tok and user_id:
+        if not tok and user_id and auth_mgr:
             try:
                 tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
                 tok = tok_dict.get("access_token") or tok_dict.get("id_token")
             except Exception as ex:
                 logger.debug(f"Notice getting token for player resolution: {ex}")
+
+        # Strategy 0: Query /v1/events/{clean_eid}/currentPlayer with auth token
+        # This is the dedicated endpoint for the current user's tournament registration
+        try:
+            succ_cp, _, cp_data = cls.fetch_event_current_player(clean_eid, user_id=user_id, explicit_token=tok)
+            if succ_cp and cp_data and cp_data.get("id"):
+                cp_id = str(cp_data.get("id")).strip()
+                if cp_id and cp_id != clean_eid and not cp_id.startswith("user_"):
+                    logger.info(f"✅ Resolved BCP tournament player ID {cp_id} for event {clean_eid} via /currentPlayer")
+                    return cp_id
+        except Exception as e:
+            logger.debug(f"Notice resolving player ID via /currentPlayer: {e}")
 
         # Strategy 1: Fetch user's registered events from BCP
         # BCP returns the official tournament player record ID in myPlayer.id

@@ -627,6 +627,101 @@ def test_player_registration_state_preservation():
     print("✅ Player registration state preservation verified!")
 
 
+def test_current_player_and_armylist_live_sync():
+    """Verify BCP /events/{id}/currentPlayer and /armylists/{id} live sync for registration view."""
+    from bcp_adapter import BcpAdapter
+    from routers.community import api_community_event_registration
+
+    raw_current_player = {
+        "id": "rsoPZetp7Ejn",
+        "eventId": "sy5pqLqvkdpU",
+        "userId": "DxHDrz4LFzzb",
+        "user": {"id": "DxHDrz4LFzzb", "firstName": "John4", "lastName": "Hsieh4", "email": "hsiehjun@google.com"},
+        "checkedIn": True,
+        "dropped": False,
+        "parentFactionId": "SDmMBAJZf8",
+        "factionId": "H1zsiowQJ9",
+        "faction": {"id": "H1zsiowQJ9", "name": "Blood Angels"},
+        "subFactionId": "6a348af284eb2fad86d6ead2",
+        "subFaction": {"id": "6a348af284eb2fad86d6ead2", "name": "Disruption"},
+        "listId": "BtRNRqITthMM",
+        "listUrl": "/list/BtRNRqITthMM"
+    }
+
+    raw_armylist = {
+        "id": "BtRNRqITthMM",
+        "playerId": "rsoPZetp7Ejn",
+        "armyListText": "BLOOOOD",
+        "armyId": "H1zsiowQJ9",
+        "subFactionId": "6a348af284eb2fad86d6ead2"
+    }
+
+    def mock_execute(url, method="POST", **kwargs):
+        if "currentPlayer" in url:
+            return raw_current_player, None
+        elif "armylists/BtRNRqITthMM" in url:
+            return raw_armylist, None
+        return {}, None
+
+    with patch("bcp_adapter.BcpAdapter.execute_call", side_effect=mock_execute):
+        # 1. Direct adapter test
+        succ, err, cp_data = BcpAdapter.fetch_event_current_player("sy5pqLqvkdpU", explicit_token="mock_tok")
+        assert succ is True
+        assert cp_data["id"] == "rsoPZetp7Ejn"
+        assert cp_data["checkedIn"] is True
+        assert cp_data["factionId"] == "H1zsiowQJ9"
+        assert cp_data["armyListText"] == "BLOOOOD"
+
+        # 2. Strategy 0 in resolve_event_player_id
+        resolved_pid = BcpAdapter.resolve_event_player_id("sy5pqLqvkdpU", user_id="u1", ignore_candidate=True, explicit_token="mock_tok")
+        assert resolved_pid == "rsoPZetp7Ejn"
+
+        # 3. Community event registration endpoint test
+        mock_db = MagicMock()
+        mock_auth = MagicMock()
+        mock_auth.get_session.return_value = {
+            "id": "user_john",
+            "display_name": "John4 Hsieh4",
+            "email": "hsiehjun@google.com"
+        }
+        mock_db.get_event_details.return_value = {
+            "id": "sy5pqLqvkdpU",
+            "name": "Warhammer 40k Tournament",
+            "using_online_reg": True,
+            "ticket_price": 0.0,
+            "total_players": 16,
+            "gamesystem_id": "WGMSzfKFYA"
+        }
+        mock_db.get_user_registered_tournaments.return_value = []
+        mock_db.get_user_army_lists.return_value = []
+
+        mock_req = MagicMock()
+        mock_req.headers = {"X-BCP-Token": "test_bcp_token"}
+        mock_req.cookies = {}
+
+        with patch("routers.community.get_database", return_value=mock_db), \
+             patch("routers.community.get_auth_manager", return_value=mock_auth), \
+             patch("core.get_auth_manager", return_value=mock_auth):
+
+            res = asyncio.run(api_community_event_registration("sy5pqLqvkdpU", mock_req, token="session_123"))
+            assert res["success"] is True
+            assert res["is_registered"] is True
+            p_reg = res["player_registration"]
+            assert p_reg is not None
+            assert p_reg["player_id"] == "rsoPZetp7Ejn"
+            assert p_reg["first_name"] == "John4"
+            assert p_reg["last_name"] == "Hsieh4"
+            assert p_reg["faction"] == "Blood Angels"
+            assert p_reg["army_id"] == "H1zsiowQJ9"
+            assert p_reg["detachment"] == "Disruption"
+            assert p_reg["sub_faction_id"] == "6a348af284eb2fad86d6ead2"
+            assert p_reg["checked_in"] is True
+            assert p_reg["army_list"] == "BLOOOOD"
+            assert p_reg["has_list_submitted"] is True
+
+    print("✅ /currentPlayer and /armylists live sync verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running BCP Tournament Player Self-Management Test Suite...")
     test_bcp_adapter_player_methods()
@@ -634,4 +729,6 @@ if __name__ == "__main__":
     test_community_router_player_endpoints()
     test_frontend_player_registration_components()
     test_player_registration_state_preservation()
+    test_current_player_and_armylist_live_sync()
     print("\n🎉 ALL BCP PLAYER REGISTRATION WORKFLOW TESTS PASSED SUCCESSFULLY!")
+

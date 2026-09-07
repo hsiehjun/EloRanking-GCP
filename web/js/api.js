@@ -43,6 +43,16 @@ window.api = {
     return localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || localStorage.getItem('bcp_session_token') || cookieToken || '';
   },
 
+  getBcpToken() {
+    const tok = localStorage.getItem('bcp_jwt') ||
+                localStorage.getItem('bcp_token') ||
+                localStorage.getItem('bcp_access_token') ||
+                localStorage.getItem('bcp_session_token') ||
+                localStorage.getItem('bcp_organizer_token') ||
+                localStorage.getItem('bcp_user_token') || '';
+    return (tok && typeof tok === 'string') ? tok.trim() : '';
+  },
+
   clearAuth() {
     localStorage.removeItem('native_session_token');
     localStorage.removeItem('native_user_profile');
@@ -1118,16 +1128,20 @@ window.api = {
   // Community Hub: Event Registration Metadata & Status
   async getCommunityEventRegistration(eventId) {
     const token = this.getAuthToken();
+    const bcpToken = this.getBcpToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/registration`, { headers });
   },
 
   // Community Hub: Submit Free In-App Event Registration
   async registerCommunityEvent(eventId, payload) {
     const token = this.getAuthToken();
+    const bcpToken = this.getBcpToken();
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/register`, {
       method: 'POST',
       headers,
@@ -1143,8 +1157,10 @@ window.api = {
   // BCP: Update Player Registration Details
   async updateEventPlayer(eventId, payload) {
     const token = this.getAuthToken();
+    const bcpToken = this.getBcpToken();
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/player`, {
       method: 'POST',
       headers,
@@ -1155,8 +1171,10 @@ window.api = {
   // BCP: Submit Army List
   async submitEventArmylist(eventId, payload) {
     const token = this.getAuthToken();
+    const bcpToken = this.getBcpToken();
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/armylist`, {
       method: 'POST',
       headers,
@@ -1167,8 +1185,10 @@ window.api = {
   // BCP: Check-In Player
   async checkinEventPlayer(eventId, payload) {
     const token = this.getAuthToken();
+    const bcpToken = this.getBcpToken();
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/checkin`, {
       method: 'POST',
       headers,
@@ -1179,8 +1199,10 @@ window.api = {
   // BCP: Drop Player
   async dropEventPlayer(eventId, payload) {
     const token = this.getAuthToken();
+    const bcpToken = this.getBcpToken();
     const headers = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/drop`, {
       method: 'POST',
       headers,
@@ -1190,3 +1212,4 @@ window.api = {
 };
 
 window.API = window.api;
+window.getBcpToken = function() { return window.api?.getBcpToken?.() || ''; };

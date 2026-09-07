@@ -441,6 +441,7 @@ async def api_community_event_registration(
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     user_id = user["id"] if user else None
+    x_bcp_token = request.headers.get("X-BCP-Token")
 
     # Retrieve event from DB or fallback fetch from BCP
     clean_eid = str(event_id).strip()
@@ -554,11 +555,86 @@ async def api_community_event_registration(
         except Exception:
             is_registered = False
 
-        # Live sync from BCP if user is linked to BCP
+        # Live sync from BCP dedicated /currentPlayer endpoint
         if not clean_eid.startswith("ES-"):
             try:
                 from bcp_adapter import bcp_adapter
-                succ, _, bcp_events = bcp_adapter.fetch_user_registered_events(user["id"])
+                succ_cp, _, cp = bcp_adapter.fetch_event_current_player(
+                    clean_eid,
+                    user_id=user["id"] if user else None,
+                    explicit_token=x_bcp_token
+                )
+                if succ_cp and cp and cp.get("id"):
+                    is_registered = True
+                    cp_user = cp.get("user") if isinstance(cp.get("user"), dict) else {}
+
+                    # Faction name & ID
+                    fac_name = ""
+                    if isinstance(cp.get("faction"), dict):
+                        fac_name = cp["faction"].get("name") or ""
+                    elif isinstance(cp.get("faction"), str):
+                        fac_name = cp["faction"]
+                    if not fac_name:
+                        fac_name = cp.get("army") or ""
+
+                    fac_id = cp.get("factionId") or cp.get("armyId") or ""
+                    if not fac_id and isinstance(cp.get("faction"), dict):
+                        fac_id = cp["faction"].get("id") or ""
+
+                    # Subfaction / Detachment name & ID
+                    det_name = ""
+                    if isinstance(cp.get("subFaction"), dict):
+                        det_name = cp["subFaction"].get("name") or ""
+                    elif isinstance(cp.get("subFaction"), str):
+                        det_name = cp["subFaction"]
+                    if not det_name:
+                        det_name = cp.get("detachment") or ""
+
+                    sub_id = cp.get("subFactionId") or cp.get("sub_faction_id") or ""
+                    if not sub_id and isinstance(cp.get("subFaction"), dict):
+                        sub_id = cp["subFaction"].get("id") or ""
+
+                    cp_list_text = cp.get("armyListText") or cp.get("listText") or cp.get("armyList") or ""
+
+                    cp_reg = {
+                        "player_id": str(cp.get("id")),
+                        "first_name": cp_user.get("firstName") or fn,
+                        "last_name": cp_user.get("lastName") or ln,
+                        "team_name": (cp.get("team") or {}).get("name") if isinstance(cp.get("team"), dict) else (cp.get("teamName") or cp.get("team") or ""),
+                        "faction": fac_name,
+                        "army_id": fac_id,
+                        "detachment": det_name,
+                        "sub_faction_id": sub_id,
+                        "checked_in": bool(cp.get("checkedIn") or False),
+                        "dropped": bool(cp.get("dropped") or False),
+                        "has_list_submitted": bool(cp.get("listId") or cp_list_text),
+                        "army_list": cp_list_text,
+                        "list_id": str(cp.get("listId") or ""),
+                    }
+                    if matched_reg:
+                        for k, v in cp_reg.items():
+                            if v or k not in matched_reg:
+                                matched_reg[k] = v
+                    else:
+                        matched_reg = dict(cp_reg)
+
+                    if user:
+                        try:
+                            db.add_user_registered_tournament(user["id"], {
+                                "id": clean_eid,
+                                "bcp_event_id": clean_eid,
+                                **matched_reg
+                            })
+                        except Exception as esync_err:
+                            logger.debug(f"Syncing live /currentPlayer to DB notice: {esync_err}")
+            except Exception as cp_err:
+                logger.debug(f"Notice querying live /currentPlayer: {cp_err}")
+
+        # Live sync from BCP if user is linked to BCP
+        if not is_registered and not clean_eid.startswith("ES-"):
+            try:
+                from bcp_adapter import bcp_adapter
+                succ, _, bcp_events = bcp_adapter.fetch_user_registered_events(user["id"], explicit_token=x_bcp_token)
                 if succ and bcp_events:
                     for ev_item in bcp_events:
                         if str(ev_item.get("bcp_event_id") or ev_item.get("id") or "").strip() == clean_eid:
@@ -613,7 +689,7 @@ async def api_community_event_registration(
             from bcp_adapter import bcp_adapter
             cand_pid = str(matched_reg.get("bcp_player_id") or matched_reg.get("player_id") or "").strip()
             # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
-            resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid)
+            resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
             if resolved_pid and resolved_pid != cand_pid:
                 try:
                     db.add_user_registered_tournament(user["id"], {
@@ -982,10 +1058,11 @@ async def api_community_update_player(
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
+    x_bcp_token = request.headers.get("X-BCP-Token")
 
     from bcp_adapter import bcp_adapter
     # Resolve authentic BCP tournament player record ID
-    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid, explicit_token=x_bcp_token)
     if not clean_pid:
         raise HTTPException(
             status_code=400,
@@ -1013,20 +1090,22 @@ async def api_community_update_player(
         player_id=clean_pid,
         set_fields=set_fields,
         unset_fields=unset_fields if unset_fields else None,
-        user_id=user_id
+        user_id=user_id,
+        explicit_token=x_bcp_token
     )
 
     # Self-healing retry: If BCP returns 404 / "No player record found", re-query BCP directly and retry
     if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
         logger.warning(f"⚠️ BCP update_player returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
-        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True, explicit_token=x_bcp_token)
         if fresh_pid and fresh_pid != clean_pid:
             clean_pid = fresh_pid
             ok, err, data = bcp_adapter.update_player(
                 player_id=clean_pid,
                 set_fields=set_fields,
                 unset_fields=unset_fields if unset_fields else None,
-                user_id=user_id
+                user_id=user_id,
+                explicit_token=x_bcp_token
             )
 
     if not ok:
@@ -1096,11 +1175,12 @@ async def api_community_submit_armylist(
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
     list_text = str(payload.list_text or "").strip()
+    x_bcp_token = request.headers.get("X-BCP-Token")
     if not list_text:
         raise HTTPException(status_code=400, detail="Army list text cannot be empty")
 
     from bcp_adapter import bcp_adapter
-    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid, explicit_token=x_bcp_token)
     if not clean_pid:
         raise HTTPException(
             status_code=400,
@@ -1113,13 +1193,14 @@ async def api_community_submit_armylist(
         army_id=payload.army_id,
         sub_faction_id=payload.sub_faction_id,
         send_notification=payload.send_notification,
-        user_id=user_id
+        user_id=user_id,
+        explicit_token=x_bcp_token
     )
 
     # Self-healing retry if 404 / no player
     if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
         logger.warning(f"⚠️ BCP submit_armylist returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
-        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True, explicit_token=x_bcp_token)
         if fresh_pid and fresh_pid != clean_pid:
             clean_pid = fresh_pid
             ok, err, data = bcp_adapter.submit_armylist(
@@ -1128,7 +1209,8 @@ async def api_community_submit_armylist(
                 army_id=payload.army_id,
                 sub_faction_id=payload.sub_faction_id,
                 send_notification=payload.send_notification,
-                user_id=user_id
+                user_id=user_id,
+                explicit_token=x_bcp_token
             )
 
     if not ok:
@@ -1176,6 +1258,7 @@ async def api_community_checkin_player(
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
+    x_bcp_token = request.headers.get("X-BCP-Token")
 
     db = get_database()
     # Pre-validation: check if player has a list submitted
@@ -1198,7 +1281,7 @@ async def api_community_checkin_player(
         )
 
     from bcp_adapter import bcp_adapter
-    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid, explicit_token=x_bcp_token)
     if not clean_pid:
         raise HTTPException(
             status_code=400,
@@ -1207,18 +1290,20 @@ async def api_community_checkin_player(
 
     ok, err, data = bcp_adapter.checkin_player(
         player_id=clean_pid,
-        user_id=user_id
+        user_id=user_id,
+        explicit_token=x_bcp_token
     )
 
     # Self-healing retry if 404 / no player
     if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
         logger.warning(f"⚠️ BCP checkin_player returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
-        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True, explicit_token=x_bcp_token)
         if fresh_pid and fresh_pid != clean_pid:
             clean_pid = fresh_pid
             ok, err, data = bcp_adapter.checkin_player(
                 player_id=clean_pid,
-                user_id=user_id
+                user_id=user_id,
+                explicit_token=x_bcp_token
             )
 
     if not ok:
@@ -1261,9 +1346,10 @@ async def api_community_drop_player(
     user_id = session["id"]
     clean_eid = str(event_id).strip()
     cand_pid = str(payload.player_id or "").strip()
+    x_bcp_token = request.headers.get("X-BCP-Token")
 
     from bcp_adapter import bcp_adapter
-    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid, explicit_token=x_bcp_token)
     if not clean_pid:
         raise HTTPException(
             status_code=400,
@@ -1272,18 +1358,20 @@ async def api_community_drop_player(
 
     ok, err, data = bcp_adapter.drop_player(
         player_id=clean_pid,
-        user_id=user_id
+        user_id=user_id,
+        explicit_token=x_bcp_token
     )
 
     # Self-healing retry if 404 / no player
     if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
         logger.warning(f"⚠️ BCP drop_player returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
-        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True, explicit_token=x_bcp_token)
         if fresh_pid and fresh_pid != clean_pid:
             clean_pid = fresh_pid
             ok, err, data = bcp_adapter.drop_player(
                 player_id=clean_pid,
-                user_id=user_id
+                user_id=user_id,
+                explicit_token=x_bcp_token
             )
 
     if not ok:
