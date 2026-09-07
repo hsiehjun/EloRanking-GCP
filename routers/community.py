@@ -394,7 +394,7 @@ class CommunityEventRegisterPayload(BaseModel):
 
 
 class UpdateEventPlayerPayload(BaseModel):
-    player_id: str
+    player_id: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     team_name: Optional[str] = None
@@ -405,7 +405,7 @@ class UpdateEventPlayerPayload(BaseModel):
 
 
 class SubmitArmylistPayload(BaseModel):
-    player_id: str
+    player_id: Optional[str] = None
     list_text: str
     army_id: Optional[str] = None
     sub_faction_id: Optional[str] = None
@@ -413,12 +413,12 @@ class SubmitArmylistPayload(BaseModel):
 
 
 class CheckinPlayerPayload(BaseModel):
-    player_id: str
+    player_id: Optional[str] = None
     has_list: Optional[bool] = None
 
 
 class DropPlayerPayload(BaseModel):
-    player_id: str
+    player_id: Optional[str] = None
 
 
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
@@ -586,8 +586,25 @@ async def api_community_event_registration(
 
         player_registration = None
         if matched_reg:
+            from bcp_adapter import bcp_adapter
+            cand_pid = str(matched_reg.get("bcp_player_id") or matched_reg.get("player_id") or "").strip()
+            # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
+            resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid)
+            if resolved_pid and resolved_pid != cand_pid:
+                try:
+                    db.add_user_registered_tournament(user["id"], {
+                        "id": clean_eid,
+                        "bcp_event_id": clean_eid,
+                        "player_id": resolved_pid,
+                        "bcp_player_id": resolved_pid
+                    })
+                except Exception as ex_db:
+                    logger.debug(f"Failed to auto-heal player_id in DB: {ex_db}")
+
+            actual_pid = resolved_pid or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
+
             player_registration = {
-                "player_id": str(matched_reg.get("player_id") or matched_reg.get("id") or ""),
+                "player_id": actual_pid,
                 "first_name": matched_reg.get("first_name") or fn,
                 "last_name": matched_reg.get("last_name") or ln,
                 "team_name": matched_reg.get("team_name") or matched_reg.get("team") or "",
@@ -935,11 +952,17 @@ async def api_community_update_player(
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
-    clean_pid = str(payload.player_id).strip()
-    if not clean_pid:
-        raise HTTPException(status_code=400, detail="Missing player_id for player update")
+    cand_pid = str(payload.player_id or "").strip()
 
     from bcp_adapter import bcp_adapter
+    # Resolve authentic BCP tournament player record ID
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    if not clean_pid:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find your player registration record for this tournament on Best Coast Pairings."
+        )
+
     set_fields: Dict[str, Any] = {}
     if payload.first_name is not None:
         set_fields["firstName"] = payload.first_name.strip()
@@ -963,6 +986,20 @@ async def api_community_update_player(
         unset_fields=unset_fields if unset_fields else None,
         user_id=user_id
     )
+
+    # Self-healing retry: If BCP returns 404 / "No player record found", re-query BCP directly and retry
+    if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
+        logger.warning(f"⚠️ BCP update_player returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        if fresh_pid and fresh_pid != clean_pid:
+            clean_pid = fresh_pid
+            ok, err, data = bcp_adapter.update_player(
+                player_id=clean_pid,
+                set_fields=set_fields,
+                unset_fields=unset_fields if unset_fields else None,
+                user_id=user_id
+            )
+
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to update player details on BCP")
 
@@ -976,6 +1013,7 @@ async def api_community_update_player(
             "bcp_event_id": clean_eid,
             "id": clean_eid,
             "player_id": clean_pid,
+            "bcp_player_id": clean_pid,
             "first_name": fn,
             "last_name": ln,
             "name": full_name,
@@ -989,6 +1027,7 @@ async def api_community_update_player(
     return {
         "success": True,
         "message": "Player details updated successfully",
+        "player_id": clean_pid,
         "data": data
     }
 
@@ -1006,14 +1045,19 @@ async def api_community_submit_armylist(
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
-    clean_pid = str(payload.player_id).strip()
+    cand_pid = str(payload.player_id or "").strip()
     list_text = str(payload.list_text or "").strip()
-    if not clean_pid:
-        raise HTTPException(status_code=400, detail="Missing player_id for army list submission")
     if not list_text:
         raise HTTPException(status_code=400, detail="Army list text cannot be empty")
 
     from bcp_adapter import bcp_adapter
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    if not clean_pid:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find your player registration record for this tournament on Best Coast Pairings."
+        )
+
     ok, err, data = bcp_adapter.submit_armylist(
         player_id=clean_pid,
         list_text=list_text,
@@ -1022,6 +1066,22 @@ async def api_community_submit_armylist(
         send_notification=payload.send_notification,
         user_id=user_id
     )
+
+    # Self-healing retry if 404 / no player
+    if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
+        logger.warning(f"⚠️ BCP submit_armylist returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        if fresh_pid and fresh_pid != clean_pid:
+            clean_pid = fresh_pid
+            ok, err, data = bcp_adapter.submit_armylist(
+                player_id=clean_pid,
+                list_text=list_text,
+                army_id=payload.army_id,
+                sub_faction_id=payload.sub_faction_id,
+                send_notification=payload.send_notification,
+                user_id=user_id
+            )
+
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to submit army list to BCP")
 
@@ -1032,6 +1092,7 @@ async def api_community_submit_armylist(
             "bcp_event_id": clean_eid,
             "id": clean_eid,
             "player_id": clean_pid,
+            "bcp_player_id": clean_pid,
             "army_list": list_text,
             "has_list_submitted": True
         })
@@ -1041,6 +1102,7 @@ async def api_community_submit_armylist(
     return {
         "success": True,
         "message": "Army list submitted successfully to BCP",
+        "player_id": clean_pid,
         "data": data
     }
 
@@ -1059,9 +1121,7 @@ async def api_community_checkin_player(
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
-    clean_pid = str(payload.player_id).strip()
-    if not clean_pid:
-        raise HTTPException(status_code=400, detail="Missing player_id for check-in")
+    cand_pid = str(payload.player_id or "").strip()
 
     db = get_database()
     # Pre-validation: check if player has a list submitted
@@ -1084,10 +1144,29 @@ async def api_community_checkin_player(
         )
 
     from bcp_adapter import bcp_adapter
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    if not clean_pid:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find your player registration record for this tournament on Best Coast Pairings."
+        )
+
     ok, err, data = bcp_adapter.checkin_player(
         player_id=clean_pid,
         user_id=user_id
     )
+
+    # Self-healing retry if 404 / no player
+    if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
+        logger.warning(f"⚠️ BCP checkin_player returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        if fresh_pid and fresh_pid != clean_pid:
+            clean_pid = fresh_pid
+            ok, err, data = bcp_adapter.checkin_player(
+                player_id=clean_pid,
+                user_id=user_id
+            )
+
     if not ok:
         err_msg = err or "Failed to check in to BCP"
         if "list" in err_msg.lower():
@@ -1100,6 +1179,7 @@ async def api_community_checkin_player(
             "bcp_event_id": clean_eid,
             "id": clean_eid,
             "player_id": clean_pid,
+            "bcp_player_id": clean_pid,
             "checked_in": True
         })
     except Exception as dberr:
@@ -1108,6 +1188,7 @@ async def api_community_checkin_player(
     return {
         "success": True,
         "message": "Successfully checked in to tournament on BCP",
+        "player_id": clean_pid,
         "data": data
     }
 
@@ -1125,15 +1206,32 @@ async def api_community_drop_player(
     session = _get_user_session_or_401(request, token)
     user_id = session["id"]
     clean_eid = str(event_id).strip()
-    clean_pid = str(payload.player_id).strip()
-    if not clean_pid:
-        raise HTTPException(status_code=400, detail="Missing player_id for tournament drop")
+    cand_pid = str(payload.player_id or "").strip()
 
     from bcp_adapter import bcp_adapter
+    clean_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, candidate_pid=cand_pid)
+    if not clean_pid:
+        raise HTTPException(
+            status_code=400,
+            detail="Could not find your player registration record for this tournament on Best Coast Pairings."
+        )
+
     ok, err, data = bcp_adapter.drop_player(
         player_id=clean_pid,
         user_id=user_id
     )
+
+    # Self-healing retry if 404 / no player
+    if not ok and err and ("no player" in err.lower() or "404" in err.lower()):
+        logger.warning(f"⚠️ BCP drop_player returned '{err}' for player {clean_pid}. Attempting fresh resolution...")
+        fresh_pid = bcp_adapter.resolve_event_player_id(clean_eid, user_id, ignore_candidate=True)
+        if fresh_pid and fresh_pid != clean_pid:
+            clean_pid = fresh_pid
+            ok, err, data = bcp_adapter.drop_player(
+                player_id=clean_pid,
+                user_id=user_id
+            )
+
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to drop from tournament on BCP")
 
@@ -1144,6 +1242,7 @@ async def api_community_drop_player(
             "bcp_event_id": clean_eid,
             "id": clean_eid,
             "player_id": clean_pid,
+            "bcp_player_id": clean_pid,
             "dropped": True
         })
     except Exception as dberr:
@@ -1152,6 +1251,7 @@ async def api_community_drop_player(
     return {
         "success": True,
         "message": "Successfully dropped from tournament on BCP",
+        "player_id": clean_pid,
         "data": data
     }
 

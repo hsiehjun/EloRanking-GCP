@@ -515,6 +515,122 @@ class BcpAdapter:
         return False, (err or "BCP player drop failed"), None
 
     @classmethod
+    def resolve_event_player_id(
+        cls,
+        event_id: str,
+        user_id: str,
+        candidate_pid: Optional[str] = None,
+        explicit_token: Optional[str] = None,
+        ignore_candidate: bool = False
+    ) -> Optional[str]:
+        """
+        Resolves the authentic BCP tournament player record ID (e.g. '9oEfu25ccjqE')
+        for a specific event, ensuring candidate IDs like event_id or internal user_id are never mistaken for player IDs.
+        """
+        clean_eid = str(event_id or "").strip()
+        clean_cand = str(candidate_pid or "").strip()
+
+        # If candidate_pid looks like a valid BCP player ID (not event_id, not user_id)
+        if not ignore_candidate:
+            if clean_cand and clean_cand != clean_eid and not clean_cand.startswith("user_") and not clean_cand.startswith("ES-") and len(clean_cand) >= 8:
+                return clean_cand
+
+        from core import get_auth_manager
+        auth_mgr = get_auth_manager()
+        user_info = auth_mgr.get_user_by_id(user_id) if user_id else None
+        bcp_user_id = str((user_info or {}).get("bcp_user_id") or (user_info or {}).get("player_id") or "").strip()
+        user_email = str((user_info or {}).get("bcp_email") or (user_info or {}).get("email") or "").lower().strip()
+        user_display = str((user_info or {}).get("display_name") or (user_info or {}).get("full_name") or (user_info or {}).get("name") or "").strip()
+        parts = user_display.split(" ", 1) if user_display else ["", ""]
+        u_fn = parts[0].strip().lower()
+        u_ln = (parts[1] if len(parts) > 1 else "").strip().lower()
+
+        tok = explicit_token
+        if not tok and user_id:
+            try:
+                tok_dict = auth_mgr.get_valid_bcp_tokens(user_id)
+                tok = tok_dict.get("access_token") or tok_dict.get("id_token")
+            except Exception as ex:
+                logger.debug(f"Notice getting token for player resolution: {ex}")
+
+        # Strategy 1: Fetch user's registered events from BCP
+        # BCP returns the official tournament player record ID in myPlayer.id
+        try:
+            succ, _, events = cls.fetch_user_registered_events(user_id, explicit_token=tok)
+            if succ and events:
+                for ev in events:
+                    if str(ev.get("bcp_event_id") or ev.get("id") or "").strip() == clean_eid:
+                        pid = str(ev.get("player_id") or "").strip()
+                        if pid and pid != clean_eid and not pid.startswith("user_"):
+                            logger.info(f"✅ Resolved BCP tournament player ID {pid} for event {clean_eid} via fetch_user_registered_events")
+                            return pid
+        except Exception as e:
+            logger.debug(f"Notice resolving player ID via registered events: {e}")
+
+        # Strategy 2: Query event players from BCP /v1/events/{event_id}/players with user auth token
+        try:
+            url = f"{BCP_API_BASE}/events/{clean_eid}/players?limit=2500"
+            data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=tok, allow_unauthenticated=True)
+            raw_players = []
+            if isinstance(data, dict):
+                raw_players = data.get("data") or data.get("players") or data.get("active") or []
+            elif isinstance(data, list):
+                raw_players = data
+
+            for p in (raw_players or []):
+                p_uid = str(p.get("userId") or p.get("user_id") or (p.get("user") or {}).get("id") or "").strip()
+                p_em = str((p.get("user") or {}).get("email") or p.get("email") or "").strip().lower()
+                p_fn = str((p.get("user") or {}).get("firstName") or p.get("firstName") or "").strip().lower()
+                p_ln = str((p.get("user") or {}).get("lastName") or p.get("lastName") or "").strip().lower()
+
+                matches = False
+                if bcp_user_id and p_uid and p_uid == bcp_user_id:
+                    matches = True
+                elif user_email and p_em and p_em == user_email:
+                    matches = True
+                elif u_fn and u_ln and p_fn == u_fn and p_ln == u_ln:
+                    matches = True
+
+                if matches:
+                    pid = str(p.get("id") or p.get("_id") or p.get("playerId") or "").strip()
+                    if pid and pid != clean_eid:
+                        logger.info(f"✅ Resolved BCP tournament player ID {pid} for event {clean_eid} via /events/{clean_eid}/players")
+                        return pid
+        except Exception as e:
+            logger.debug(f"Notice resolving player ID via event players endpoint: {e}")
+
+        # Strategy 3: Query scraper's fetch_event_players
+        try:
+            from scraper import BestCoastPairingsScraper
+            scraper = BestCoastPairingsScraper()
+            players = scraper.fetch_event_players(clean_eid)
+            for p in (players or []):
+                p_uid = str(p.get("userId") or p.get("user_id") or (p.get("user") or {}).get("id") or "").strip()
+                p_em = str((p.get("user") or {}).get("email") or p.get("email") or "").strip().lower()
+                p_fn = str((p.get("user") or {}).get("firstName") or p.get("firstName") or "").strip().lower()
+                p_ln = str((p.get("user") or {}).get("lastName") or p.get("lastName") or "").strip().lower()
+
+                matches = False
+                if bcp_user_id and p_uid and p_uid == bcp_user_id:
+                    matches = True
+                elif user_email and p_em and p_em == user_email:
+                    matches = True
+                elif u_fn and u_ln and p_fn == u_fn and p_ln == u_ln:
+                    matches = True
+
+                if matches:
+                    pid = str(p.get("id") or p.get("_id") or p.get("playerId") or "").strip()
+                    if pid and pid != clean_eid:
+                        logger.info(f"✅ Resolved BCP tournament player ID {pid} for event {clean_eid} via scraper")
+                        return pid
+        except Exception as e:
+            logger.debug(f"Notice resolving player ID via scraper: {e}")
+
+        if not ignore_candidate and clean_cand and clean_cand != clean_eid and not clean_cand.startswith("user_") and not clean_cand.startswith("ES-"):
+            return clean_cand
+        return None
+
+    @classmethod
     def submit_pairing_scores(
         cls,
         pairing_id: str,
@@ -690,6 +806,7 @@ class BcpAdapter:
             events_list.append({
                 "bcp_event_id": ev_id,
                 "player_id": pid,
+                "bcp_player_id": pid,
                 "first_name": fn,
                 "last_name": ln,
                 "team_name": team_name,

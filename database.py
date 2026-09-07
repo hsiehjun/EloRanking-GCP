@@ -974,7 +974,7 @@ class PostgresDatabase:
             logger.debug(f"ensure_tracker_table batch notice: {err}")
 
     def _ensure_event_participant_columns(self):
-        """Guarantees detachment, army_list, and has_list_submitted columns exist in event_participants."""
+        """Guarantees detachment, army_list, has_list_submitted, and bcp_player_id columns exist in event_participants."""
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -983,6 +983,7 @@ class PostgresDatabase:
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS detachment TEXT;
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list TEXT;
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS has_list_submitted BOOLEAN DEFAULT FALSE;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS bcp_player_id TEXT;
                     """)
                 conn.commit()
         except Exception as err:
@@ -3808,7 +3809,7 @@ class PostgresDatabase:
             return self._query_user_registered_tournaments(user_id)
         except Exception as e:
             err_str = str(e).lower()
-            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "undefinedcolumn" in err_str:
+            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "bcp_player_id" in err_str or "undefinedcolumn" in err_str:
                 self._ensure_event_participant_columns()
                 try:
                     return self._query_user_registered_tournaments(user_id)
@@ -3839,6 +3840,8 @@ class PostgresDatabase:
                 SELECT 
                     e.id,
                     e.id AS bcp_event_id,
+                    COALESCE(NULLIF(ep.bcp_player_id, ''), NULLIF(ep.player_id, ''), '') AS player_id,
+                    COALESCE(ep.bcp_player_id, '') AS bcp_player_id,
                     e.name AS event_name,
                     e.name,
                     e.event_date,
@@ -3973,6 +3976,8 @@ class PostgresDatabase:
                     rounds = int(ev.get("rounds") or ev.get("numberOfRounds") or ev.get("numRounds") or 5)
                     total_players = int(ev.get("total_players") or ev.get("totalPlayers") or ev.get("capacity") or 0)
                     player_id_to_use = str(ev.get("player_id") or target_pid or user_id).strip()
+                    bcp_pid_cand = str(ev.get("bcp_player_id") or ev.get("player_id") or "").strip()
+                    bcp_pid = bcp_pid_cand if (bcp_pid_cand and bcp_pid_cand != bcp_event_id and not bcp_pid_cand.startswith("user_")) else None
 
                     # 1. Upsert into canonical events table
                     cursor.execute("""
@@ -4004,10 +4009,10 @@ class PostgresDatabase:
                     cursor.execute("""
                     INSERT INTO event_participants (
                         event_id, player_id, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted
+                        detachment, army_list, has_list_submitted, bcp_player_id
                     ) VALUES (
                         %s, %s, %s, %s, %s,
-                        %s, %s, %s
+                        %s, %s, %s, %s
                     )
                     ON CONFLICT (event_id, player_id) DO UPDATE SET
                         full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
@@ -4015,10 +4020,11 @@ class PostgresDatabase:
                         checked_in = EXCLUDED.checked_in,
                         detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
                         army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                        has_list_submitted = EXCLUDED.has_list_submitted;
+                        has_list_submitted = EXCLUDED.has_list_submitted,
+                        bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                     """, (
                         bcp_event_id, player_id_to_use, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted
+                        detachment, army_list, has_list_submitted, bcp_pid
                     ))
 
                     # If target_pid is different from user_id, also ensure user_id record is synced
@@ -4026,10 +4032,10 @@ class PostgresDatabase:
                         cursor.execute("""
                         INSERT INTO event_participants (
                             event_id, player_id, full_name, faction, checked_in,
-                            detachment, army_list, has_list_submitted
+                            detachment, army_list, has_list_submitted, bcp_player_id
                         ) VALUES (
                             %s, %s, %s, %s, %s,
-                            %s, %s, %s
+                            %s, %s, %s, %s
                         )
                         ON CONFLICT (event_id, player_id) DO UPDATE SET
                             full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
@@ -4037,10 +4043,11 @@ class PostgresDatabase:
                             checked_in = EXCLUDED.checked_in,
                             detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
                             army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                            has_list_submitted = EXCLUDED.has_list_submitted;
+                            has_list_submitted = EXCLUDED.has_list_submitted,
+                            bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                         """, (
                             bcp_event_id, user_id, full_name, faction, checked_in,
-                            detachment, army_list, has_list_submitted
+                            detachment, army_list, has_list_submitted, bcp_pid
                         ))
 
             conn.commit()
@@ -4103,6 +4110,8 @@ class PostgresDatabase:
         rounds = int(event_data.get("rounds") or event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds") or 5)
         total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or event_data.get("capacity") or 0)
         player_id_to_use = str(event_data.get("player_id") or target_pid or user_id).strip()
+        bcp_pid_cand = str(event_data.get("bcp_player_id") or event_data.get("player_id") or "").strip()
+        bcp_pid = bcp_pid_cand if (bcp_pid_cand and bcp_pid_cand != bcp_event_id and not bcp_pid_cand.startswith("user_")) else None
 
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
@@ -4134,10 +4143,10 @@ class PostgresDatabase:
                 cursor.execute("""
                 INSERT INTO event_participants (
                     event_id, player_id, full_name, faction, checked_in,
-                    detachment, army_list, has_list_submitted
+                    detachment, army_list, has_list_submitted, bcp_player_id
                 ) VALUES (
                     %s, %s, %s, %s, %s,
-                    %s, %s, %s
+                    %s, %s, %s, %s
                 )
                 ON CONFLICT (event_id, player_id) DO UPDATE SET
                     full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
@@ -4145,20 +4154,21 @@ class PostgresDatabase:
                     checked_in = EXCLUDED.checked_in,
                     detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
                     army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                    has_list_submitted = EXCLUDED.has_list_submitted;
+                    has_list_submitted = EXCLUDED.has_list_submitted,
+                    bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                 """, (
                     bcp_event_id, player_id_to_use, full_name, faction, checked_in,
-                    detachment, army_list, has_list_submitted
+                    detachment, army_list, has_list_submitted, bcp_pid
                 ))
 
                 if user_id != player_id_to_use:
                     cursor.execute("""
                     INSERT INTO event_participants (
                         event_id, player_id, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted
+                        detachment, army_list, has_list_submitted, bcp_player_id
                     ) VALUES (
                         %s, %s, %s, %s, %s,
-                        %s, %s, %s
+                        %s, %s, %s, %s
                     )
                     ON CONFLICT (event_id, player_id) DO UPDATE SET
                         full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
@@ -4166,10 +4176,11 @@ class PostgresDatabase:
                         checked_in = EXCLUDED.checked_in,
                         detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
                         army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                        has_list_submitted = EXCLUDED.has_list_submitted;
+                        has_list_submitted = EXCLUDED.has_list_submitted,
+                        bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                     """, (
                         bcp_event_id, user_id, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted
+                        detachment, army_list, has_list_submitted, bcp_pid
                     ))
             conn.commit()
         return True

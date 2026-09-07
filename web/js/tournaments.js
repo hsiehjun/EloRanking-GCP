@@ -1925,10 +1925,9 @@ async function handleEventPlayerUpdate(e) {
   if (e) e.preventDefault();
   if (!currentOpenEventId || !currentEventRegistration) return;
   const reg = currentEventRegistration.player_registration || {};
-  const pid = reg.player_id;
-  if (!pid) {
-    alert("Missing player ID on tournament roster.");
-    return;
+  let pid = reg.player_id || '';
+  if (pid === currentOpenEventId || pid.startsWith('user_')) {
+    pid = '';
   }
 
   const fn = (document.getElementById('player-reg-firstname')?.value || '').trim();
@@ -1964,6 +1963,9 @@ async function handleEventPlayerUpdate(e) {
       if (typeof showToast === 'function') {
         showToast('Registration details updated successfully on BCP!', 'success');
       }
+      if (res.player_id) {
+        reg.player_id = res.player_id;
+      }
       reg.first_name = fn;
       reg.last_name = ln;
       reg.team_name = team;
@@ -1988,10 +1990,9 @@ async function handleEventPlayerUpdate(e) {
 async function handleEventPlayerSubmitList() {
   if (!currentOpenEventId || !currentEventRegistration) return;
   const reg = currentEventRegistration.player_registration || {};
-  const pid = reg.player_id;
-  if (!pid) {
-    alert("Missing player ID on tournament roster.");
-    return;
+  let pid = reg.player_id || '';
+  if (pid === currentOpenEventId || pid.startsWith('user_')) {
+    pid = '';
   }
 
   const listText = (document.getElementById('player-reg-list-text')?.value || '').trim();
@@ -2024,6 +2025,9 @@ async function handleEventPlayerSubmitList() {
     if (res && res.success) {
       if (typeof showToast === 'function') {
         showToast('Army list submitted successfully to Best Coast Pairings!', 'success');
+      }
+      if (res.player_id) {
+        reg.player_id = res.player_id;
       }
       reg.has_list_submitted = true;
       reg.army_list = listText;
@@ -2072,10 +2076,9 @@ async function handleEventPlayerSubmitList() {
 async function handleEventPlayerCheckin() {
   if (!currentOpenEventId || !currentEventRegistration) return;
   const reg = currentEventRegistration.player_registration || {};
-  const pid = reg.player_id;
-  if (!pid) {
-    alert("Missing player ID on tournament roster.");
-    return;
+  let pid = reg.player_id || '';
+  if (pid === currentOpenEventId || pid.startsWith('user_')) {
+    pid = '';
   }
 
   if (reg.checked_in) {
@@ -2126,6 +2129,9 @@ async function handleEventPlayerCheckin() {
       if (typeof showToast === 'function') {
         showToast('Successfully checked in to tournament on Best Coast Pairings!', 'success');
       }
+      if (res.player_id) {
+        reg.player_id = res.player_id;
+      }
       reg.checked_in = true;
       populateEventPlayerDetails(currentEventRegistration);
       window.dispatchEvent(new CustomEvent('tournaments-updated'));
@@ -2148,10 +2154,9 @@ async function handleEventPlayerCheckin() {
 async function handleEventPlayerDrop() {
   if (!currentOpenEventId || !currentEventRegistration) return;
   const reg = currentEventRegistration.player_registration || {};
-  const pid = reg.player_id;
-  if (!pid) {
-    alert("Missing player ID on tournament roster.");
-    return;
+  let pid = reg.player_id || '';
+  if (pid === currentOpenEventId || pid.startsWith('user_')) {
+    pid = '';
   }
 
   const evName = (currentEventData && currentEventData.name) || 'Tournament';
@@ -2174,6 +2179,9 @@ async function handleEventPlayerDrop() {
     if (res && res.success) {
       if (typeof showToast === 'function') {
         showToast('Successfully dropped from tournament on BCP.', 'info');
+      }
+      if (res.player_id) {
+        reg.player_id = res.player_id;
       }
       reg.dropped = true;
       populateEventPlayerDetails(currentEventRegistration);

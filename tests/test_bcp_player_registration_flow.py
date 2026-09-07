@@ -366,9 +366,122 @@ def test_frontend_player_registration_components():
     print("✅ Frontend player registration components and minified bundle verified!")
 
 
+def test_bcp_player_id_resolution():
+    """Verify authentic BCP player ID resolution, fast rejection of event/user IDs, and self-healing retries."""
+    from bcp_adapter import BcpAdapter
+    from routers.community import (
+        api_community_update_player,
+        api_community_event_registration,
+        UpdateEventPlayerPayload
+    )
+
+    event_id = "Xeqy73dRB0LL"
+    real_player_id = "9oEfu25ccjqE"
+    user_id = "user_hsiehjun"
+
+    mock_auth = MagicMock()
+    mock_auth.get_user_by_id.return_value = {
+        "id": user_id,
+        "bcp_user_id": "3448a468-90c1-7094-1f63-b06190b0e2bd",
+        "email": "swimgeek751@gmail.com",
+        "display_name": "Jun Hsieh"
+    }
+    mock_auth.get_session.return_value = {
+        "id": user_id,
+        "bcp_user_id": "3448a468-90c1-7094-1f63-b06190b0e2bd",
+        "email": "swimgeek751@gmail.com",
+        "display_name": "Jun Hsieh"
+    }
+    mock_auth.get_valid_bcp_tokens.return_value = {"access_token": "mock_tok"}
+
+    with patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("auth.get_auth_manager", return_value=mock_auth):
+
+        # 1. Candidate is already a valid player ID
+        res_valid = BcpAdapter.resolve_event_player_id(event_id, user_id, candidate_pid=real_player_id)
+        assert res_valid == real_player_id, f"Expected {real_player_id}, got {res_valid}"
+
+        # 2. Candidate is equal to event_id (the bug that caused 404!)
+        with patch("bcp_adapter.BcpAdapter.fetch_user_registered_events") as mock_fetch:
+            mock_fetch.return_value = (True, None, [
+                {"bcp_event_id": event_id, "player_id": real_player_id, "bcp_player_id": real_player_id}
+            ])
+            res_resolved = BcpAdapter.resolve_event_player_id(event_id, user_id, candidate_pid=event_id)
+            assert res_resolved == real_player_id, f"Expected {real_player_id}, got {res_resolved}"
+            assert res_resolved != event_id
+
+        # 3. Candidate is internal user ID
+        with patch("bcp_adapter.BcpAdapter.fetch_user_registered_events") as mock_fetch:
+            mock_fetch.return_value = (True, None, [
+                {"bcp_event_id": event_id, "player_id": real_player_id, "bcp_player_id": real_player_id}
+            ])
+            res_user = BcpAdapter.resolve_event_player_id(event_id, user_id, candidate_pid="user_hsiehjun")
+            assert res_user == real_player_id
+
+        # 4. Strategy 2 resolution via /events/{event_id}/players endpoint
+        with patch("bcp_adapter.BcpAdapter.fetch_user_registered_events", return_value=(False, "Failed", [])), \
+             patch("bcp_adapter.BcpAdapter.execute_call") as mock_exec:
+            mock_exec.return_value = ({
+                "data": [
+                    {
+                        "id": real_player_id,
+                        "userId": "3448a468-90c1-7094-1f63-b06190b0e2bd",
+                        "user": {"firstName": "Jun", "lastName": "Hsieh", "email": "swimgeek751@gmail.com"}
+                    }
+                ]
+            }, None)
+            res_strat2 = BcpAdapter.resolve_event_player_id(event_id, user_id, candidate_pid=None)
+            assert res_strat2 == real_player_id
+
+    # 5. api_community_update_player with candidate equal to event_id resolves and self-heals
+    mock_db = MagicMock()
+    mock_db.get_tournament_by_id.return_value = {"id": event_id, "name": "hsiehjun test"}
+    mock_req = MagicMock()
+    mock_req.headers = {}
+    mock_req.cookies = {}
+
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.resolve_event_player_id", return_value=real_player_id), \
+         patch("bcp_adapter.bcp_adapter.update_player", return_value=(True, None, {"success": True})) as mock_upd:
+        
+        upd_payload = UpdateEventPlayerPayload(
+            player_id=event_id,  # Client mistakenly passes event_id
+            first_name="Jun",
+            last_name="Hsieh"
+        )
+        res_upd = asyncio.run(api_community_update_player(event_id, upd_payload, mock_req, token="test_token"))
+        assert res_upd["success"] is True
+        assert res_upd["player_id"] == real_player_id
+        # Verify bcp_adapter was called with the REAL player ID, NOT the event ID
+        assert mock_upd.call_args[1]["player_id"] == real_player_id
+
+    # 6. api_community_event_registration heals player_id in DB if it was event_id
+    mock_db.get_user_registered_tournaments.return_value = [
+        {"id": event_id, "bcp_event_id": event_id, "player_id": event_id}
+    ]
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.resolve_event_player_id", return_value=real_player_id):
+        
+        reg_res = asyncio.run(api_community_event_registration(event_id, mock_req, token="test_token"))
+        assert reg_res["success"] is True
+        assert reg_res["player_registration"]["player_id"] == real_player_id
+        # Verify db.add_user_registered_tournament was called to heal the DB
+        assert mock_db.add_user_registered_tournament.called
+        heal_call = mock_db.add_user_registered_tournament.call_args[0][1]
+        assert heal_call["player_id"] == real_player_id
+        assert heal_call["bcp_player_id"] == real_player_id
+
+    print("✅ BCP authentic player ID resolution and self-healing verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running BCP Tournament Player Self-Management Test Suite...")
     test_bcp_adapter_player_methods()
+    test_bcp_player_id_resolution()
     test_community_router_player_endpoints()
     test_frontend_player_registration_components()
     print("\n🎉 ALL BCP PLAYER REGISTRATION WORKFLOW TESTS PASSED SUCCESSFULLY!")
