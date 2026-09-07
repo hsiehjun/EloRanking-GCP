@@ -1133,6 +1133,59 @@ window.api = {
       headers,
       body: JSON.stringify(payload)
     });
+  },
+
+  // BCP: Fetch Factions and Detachments for Gamesystem
+  async getGamesystemFactions(gamesystemId = 'WGMSzfKFYA') {
+    return this._fetchJson(`/api/community/gamesystems/${encodeURIComponent(gamesystemId)}/factions`);
+  },
+
+  // BCP: Update Player Registration Details
+  async updateEventPlayer(eventId, payload) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/player`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // BCP: Submit Army List
+  async submitEventArmylist(eventId, payload) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/armylist`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // BCP: Check-In Player
+  async checkinEventPlayer(eventId, payload) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/checkin`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // BCP: Drop Player
+  async dropEventPlayer(eventId, payload) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/drop`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
   }
 };
 

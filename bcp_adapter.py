@@ -3,6 +3,7 @@ Best Coast Pairings (BCP) newapi Decoupled Adapter
 Provides typed, reliable, and fault-tolerant interactions with BCP's modern REST API.
 """
 import os
+import time
 import json
 import logging
 import urllib.request
@@ -28,6 +29,7 @@ class BcpAdapter:
     Adapter for Best Coast Pairings newprod-api endpoints.
     Encapsulates token refresh, error handling, and domain mapping.
     """
+    _factions_cache: Dict[str, Tuple[float, List[Dict[str, Any]]]] = {}
 
     @staticmethod
     def execute_call(
@@ -365,6 +367,154 @@ class BcpAdapter:
         return False, (err or err2 or "Failed to remove player from BCP")
 
     @classmethod
+    def fetch_gamesystem_factions(
+        cls,
+        gamesystem_id: str = "WGMSzfKFYA"
+    ) -> Tuple[bool, Optional[str], List[Dict[str, Any]]]:
+        """
+        Fetches the list of official factions and their subfactions (detachments)
+        for a gamesystem from BCP GET /v1/gamesystems/{system_id}/factions.
+        Caches in-memory with a 24-hour TTL.
+        """
+        clean_sid = str(gamesystem_id or "WGMSzfKFYA").strip()
+        now = time.time()
+        if clean_sid in cls._factions_cache:
+            ts, cached_factions = cls._factions_cache[clean_sid]
+            if (now - ts) < 86400:
+                return True, None, cached_factions
+
+        url = f"{BCP_API_BASE}/gamesystems/{clean_sid}/factions?limit=100&active=true"
+        data, err = cls.execute_call(url, method="GET", allow_unauthenticated=True)
+        if data is not None or not err:
+            items = data.get("data") if isinstance(data, dict) and "data" in data else (
+                data if isinstance(data, list) else []
+            )
+            cls._factions_cache[clean_sid] = (now, items)
+            logger.info(f"✅ Fetched and cached {len(items)} factions for gamesystem {clean_sid} from BCP")
+            return True, None, items
+
+        return False, (err or f"Failed to fetch factions for gamesystem {clean_sid}"), []
+
+    @classmethod
+    def update_player(
+        cls,
+        player_id: str,
+        set_fields: Dict[str, Any],
+        unset_fields: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Updates an existing player registration on BCP via POST /v1/players/{player_id}
+        using MongoDB-style set and unset maps.
+        """
+        clean_pid = str(player_id or "").strip()
+        if not clean_pid:
+            return False, "Missing player_id for player update", None
+
+        url = f"{BCP_API_BASE}/players/{clean_pid}"
+        payload: Dict[str, Any] = {
+            "set": set_fields or {}
+        }
+        if unset_fields:
+            payload["unset"] = unset_fields
+
+        data, err = cls.execute_call(url, method="POST", json_data=payload, user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            logger.info(f"✅ Successfully updated player {clean_pid} on BCP via POST /players/{clean_pid}")
+            return True, None, (data if data is not None else {})
+
+        return False, (err or f"Failed to update player {clean_pid} on BCP"), None
+
+    @classmethod
+    def submit_armylist(
+        cls,
+        player_id: str,
+        list_text: str,
+        army_id: Optional[str] = None,
+        sub_faction_id: Optional[str] = None,
+        send_notification: bool = True,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Submits or updates an army list on BCP via POST /v1/armylists.
+        """
+        clean_pid = str(player_id or "").strip()
+        if not clean_pid:
+            return False, "Missing player_id for army list submission", None
+
+        url = f"{BCP_API_BASE}/armylists"
+        payload: Dict[str, Any] = {
+            "playerId": clean_pid,
+            "sendNotification": bool(send_notification),
+            "listInfo": {
+                "listText": str(list_text or "").strip()
+            }
+        }
+        if army_id:
+            payload["armyId"] = str(army_id).strip()
+        if sub_faction_id:
+            payload["subFactionId"] = str(sub_faction_id).strip()
+
+        data, err = cls.execute_call(url, method="POST", json_data=payload, user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            logger.info(f"✅ Successfully submitted army list for player {clean_pid} to BCP via POST /armylists")
+            return True, None, (data if data is not None else {})
+
+        return False, (err or "Failed to submit army list to BCP"), None
+
+    @classmethod
+    def checkin_player(
+        cls,
+        player_id: str,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Checks in a competitor to a tournament on BCP via POST /v1/players/{player_id} with {"set": {"checkedIn": True}}.
+        """
+        clean_pid = str(player_id or "").strip()
+        if not clean_pid:
+            return False, "Missing player_id for player check-in", None
+
+        # Primary update: set checkedIn = true
+        ok, err, data = cls.update_player(clean_pid, set_fields={"checkedIn": True}, user_id=user_id, explicit_token=explicit_token)
+        if ok:
+            logger.info(f"✅ Checked in player {clean_pid} to BCP")
+            return True, None, data
+
+        # Fallback check-in subroute if update returned 404 or method issue
+        alt_url = f"{BCP_API_BASE}/players/{clean_pid}/checkin"
+        data_alt, err_alt = cls.execute_call(alt_url, method="POST", json_data={}, user_id=user_id, explicit_token=explicit_token)
+        if data_alt is not None or not err_alt:
+            logger.info(f"✅ Checked in player {clean_pid} via alt /checkin")
+            return True, None, (data_alt if data_alt is not None else {})
+
+        return False, (err or err_alt or "BCP check-in failed"), None
+
+    @classmethod
+    def drop_player(
+        cls,
+        player_id: str,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Drops a competitor from a tournament on BCP via POST /v1/players/{player_id} with {"set": {"dropped": True}}.
+        """
+        clean_pid = str(player_id or "").strip()
+        if not clean_pid:
+            return False, "Missing player_id for player drop", None
+
+        ok, err, data = cls.update_player(clean_pid, set_fields={"dropped": True}, user_id=user_id, explicit_token=explicit_token)
+        if ok:
+            logger.info(f"✅ Dropped player {clean_pid} on BCP")
+            return True, None, data
+
+        return False, (err or "BCP player drop failed"), None
+
+    @classmethod
     def submit_pairing_scores(
         cls,
         pairing_id: str,
@@ -525,9 +675,28 @@ class BcpAdapter:
             army_list = p_data.get("armyList") or p_data.get("army_list") or p_data.get("listText") or ""
             has_list = bool(p_data.get("hasList") or army_list or p_data.get("listSubmitted") or p_data.get("has_list_submitted"))
             checked_in = bool(p_data.get("checkedIn") or p_data.get("checked_in") or False)
+            dropped = bool(p_data.get("dropped") or False)
+
+            u_obj = p_data.get("user") if isinstance(p_data.get("user"), dict) else {}
+            fn = u_obj.get("firstName") or p_data.get("firstName") or ""
+            ln = u_obj.get("lastName") or p_data.get("lastName") or ""
+            team_obj = p_data.get("team") if isinstance(p_data.get("team"), dict) else {}
+            team_name = p_data.get("teamName") or team_obj.get("name") or p_data.get("team") or ""
+            pid = str(p_data.get("id") or p_data.get("_id") or p_data.get("playerId") or "").strip()
+            army_id = p_data.get("armyId") or p_data.get("army_id") or ""
+            sub_faction_id = p_data.get("subFactionId") or p_data.get("sub_faction_id") or ""
+            gamesystem_id = item.get("gameSystemId") or item.get("gamesystem") or item.get("systemId") or "WGMSzfKFYA"
 
             events_list.append({
                 "bcp_event_id": ev_id,
+                "player_id": pid,
+                "first_name": fn,
+                "last_name": ln,
+                "team_name": team_name,
+                "army_id": army_id,
+                "sub_faction_id": sub_faction_id,
+                "dropped": dropped,
+                "gamesystem_id": gamesystem_id,
                 "event_name": item.get("name") or "Tournament",
                 "event_date": item.get("eventDate") or item.get("startDate") or item.get("eventStartDate"),
                 "end_date": item.get("endDate") or item.get("eventEndDate"),

@@ -313,8 +313,32 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const hasStandings = teamsList.length > 0;
     const hasPlacings = placementsCount > 0 || eventMatchesCache.length > 0;
 
+    // Check registration status for current authenticated user
+    let userRegData = null;
+    try {
+      if (typeof window.api?.getCommunityEventRegistration === 'function') {
+        userRegData = await window.api.getCommunityEventRegistration(eventId);
+      }
+    } catch (e) {
+      console.debug("Notice checking user registration:", e);
+    }
+
+    const subtabPlayer = document.getElementById('event-subtab-player');
+    if (userRegData && userRegData.is_registered) {
+      if (subtabPlayer) subtabPlayer.style.display = 'inline-flex';
+      currentEventRegistration = userRegData;
+      populateEventPlayerDetails(userRegData);
+    } else {
+      if (subtabPlayer) subtabPlayer.style.display = 'none';
+      if (currentEventModalTab === 'player') {
+        currentEventModalTab = isTeamEvent ? 'teams' : 'results';
+      }
+    }
+
     if (initialTab && initialTab !== 'elo') {
       switchEventModalTab(initialTab);
+    } else if (currentEventModalTab === 'player' && userRegData && userRegData.is_registered) {
+      switchEventModalTab('player');
     } else if (isTeamEvent || teamsList.length > 0) {
       switchEventModalTab('teams');
     } else if (!hasCachedRows || currentEventModalTab === 'teams') {
@@ -577,31 +601,41 @@ window.clearEventModalSearch = clearEventModalSearch;
 function switchEventModalTab(tabKey) {
   if (tabKey === 'elo') tabKey = 'results';
   currentEventModalTab = tabKey || 'results';
+  const btnPlayer = document.getElementById('event-subtab-player');
   const btnTeams = document.getElementById('event-subtab-teams');
   const btnResults = document.getElementById('event-subtab-results');
   const btnElo = document.getElementById('event-subtab-elo');
   const btnMatches = document.getElementById('event-subtab-matches');
+  const viewPlayer = document.getElementById('event-view-player');
   const viewTeams = document.getElementById('event-view-teams');
   const viewResults = document.getElementById('event-view-results');
   const viewElo = document.getElementById('event-view-elo');
   const viewMatches = document.getElementById('event-view-matches');
+  const searchRow = document.getElementById('event-modal-search-row') || document.querySelector('.event-modal-search-wrap');
 
-  [btnTeams, btnResults, btnElo, btnMatches].forEach(b => b && b.classList.remove('active'));
-  [viewTeams, viewResults, viewElo, viewMatches].forEach(v => v && (v.style.display = 'none'));
+  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches].forEach(b => b && b.classList.remove('active'));
+  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches].forEach(v => v && (v.style.display = 'none'));
 
-  if (tabKey === 'teams') {
-    if (btnTeams) btnTeams.classList.add('active');
-    if (viewTeams) viewTeams.style.display = 'block';
-    renderEventTeamsRows();
-  } else if (tabKey === 'matches') {
-    if (btnMatches) btnMatches.classList.add('active');
-    if (viewMatches) viewMatches.style.display = 'block';
-    renderEventPairingsRows();
+  if (tabKey === 'player') {
+    if (btnPlayer) btnPlayer.classList.add('active');
+    if (viewPlayer) viewPlayer.style.display = 'block';
+    if (searchRow) searchRow.style.display = 'none';
   } else {
-    // default to 'results' tab (Standings & Competitors)
-    if (btnResults) btnResults.classList.add('active');
-    if (viewResults) viewResults.style.display = 'block';
-    renderEventResultsRows();
+    if (searchRow) searchRow.style.display = 'flex';
+    if (tabKey === 'teams') {
+      if (btnTeams) btnTeams.classList.add('active');
+      if (viewTeams) viewTeams.style.display = 'block';
+      renderEventTeamsRows();
+    } else if (tabKey === 'matches') {
+      if (btnMatches) btnMatches.classList.add('active');
+      if (viewMatches) viewMatches.style.display = 'block';
+      renderEventPairingsRows();
+    } else {
+      // default to 'results' tab (Standings & Competitors)
+      if (btnResults) btnResults.classList.add('active');
+      if (viewResults) viewResults.style.display = 'block';
+      renderEventResultsRows();
+    }
   }
   updateEventModalTabCountsForSearch();
 }
@@ -1579,6 +1613,584 @@ async function submitTournamentRegistration(e) {
   }
 }
 
+// =========================================================================
+// PLAYER DETAILS & BCP REGISTRATION MANAGEMENT
+// =========================================================================
+
+let cachedGamesystemFactions = {};
+let currentEventRegistration = null;
+
+async function loadGamesystemFactions(gamesystemId = 'WGMSzfKFYA') {
+  const factionSelect = document.getElementById('player-reg-faction');
+  if (!factionSelect) return [];
+
+  const cleanGid = gamesystemId || 'WGMSzfKFYA';
+  if (cachedGamesystemFactions[cleanGid] && cachedGamesystemFactions[cleanGid].length > 0) {
+    populateFactionDropdown(cachedGamesystemFactions[cleanGid]);
+    return cachedGamesystemFactions[cleanGid];
+  }
+
+  try {
+    factionSelect.innerHTML = '<option value="">Loading factions from BCP...</option>';
+    const res = await window.api.getGamesystemFactions(cleanGid);
+    const factions = (res && res.factions) || [];
+    cachedGamesystemFactions[cleanGid] = factions;
+    populateFactionDropdown(factions);
+    return factions;
+  } catch (err) {
+    console.warn("Failed to load factions from BCP:", err);
+    factionSelect.innerHTML = '<option value="">Error loading factions</option>';
+    return [];
+  }
+}
+
+function populateFactionDropdown(factions) {
+  const factionSelect = document.getElementById('player-reg-faction');
+  if (!factionSelect) return;
+
+  if (!factions || factions.length === 0) {
+    factionSelect.innerHTML = '<option value="">No factions available</option>';
+    return;
+  }
+
+  const currentVal = factionSelect.value;
+  factionSelect.innerHTML = '<option value="">-- Select Faction --</option>' + factions.map(f => {
+    return `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`;
+  }).join('');
+
+  if (currentVal) {
+    factionSelect.value = currentVal;
+  }
+}
+
+function onPlayerFactionChange(selectedArmyId) {
+  const detachmentSelect = document.getElementById('player-reg-detachment');
+  if (!detachmentSelect) return;
+
+  if (!selectedArmyId) {
+    detachmentSelect.innerHTML = '<option value="">Select Faction first</option>';
+    return;
+  }
+
+  let foundFaction = null;
+  for (const gid of Object.keys(cachedGamesystemFactions)) {
+    const list = cachedGamesystemFactions[gid] || [];
+    foundFaction = list.find(f => String(f.id) === String(selectedArmyId) || f.name.toLowerCase() === selectedArmyId.toLowerCase());
+    if (foundFaction) break;
+  }
+
+  const subFactions = (foundFaction && foundFaction.subFactions) || [];
+  if (subFactions.length === 0) {
+    detachmentSelect.innerHTML = '<option value="">No detachments available</option>';
+    return;
+  }
+
+  const currentDetVal = detachmentSelect.value;
+  detachmentSelect.innerHTML = '<option value="">-- Select Force Disposition / Detachment --</option>' + subFactions.map(sf => {
+    return `<option value="${escapeHtml(sf.id)}">${escapeHtml(sf.name)}</option>`;
+  }).join('');
+
+  if (currentDetVal) {
+    detachmentSelect.value = currentDetVal;
+  }
+}
+
+async function populateEventPlayerDetails(regData) {
+  if (!regData || !regData.is_registered) return;
+  currentEventRegistration = regData;
+  const reg = regData.player_registration || {};
+
+  // 1. Status Pill & Check-in / Drop controls
+  const statusPill = document.getElementById('player-reg-status-pill');
+  const btnCheckin = document.getElementById('btn-player-checkin');
+  const btnCheckinText = document.getElementById('btn-player-checkin-text');
+  const btnDrop = document.getElementById('btn-player-drop');
+  const checkinAlert = document.getElementById('player-checkin-alert');
+
+  const isCheckedIn = Boolean(reg.checked_in);
+  const isDropped = Boolean(reg.dropped);
+  const hasList = Boolean(reg.has_list_submitted || (reg.army_list && reg.army_list.trim().length > 0));
+
+  if (statusPill) {
+    if (isDropped) {
+      statusPill.innerText = 'DROPPED';
+      statusPill.style.background = 'rgba(239, 68, 68, 0.2)';
+      statusPill.style.color = '#ef4444';
+      statusPill.style.border = '1px solid rgba(239, 68, 68, 0.4)';
+    } else if (isCheckedIn) {
+      statusPill.innerText = 'CHECKED IN';
+      statusPill.style.background = 'rgba(16, 185, 129, 0.2)';
+      statusPill.style.color = '#10b981';
+      statusPill.style.border = '1px solid rgba(16, 185, 129, 0.4)';
+    } else {
+      statusPill.innerText = 'NOT CHECKED IN';
+      statusPill.style.background = 'rgba(245, 158, 11, 0.15)';
+      statusPill.style.color = '#fbbf24';
+      statusPill.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+    }
+  }
+
+  if (btnCheckin) {
+    if (isDropped) {
+      btnCheckin.disabled = true;
+      btnCheckin.style.opacity = '0.5';
+      btnCheckin.style.cursor = 'not-allowed';
+      if (btnCheckinText) btnCheckinText.innerText = 'Player Dropped';
+    } else if (isCheckedIn) {
+      btnCheckin.disabled = true;
+      btnCheckin.style.opacity = '0.7';
+      btnCheckin.style.background = 'rgba(16, 185, 129, 0.2)';
+      btnCheckin.style.borderColor = 'rgba(16, 185, 129, 0.5)';
+      btnCheckin.style.color = '#10b981';
+      btnCheckin.style.cursor = 'default';
+      if (btnCheckinText) btnCheckinText.innerText = 'Checked In ✅';
+    } else {
+      btnCheckin.disabled = false;
+      btnCheckin.style.opacity = '1';
+      btnCheckin.style.cursor = 'pointer';
+      btnCheckin.style.background = '#f59e0b';
+      btnCheckin.style.borderColor = '#d97706';
+      btnCheckin.style.color = '#000';
+      if (btnCheckinText) btnCheckinText.innerText = hasList ? 'Check In ⚡' : 'Check In';
+    }
+  }
+
+  if (btnDrop) {
+    btnDrop.disabled = isDropped;
+    if (isDropped) {
+      btnDrop.style.opacity = '0.5';
+      btnDrop.style.cursor = 'not-allowed';
+    } else {
+      btnDrop.style.opacity = '1';
+      btnDrop.style.cursor = 'pointer';
+    }
+  }
+
+  if (checkinAlert) {
+    if (isDropped) {
+      checkinAlert.style.display = 'block';
+      checkinAlert.style.background = 'rgba(239, 68, 68, 0.12)';
+      checkinAlert.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+      checkinAlert.style.color = '#ef4444';
+      checkinAlert.innerHTML = '⚠️ You have dropped from this event on Best Coast Pairings.';
+    } else if (isCheckedIn) {
+      checkinAlert.style.display = 'block';
+      checkinAlert.style.background = 'rgba(16, 185, 129, 0.12)';
+      checkinAlert.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+      checkinAlert.style.color = '#10b981';
+      checkinAlert.innerHTML = '✅ <b>You are checked in!</b> You are confirmed in the roster for round pairings.';
+    } else if (!hasList) {
+      checkinAlert.style.display = 'block';
+      checkinAlert.style.background = 'rgba(245, 158, 11, 0.12)';
+      checkinAlert.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+      checkinAlert.style.color = '#fbbf24';
+      checkinAlert.innerHTML = '⚠️ <b>Army List Required:</b> Best Coast Pairings requires you to submit an army list before checking in. Select a saved list or enter your list text below, submit it, and then check in!';
+    } else {
+      checkinAlert.style.display = 'none';
+    }
+  }
+
+  // 2. Pre-fill Player Inputs
+  const fnInput = document.getElementById('player-reg-firstname');
+  const lnInput = document.getElementById('player-reg-lastname');
+  const teamInput = document.getElementById('player-reg-team');
+  if (fnInput) fnInput.value = reg.first_name || (regData.user_profile && regData.user_profile.first_name) || '';
+  if (lnInput) lnInput.value = reg.last_name || (regData.user_profile && regData.user_profile.last_name) || '';
+  if (teamInput) teamInput.value = reg.team_name || '';
+
+  // 3. Load Factions and select current faction / detachment
+  const gamesystemId = reg.gamesystem_id || 'WGMSzfKFYA';
+  const factions = await loadGamesystemFactions(gamesystemId);
+  
+  const factionSelect = document.getElementById('player-reg-faction');
+  const detachmentSelect = document.getElementById('player-reg-detachment');
+
+  if (factionSelect && factions && factions.length > 0) {
+    let matchedFaction = factions.find(f => String(f.id) === String(reg.army_id));
+    if (!matchedFaction && reg.faction) {
+      matchedFaction = factions.find(f => f.name.toLowerCase() === reg.faction.toLowerCase());
+    }
+    if (matchedFaction) {
+      factionSelect.value = matchedFaction.id;
+      onPlayerFactionChange(matchedFaction.id);
+
+      if (detachmentSelect) {
+        const subFactions = matchedFaction.subFactions || [];
+        let matchedSub = subFactions.find(sf => String(sf.id) === String(reg.sub_faction_id));
+        if (!matchedSub && reg.detachment) {
+          matchedSub = subFactions.find(sf => sf.name.toLowerCase() === reg.detachment.toLowerCase());
+        }
+        if (matchedSub) {
+          detachmentSelect.value = matchedSub.id;
+        }
+      }
+    }
+  }
+
+  // 4. Populate OmniTactica Saved Lists Dropdown
+  const savedListsSelect = document.getElementById('player-reg-saved-lists-select');
+  if (savedListsSelect) {
+    const lists = regData.army_lists || [];
+    if (lists.length === 0) {
+      savedListsSelect.innerHTML = '<option value="">No saved army lists found in My Hub</option>';
+    } else {
+      savedListsSelect.innerHTML = '<option value="">-- Select Saved Army List --</option>' + lists.map((al, idx) => {
+        const ptsStr = al.points ? ` • ${al.points} pts` : '';
+        const facStr = al.faction ? ` (${al.faction}${al.detachment ? ' - ' + al.detachment : ''})` : '';
+        return `<option value="${idx}">${escapeHtml(al.name || 'Saved List')}${escapeHtml(facStr)}${escapeHtml(ptsStr)}</option>`;
+      }).join('');
+    }
+  }
+
+  // 5. Populate List Text Area and Status
+  const listStatusPill = document.getElementById('player-list-status-pill');
+  const listTextArea = document.getElementById('player-reg-list-text');
+
+  if (listTextArea) {
+    listTextArea.value = reg.army_list || '';
+    updatePlayerListCharCount();
+  }
+
+  if (listStatusPill) {
+    if (hasList) {
+      listStatusPill.innerText = '✅ List Submitted';
+      listStatusPill.style.background = 'rgba(16, 185, 129, 0.15)';
+      listStatusPill.style.color = '#10b981';
+      listStatusPill.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+    } else {
+      listStatusPill.innerText = '⚠️ No List Submitted';
+      listStatusPill.style.background = 'rgba(245, 158, 11, 0.15)';
+      listStatusPill.style.color = '#fbbf24';
+      listStatusPill.style.border = '1px solid rgba(245, 158, 11, 0.3)';
+    }
+  }
+}
+
+function updatePlayerListCharCount() {
+  const ta = document.getElementById('player-reg-list-text');
+  const countEl = document.getElementById('player-reg-list-charcount');
+  if (ta && countEl) {
+    const len = (ta.value || '').length;
+    const lines = (ta.value || '').split('\n').filter(Boolean).length;
+    countEl.innerText = `${len} chars • ${lines} lines`;
+  }
+}
+
+function applySavedListToPlayerDetails() {
+  const sel = document.getElementById('player-reg-saved-lists-select');
+  const ta = document.getElementById('player-reg-list-text');
+  if (!sel || !currentEventRegistration) return;
+
+  const idx = parseInt(sel.value, 10);
+  const lists = currentEventRegistration.army_lists || [];
+  if (isNaN(idx) || idx < 0 || idx >= lists.length) {
+    alert("Please select a valid saved army list from the dropdown.");
+    return;
+  }
+
+  const al = lists[idx];
+  if (ta) {
+    ta.value = al.raw_text || '';
+    updatePlayerListCharCount();
+  }
+
+  // Attempt auto-match for faction and detachment
+  if (al.faction) {
+    const factionSelect = document.getElementById('player-reg-faction');
+    const detachmentSelect = document.getElementById('player-reg-detachment');
+    const gamesystemId = (currentEventRegistration.player_registration && currentEventRegistration.player_registration.gamesystem_id) || 'WGMSzfKFYA';
+    const factions = cachedGamesystemFactions[gamesystemId] || [];
+
+    const matchedFaction = factions.find(f => f.name.toLowerCase() === al.faction.toLowerCase() || al.faction.toLowerCase().includes(f.name.toLowerCase()));
+    if (matchedFaction && factionSelect) {
+      factionSelect.value = matchedFaction.id;
+      onPlayerFactionChange(matchedFaction.id);
+
+      if (al.detachment && detachmentSelect) {
+        const subFactions = matchedFaction.subFactions || [];
+        const matchedSub = subFactions.find(sf => sf.name.toLowerCase() === al.detachment.toLowerCase() || al.detachment.toLowerCase().includes(sf.name.toLowerCase()));
+        if (matchedSub) {
+          detachmentSelect.value = matchedSub.id;
+        }
+      }
+    }
+  }
+
+  if (typeof showToast === 'function') {
+    showToast(`Applied saved list "${al.name || 'Army List'}". Click "Submit Army List to BCP" to sync!`, 'info');
+  }
+}
+
+async function handleEventPlayerUpdate(e) {
+  if (e) e.preventDefault();
+  if (!currentOpenEventId || !currentEventRegistration) return;
+  const reg = currentEventRegistration.player_registration || {};
+  const pid = reg.player_id;
+  if (!pid) {
+    alert("Missing player ID on tournament roster.");
+    return;
+  }
+
+  const fn = (document.getElementById('player-reg-firstname')?.value || '').trim();
+  const ln = (document.getElementById('player-reg-lastname')?.value || '').trim();
+  const team = (document.getElementById('player-reg-team')?.value || '').trim();
+  const factionSelect = document.getElementById('player-reg-faction');
+  const detachmentSelect = document.getElementById('player-reg-detachment');
+
+  const armyId = factionSelect?.value || '';
+  const subFactionId = detachmentSelect?.value || '';
+  const factionName = factionSelect?.options[factionSelect.selectedIndex]?.text || '';
+  const detachmentName = detachmentSelect?.options[detachmentSelect.selectedIndex]?.text || '';
+
+  const btn = document.getElementById('btn-player-update');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-mini" style="display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite;"></span> Updating...';
+  }
+
+  try {
+    const res = await window.api.updateEventPlayer(currentOpenEventId, {
+      player_id: pid,
+      first_name: fn,
+      last_name: ln,
+      team_name: team,
+      army_id: armyId,
+      sub_faction_id: subFactionId,
+      faction_name: factionName,
+      detachment_name: detachmentName
+    });
+
+    if (res && res.success) {
+      if (typeof showToast === 'function') {
+        showToast('Registration details updated successfully on BCP!', 'success');
+      }
+      reg.first_name = fn;
+      reg.last_name = ln;
+      reg.team_name = team;
+      reg.army_id = armyId;
+      reg.sub_faction_id = subFactionId;
+      reg.faction = factionName;
+      reg.detachment = detachmentName;
+      window.dispatchEvent(new CustomEvent('tournaments-updated'));
+    } else {
+      alert((res && (res.detail || res.error || res.message)) || 'Failed to update player details on BCP.');
+    }
+  } catch (err) {
+    alert('Error updating details: ' + (err.message || err));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = 'Update Details';
+    }
+  }
+}
+
+async function handleEventPlayerSubmitList() {
+  if (!currentOpenEventId || !currentEventRegistration) return;
+  const reg = currentEventRegistration.player_registration || {};
+  const pid = reg.player_id;
+  if (!pid) {
+    alert("Missing player ID on tournament roster.");
+    return;
+  }
+
+  const listText = (document.getElementById('player-reg-list-text')?.value || '').trim();
+  if (!listText) {
+    alert("Please enter or paste your army list text before submitting.");
+    document.getElementById('player-reg-list-text')?.focus();
+    return;
+  }
+
+  const factionSelect = document.getElementById('player-reg-faction');
+  const detachmentSelect = document.getElementById('player-reg-detachment');
+  const armyId = factionSelect?.value || reg.army_id || '';
+  const subFactionId = detachmentSelect?.value || reg.sub_faction_id || '';
+
+  const btn = document.getElementById('btn-player-submit-list');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-mini" style="display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite;"></span> Submitting to BCP...';
+  }
+
+  try {
+    const res = await window.api.submitEventArmylist(currentOpenEventId, {
+      player_id: pid,
+      list_text: listText,
+      army_id: armyId,
+      sub_faction_id: subFactionId,
+      send_notification: true
+    });
+
+    if (res && res.success) {
+      if (typeof showToast === 'function') {
+        showToast('Army list submitted successfully to Best Coast Pairings!', 'success');
+      }
+      reg.has_list_submitted = true;
+      reg.army_list = listText;
+
+      // Update List Status Pill
+      const listStatusPill = document.getElementById('player-list-status-pill');
+      if (listStatusPill) {
+        listStatusPill.innerText = '✅ List Submitted';
+        listStatusPill.style.background = 'rgba(16, 185, 129, 0.15)';
+        listStatusPill.style.color = '#10b981';
+        listStatusPill.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+      }
+
+      // Hide check-in warning alert if not checked in
+      const checkinAlert = document.getElementById('player-checkin-alert');
+      if (checkinAlert && !reg.checked_in) {
+        checkinAlert.style.display = 'none';
+      }
+
+      // Unlock Check-in button
+      const btnCheckin = document.getElementById('btn-player-checkin');
+      const btnCheckinText = document.getElementById('btn-player-checkin-text');
+      if (btnCheckin && !reg.checked_in) {
+        btnCheckin.disabled = false;
+        btnCheckin.style.opacity = '1';
+        btnCheckin.style.background = '#f59e0b';
+        btnCheckin.style.borderColor = '#d97706';
+        btnCheckin.style.color = '#000';
+        if (btnCheckinText) btnCheckinText.innerText = 'Check In ⚡';
+      }
+
+      window.dispatchEvent(new CustomEvent('tournaments-updated'));
+    } else {
+      alert((res && (res.detail || res.error || res.message)) || 'Failed to submit army list to BCP.');
+    }
+  } catch (err) {
+    alert('Error submitting army list: ' + (err.message || err));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '📤 Submit Army List to BCP';
+    }
+  }
+}
+
+async function handleEventPlayerCheckin() {
+  if (!currentOpenEventId || !currentEventRegistration) return;
+  const reg = currentEventRegistration.player_registration || {};
+  const pid = reg.player_id;
+  if (!pid) {
+    alert("Missing player ID on tournament roster.");
+    return;
+  }
+
+  if (reg.checked_in) {
+    if (typeof showToast === 'function') {
+      showToast('You are already checked in for this event!', 'info');
+    }
+    return;
+  }
+
+  // Check list condition
+  const listText = (document.getElementById('player-reg-list-text')?.value || '').trim();
+  const hasList = Boolean(reg.has_list_submitted || (reg.army_list && reg.army_list.trim().length > 0) || listText.length > 0);
+
+  if (!hasList) {
+    alert("Best Coast Pairings requires you to submit an army list before checking in.\n\nPlease select a saved army list or paste your list text into the List Information section below, submit it, and then check in.");
+    const checkinAlert = document.getElementById('player-checkin-alert');
+    if (checkinAlert) {
+      checkinAlert.style.display = 'block';
+      checkinAlert.style.background = 'rgba(239, 68, 68, 0.15)';
+      checkinAlert.style.color = '#ef4444';
+      checkinAlert.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+      checkinAlert.innerHTML = '❌ <b>Cannot Check In:</b> An army list must be submitted first. Please select or paste your list below.';
+    }
+    document.getElementById('player-reg-list-text')?.scrollIntoView({ behavior: 'smooth' });
+    document.getElementById('player-reg-list-text')?.focus();
+    return;
+  }
+
+  // If user pasted list text but hasn't clicked Submit Army List yet, submit it automatically first!
+  if (!reg.has_list_submitted && listText.length > 0) {
+    await handleEventPlayerSubmitList();
+  }
+
+  const btn = document.getElementById('btn-player-checkin');
+  const btnText = document.getElementById('btn-player-checkin-text');
+  if (btn) {
+    btn.disabled = true;
+    if (btnText) btnText.innerText = 'Checking In...';
+  }
+
+  try {
+    const res = await window.api.checkinEventPlayer(currentOpenEventId, {
+      player_id: pid,
+      has_list: true
+    });
+
+    if (res && res.success) {
+      if (typeof showToast === 'function') {
+        showToast('Successfully checked in to tournament on Best Coast Pairings!', 'success');
+      }
+      reg.checked_in = true;
+      populateEventPlayerDetails(currentEventRegistration);
+      window.dispatchEvent(new CustomEvent('tournaments-updated'));
+    } else {
+      alert((res && (res.detail || res.error || res.message)) || 'Failed to check in on BCP.');
+      if (btn) {
+        btn.disabled = false;
+        if (btnText) btnText.innerText = 'Check In ⚡';
+      }
+    }
+  } catch (err) {
+    alert('Error checking in: ' + (err.message || err));
+    if (btn) {
+      btn.disabled = false;
+      if (btnText) btnText.innerText = 'Check In ⚡';
+    }
+  }
+}
+
+async function handleEventPlayerDrop() {
+  if (!currentOpenEventId || !currentEventRegistration) return;
+  const reg = currentEventRegistration.player_registration || {};
+  const pid = reg.player_id;
+  if (!pid) {
+    alert("Missing player ID on tournament roster.");
+    return;
+  }
+
+  const evName = (currentEventData && currentEventData.name) || 'Tournament';
+  const confirmMsg = `Are you sure you want to drop from ${evName} on Best Coast Pairings?\n\nThis will update your status on BCP and remove you from upcoming match pairings.`;
+  if (!window.confirm(confirmMsg)) {
+    return;
+  }
+
+  const btn = document.getElementById('btn-player-drop');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerText = 'Dropping...';
+  }
+
+  try {
+    const res = await window.api.dropEventPlayer(currentOpenEventId, {
+      player_id: pid
+    });
+
+    if (res && res.success) {
+      if (typeof showToast === 'function') {
+        showToast('Successfully dropped from tournament on BCP.', 'info');
+      }
+      reg.dropped = true;
+      populateEventPlayerDetails(currentEventRegistration);
+      window.dispatchEvent(new CustomEvent('tournaments-updated'));
+    } else {
+      alert((res && (res.detail || res.error || res.message)) || 'Failed to drop from tournament on BCP.');
+    }
+  } catch (err) {
+    alert('Error dropping from tournament: ' + (err.message || err));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerText = '🚪 Drop';
+    }
+  }
+}
+
 // Window bindings for tournament modal and registration
 window.openEventModal = openEventModal;
 window.switchEventModalTab = switchEventModalTab;
@@ -1590,3 +2202,12 @@ window.submitTournamentRegistration = submitTournamentRegistration;
 window.renderEventTeamsRows = renderEventTeamsRows;
 window.toggleTeamRosterCard = toggleTeamRosterCard;
 window.toggleAllTeamCards = toggleAllTeamCards;
+window.loadGamesystemFactions = loadGamesystemFactions;
+window.onPlayerFactionChange = onPlayerFactionChange;
+window.populateEventPlayerDetails = populateEventPlayerDetails;
+window.updatePlayerListCharCount = updatePlayerListCharCount;
+window.applySavedListToPlayerDetails = applySavedListToPlayerDetails;
+window.handleEventPlayerUpdate = handleEventPlayerUpdate;
+window.handleEventPlayerSubmitList = handleEventPlayerSubmitList;
+window.handleEventPlayerCheckin = handleEventPlayerCheckin;
+window.handleEventPlayerDrop = handleEventPlayerDrop;

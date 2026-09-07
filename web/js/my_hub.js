@@ -298,15 +298,27 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                 ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.7rem; padding: 2px 7px;">✅ List Submitted</span>`
                 : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.7rem; padding: 2px 7px;">⚠️ List Pending</span>`;
 
+              const isCheckedIn = !!ev.checked_in;
+              const isDropped = !!ev.dropped;
+              let checkinStatus = '';
+              if (isDropped) {
+                checkinStatus = `<span class="badge" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); font-size: 0.7rem; padding: 2px 7px;">🚫 Dropped</span>`;
+              } else if (isCheckedIn) {
+                checkinStatus = `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); font-size: 0.7rem; padding: 2px 7px;">✅ Checked In</span>`;
+              } else {
+                checkinStatus = `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.7rem; padding: 2px 7px;">⚠️ Not Checked In</span>`;
+              }
+
               return `
                 <div class="hub-event-item-card">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
-                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
+                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
                         ${escapeHtml(evName)}
                       </span>
                     </div>
-                    <div style="flex-shrink: 0;">
+                    <div style="flex-shrink: 0; display: flex; align-items: center; gap: 0.35rem;">
+                      ${checkinStatus}
                       ${countdownPill}
                     </div>
                   </div>
@@ -331,6 +343,9 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                       <a href="${bcpUrl}" target="_blank" rel="noopener" class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="event.stopPropagation()">
                         BCP ↗
                       </a>
+                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
+                        👤 Manage / Check In
+                      </button>
                       <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
                         Roster ➔
                       </button>
@@ -409,12 +424,22 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
           ${hasList 
             ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.68rem; padding: 1px 6px;">✅ List Submitted</span>`
             : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ List Pending</span>`}
+          ${nextEv.dropped
+            ? `<span class="badge" style="background: rgba(239,68,68,0.15); color: #ef4444; font-size: 0.68rem; padding: 1px 6px;">🚫 Dropped</span>`
+            : (nextEv.checked_in
+              ? `<span class="badge" style="background: rgba(16,185,129,0.15); color: #10b981; font-size: 0.68rem; padding: 1px 6px;">✅ Checked In</span>`
+              : `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; font-size: 0.68rem; padding: 1px 6px;">⚠️ Not Checked In</span>`)}
         </div>
       </div>
-      <button class="hub-view-all-btn" onclick="switchHubMobileTab('events')">
-        <span>View All Registered Tournaments (${events.length})</span>
-        <span class="hub-btn-arrow">➔</span>
-      </button>
+      <div style="display: flex; gap: 0.5rem; margin-top: 8px;">
+        <button class="hub-card-action-btn" style="flex: 1; font-size: 0.75rem; padding: 0.35rem 0.6rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa; text-align: center;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
+          👤 Manage / Check In
+        </button>
+        <button class="hub-view-all-btn" style="flex: 1.2; margin-top: 0;" onclick="switchHubMobileTab('events')">
+          <span>View All (${events.length})</span>
+          <span class="hub-btn-arrow">➔</span>
+        </button>
+      </div>
     </div>
   `;
 }

@@ -1849,6 +1849,9 @@
 
         <!-- Sub-tabs within Tournament Modal -->
         <div class="subtabs-bar" style="margin-bottom: 0.75rem;">
+          <button id="event-subtab-player" class="subtab-btn" onclick="switchEventModalTab('player')" style="display: none;">
+            <span>👤 Player Details</span>
+          </button>
           <button id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab('teams')" style="display: none;">
             <span id="event-subtab-teams-label">🏆 Team Placings</span>
             <span id="event-tab-teams-count" class="subtab-count-badge">0</span>
@@ -1868,13 +1871,121 @@
         </div>
 
         <!-- Search bar for Event View Pop-up -->
-        <div class="event-modal-search-wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.85rem; flex-wrap: wrap;">
+        <div id="event-modal-search-row" class="event-modal-search-wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.85rem; flex-wrap: wrap;">
           <div style="position: relative; flex: 1; min-width: 220px; width: 100%;">
             <input type="search" id="event-modal-search" class="search-input" placeholder="Search players, teams, factions..." oninput="handleEventModalSearch(this.value)" onkeyup="handleEventModalSearch(this.value)" onsearch="handleEventModalSearch(this.value)" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.75rem 0.42rem 2.1rem; font-size: 0.82rem; height: 34px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff;" />
             <span style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 0.8rem; color: var(--text-muted); pointer-events: none;">🔍</span>
             <button id="event-modal-search-clear" onclick="clearEventModalSearch()" style="display: none; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; padding: 2px 6px;" title="Clear search">✕</button>
           </div>
           <div id="event-modal-search-summary" style="font-size: 0.78rem; color: var(--text-muted); display: none;"></div>
+        </div>
+
+        <!-- View: Player Details & Check-In (BCP Live Sync) -->
+        <div id="event-view-player" style="display: none; max-height: 520px; overflow-y: auto; padding-right: 4px; margin-bottom: 1rem;">
+          <div style="display: flex; flex-direction: column; gap: 1rem;">
+            
+            <!-- Section 1: Player Status -->
+            <div class="card" style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem;">
+              <h4 style="margin: 0 0 0.75rem 0; font-size: 0.92rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+                <span>Player Status</span>
+                <span id="player-reg-status-pill" class="badge" style="font-size: 0.75rem; padding: 3px 9px;">NOT CHECKED IN</span>
+              </h4>
+              
+              <div id="player-checkin-alert" style="display: none; margin-bottom: 0.85rem; padding: 0.6rem 0.85rem; border-radius: 6px; font-size: 0.78rem; line-height: 1.4;"></div>
+
+              <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button type="button" id="btn-player-checkin" onclick="handleEventPlayerCheckin()" class="btn btn-primary" style="flex: 1; min-width: 140px; font-weight: 700; padding: 0.55rem 1rem; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; background: #f59e0b; border-color: #d97706; color: #000; cursor: pointer;">
+                  <span id="btn-player-checkin-icon">⚡</span> <span id="btn-player-checkin-text">Check In</span>
+                </button>
+                <button type="button" id="btn-player-drop" onclick="handleEventPlayerDrop()" class="btn btn-outline" style="flex: 0 0 auto; font-weight: 600; padding: 0.55rem 1rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.08); cursor: pointer;">
+                  🚪 Drop
+                </button>
+              </div>
+            </div>
+
+            <!-- Section 2: Player Details -->
+            <div class="card" style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem;">
+              <h4 style="margin: 0 0 0.85rem 0; font-size: 0.92rem; font-weight: 700; color: #fff;">Player Details</h4>
+              
+              <form id="form-player-details" onsubmit="handleEventPlayerUpdate(event)" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                  <div>
+                    <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">First Name *</label>
+                    <input type="text" id="player-reg-firstname" required class="search-input" style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem;" />
+                  </div>
+                  <div>
+                    <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Last Name *</label>
+                    <input type="text" id="player-reg-lastname" required class="search-input" style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem;" />
+                  </div>
+                </div>
+
+                <div>
+                  <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Club / Team Name (optional)</label>
+                  <input type="text" id="player-reg-team" placeholder="e.g. Zero Comp Gaming" class="search-input" style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem;" />
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                  <div>
+                    <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Faction *</label>
+                    <select id="player-reg-faction" onchange="onPlayerFactionChange(this.value)" required style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem; cursor: pointer;">
+                      <option value="">Loading factions...</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Force Disposition (Detachment) *</label>
+                    <select id="player-reg-detachment" required style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem; cursor: pointer;">
+                      <option value="">Select Faction first</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; margin-top: 0.4rem;">
+                  <button type="submit" id="btn-player-update" class="btn btn-primary" style="background: #10b981; border-color: #059669; color: #fff; font-weight: 700; font-size: 0.82rem; padding: 0.45rem 1.2rem; cursor: pointer;">
+                    Update Details
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Section 3: List Information & OmniTactica Army Vault -->
+            <div class="card" style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <h4 style="margin: 0; font-size: 0.92rem; font-weight: 700; color: #fff;">List Information</h4>
+                <span id="player-list-status-pill" class="badge" style="font-size: 0.72rem; padding: 3px 8px;">No List</span>
+              </div>
+
+              <!-- Quick Import from OmniTactica Army Vault -->
+              <div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.2); border-radius: 8px;">
+                <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.35rem;">
+                  ⚡ Quick Auto-Fill from OmniTactica Army Vault:
+                </label>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                  <select id="player-reg-saved-lists-select" style="flex: 1; min-width: 0; height: 34px; padding: 0.35rem 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.8rem;">
+                    <option value="">-- Select Saved Army List --</option>
+                  </select>
+                  <button type="button" onclick="applySavedListToPlayerDetails()" class="btn btn-outline" style="flex-shrink: 0; height: 34px; font-size: 0.76rem; padding: 0 0.75rem; font-weight: 600; color: #38bdf8; border-color: rgba(56,189,248,0.4); background: rgba(56,189,248,0.1); cursor: pointer;">
+                    Auto-Fill
+                  </button>
+                </div>
+              </div>
+
+              <!-- List Text Area -->
+              <div style="margin-bottom: 0.75rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
+                  <label style="font-size: 0.74rem; font-weight: 600; color: var(--text-muted);">Army List Text (Paste from New Recruit, BattleScribe, or 40k App)</label>
+                  <span id="player-reg-list-charcount" style="font-size: 0.7rem; color: var(--text-muted);">0 chars</span>
+                </div>
+                <textarea id="player-reg-list-text" rows="8" oninput="updatePlayerListCharCount()" placeholder="+ FACTION KEYWORD: Adeptus Custodes&#10;+ DETACHMENT: Shield Host&#10;+ TOTAL ARMY POINTS: 2000pts&#10;..." style="width: 100%; box-sizing: border-box; padding: 0.6rem 0.75rem; font-family: monospace; font-size: 0.78rem; line-height: 1.4; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #e2e8f0; resize: vertical;"></textarea>
+              </div>
+
+              <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button type="button" id="btn-player-submit-list" onclick="handleEventPlayerSubmitList()" class="btn btn-primary" style="background: #3b82f6; border-color: #2563eb; color: #fff; font-weight: 700; font-size: 0.82rem; padding: 0.45rem 1.2rem; cursor: pointer;">
+                  📤 Submit Army List to BCP
+                </button>
+              </div>
+            </div>
+
+          </div>
         </div>
 
         <!-- View 0: Team Rosters & Standings (for Team & Doubles Tournaments) -->

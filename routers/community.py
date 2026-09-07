@@ -393,6 +393,34 @@ class CommunityEventRegisterPayload(BaseModel):
     bcp_token: Optional[str] = None
 
 
+class UpdateEventPlayerPayload(BaseModel):
+    player_id: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    team_name: Optional[str] = None
+    army_id: Optional[str] = None
+    sub_faction_id: Optional[str] = None
+    faction_name: Optional[str] = None
+    detachment_name: Optional[str] = None
+
+
+class SubmitArmylistPayload(BaseModel):
+    player_id: str
+    list_text: str
+    army_id: Optional[str] = None
+    sub_faction_id: Optional[str] = None
+    send_notification: bool = True
+
+
+class CheckinPlayerPayload(BaseModel):
+    player_id: str
+    has_list: Optional[bool] = None
+
+
+class DropPlayerPayload(BaseModel):
+    player_id: str
+
+
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
 async def api_community_event_registration(
     event_id: str,
@@ -482,6 +510,7 @@ async def api_community_event_registration(
 
     # Check user registration status and army lists
     is_registered = False
+    player_registration = None
     army_lists: List[Dict[str, Any]] = []
     user_profile = {
         "logged_in": bool(user),
@@ -514,11 +543,66 @@ async def api_community_event_registration(
         }
 
         # Check if already registered
+        matched_reg = None
         try:
             user_regs = db.get_user_registered_tournaments(user["id"])
-            is_registered = any(str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid for r in (user_regs or []))
+            for r in (user_regs or []):
+                if str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid:
+                    is_registered = True
+                    matched_reg = r
+                    break
         except Exception:
             is_registered = False
+
+        # Fallback check against live event players if not in cached tournaments
+        if not is_registered and not clean_eid.startswith("ES-"):
+            try:
+                scraper = BestCoastPairingsScraper()
+                bcp_players = scraper.fetch_event_players(clean_eid)
+                target_uids = {str(bcp_user_id), str(user.get("id"))} if bcp_user_id else {str(user.get("id"))}
+                user_em = str(user_email or "").strip().lower()
+                for p in (bcp_players or []):
+                    p_uid = str(p.get("userId") or p.get("user_id") or "")
+                    p_em = str((p.get("user") or {}).get("email") or p.get("email") or "").strip().lower()
+                    if (p_uid and p_uid in target_uids) or (user_em and p_em and p_em == user_em):
+                        is_registered = True
+                        matched_reg = {
+                            "player_id": str(p.get("id") or p.get("_id") or ""),
+                            "first_name": (p.get("user") or {}).get("firstName") or p.get("firstName") or fn,
+                            "last_name": (p.get("user") or {}).get("lastName") or p.get("lastName") or ln,
+                            "team_name": (p.get("team") or {}).get("name") or p.get("teamName") or "",
+                            "faction": p.get("army") or p.get("faction") or "",
+                            "army_id": p.get("armyId") or "",
+                            "detachment": p.get("detachment") or "",
+                            "sub_faction_id": p.get("subFactionId") or "",
+                            "checked_in": bool(p.get("checkedIn") or p.get("checked_in") or False),
+                            "dropped": bool(p.get("dropped") or False),
+                            "has_list_submitted": bool(p.get("hasList") or p.get("armyList") or p.get("listSubmitted")),
+                            "army_list": p.get("armyList") or p.get("listText") or "",
+                        }
+                        break
+            except Exception as ex:
+                logger.debug(f"Live player registration check notice: {ex}")
+
+        player_registration = None
+        if matched_reg:
+            player_registration = {
+                "player_id": str(matched_reg.get("player_id") or matched_reg.get("id") or ""),
+                "first_name": matched_reg.get("first_name") or fn,
+                "last_name": matched_reg.get("last_name") or ln,
+                "team_name": matched_reg.get("team_name") or matched_reg.get("team") or "",
+                "faction": matched_reg.get("faction") or "",
+                "army_id": matched_reg.get("army_id") or matched_reg.get("armyId") or "",
+                "detachment": matched_reg.get("detachment") or "",
+                "sub_faction_id": matched_reg.get("sub_faction_id") or matched_reg.get("subFactionId") or "",
+                "checked_in": bool(matched_reg.get("checked_in") or matched_reg.get("checkedIn") or False),
+                "dropped": bool(matched_reg.get("dropped") or False),
+                "has_list_submitted": bool(matched_reg.get("has_list_submitted") or matched_reg.get("army_list") or matched_reg.get("armyList")),
+                "army_list": matched_reg.get("army_list") or matched_reg.get("armyList") or "",
+                "gamesystem_id": matched_reg.get("gamesystem_id") or ev.get("gamesystem_id") or rj.get("gameSystemId") or "WGMSzfKFYA",
+            }
+        else:
+            player_registration = None
 
         # Load user saved army lists from My Hub
         try:
@@ -556,6 +640,7 @@ async def api_community_event_registration(
         "can_register_free": can_register_free,
         "can_buy_ticket": can_buy_ticket,
         "is_registered": is_registered,
+        "player_registration": player_registration,
         "bcp_url": f"https://www.bestcoastpairings.com/event/{clean_eid}",
         "bcp_checkout_url": f"https://www.bestcoastpairings.com/event/{clean_eid}?checkout=true",
         "user_profile": user_profile,
@@ -813,6 +898,261 @@ async def api_community_event_register(
         "bcp_synced": False,
         "bcp_notice": None,
         "is_registered": True
+    }
+
+
+# =========================================================================
+# BCP REGISTRATION MANAGEMENT & CHECK-IN FLOW
+# =========================================================================
+
+@router.get("/api/community/gamesystems/{gamesystem_id}/factions", summary="Get Official Factions and Detachments for Gamesystem")
+async def api_community_gamesystem_factions(gamesystem_id: str):
+    """
+    Fetches the official list of factions and detachments (subfactions) for a gamesystem from BCP.
+    """
+    from bcp_adapter import bcp_adapter
+    ok, err, factions = bcp_adapter.fetch_gamesystem_factions(gamesystem_id)
+    if not ok:
+        raise HTTPException(status_code=502, detail=err or "Failed to fetch factions from BCP")
+    return {
+        "success": True,
+        "gamesystem_id": gamesystem_id,
+        "count": len(factions or []),
+        "factions": factions or []
+    }
+
+
+@router.post("/api/community/events/{event_id}/player", summary="Update Player Registration Details on BCP")
+async def api_community_update_player(
+    event_id: str,
+    payload: UpdateEventPlayerPayload,
+    request: Request,
+    token: Optional[str] = Query(None)
+):
+    """
+    Updates player registration fields (names, faction, detachment, team) on BCP via POST /v1/players/{player_id}.
+    """
+    session = _get_user_session_or_401(request, token)
+    user_id = session["id"]
+    clean_eid = str(event_id).strip()
+    clean_pid = str(payload.player_id).strip()
+    if not clean_pid:
+        raise HTTPException(status_code=400, detail="Missing player_id for player update")
+
+    from bcp_adapter import bcp_adapter
+    set_fields: Dict[str, Any] = {}
+    if payload.first_name is not None:
+        set_fields["firstName"] = payload.first_name.strip()
+    if payload.last_name is not None:
+        set_fields["lastName"] = payload.last_name.strip()
+    if payload.army_id:
+        set_fields["armyId"] = payload.army_id.strip()
+    if payload.sub_faction_id:
+        set_fields["subFactionId"] = payload.sub_faction_id.strip()
+
+    unset_fields: Dict[str, Any] = {}
+    if payload.team_name and payload.team_name.strip():
+        set_fields["teamName"] = payload.team_name.strip()
+    else:
+        unset_fields["teamId"] = True
+        unset_fields["teamName"] = True
+
+    ok, err, data = bcp_adapter.update_player(
+        player_id=clean_pid,
+        set_fields=set_fields,
+        unset_fields=unset_fields if unset_fields else None,
+        user_id=user_id
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=err or "Failed to update player details on BCP")
+
+    # Update local DB cached registration in event_participants so UI updates immediately
+    try:
+        db = get_database()
+        fn = payload.first_name or ""
+        ln = payload.last_name or ""
+        full_name = f"{fn} {ln}".strip() or session.get("display_name") or "Competitor"
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "first_name": fn,
+            "last_name": ln,
+            "name": full_name,
+            "faction": payload.faction_name or set_fields.get("armyId") or "",
+            "detachment": payload.detachment_name or set_fields.get("subFactionId") or "",
+            "team": payload.team_name or "",
+        })
+    except Exception as dberr:
+        logger.debug(f"Local participant sync notice: {dberr}")
+
+    return {
+        "success": True,
+        "message": "Player details updated successfully",
+        "data": data
+    }
+
+
+@router.post("/api/community/events/{event_id}/armylist", summary="Submit Army List to BCP")
+async def api_community_submit_armylist(
+    event_id: str,
+    payload: SubmitArmylistPayload,
+    request: Request,
+    token: Optional[str] = Query(None)
+):
+    """
+    Submits or updates an army list on BCP via POST /v1/armylists.
+    """
+    session = _get_user_session_or_401(request, token)
+    user_id = session["id"]
+    clean_eid = str(event_id).strip()
+    clean_pid = str(payload.player_id).strip()
+    list_text = str(payload.list_text or "").strip()
+    if not clean_pid:
+        raise HTTPException(status_code=400, detail="Missing player_id for army list submission")
+    if not list_text:
+        raise HTTPException(status_code=400, detail="Army list text cannot be empty")
+
+    from bcp_adapter import bcp_adapter
+    ok, err, data = bcp_adapter.submit_armylist(
+        player_id=clean_pid,
+        list_text=list_text,
+        army_id=payload.army_id,
+        sub_faction_id=payload.sub_faction_id,
+        send_notification=payload.send_notification,
+        user_id=user_id
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=err or "Failed to submit army list to BCP")
+
+    # Update local DB cached registration in event_participants
+    try:
+        db = get_database()
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "army_list": list_text,
+            "has_list_submitted": True
+        })
+    except Exception as dberr:
+        logger.debug(f"Local participant list sync notice: {dberr}")
+
+    return {
+        "success": True,
+        "message": "Army list submitted successfully to BCP",
+        "data": data
+    }
+
+
+@router.post("/api/community/events/{event_id}/checkin", summary="Check-in Player to Tournament on BCP")
+async def api_community_checkin_player(
+    event_id: str,
+    payload: CheckinPlayerPayload,
+    request: Request,
+    token: Optional[str] = Query(None)
+):
+    """
+    Checks in a competitor to a tournament on BCP via POST /v1/players/{player_id} with {"set": {"checkedIn": True}}.
+    Guarded against checking in without a list when required.
+    """
+    session = _get_user_session_or_401(request, token)
+    user_id = session["id"]
+    clean_eid = str(event_id).strip()
+    clean_pid = str(payload.player_id).strip()
+    if not clean_pid:
+        raise HTTPException(status_code=400, detail="Missing player_id for check-in")
+
+    db = get_database()
+    # Pre-validation: check if player has a list submitted
+    has_list = payload.has_list
+    if has_list is None:
+        try:
+            regs = db.get_user_registered_tournaments(user_id)
+            for r in (regs or []):
+                if str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid:
+                    has_list = bool(r.get("has_list_submitted") or r.get("army_list"))
+                    break
+        except Exception:
+            pass
+
+    # If explicitly flagged or known that no list exists, block and inform user
+    if has_list is False:
+        raise HTTPException(
+            status_code=400,
+            detail="An army list must be submitted before checking in to this tournament."
+        )
+
+    from bcp_adapter import bcp_adapter
+    ok, err, data = bcp_adapter.checkin_player(
+        player_id=clean_pid,
+        user_id=user_id
+    )
+    if not ok:
+        err_msg = err or "Failed to check in to BCP"
+        if "list" in err_msg.lower():
+            err_msg = "BCP requires an army list to be submitted before checking in. Please submit your list first."
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    # Update local DB cached registration in event_participants
+    try:
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "checked_in": True
+        })
+    except Exception as dberr:
+        logger.debug(f"Local participant checkin sync notice: {dberr}")
+
+    return {
+        "success": True,
+        "message": "Successfully checked in to tournament on BCP",
+        "data": data
+    }
+
+
+@router.post("/api/community/events/{event_id}/drop", summary="Drop Player from Tournament on BCP")
+async def api_community_drop_player(
+    event_id: str,
+    payload: DropPlayerPayload,
+    request: Request,
+    token: Optional[str] = Query(None)
+):
+    """
+    Drops a competitor from a tournament on BCP via POST /v1/players/{player_id} with {"set": {"dropped": True}}.
+    """
+    session = _get_user_session_or_401(request, token)
+    user_id = session["id"]
+    clean_eid = str(event_id).strip()
+    clean_pid = str(payload.player_id).strip()
+    if not clean_pid:
+        raise HTTPException(status_code=400, detail="Missing player_id for tournament drop")
+
+    from bcp_adapter import bcp_adapter
+    ok, err, data = bcp_adapter.drop_player(
+        player_id=clean_pid,
+        user_id=user_id
+    )
+    if not ok:
+        raise HTTPException(status_code=400, detail=err or "Failed to drop from tournament on BCP")
+
+    # Update local DB cached registration in event_participants
+    try:
+        db = get_database()
+        db.add_user_registered_tournament(user_id, {
+            "bcp_event_id": clean_eid,
+            "id": clean_eid,
+            "player_id": clean_pid,
+            "dropped": True
+        })
+    except Exception as dberr:
+        logger.debug(f"Local participant drop sync notice: {dberr}")
+
+    return {
+        "success": True,
+        "message": "Successfully dropped from tournament on BCP",
+        "data": data
     }
 
 
