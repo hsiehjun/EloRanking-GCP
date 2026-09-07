@@ -384,7 +384,8 @@ class CommunityEventRegisterPayload(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     email: Optional[str] = None
-    faction: str
+    team: Optional[str] = None
+    faction: Optional[str] = None
     detachment: Optional[str] = None
     army_list: Optional[str] = None
     army_list_id: Optional[str] = None
@@ -678,10 +679,8 @@ async def api_community_event_register(
         raise HTTPException(status_code=400, detail="Competitor name is required.")
 
     email = (payload.email or (user.get("email") if user else "") or "").strip()
-    faction = (payload.faction or "").strip()
-    if not faction:
-        raise HTTPException(status_code=400, detail="Faction is required for tournament registration.")
-
+    team = (payload.team or (user.get("team") if user else "") or "").strip()
+    faction = (payload.faction or "").strip() or "Unassigned"
     detachment = (payload.detachment or "").strip()
     army_list = (payload.army_list or "").strip()
 
@@ -695,6 +694,8 @@ async def api_community_event_register(
                     detachment = matched.get("detachment")
                 if not army_list:
                     army_list = matched.get("raw_text") or matched.get("list_text") or matched.get("army_list") or ""
+                if faction == "Unassigned" and matched.get("faction"):
+                    faction = matched.get("faction")
         except Exception as e:
             logger.debug(f"Saved army list lookup notice: {e}")
 
@@ -709,11 +710,12 @@ async def api_community_event_register(
         "first_name": fn,
         "last_name": ln,
         "email": email,
-        "faction": faction,
-        "army": faction,
-        "detachment": detachment,
-        "army_list": army_list,
-        "system_id": system_id,
+        "team": team,
+        "faction": faction if faction != "Unassigned" else None,
+        "army": faction if faction != "Unassigned" else None,
+        "detachment": detachment or None,
+        "army_list": army_list or None,
+        "system_id": system_id or None,
         "bcp_user_id": bcp_user_id,
         "checked_in": False
     }
@@ -743,16 +745,19 @@ async def api_community_event_register(
                 detail=f"Failed to communicate with Best Coast Pairings: {bcp_ex}"
             )
 
+        already_reg = bool(bcp_resp and isinstance(bcp_resp, dict) and bcp_resp.get("already_registered"))
+        success_msg = f"You are already registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!" if already_reg else f"Successfully registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!"
+
         return {
             "success": True,
-            "message": f"Successfully registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!",
+            "message": success_msg,
             "event_id": clean_eid,
             "event_name": ev.get("name") or "Tournament",
             "player_name": full_name,
             "faction": faction,
             "detachment": detachment,
             "bcp_synced": True,
-            "bcp_notice": None,
+            "bcp_notice": "Already registered on BCP" if already_reg else None,
             "is_registered": True
         }
 

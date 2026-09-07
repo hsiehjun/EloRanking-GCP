@@ -495,6 +495,70 @@ def test_community_sql_cte_column_integrity_and_error_handling():
     print("✅ SQL CTE column integrity and frontend error resilience verified!")
 
 
+def test_streamlined_registration_fields_and_unauth_fallback():
+    """Verify registration with only first name, last name, team, email (no faction required) and 401 unauthenticated fallback."""
+    from routers.community import api_community_event_register, CommunityEventRegisterPayload
+    from bcp_adapter import BcpAdapter
+    import asyncio
+    import urllib.error
+
+    # 1. Verify BcpAdapter falls back to unauthenticated on 401 token rejection
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        # First call with token throws 401 Unauthorized, unauth fallback returns 200
+        mock_401 = urllib.error.HTTPError("https://newprod-api.bestcoastpairings.com/v1/players", 401, "invalid authorization token", {}, None)
+        mock_401.read = MagicMock(return_value=b'{"error":"invalid authorization token"}')
+
+        mock_200 = MagicMock()
+        mock_200.status = 200
+        mock_200.read.return_value = b'{"success": true, "playerId": "p_succ_99"}'
+        mock_200.__enter__.return_value = mock_200
+
+        mock_urlopen.side_effect = [mock_401, mock_200]
+
+        player_data = {
+            "first_name": "John",
+            "last_name": "Hsieh",
+            "email": "swimgeek751@gmail.com",
+            "team": "Team Zero Comp"
+        }
+
+        success, err, data = BcpAdapter.register_player(
+            event_id="Xeqy73dRB0LL",
+            player_data=player_data,
+            user_id="user_123",
+            explicit_token="expired_token"
+        )
+        assert success is True
+        assert data["playerId"] == "p_succ_99"
+
+    # 2. Verify duplicate registration (409 already exists) gracefully handled
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_409 = urllib.error.HTTPError("https://newprod-api.bestcoastpairings.com/v1/players", 409, "Conflict", {}, None)
+        mock_409.read = MagicMock(return_value=b'{"error":"player already exists in event"}')
+        mock_urlopen.side_effect = mock_409
+
+        success, err, data = BcpAdapter.register_player(
+            event_id="Xeqy73dRB0LL",
+            player_data=player_data
+        )
+        assert success is True
+        assert data.get("already_registered") is True
+
+    # 3. Verify CommunityEventRegisterPayload accepts streamlined fields with NO faction
+    payload = CommunityEventRegisterPayload(
+        first_name="John",
+        last_name="Hsieh",
+        email="swimgeek751@gmail.com",
+        team="Team Zero Comp"
+    )
+    assert payload.faction is None
+    assert payload.team == "Team Zero Comp"
+    assert payload.first_name == "John"
+    assert payload.last_name == "Hsieh"
+
+    print("✅ Streamlined registration fields and BCP unauthenticated fallback verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running Community Registration Automated Test Suite...")
     test_database_upcoming_events_normalization()
@@ -503,4 +567,5 @@ if __name__ == "__main__":
     test_community_registration_endpoints()
     test_frontend_card_and_modal_integrity()
     test_community_sql_cte_column_integrity_and_error_handling()
+    test_streamlined_registration_fields_and_unauth_fallback()
     print("\n🎉 ALL COMMUNITY REGISTRATION FLOW TESTS PASSED SUCCESSFULLY!")

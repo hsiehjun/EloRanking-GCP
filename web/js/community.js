@@ -3140,12 +3140,37 @@ async function openEventRegistrationModal(eventId) {
       }
     }
 
+function syncRegistrationFullName() {
+  const fn = (document.getElementById('event-reg-first-name')?.value || '').trim();
+  const ln = (document.getElementById('event-reg-last-name')?.value || '').trim();
+  const nameInput = document.getElementById('event-reg-name');
+  if (nameInput) {
+    nameInput.value = `${fn} ${ln}`.trim();
+  }
+}
+window.syncRegistrationFullName = syncRegistrationFullName;
+
     // Pre-fill user inputs
+    const firstNameInput = document.getElementById('event-reg-first-name');
+    const lastNameInput = document.getElementById('event-reg-last-name');
+    const teamInput = document.getElementById('event-reg-team');
+    let fn = prof.first_name || '';
+    let ln = prof.last_name || '';
+    if (!fn && !ln && prof.name) {
+      const parts = prof.name.trim().split(' ');
+      fn = parts[0] || '';
+      ln = parts.slice(1).join(' ') || '';
+    }
+    if (firstNameInput) firstNameInput.value = fn;
+    if (lastNameInput) lastNameInput.value = ln;
     if (nameInput) {
-      nameInput.value = prof.name || (prof.first_name ? `${prof.first_name} ${prof.last_name}`.trim() : '');
+      nameInput.value = prof.name || `${fn} ${ln}`.trim();
     }
     if (emailInput) {
-      emailInput.value = prof.email || '';
+      emailInput.value = prof.email || prof.bcp_email || '';
+    }
+    if (teamInput) {
+      teamInput.value = prof.team || '';
     }
 
     // Populate Saved Army Lists from My Hub
@@ -3267,9 +3292,17 @@ async function submitEventRegistration() {
   const savedListSelect = document.getElementById('event-reg-saved-list');
   const systemIdInput = document.getElementById('event-reg-system-id');
   const statusEl = document.getElementById('event-reg-status');
-  const submitBtn = document.getElementById('event-reg-submit-btn');
+  const firstNameInput = document.getElementById('event-reg-first-name');
+  const lastNameInput = document.getElementById('event-reg-last-name');
+  const teamInput = document.getElementById('event-reg-team');
+  const fn = firstNameInput ? firstNameInput.value.trim() : '';
+  const ln = lastNameInput ? lastNameInput.value.trim() : '';
+  const team = teamInput ? teamInput.value.trim() : '';
+  let fullName = `${fn} ${ln}`.trim();
+  if (!fullName && nameInput) {
+    fullName = nameInput.value.trim();
+  }
 
-  const name = nameInput ? nameInput.value.trim() : '';
   const email = emailInput ? emailInput.value.trim() : '';
   const faction = factionSelect ? factionSelect.value.trim() : '';
   const detachment = detachmentInput ? detachmentInput.value.trim() : '';
@@ -3277,25 +3310,25 @@ async function submitEventRegistration() {
   const savedListId = savedListSelect ? savedListSelect.value : '';
   const systemId = systemIdInput ? systemIdInput.value.trim() : '';
 
-  if (!name) {
+  if (!fn && !fullName) {
     if (statusEl) {
       statusEl.style.display = 'block';
       statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
       statusEl.style.color = '#ef4444';
-      statusEl.textContent = 'Please enter competitor name.';
+      statusEl.textContent = 'Please enter your first name.';
     }
-    nameInput?.focus();
+    (firstNameInput || nameInput)?.focus();
     return;
   }
 
-  if (!faction) {
+  if (!email) {
     if (statusEl) {
       statusEl.style.display = 'block';
       statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
       statusEl.style.color = '#ef4444';
-      statusEl.textContent = 'Please select a primary faction.';
+      statusEl.textContent = 'Please enter your BCP account email address.';
     }
-    factionSelect?.focus();
+    emailInput?.focus();
     return;
   }
 
@@ -3311,11 +3344,14 @@ async function submitEventRegistration() {
   }
 
   const payload = {
-    name: name,
+    name: fullName,
+    first_name: fn,
+    last_name: ln,
     email: email,
-    faction: faction,
-    detachment: detachment,
-    army_list: armyList,
+    team: team,
+    faction: faction || null,
+    detachment: detachment || null,
+    army_list: armyList || null,
     army_list_id: savedListId || null,
     system_id: systemId || null
   };

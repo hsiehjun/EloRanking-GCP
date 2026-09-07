@@ -118,6 +118,16 @@ class BcpAdapter:
             except Exception as ref_err:
                 logger.warning(f"Notice during token retry / refresh for user {user_id}: {ref_err}")
 
+        # 3. If token authentication failed with 401/403 and unauthenticated calls are allowed (e.g. public player registration),
+        # fall back to unauthenticated execution
+        if status in (401, 403) and allow_unauthenticated:
+            logger.info(f"🔄 [BCP API] Token was rejected with HTTP {status}. Falling back to unauthenticated {method} {url}...")
+            data_unauth, status_unauth, err_unauth = _do_request(None)
+            if data_unauth is not None or status_unauth in (200, 201):
+                return data_unauth, None
+            if err_unauth:
+                err = err_unauth
+
         if err:
             logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
         return None, err
@@ -183,8 +193,9 @@ class BcpAdapter:
 
         bcp_payload: Dict[str, Any] = {
             "eventId": event_id,
-            "checkedIn": checked_in,
         }
+        if checked_in:
+            bcp_payload["checkedIn"] = True
 
         fn = player_data.get("first_name") or player_data.get("firstName") or ""
         ln = player_data.get("last_name") or player_data.get("lastName") or ""
@@ -197,17 +208,19 @@ class BcpAdapter:
             "lastName": ln or "",
             "email": player_data.get("email") or ""
         }
-        if bcp_user_id:
+        if bcp_user_id and explicit_token:
             bcp_payload["userId"] = str(bcp_user_id)
 
         faction = player_data.get("faction") or player_data.get("army")
-        if faction:
+        if faction and faction not in ("Unassigned", "Unknown"):
             bcp_payload["army"] = faction
             bcp_payload["faction"] = faction
         if player_data.get("detachment"):
             bcp_payload["detachment"] = player_data["detachment"]
-        if player_data.get("team"):
-            bcp_payload["team"] = player_data["team"]
+        team = player_data.get("team") or player_data.get("teamName")
+        if team:
+            bcp_payload["team"] = team
+            bcp_payload["teamName"] = team
         if player_data.get("army_list") or player_data.get("armyList"):
             bcp_payload["armyList"] = player_data.get("army_list") or player_data.get("armyList")
 
@@ -222,12 +235,20 @@ class BcpAdapter:
             logger.info(f"✅ Registered competitor to BCP event {event_id} via /{endpoint}")
             return True, None, data
 
+        if err and "already exists" in err.lower():
+            logger.info(f"ℹ️ Competitor already registered in BCP event {event_id}")
+            return True, None, {"already_registered": True}
+
         # 2. Fallback: Nested /events/{id}/players for legacy compatibility
         legacy_url = f"{BCP_API_BASE}/events/{event_id}/{endpoint}"
         data2, err2 = cls.execute_call(legacy_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
         if data2 is not None or not err2:
             logger.info(f"✅ Registered competitor to BCP event {event_id} via legacy /events/{event_id}/{endpoint}")
             return True, None, data2
+
+        if err2 and "already exists" in err2.lower():
+            logger.info(f"ℹ️ Competitor already registered in BCP event {event_id}")
+            return True, None, {"already_registered": True}
 
         return False, (err or err2 or "BCP roster registration failed"), None
 
