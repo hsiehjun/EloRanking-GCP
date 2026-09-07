@@ -344,13 +344,34 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     else:
         match_id = generate_unique_match_id(db)
 
-    user_id_p1 = user["id"] if user else None
-    p1_name = (user.get("display_name") if user else None) or (payload.p1_name if payload else None) or "Player 1"
+    p1_target = (payload.p1_name or "").strip().lower() if payload else ""
+    p2_target = (payload.p2_name or "").strip().lower() if payload else ""
+    u_display = (user.get("display_name") or user.get("name") or "").strip().lower() if user else ""
+    u_email = (user.get("email") or "").strip().lower() if user else ""
+
+    p1_name = (payload.p1_name if payload and payload.p1_name else None) or (user.get("display_name") if user else None) or "Player 1"
     p2_name = (payload.p2_name if payload and payload.p2_name else "Player 2")
     p1_fac = (payload.p1_faction if payload else None)
     p2_fac = (payload.p2_faction if payload else None)
     p1_det = [payload.p1_detachment] if (payload and payload.p1_detachment) else []
     p2_det = [payload.p2_detachment] if (payload and payload.p2_detachment) else []
+
+    is_p2_creator = bool(user and p2_target and (u_display == p2_target or (u_email and p2_target in u_email)))
+    is_p1_creator = bool(user and p1_target and (u_display == p1_target or (u_email and p1_target in u_email)))
+
+    if is_p2_creator and not is_p1_creator:
+        user_id_p1 = None
+        user_id_p2 = user["id"] if user else None
+        created_role = "player2"
+    elif is_p1_creator:
+        user_id_p1 = user["id"] if user else None
+        user_id_p2 = None
+        created_role = "player1"
+    else:
+        # Non-competitor (e.g. TO/Staff) or casual room
+        user_id_p1 = user["id"] if (user and not (p1_target or p2_target)) else None
+        user_id_p2 = None
+        created_role = "spectator" if (p1_target and p2_target) else "player1"
     
     initial_state = {
         "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
@@ -359,7 +380,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "round_num": payload.round_num if payload else 1,
         "table_num": payload.table_num if payload else None,
         "user_id_p1": user_id_p1,
-        "user_id_p2": None,
+        "user_id_p2": user_id_p2,
         "game": {
             "p1Name": p1_name,
             "p2Name": p2_name,
@@ -429,7 +450,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     TRACKER_ROOMS[match_id] = {
         "match_id": match_id,
         "user_id_p1": user_id_p1,
-        "user_id_p2": None,
+        "user_id_p2": user_id_p2,
         "referee_ids": [],
         "version": 1,
         "state": initial_state,
@@ -443,7 +464,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         fs_engine = get_firestore_engine()
         fs_engine.create_room(match_id, {
             "user_id_p1": user_id_p1,
-            "user_id_p2": None,
+            "user_id_p2": user_id_p2,
             "referee_ids": [],
             "version": 1,
             "p1_name": p1_name,
@@ -458,8 +479,9 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     return {
         "success": True,
         "match_id": match_id,
-        "role": "player1",
+        "role": created_role,
         "user_id_p1": user_id_p1,
+        "user_id_p2": user_id_p2,
         "p1_name": p1_name,
         "p2_name": p2_name,
         "state": initial_state
@@ -619,16 +641,33 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     u_name = (incoming_name or "").strip().lower()
     is_tournament_match = match_id.startswith("BCP-") or bool(st.get("event_id"))
     is_p1_owner = bool(user_id and room.get("user_id_p1") and room.get("user_id_p1") == user_id)
+    is_p2_owner = bool(user_id and room.get("user_id_p2") and room.get("user_id_p2") == user_id)
 
     # 1. Check if user is already registered Player 1 owner
     if is_p1_owner and (not payload or payload.claim_role != "player2"):
         role = "player1"
     # 2. Check if user is already registered Player 2 owner
-    elif user_id and room.get("user_id_p2") == user_id:
+    elif is_p2_owner and (not payload or payload.claim_role != "player1"):
         role = "player2"
         if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
             game["p2Name"] = incoming_name
-    # 3. Check if explicit Player 2 claim or open Player 2 slot
+    # 3. Check if Player 1 slot is open and user matches Player 1 name or explicit claim
+    elif not room.get("user_id_p1") and ((u_name and p1_assigned_name and (u_name == p1_assigned_name or u_name.replace(' ', '') == p1_assigned_name.replace(' ', ''))) or (payload and payload.claim_role == "player1") or (not room.get("user_id_p2") and not is_tournament_match)):
+        room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
+        if incoming_name and incoming_name != "Player 1" and incoming_name != game.get("p2Name"):
+            game["p1Name"] = incoming_name
+        role = "player1"
+        room["version"] = room.get("version", 1) + 1
+        try:
+            fs_engine.update_room(match_id, {
+                "user_id_p1": room["user_id_p1"],
+                "p1_name": game.get("p1Name", "Player 1"),
+                "state": st,
+                "version": room["version"]
+            })
+        except Exception:
+            pass
+    # 4. Check if explicit Player 2 claim or open Player 2 slot
     elif (payload and payload.claim_role == "player2") or (not room.get("user_id_p2") and not is_p1_owner) or (not room.get("user_id_p2") and not is_tournament_match):
         room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
         if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
@@ -636,7 +675,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
         if payload and payload.faction and not game.get("p2Faction"):
             game["p2Faction"] = payload.faction
         role = "player2"
-        room["version"] += 1
+        room["version"] = room.get("version", 1) + 1
         
         # Sync to Firestore Native
         try:

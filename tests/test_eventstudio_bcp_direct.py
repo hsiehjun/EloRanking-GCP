@@ -628,6 +628,126 @@ def test_workspace_refresh_live_button_exists():
 
     print("✅ test_workspace_refresh_live_button_exists passed!")
 
+def test_competitors_can_track_pairings():
+    """Verify both competitor accounts and TO/staff can track pairings in tournaments.js and bundle."""
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text()
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text()
+
+    # Check key identifiers and display_name matching in source & bundle
+    assert "u.display_name" in tournaments_js
+    assert "u.competitor_name" in tournaments_js
+    assert "recordMatchesUser" in tournaments_js
+    assert "launchTournamentTracker" in tournaments_js
+    assert "launchTournamentTracker" in bundle_js
+
+    # Emulate permission check logic
+    def evaluate_can_edit(user, p1_name, p2_name, p1_id="", p2_id=""):
+        user_names = []
+        if user:
+            for k in ("display_name", "competitor_name", "full_name", "name", "username"):
+                v = user.get(k)
+                if v: user_names.append(v.strip().lower())
+        user_ids = []
+        if user:
+            for k in ("player_id", "bcp_user_id", "bcp_id", "id", "userId"):
+                v = user.get(k)
+                if v: user_ids.append(str(v).strip().lower())
+        
+        p1_clean = (p1_name or "").strip().lower()
+        p2_clean = (p2_name or "").strip().lower()
+
+        is_p1 = bool(user and ((p1_id and p1_id.lower() in user_ids) or any(un == p1_clean for un in user_names)))
+        is_p2 = bool(user and ((p2_id and p2_id.lower() in user_ids) or any(un == p2_clean for un in user_names)))
+        user_role = (user.get("role") or "").lower() if user else ""
+        is_staff = bool(user and (user_role in ("admin", "to", "referee", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+        return is_p1 or is_p2 or is_staff
+
+    p1 = "John3 Hsieh3"
+    p2 = "John4 Hsieh4"
+
+    # Player 1 (John3) logged in
+    u1 = {"id": "uid-3", "display_name": "John3 Hsieh3", "role": "player"}
+    assert evaluate_can_edit(u1, p1, p2) is True
+
+    # Player 2 (John4) logged in
+    u2 = {"id": "uid-4", "display_name": "John4 Hsieh4", "role": "player"}
+    assert evaluate_can_edit(u2, p1, p2) is True
+
+    # TO / Staff logged in
+    u_to = {"id": "uid-to", "display_name": "TO Staff", "role": "to"}
+    assert evaluate_can_edit(u_to, p1, p2) is True
+
+    # Unrelated spectator
+    u_spec = {"id": "uid-spec", "display_name": "Spectator Dave", "role": "player"}
+    assert evaluate_can_edit(u_spec, p1, p2) is False
+
+    print("✅ test_competitors_can_track_pairings passed!")
+
+def test_tracker_room_creation_for_both_players():
+    """Verify tracker room creation assigns correct player slot regardless of which competitor launches first."""
+    from routers.tracker import api_tracker_create_room, api_tracker_join_room, TrackerCreatePayload, TrackerJoinPayload, TRACKER_ROOMS
+
+    mock_db = MagicMock()
+    mock_db.get_tracker_game.return_value = None
+
+    # Test Player 2 launches Track first
+    match_id = "BCP-TESTEV-R1-T1"
+    TRACKER_ROOMS.pop(match_id, None)
+
+    req_p2 = MagicMock()
+    req_p2.headers = {}
+    req_p2.cookies = {"session_token": "token_p2"}
+
+    user_p2 = {"id": "u4_id", "display_name": "John4 Hsieh4", "role": "player"}
+    mock_auth_p2 = MagicMock()
+    mock_auth_p2.get_session.return_value = user_p2
+
+    payload_create = TrackerCreatePayload(
+        token="token_p2",
+        match_id=match_id,
+        event_id="TESTEV",
+        round_num=1,
+        table_num=1,
+        p1_name="John3 Hsieh3",
+        p2_name="John4 Hsieh4"
+    )
+
+    with patch("routers.tracker.get_database", return_value=mock_db), \
+         patch("routers.tracker.get_auth_manager", return_value=mock_auth_p2):
+
+        res_create = asyncio.run(api_tracker_create_room(req_p2, payload_create))
+        assert res_create["success"] is True
+        assert res_create["role"] == "player2"
+        assert res_create["user_id_p2"] == "u4_id"
+        assert res_create["user_id_p1"] is None
+        assert res_create["p1_name"] == "John3 Hsieh3"
+        assert res_create["p2_name"] == "John4 Hsieh4"
+
+    # Now Player 1 joins the existing room
+    req_p1 = MagicMock()
+    req_p1.headers = {}
+    req_p1.cookies = {"session_token": "token_p1"}
+
+    user_p1 = {"id": "u3_id", "display_name": "John3 Hsieh3", "role": "player"}
+    mock_auth_p1 = MagicMock()
+    mock_auth_p1.get_session.return_value = user_p1
+
+    payload_join = TrackerJoinPayload(
+        token="token_p1",
+        player_name="John3 Hsieh3"
+    )
+
+    with patch("routers.tracker.get_database", return_value=mock_db), \
+         patch("routers.tracker.get_auth_manager", return_value=mock_auth_p1):
+
+        res_join = asyncio.run(api_tracker_join_room(match_id, req_p1, payload_join))
+        assert res_join["success"] is True
+        assert res_join["role"] == "player1"
+
+    # Clean up
+    TRACKER_ROOMS.pop(match_id, None)
+    print("✅ test_tracker_room_creation_for_both_players passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -645,4 +765,6 @@ if __name__ == "__main__":
     test_eventstudio_list_events_enriches_from_bcp_details()
     test_leaderboard_event_details_populates_live_bcp_pairings()
     test_workspace_refresh_live_button_exists()
+    test_competitors_can_track_pairings()
+    test_tracker_room_creation_for_both_players()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")

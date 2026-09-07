@@ -1345,22 +1345,147 @@ function renderEventPairingsRows() {
     const p2Faction = m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '';
 
     // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
-    const u = currentUser;
-    const uPlayerId = u && (u.player_id || u.bcp_user_id || u.bcp_id || u.id);
-    const uName = u && (u.name || u.full_name || u.username || '').trim().toLowerCase();
+    const u = (typeof authState !== 'undefined' && authState && authState.user) ||
+              (typeof currentUser !== 'undefined' ? currentUser : null) ||
+              (typeof window !== 'undefined' ? window.currentUser : null);
+
+    // Collect all candidate names for logged-in user
+    const userNames = [];
+    if (u) {
+      [
+        u.display_name,
+        u.competitor_name,
+        u.full_name,
+        u.name,
+        u.username,
+        (u.first_name || u.firstName) ? `${u.first_name || u.firstName} ${u.last_name || u.lastName || ''}` : '',
+        (u.lastName) ? `${u.firstName || ''} ${u.lastName}` : ''
+      ].forEach(n => {
+        if (n && typeof n === 'string' && n.trim()) {
+          userNames.push(n.trim().toLowerCase());
+        }
+      });
+    }
+    if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+      const preg = currentEventRegistration.player_registration || {};
+      const uprof = currentEventRegistration.user_profile || {};
+      [
+        preg.full_name,
+        preg.name,
+        preg.first_name ? `${preg.first_name} ${preg.last_name || ''}` : '',
+        uprof.display_name,
+        uprof.first_name ? `${uprof.first_name} ${uprof.last_name || ''}` : ''
+      ].forEach(n => {
+        if (n && typeof n === 'string' && n.trim()) {
+          userNames.push(n.trim().toLowerCase());
+        }
+      });
+    }
+
+    // Collect all candidate IDs for logged-in user
+    const userIds = [];
+    if (u) {
+      [u.player_id, u.bcp_user_id, u.bcp_id, u.id, u.sub, u.userId].forEach(id => {
+        if (id && typeof id === 'string' && id.trim()) {
+          userIds.push(id.trim().toLowerCase());
+        }
+      });
+    }
+    if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+      const preg = currentEventRegistration.player_registration || {};
+      const uprof = currentEventRegistration.user_profile || {};
+      [preg.player_id, preg.id, preg.userId, preg.user_id, uprof.bcp_user_id, uprof.id].forEach(id => {
+        if (id && typeof id === 'string' && id.trim()) {
+          userIds.push(id.trim().toLowerCase());
+        }
+      });
+    }
+
+    // Collect all candidate emails for logged-in user
+    const userEmails = [];
+    if (u) {
+      [u.email, u.bcp_email].forEach(em => {
+        if (em && typeof em === 'string' && em.trim()) {
+          userEmails.push(em.trim().toLowerCase());
+        }
+      });
+    }
+    if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+      const preg = currentEventRegistration.player_registration || {};
+      const uprof = currentEventRegistration.user_profile || {};
+      [preg.email, uprof.email].forEach(em => {
+        if (em && typeof em === 'string' && em.trim()) {
+          userEmails.push(em.trim().toLowerCase());
+        }
+      });
+    }
+
+    function checkNameMatch(candidate, target) {
+      if (!candidate || !target) return false;
+      const c = candidate.trim().toLowerCase();
+      const t = target.trim().toLowerCase();
+      if (c === t) return true;
+      if (c.replace(/\s+/g, '') === t.replace(/\s+/g, '')) return true;
+      return false;
+    }
+
     const p1NameClean = (m.player1_name || '').trim().toLowerCase();
     const p2NameClean = (m.player2_name || '').trim().toLowerCase();
+    const p1IdClean = (m.player1_id || '').trim().toLowerCase();
+    const p2IdClean = (m.player2_id || '').trim().toLowerCase();
+
+    // Look up cached player records in roster
+    const allRosterPlayers = [
+      ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
+      ...((currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
+      ...((currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : [])
+    ];
+
+    const p1Record = allRosterPlayers.find(p => {
+      if (!p) return false;
+      const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
+      if (p1IdClean && pid && pid === p1IdClean) return true;
+      const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
+      if (p1NameClean && pname && checkNameMatch(pname, p1NameClean)) return true;
+      return false;
+    });
+
+    const p2Record = allRosterPlayers.find(p => {
+      if (!p) return false;
+      const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
+      if (p2IdClean && pid && pid === p2IdClean) return true;
+      const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
+      if (p2NameClean && pname && checkNameMatch(pname, p2NameClean)) return true;
+      return false;
+    });
+
+    function recordMatchesUser(rec) {
+      if (!rec) return false;
+      const recIds = [rec.player_id, rec.id, rec.user_id, rec.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
+      if (recIds.some(id => userIds.includes(id))) return true;
+      const recEmail = String(rec.email || '').trim().toLowerCase();
+      if (recEmail && userEmails.includes(recEmail)) return true;
+      const recName = String(rec.full_name || rec.name || rec.player_name || '').trim().toLowerCase();
+      if (recName && userNames.some(un => checkNameMatch(un, recName))) return true;
+      return false;
+    }
 
     const isP1 = Boolean(u && (
-      (uPlayerId && (uPlayerId === m.player1_id || uPlayerId === m.player1_name)) ||
-      (uName && p1NameClean && uName === p1NameClean)
+      (p1IdClean && userIds.includes(p1IdClean)) ||
+      (p1NameClean && userNames.some(un => checkNameMatch(un, p1NameClean))) ||
+      recordMatchesUser(p1Record)
     ));
+
     const isP2 = Boolean(u && (
-      (uPlayerId && (uPlayerId === m.player2_id || uPlayerId === m.player2_name)) ||
-      (uName && p2NameClean && uName === p2NameClean)
+      (p2IdClean && userIds.includes(p2IdClean)) ||
+      (p2NameClean && userNames.some(un => checkNameMatch(un, p2NameClean))) ||
+      recordMatchesUser(p2Record)
     ));
+
+    const userRole = String(u?.role || '').trim().toLowerCase();
     const isStaff = Boolean(u && (
-      u.role === 'admin' || u.role === 'to' || u.role === 'referee' || u.role === 'organizer'
+      userRole === 'admin' || userRole === 'to' || userRole === 'referee' || userRole === 'organizer' ||
+      Boolean(u.is_admin) || Boolean(u.can_access_to) || (typeof isUserTO === 'function' && isUserTO(u))
     ));
     const canEdit = Boolean(isP1 || isP2 || isStaff);
 
@@ -1372,8 +1497,13 @@ function renderEventPairingsRows() {
       } 
       // 2. If match is uncompleted and user has competitor/staff permissions to edit/track
       else if (!hasScore && canEdit) {
+        const safeEventId = String(eventId).replace(/'/g, "\\'");
+        const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
+        const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
+        const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
+        const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
         const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
-        actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${eventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(m.player1_name || 'Player 1')}', '${escapeHtml(m.player2_name || 'Player 2')}', '${m.player1_id || ''}', '${m.player2_id || ''}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
+        actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
       } 
       // 3. If match has an active tracker room and user is a spectator
       else if (!hasScore && hasTrackerGame && !canEdit) {
@@ -1425,17 +1555,20 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
   let p1Det = null;
   let p2Det = null;
   
-  if (currentEventData && Array.isArray(currentEventData.players)) {
-    const p1Record = currentEventData.players.find(p => p.player_id === p1Id || p.player_name === p1Name);
-    if (p1Record) {
-      p1Fac = p1Record.faction || p1Record.army_name;
-      p1Det = p1Record.detachment;
-    }
-    const p2Record = currentEventData.players.find(p => p.player_id === p2Id || p.player_name === p2Name);
-    if (p2Record) {
-      p2Fac = p2Record.faction || p2Record.army_name;
-      p2Det = p2Record.detachment;
-    }
+  const allPlayers = [
+    ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
+    ...((currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
+    ...((currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : [])
+  ];
+  const p1Record = allPlayers.find(p => p && (p.player_id === p1Id || p.id === p1Id || p.full_name === p1Name || p.name === p1Name || p.player_name === p1Name));
+  if (p1Record) {
+    p1Fac = p1Record.faction || p1Record.army_name;
+    p1Det = p1Record.detachment;
+  }
+  const p2Record = allPlayers.find(p => p && (p.player_id === p2Id || p.id === p2Id || p.full_name === p2Name || p.name === p2Name || p.player_name === p2Name));
+  if (p2Record) {
+    p2Fac = p2Record.faction || p2Record.army_name;
+    p2Det = p2Record.detachment;
   }
 
   try {
