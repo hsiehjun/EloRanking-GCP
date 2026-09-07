@@ -865,7 +865,7 @@ class BcpAdapter:
             faction = p_data.get("army") or p_data.get("faction") or p_data.get("armyName") or ""
             detachment = p_data.get("detachment") or ""
             army_list = p_data.get("armyList") or p_data.get("army_list") or p_data.get("listText") or ""
-            has_list = bool(p_data.get("hasList") or army_list or p_data.get("listSubmitted") or p_data.get("has_list_submitted"))
+            has_list = bool(p_data.get("hasList") or army_list or p_data.get("listSubmitted") or p_data.get("has_list_submitted") or p_data.get("listId"))
             checked_in = bool(p_data.get("checkedIn") or p_data.get("checked_in") or False)
             dropped = bool(p_data.get("dropped") or False)
 

@@ -412,6 +412,8 @@ window.api = {
     const token = this.getAuthToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    const bcpToken = this.getBcpToken();
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     const qs = forceSync ? '?force_sync=true' : '';
     return this._fetchJson(`/api/user/registered-tournaments${qs}`, { headers });
   },
@@ -420,6 +422,8 @@ window.api = {
     const token = this.getAuthToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
+    const bcpToken = this.getBcpToken();
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
     return this._fetchJson('/api/user/registered-tournaments/sync', {
       method: 'POST',
       headers

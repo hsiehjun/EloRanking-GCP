@@ -275,8 +275,8 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
             <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📅 Registered Tournaments</h3>
             ${events.length > 0 ? `<span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.5rem;">${events.length} Active</span>` : ''}
           </div>
-          <button id="hub-bcp-sync-btn" onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Fetch latest tournament registrations from Best Coast Pairings">
-            <span id="hub-bcp-sync-icon">🔄</span> Sync BCP
+          <button id="hub-bcp-sync-btn" onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.7rem; display: inline-flex; align-items: center; gap: 0.35rem;" title="Refresh tournament registrations and status from Best Coast Pairings">
+            <span id="hub-bcp-sync-icon">🔄</span> Refresh
           </button>
         </div>
 
@@ -361,7 +361,7 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
             <div style="font-weight: 600; color: #cbd5e1; margin-bottom: 0.25rem;">No registered tournaments found on BCP</div>
             <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">When you register for tournaments on Best Coast Pairings, they will automatically sync here!</div>
             <button onclick="syncBcpRegisteredTournaments()" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.35rem 0.8rem;">
-              🔄 Check for Registrations
+              🔄 Refresh Registrations
             </button>
           </div>
         `}
@@ -447,14 +447,16 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
 async function syncBcpRegisteredTournaments() {
   const btn = document.getElementById('hub-bcp-sync-btn');
   const icon = document.getElementById('hub-bcp-sync-icon');
-  if (btn) btn.disabled = true;
-  if (icon) icon.style.animation = 'spin 0.8s linear infinite';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span id="hub-bcp-sync-icon" style="display:inline-block; animation:spin 0.8s linear infinite;">🔄</span> Refreshing...';
+  }
 
   try {
     const res = await window.api.syncUserRegisteredTournaments();
     if (res && res.success) {
       if (typeof showNotification === 'function') {
-        showNotification(`Synced ${res.count || 0} registered tournament(s) from BCP`, 'success');
+        showNotification(`Refreshed ${res.count || 0} registered tournament(s)`, 'success');
       }
       const tournaments = res.tournaments || [];
       if (myHubData) {
@@ -470,7 +472,7 @@ async function syncBcpRegisteredTournaments() {
       }
     } else {
       if (typeof showNotification === 'function') {
-        showNotification((res && res.message) || 'Failed to sync with BCP', 'warning');
+        showNotification((res && res.message) || 'Failed to refresh tournaments', 'warning');
       }
     }
   } catch (e) {
@@ -479,12 +481,20 @@ async function syncBcpRegisteredTournaments() {
     }
   } finally {
     const updatedBtn = document.getElementById('hub-bcp-sync-btn');
-    const updatedIcon = document.getElementById('hub-bcp-sync-icon');
-    if (updatedBtn) updatedBtn.disabled = false;
-    if (updatedIcon) updatedIcon.style.animation = '';
+    if (updatedBtn) {
+      updatedBtn.disabled = false;
+      updatedBtn.innerHTML = '<span id="hub-bcp-sync-icon">🔄</span> Refresh';
+    }
   }
 }
 window.syncBcpRegisteredTournaments = syncBcpRegisteredTournaments;
+
+// Listen for registration/check-in changes from Event Modal or other views to auto-refresh registered tournaments
+window.addEventListener('tournaments-updated', () => {
+  if (typeof syncBcpRegisteredTournaments === 'function' && document.getElementById('hub-registered-tournaments-card')) {
+    syncBcpRegisteredTournaments();
+  }
+});
 
 
 function renderMyHub(data) {

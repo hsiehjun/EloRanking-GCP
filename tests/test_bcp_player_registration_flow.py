@@ -722,6 +722,93 @@ def test_current_player_and_armylist_live_sync():
     print("✅ /currentPlayer and /armylists live sync verified!")
 
 
+def test_hub_registered_tournaments_refresh_and_live_sync():
+    """Verify Registered Tournaments card Refresh button and /currentPlayer enrichment during sync."""
+    from routers.auth import api_user_sync_registered_tournaments
+
+    # 1. Verify frontend files have "Refresh" button instead of "Sync BCP"
+    my_hub_js = (ROOT_DIR / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+    assert '<span id="hub-bcp-sync-icon">🔄</span> Refresh' in my_hub_js, \
+        "my_hub.js must have 'Refresh' button label"
+    assert "Refreshing..." in my_hub_js, "my_hub.js must have 'Refreshing...' loading text"
+    assert "tournaments-updated" in my_hub_js, "my_hub.js must listen to tournaments-updated"
+
+    api_js = (ROOT_DIR / "web" / "js" / "api.js").read_text(encoding="utf-8")
+    assert "headers['X-BCP-Token'] = bcpToken" in api_js, "api.js must forward X-BCP-Token header"
+
+    bundle_js = (ROOT_DIR / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+    assert "Refresh" in bundle_js, "app.bundle.min.js must contain updated Refresh text"
+
+    # 2. Verify backend sync enriches registered tournament with currentPlayer status
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    user_id = "user_john_4"
+    session = {
+        "id": user_id,
+        "display_name": "John4 Hsieh4",
+        "email": "hsiehjun@google.com",
+        "bcp_connected": True,
+        "bcp_user_id": "DxHDrz4LFzzb"
+    }
+    mock_auth.get_session.return_value = session
+    mock_auth.get_user_by_id.return_value = session
+
+    # Initially in DB: tournament with unassigned army and not checked in
+    initial_tournament = {
+        "id": "sy5pqLqvkdpU",
+        "bcp_event_id": "sy5pqLqvkdpU",
+        "event_name": "Warhammer 40k Tournament",
+        "player_id": "rsoPZetp7Ejn",
+        "bcp_player_id": "rsoPZetp7Ejn",
+        "checked_in": False,
+        "has_list_submitted": False,
+        "faction": "",
+        "detachment": "",
+        "army_list": ""
+    }
+    mock_db.get_user_registered_tournaments.return_value = [dict(initial_tournament)]
+    mock_db.save_user_registered_tournaments.return_value = [dict(initial_tournament)]
+
+    # Mock currentPlayer endpoint return
+    cp_payload = {
+        "id": "rsoPZetp7Ejn",
+        "checkedIn": True,
+        "dropped": False,
+        "faction": {"id": "H1zsiowQJ9", "name": "Blood Angels"},
+        "subFaction": {"id": "6a348af284eb2fad86d6ead2", "name": "Disruption"},
+        "listId": "BtRNRqITthMM",
+        "armyListText": "BLOOOOD"
+    }
+
+    mock_req = MagicMock()
+    mock_req.headers = {
+        "Authorization": "Bearer session_token_123",
+        "X-BCP-Token": "live_bcp_bearer_token"
+    }
+    mock_req.cookies = {}
+
+    with patch("routers.auth.get_database", return_value=mock_db), \
+         patch("routers.auth.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.bcp_adapter.fetch_user_registered_events", return_value=(True, None, [initial_tournament])), \
+         patch("bcp_adapter.bcp_adapter.fetch_event_current_player", return_value=(True, None, cp_payload)):
+
+        res = asyncio.run(api_user_sync_registered_tournaments(mock_req))
+        assert res["success"] is True
+        assert res["bcp_connected"] is True
+        assert len(res["tournaments"]) == 1
+
+        t = res["tournaments"][0]
+        assert t["bcp_event_id"] == "sy5pqLqvkdpU"
+        assert t["checked_in"] is True
+        assert t["has_list_submitted"] is True
+        assert t["faction"] == "Blood Angels"
+        assert t["detachment"] == "Disruption"
+        assert t["army_list"] == "BLOOOOD"
+        assert mock_db.add_user_registered_tournament.called
+
+    print("✅ Registered Tournaments card Refresh and /currentPlayer live sync verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running BCP Tournament Player Self-Management Test Suite...")
     test_bcp_adapter_player_methods()
@@ -730,5 +817,6 @@ if __name__ == "__main__":
     test_frontend_player_registration_components()
     test_player_registration_state_preservation()
     test_current_player_and_armylist_live_sync()
+    test_hub_registered_tournaments_refresh_and_live_sync()
     print("\n🎉 ALL BCP PLAYER REGISTRATION WORKFLOW TESTS PASSED SUCCESSFULLY!")
 
