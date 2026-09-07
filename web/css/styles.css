@@ -5835,6 +5835,37 @@ body.is-authenticated #floating-chat-widget {
   font-size: 1.15rem;
   flex-shrink: 0;
 }
+.team-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #cbd5e1;
+  font-weight: 800;
+  font-size: 0.95rem;
+  font-family: var(--font-mono, monospace);
+  flex-shrink: 0;
+}
+.team-rank-badge.rank-1 {
+  background: linear-gradient(135deg, rgba(234, 179, 8, 0.28), rgba(202, 138, 4, 0.12));
+  border: 1.5px solid #eab308;
+  color: #fef08a;
+  box-shadow: 0 0 12px rgba(234, 179, 8, 0.25);
+}
+.team-rank-badge.rank-2 {
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.28), rgba(100, 116, 139, 0.12));
+  border: 1.5px solid #94a3b8;
+  color: #f1f5f9;
+}
+.team-rank-badge.rank-3 {
+  background: linear-gradient(135deg, rgba(217, 119, 6, 0.28), rgba(180, 83, 9, 0.12));
+  border: 1.5px solid #d97706;
+  color: #fed7aa;
+}
 .team-info {
   min-width: 0;
   flex: 1;
@@ -5868,15 +5899,15 @@ body.is-authenticated #floating-chat-widget {
 }
 .team-member-grid {
   display: grid;
-  grid-template-columns: 2fr 1.4fr 1fr 1fr;
+  grid-template-columns: 2fr 1.3fr 1.1fr 0.8fr;
   align-items: center;
   padding: 0.65rem 1rem;
-  gap: 0.5rem;
+  gap: 0.65rem;
   box-sizing: border-box;
 }
 .team-member-header {
   display: grid;
-  grid-template-columns: 2fr 1.4fr 1fr 1fr;
+  grid-template-columns: 2fr 1.3fr 1.1fr 0.8fr;
   padding: 0.45rem 1rem;
   background: rgba(0, 0, 0, 0.28);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
@@ -5885,7 +5916,7 @@ body.is-authenticated #floating-chat-widget {
   color: var(--text-muted, #94a3b8);
   font-weight: 700;
   letter-spacing: 0.04em;
-  gap: 0.5rem;
+  gap: 0.65rem;
   box-sizing: border-box;
 }
 @media (max-width: 640px) {
@@ -5897,6 +5928,7 @@ body.is-authenticated #floating-chat-widget {
   }
   .team-header-main {
     width: 100%;
+    align-items: flex-start;
   }
   .team-header-badges {
     width: 100%;
@@ -5904,18 +5936,41 @@ body.is-authenticated #floating-chat-widget {
     align-items: center;
     justify-content: flex-start;
     gap: 0.65rem;
-    padding-left: 26px;
+    padding-left: 0;
     flex-wrap: wrap;
   }
-  .team-member-grid,
   .team-member-header {
-    grid-template-columns: 1.6fr 1.2fr 0.8fr;
-    padding: 0.55rem 0.75rem;
-  }
-  .team-captain-badge {
     display: none !important;
   }
-  .team-col-checkin {
+  .team-member-grid {
+    display: grid !important;
+    grid-template-columns: 1fr auto !important;
+    grid-template-rows: auto auto !important;
+    row-gap: 0.35rem !important;
+    column-gap: 0.5rem !important;
+    padding: 0.65rem 0.75rem !important;
+  }
+  .team-member-col-name {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+  }
+  .team-member-col-record {
+    grid-column: 2 !important;
+    grid-row: 1 !important;
+    text-align: right !important;
+  }
+  .team-member-col-faction {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    padding-left: 18px !important;
+  }
+  .team-member-col-elo {
+    grid-column: 2 !important;
+    grid-row: 2 !important;
+    text-align: right !important;
+    display: block !important;
+  }
+  .team-captain-badge {
     display: none !important;
   }
 }

@@ -1038,6 +1038,37 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 cap_first = cap.get("firstName") or ""
                 cap_last = cap.get("lastName") or ""
                 cap_name = f"{cap_first} {cap_last}".strip() or t.get("captainName") or ""
+
+                metrics = {m.get("name"): m.get("value") for m in (t.get("metrics") or t.get("total_metrics") or []) if isinstance(m, dict)}
+                overall_metrics = {m.get("name"): m.get("value") for m in t.get("overall_metrics", []) if isinstance(m, dict)}
+                games = t.get("games") or t.get("total_games") or []
+
+                placing_num = None
+                for pk in ("placing", "overallPlacing", "rank", "place"):
+                    v = t.get(pk)
+                    if v is not None and not isinstance(v, bool):
+                        try:
+                            pv = int(v)
+                            if pv > 0:
+                                placing_num = pv
+                                break
+                        except (ValueError, TypeError):
+                            pass
+
+                match_points = metrics.get("Match Points")
+                game_wins = metrics.get("Game Wins")
+                battle_points = metrics.get("Battle Points") or overall_metrics.get("Overall Score") or t.get("battlePoints") or t.get("battle_points") or t.get("points")
+                wins = overall_metrics.get("Wins")
+
+                formatted_games = []
+                for g in games:
+                    if isinstance(g, dict):
+                        formatted_games.append({
+                            "round": g.get("gameNum"),
+                            "points": g.get("gamePoints"),
+                            "result": g.get("gameResult")  # 2 = win, 0 = loss, 1 = draw
+                        })
+
                 team_map[tid] = {
                     "id": tid,
                     "team_id": tid,
@@ -1046,8 +1077,13 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                     "captain_name": cap_name,
                     "checked_in": bool(t.get("checkedIn") or t.get("checked_in")),
                     "dropped": bool(t.get("dropped")),
-                    "placing": t.get("placing") or t.get("rank") or t.get("place"),
-                    "points": t.get("points") or t.get("battlePoints") or 0,
+                    "placing": placing_num,
+                    "points": battle_points if battle_points is not None else 0,
+                    "match_points": match_points,
+                    "game_wins": game_wins,
+                    "battle_points": battle_points,
+                    "wins": wins,
+                    "games": formatted_games,
                     "members": []
                 }
 
@@ -1079,6 +1115,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 formatted_teams.sort(key=lambda tm: tm.get("name", "").lower())
 
             event_details["teams"] = formatted_teams
+            event_details["team_standings"] = formatted_teams
             event_details["total_teams"] = len(formatted_teams)
             if unassigned:
                 event_details["unassigned_players"] = unassigned

@@ -263,22 +263,30 @@ class BestCoastPairingsScraper:
             elif isinstance(roster_resp, list):
                 roster_teams = roster_resp
 
-        if roster_teams:
-            if teams:
-                plc_map = {}
+        if teams:
+            # If placings=true returned teams, preserve official placement order and rich metrics/games
+            if roster_teams:
+                seen_ids = set()
                 for t in teams:
-                    tid = t.get("id") or t.get("teamPlayerId")
+                    tid = str(t.get("id") or t.get("teamPlayerId") or "").strip()
                     if tid:
-                        plc_map[str(tid).strip()] = t
+                        seen_ids.add(tid)
                 for rt in roster_teams:
-                    tid = rt.get("id") or rt.get("teamPlayerId")
-                    if tid and str(tid).strip() in plc_map:
-                        mt = plc_map[str(tid).strip()]
-                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "overallPlacing", "metrics"):
-                            if mt.get(k) is not None:
-                                rt[k] = mt[k]
-                return roster_teams
-            return roster_teams
+                    tid = str(rt.get("id") or rt.get("teamPlayerId") or "").strip()
+                    if tid and tid not in seen_ids:
+                        seen_ids.add(tid)
+                        teams.append(rt)
+        else:
+            teams = roster_teams
+
+        # Sort teams by placing if any placings exist
+        if teams:
+            has_placings = any(t.get("placing") is not None and not isinstance(t.get("placing"), bool) for t in teams)
+            if has_placings:
+                teams.sort(key=lambda x: (
+                    x.get("placing") is None or isinstance(x.get("placing"), bool),
+                    x.get("placing") if x.get("placing") is not None and not isinstance(x.get("placing"), bool) else 999999
+                ))
 
         return teams
 
