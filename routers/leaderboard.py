@@ -1122,6 +1122,101 @@ async def api_event_details(event_id: str, force_sync: bool = False):
     except Exception as e:
         logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
 
+    # 2. For BCP tournaments, fetch live round pairings if matches is empty or event is ongoing
+    if not is_native_studio:
+        try:
+            cur_r = event_details.get("current_round") or raw_ev.get("currentRound") or raw_ev.get("activeRound") or 1
+            max_r = max(1, int(cur_r))
+
+            # If matches in DB is empty or tournament is active/live, fetch live round pairings from BCP
+            has_db_matches = bool(event_details.get("matches"))
+            is_ended = bool(event_details.get("is_ended"))
+            if not has_db_matches or not is_ended or force_sync:
+                live_matches = []
+                players_list = event_details.get("players") or []
+                player_by_id = {str(p.get("id") or p.get("player_id")): p for p in players_list}
+
+                for r in range(1, max_r + 1):
+                    raw_pairings = scraper.fetch_event_pairings_for_round(event_id_str, r)
+                    if raw_pairings:
+                        for idx, p in enumerate(raw_pairings):
+                            if not isinstance(p, dict):
+                                continue
+                            p1 = p.get("player1") or {}
+                            p2 = p.get("player2") or {}
+                            u1 = p1.get("user") if isinstance(p1.get("user"), dict) else {}
+                            u2 = p2.get("user") if isinstance(p2.get("user"), dict) else {}
+
+                            p1_id = str(p1.get("id") or p.get("player1Id") or u1.get("id") or "")
+                            p2_id = str(p2.get("id") or p.get("player2Id") or u2.get("id") or "")
+
+                            p1_reg = player_by_id.get(p1_id) or {}
+                            p2_reg = player_by_id.get(p2_id) or {}
+
+                            p1_first = u1.get("firstName") or p1.get("firstName") or ""
+                            p1_last = u1.get("lastName") or p1.get("lastName") or ""
+                            p1_name = p1.get("name") or f"{p1_first} {p1_last}".strip() or p1_reg.get("full_name") or p1_reg.get("name") or "Player 1"
+
+                            p2_first = u2.get("firstName") or p2.get("firstName") or ""
+                            p2_last = u2.get("lastName") or p2.get("lastName") or ""
+                            p2_name = p2.get("name") or f"{p2_first} {p2_last}".strip() or p2_reg.get("full_name") or p2_reg.get("name") or ("Player 2" if p2_id else "BYE")
+
+                            p1_fac = p1.get("army") or p1.get("faction") or p1_reg.get("faction") or ""
+                            if isinstance(p1_fac, dict): p1_fac = p1_fac.get("name") or ""
+                            p2_fac = p2.get("army") or p2.get("faction") or p2_reg.get("faction") or ""
+                            if isinstance(p2_fac, dict): p2_fac = p2_fac.get("name") or ""
+
+                            p1_game = p.get("player1Game") or {}
+                            p2_game = p.get("player2Game") or {}
+                            p1_score = p1_game.get("points") if p1_game.get("points") is not None else p.get("player1Score")
+                            p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
+
+                            is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE")
+                            is_done = bool(p.get("isDone") or (p1_score is not None and p2_score is not None and not is_bye))
+
+                            winner_id = None
+                            if is_done and p1_score is not None and p2_score is not None:
+                                try:
+                                    s1 = float(p1_score)
+                                    s2 = float(p2_score)
+                                    if s1 > s2: winner_id = p1_id
+                                    elif s2 > s1: winner_id = p2_id
+                                except (ValueError, TypeError):
+                                    pass
+                            elif is_bye:
+                                winner_id = p1_id
+
+                            live_matches.append({
+                                "id": str(p.get("id") or f"pair-{r}-{idx+1}"),
+                                "event_id": event_id_str,
+                                "round": int(p.get("round") or r),
+                                "table_number": int(p.get("table") or idx + 1),
+                                "table": int(p.get("table") or idx + 1),
+                                "player1_id": p1_id,
+                                "player1_name": p1_name,
+                                "player1_faction": p1_fac,
+                                "player1_score": p1_score,
+                                "player2_id": p2_id,
+                                "player2_name": p2_name,
+                                "player2_faction": p2_fac,
+                                "player2_score": p2_score,
+                                "winner_id": winner_id,
+                                "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),
+                                "is_draw": bool(is_done and p1_score == p2_score and not is_bye),
+                                "is_bye": is_bye,
+                                "is_done": is_done,
+                                "published": bool(p.get("published", True)),
+                                "has_tracker_game": False,
+                                "tracker_is_done": False,
+                                "tracker_started": False
+                            })
+                if live_matches:
+                    event_details["matches"] = live_matches
+                    if not event_details.get("num_rounds") or int(event_details.get("num_rounds") or 0) < max_r:
+                        event_details["num_rounds"] = raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or max_r
+        except Exception as pe:
+            logger.warning(f"BCP live pairings fetch notice for {event_id_str}: {pe}")
+
     event_details["sync_in_progress"] = False
     return event_details
 

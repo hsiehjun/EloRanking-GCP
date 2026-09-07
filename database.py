@@ -3377,7 +3377,13 @@ class PostgresDatabase:
                         clauses.append("organizer_bcp_id = %s")
                         params.append(player_id)
 
-                    query = "SELECT * FROM events WHERE (" + " OR ".join(clauses) + ") ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;"
+                    query = """
+                    SELECT *,
+                           COALESCE((SELECT COUNT(*) FROM event_participants ep WHERE ep.event_id = events.id), events.total_players, 0) AS calculated_player_count
+                    FROM events 
+                    WHERE (""" + " OR ".join(clauses) + """) 
+                    ORDER BY event_date DESC NULLS LAST, scraped_at DESC LIMIT 100;
+                    """
                     cursor.execute(query, tuple(params))
                     rows = cursor.fetchall()
                     results = []
@@ -3386,6 +3392,9 @@ class PostgresDatabase:
                         for d_key in ("event_date", "end_date", "scraped_at", "created_at"):
                             if item.get(d_key) and hasattr(item[d_key], "isoformat"):
                                 item[d_key] = item[d_key].isoformat()
+                        calc_count = item.get("calculated_player_count")
+                        if calc_count and int(calc_count) > 0 and (not item.get("total_players") or int(item.get("total_players") or 0) == 0):
+                            item["total_players"] = int(calc_count)
                         roster = item.get("roster") or []
                         item["roster_count"] = len(roster) if isinstance(roster, list) else 0
                         results.append(item)

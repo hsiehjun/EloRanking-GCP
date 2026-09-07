@@ -318,6 +318,26 @@ async function refreshStudioEvents(btn) {
   }
 }
 
+async function refreshTournamentWorkspace(btn) {
+  const ev = studioState.activeTournament;
+  if (!ev || !ev.id) return;
+  const refreshBtns = btn ? [btn] : document.querySelectorAll("#btn-refresh-tournament-workspace");
+  refreshBtns.forEach(b => {
+    b.disabled = true;
+    b.innerHTML = '<span class="refresh-icon spinning" style="display:inline-block;">🔄</span> Refreshing...';
+  });
+  try {
+    await loadTournamentWorkspace(ev.id);
+  } catch (err) {
+    console.warn("Notice refreshing tournament workspace:", err);
+  } finally {
+    refreshBtns.forEach(b => {
+      b.disabled = false;
+      b.innerHTML = '<span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh Live';
+    });
+  }
+}
+
 async function loadStudioEvents() {
   const user = (typeof currentUser !== 'undefined') ? currentUser : null;
   const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
@@ -395,7 +415,7 @@ function renderEventsDirectory() {
       const tier = ev.tier || "Grand Tournament";
       const roster = ev.roster || [];
       const playerCount = (typeof ev.total_players === 'number') ? ev.total_players : (Array.isArray(ev.roster) ? ev.roster.length : 0);
-      const capacity = ev.capacity || ev.num_tickets || 32;
+      const capacity = ev.capacity || ev.num_tickets || ev.numTickets || (playerCount > 0 ? playerCount : 32);
       const location = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
       const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
       const isBcp = ev.id && !ev.id.startsWith("ES-");
@@ -2302,6 +2322,7 @@ function escapeHtml(str) {
 window.initStudio = initStudio;
 window.loadStudioEvents = loadStudioEvents;
 window.refreshStudioEvents = refreshStudioEvents;
+window.refreshTournamentWorkspace = refreshTournamentWorkspace;
 window.switchStudioTab = switchStudioTab;
 window.renderEventsDirectory = renderEventsDirectory;
 window.submitCreateTournament = submitCreateTournament;

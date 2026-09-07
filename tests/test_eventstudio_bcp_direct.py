@@ -461,6 +461,173 @@ def test_bcp_pairing_normalization_enriches_fields():
 
     print("✅ test_bcp_pairing_normalization_enriches_fields passed!")
 
+def test_bcp_adapter_fetch_event_pairings():
+    """Verify BcpAdapter.fetch_event_pairings queries pairings with pairingType=Pairing."""
+    from bcp_adapter import BcpAdapter
+    import json
+
+    mock_resp = MagicMock()
+    mock_resp.status = 200
+    mock_resp.read.return_value = json.dumps({
+        "active": [
+            {
+                "id": "pair_test_1",
+                "table": 1,
+                "round": 1,
+                "player1": {"id": "p1", "name": "John3 Hsieh3"},
+                "player2": {"id": "p2", "name": "John4 Hsieh4"}
+            }
+        ]
+    }).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        ok, err, pairings = BcpAdapter.fetch_event_pairings(
+            event_id="sy5pqLqvkdpU",
+            round_num=1,
+            pairing_type="Pairing"
+        )
+        assert ok is True
+        assert err is None
+        assert len(pairings) == 1
+        assert pairings[0]["id"] == "pair_test_1"
+        assert pairings[0]["table"] == 1
+        assert pairings[0]["player1"]["name"] == "John3 Hsieh3"
+        assert pairings[0]["player2"]["name"] == "John4 Hsieh4"
+
+    print("✅ test_bcp_adapter_fetch_event_pairings passed!")
+
+def test_eventstudio_list_events_enriches_from_bcp_details():
+    """Verify api_eventstudio_list_events enriches managed BCP events with accurate capacity and roster counts."""
+    from routers.eventstudio import api_eventstudio_list_events
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer session_token", "X-BCP-Token": "tok123"}
+    mock_req.query_params = {}
+    mock_req.cookies = {}
+
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "to_user_1", "role": "TO"}
+    mock_auth.get_valid_bcp_token.return_value = "tok123"
+
+    mock_db = MagicMock()
+    # DB has stale/default values
+    mock_db.get_studio_events.return_value = [
+        {
+            "id": "sy5pqLqvkdpU",
+            "name": "hsiehjun test",
+            "tier": "Grand Tournament",
+            "total_players": 0,
+            "capacity": 32,
+            "num_rounds": 5,
+            "event_date": None,
+            "venue": "Yakutsk, Russia",
+            "city": "Yakutsk",
+            "state": "Sakha Republic"
+        }
+    ]
+
+    mock_bcp_details = {
+        "id": "sy5pqLqvkdpU",
+        "name": "hsiehjun test",
+        "totalPlayers": 2,
+        "numTickets": 2,
+        "numberOfRounds": 3,
+        "eventDate": "2026-09-07T09:00:00.000Z",
+        "venueName": "Yakutsk, Russia"
+    }
+
+    with patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.execute_bcp_api_call", return_value=(None, "No events on organizer search")), \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_details", return_value=mock_bcp_details):
+
+        res = asyncio.run(api_eventstudio_list_events(mock_req))
+        assert res["success"] is True
+        assert len(res["events"]) == 1
+        ev = res["events"][0]
+        assert ev["id"] == "sy5pqLqvkdpU"
+        assert ev["total_players"] == 2
+        assert ev["capacity"] == 2
+        assert ev["num_rounds"] == 3
+        assert ev["event_date"] == "2026-09-07T09:00:00.000Z"
+
+    print("✅ test_eventstudio_list_events_enriches_from_bcp_details passed!")
+
+def test_leaderboard_event_details_populates_live_bcp_pairings():
+    """Verify api_event_details populates matches array from live BCP pairings."""
+    from routers.leaderboard import api_event_details
+
+    mock_db = MagicMock()
+    mock_db.get_event_details.return_value = {
+        "id": "sy5pqLqvkdpU",
+        "name": "hsiehjun test",
+        "event_date": "2026-09-07",
+        "total_players": 2,
+        "num_rounds": 3,
+        "current_round": 1,
+        "is_ended": False,
+        "matches": [],
+        "players": [
+            {"id": "J3dKgLjgoYsl", "player_id": "J3dKgLjgoYsl", "name": "John3 Hsieh3", "faction": "Adeptus Custodes"},
+            {"id": "rsoPZetp7Ejn", "player_id": "rsoPZetp7Ejn", "name": "John4 Hsieh4", "faction": "Space Marines"}
+        ]
+    }
+
+    mock_pairings = [
+        {
+            "id": "Dk3uJcya3Kjz",
+            "pairingType": "Pairing",
+            "eventId": "sy5pqLqvkdpU",
+            "table": 1,
+            "round": 1,
+            "published": True,
+            "isDone": False,
+            "player1Id": "J3dKgLjgoYsl",
+            "player2Id": "rsoPZetp7Ejn",
+            "player1": {
+                "id": "J3dKgLjgoYsl",
+                "user": {"firstName": "John3", "lastName": "Hsieh3"}
+            },
+            "player2": {
+                "id": "rsoPZetp7Ejn",
+                "user": {"firstName": "John4", "lastName": "Hsieh4"}
+            }
+        }
+    ]
+
+    with patch("routers.leaderboard.get_database", return_value=mock_db), \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_pairings_for_round", return_value=mock_pairings), \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_players", return_value=[]):
+
+        res = asyncio.run(api_event_details("sy5pqLqvkdpU", force_sync=True))
+        assert res["id"] == "sy5pqLqvkdpU"
+        assert len(res["matches"]) == 1
+        m = res["matches"][0]
+        assert m["round"] == 1
+        assert m["table_number"] == 1
+        assert m["player1_name"] == "John3 Hsieh3"
+        assert m["player2_name"] == "John4 Hsieh4"
+        assert m["player1_faction"] == "Adeptus Custodes"
+        assert m["player2_faction"] == "Space Marines"
+        assert m["is_done"] is False
+
+    print("✅ test_leaderboard_event_details_populates_live_bcp_pairings passed!")
+
+def test_workspace_refresh_live_button_exists():
+    """Verify btn-refresh-tournament-workspace exists in HTML and bundle."""
+    app_html = (root_dir / "web" / "app.html").read_text()
+    es_html = (root_dir / "web" / "eventstudio.html").read_text()
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text()
+
+    assert "btn-refresh-tournament-workspace" in app_html
+    assert "refreshTournamentWorkspace(this)" in app_html
+    assert "btn-refresh-tournament-workspace" in es_html
+    assert "refreshTournamentWorkspace(this)" in es_html
+    assert "refreshTournamentWorkspace" in bundle_js
+
+    print("✅ test_workspace_refresh_live_button_exists passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -474,4 +641,8 @@ if __name__ == "__main__":
     test_bcp_get_pairings_status()
     test_eventstudio_start_event_decoupled_and_pairings_status()
     test_bcp_pairing_normalization_enriches_fields()
+    test_bcp_adapter_fetch_event_pairings()
+    test_eventstudio_list_events_enriches_from_bcp_details()
+    test_leaderboard_event_details_populates_live_bcp_pairings()
+    test_workspace_refresh_live_button_exists()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")

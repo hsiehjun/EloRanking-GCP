@@ -264,7 +264,11 @@ def _normalize_bcp_pairing(
     })
     return res
 
-def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+def _fetch_bcp_event_workspace(
+    event_id: str,
+    user: Optional[Dict[str, Any]] = None,
+    explicit_token: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """
     Directly queries Best Coast Pairings API for event details, live competitor roster,
     and round pairings. Zero backend DB mutation.
@@ -280,8 +284,8 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
         loc = bcp_event.get("location") if isinstance(bcp_event.get("location"), dict) else {}
         raw_rounds = bcp_event.get("numberOfRounds") or bcp_event.get("numRounds") or 5
         raw_pts = bcp_event.get("points") or 2000
-        raw_cap = bcp_event.get("totalPlayers") or bcp_event.get("capacity") or 32
-        cur_round = bcp_event.get("activeRound") or bcp_event.get("currentRound") or 1
+        raw_cap = bcp_event.get("numTickets") or bcp_event.get("capacity") or 32
+        cur_round = bcp_event.get("activeRound") or bcp_event.get("currentRound") or bcp_event.get("round") or 1
         started = bool(bcp_event.get("started") or (bcp_event.get("currentRound", 0) > 0) or (bcp_event.get("activeRound", 0) > 0))
         ended = bool(bcp_event.get("ended"))
 
@@ -333,7 +337,15 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
         pairings_map = {}
         max_round_to_check = max(1, int(cur_round))
         for r in range(1, max_round_to_check + 1):
-            raw_r_pairings = scraper.fetch_event_pairings_for_round(event_id, r)
+            ok, p_err, raw_r_pairings = bcp_adapter.fetch_event_pairings(
+                event_id=event_id,
+                round_num=r,
+                pairing_type="Pairing",
+                user_id=user["id"] if user else None,
+                explicit_token=explicit_token
+            )
+            if not raw_r_pairings:
+                raw_r_pairings = scraper.fetch_event_pairings_for_round(event_id, r)
             if raw_r_pairings:
                 norm_pairings = []
                 for idx, pairing in enumerate(raw_r_pairings):
@@ -377,7 +389,7 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
             "passwordless_scoring": bcp_event.get("passwordlessScoring", True),
             "ranked_tables": bcp_event.get("rankedTables", False),
             "roster": roster,
-            "total_players": len(roster),
+            "total_players": len(roster) if roster else (bcp_event.get("totalPlayers") or 0),
             "pairings": pairings_map,
         }
     except Exception as err:
@@ -392,6 +404,7 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
     user_id = user["id"]
     bcp_user_id = user.get("bcp_user_id")
     player_id = user.get("player_id")
+    effective_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or (auth_mgr.get_valid_bcp_token(user_id) if user_id else None)
 
     if not user_id and not bcp_user_id and not player_id:
         return {"success": True, "count": 0, "events": []}
@@ -400,16 +413,16 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
     seen_ids = set()
 
     # Query BCP directly for tournaments hosted by this organizer (zero DB mutations)
-    if user_id or bcp_token:
+    if user_id or effective_bcp_token:
         try:
             start_range = "2025-09-01T07:00:00.000Z"
             end_range = "2027-09-02T06:59:59.999Z"
             sync_url = f"https://newprod-api.bestcoastpairings.com/v2/events?limit=50&eventSearchType=organizer&sortKey=eventDate&sortAscending=false&startDate={start_range}&endDate={end_range}"
-            bcp_raw, err = execute_bcp_api_call(sync_url, method="GET", user_id=user_id, explicit_token=bcp_token)
+            bcp_raw, err = execute_bcp_api_call(sync_url, method="GET", user_id=user_id, explicit_token=effective_bcp_token)
 
             if not bcp_raw:
                 sync_url_v1 = f"{BCP_API_BASE}/events?limit=100&toEvents=true"
-                bcp_raw, err = execute_bcp_api_call(sync_url_v1, method="GET", user_id=user_id, explicit_token=bcp_token)
+                bcp_raw, err = execute_bcp_api_call(sync_url_v1, method="GET", user_id=user_id, explicit_token=effective_bcp_token)
 
             if bcp_raw:
                 items = bcp_raw.get("data", bcp_raw.get("events", [])) if isinstance(bcp_raw, dict) else bcp_raw
@@ -454,6 +467,45 @@ async def api_eventstudio_list_events(request: Request, bcp_token: Optional[str]
     if not all_events:
         all_events = db.get_studio_events(organizer_id=user_id, organizer_bcp_id=bcp_user_id, player_id=player_id)
 
+    # Enrich events with live BCP metadata (accurate date, rounds, capacity, registered competitors)
+    from scraper import BestCoastPairingsScraper
+    scraper = BestCoastPairingsScraper(db=db)
+    for ev in all_events:
+        eid = str(ev.get("id") or "").strip()
+        if not eid or eid.startswith("ES-"):
+            continue
+        try:
+            bcp_info = scraper.fetch_event_details(eid)
+            if bcp_info and isinstance(bcp_info, dict):
+                ev["name"] = bcp_info.get("name") or ev.get("name")
+                b_date = bcp_info.get("eventDate") or bcp_info.get("startDate") or bcp_info.get("eventStartDate")
+                if b_date:
+                    ev["event_date"] = b_date
+                b_end = bcp_info.get("endDate") or bcp_info.get("eventEndDate")
+                if b_end:
+                    ev["end_date"] = b_end
+                b_rounds = bcp_info.get("numberOfRounds") or bcp_info.get("numRounds")
+                if b_rounds is not None:
+                    ev["num_rounds"] = int(b_rounds)
+                b_pts = bcp_info.get("points")
+                if b_pts is not None:
+                    ev["points"] = int(b_pts)
+                b_cap = bcp_info.get("numTickets") or bcp_info.get("capacity")
+                if b_cap is not None:
+                    ev["capacity"] = int(b_cap)
+                    ev["num_tickets"] = int(b_cap)
+                b_tot = bcp_info.get("totalPlayers")
+                if b_tot is not None and int(b_tot) > 0:
+                    ev["total_players"] = int(b_tot)
+                elif not ev.get("total_players") or int(ev.get("total_players") or 0) == 0:
+                    raw_players = scraper.fetch_event_players(eid)
+                    if raw_players:
+                        ev["total_players"] = len(raw_players)
+                ev["bcp_synced"] = True
+                ev["bcp_status"] = "synced"
+        except Exception as enrich_err:
+            logger.debug(f"Notice enriching BCP event {eid} for directory list: {enrich_err}")
+
     return {
         "success": True,
         "count": len(all_events),
@@ -467,10 +519,11 @@ async def api_eventstudio_get_event(event_id: str, request: Request):
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
+    x_bcp_token = request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user["id"]) if user else None)
 
     # For BCP events, query directly from BCP API without relying on or mutating backend DB
     if not event_id.startswith("ES-"):
-        bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+        bcp_ev = _fetch_bcp_event_workspace(event_id, user, explicit_token=x_bcp_token)
         if bcp_ev:
             return {"success": True, "event": bcp_ev}
 

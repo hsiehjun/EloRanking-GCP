@@ -568,14 +568,24 @@ window.api = {
 
   // EventStudio: List Managed Events
   async getStudioEvents(options = {}) {
-    const bcpToken = options.bcp_token || (typeof getBcpToken === 'function' ? getBcpToken() : '');
+    const bcpToken = options.bcp_token || (typeof this.getBcpToken === 'function' ? this.getBcpToken() : '') || (typeof getBcpToken === 'function' ? getBcpToken() : '');
     const query = bcpToken ? `?bcp_token=${encodeURIComponent(bcpToken)}` : '';
-    return this._fetchJson(`/api/eventstudio/events${query}`);
+    const headers = {};
+    if (bcpToken) {
+      headers['X-BCP-Token'] = bcpToken;
+    }
+    return this._fetchJson(`/api/eventstudio/events${query}`, { headers });
   },
 
   // EventStudio: Get Event Details
-  async getStudioEvent(eventId) {
-    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}`);
+  async getStudioEvent(eventId, options = {}) {
+    const bcpToken = options.bcp_token || (typeof this.getBcpToken === 'function' ? this.getBcpToken() : '') || (typeof getBcpToken === 'function' ? getBcpToken() : '');
+    const query = bcpToken ? `?bcp_token=${encodeURIComponent(bcpToken)}` : '';
+    const headers = {};
+    if (bcpToken) {
+      headers['X-BCP-Token'] = bcpToken;
+    }
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}${query}`, { headers });
   },
 
   // EventStudio: Create Tournament

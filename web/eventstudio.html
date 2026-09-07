@@ -394,6 +394,7 @@
           </div>
           <!-- Round Timer & External Link Actions -->
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button id="btn-refresh-tournament-workspace" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="refreshTournamentWorkspace(this)" title="Refresh live pairings, scores, and roster from BCP"><span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh Live</button>
             <button id="manage-event-start-btn" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; color: #fff; font-weight: 700;" onclick="startTournamentEvent()">▶️ Start Event</button>
             <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.6rem;">
               <span style="font-size: 0.75rem; color: var(--text-muted);">ROUND TIMER</span>

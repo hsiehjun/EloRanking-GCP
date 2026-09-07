@@ -203,6 +203,67 @@ class BcpAdapter:
         return False, (err or "Failed to fetch pairings status"), None
 
     @classmethod
+    def fetch_event_pairings(
+        cls,
+        event_id: str,
+        round_num: int = 1,
+        pairing_type: str = "Pairing",
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], List[Dict[str, Any]]]:
+        """
+        Fetches round pairings from BCP API for a tournament round.
+        Returns: (success, error_str, list_of_pairings)
+        """
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid:
+            return False, "Missing event_id", []
+
+        url = f"{BCP_API_BASE}/events/{clean_eid}/pairings?round={round_num}&pairingType={pairing_type}"
+        data, err = cls.execute_call(
+            url=url,
+            method="GET",
+            user_id=user_id,
+            explicit_token=explicit_token,
+            allow_unauthenticated=True
+        )
+        if data and isinstance(data, dict):
+            active = data.get("active") or data.get("data") or []
+            if isinstance(active, list) and active:
+                return True, None, active
+        elif isinstance(data, list) and data:
+            return True, None, data
+
+        # Fallback to TeamPairing if singles is empty
+        if pairing_type == "Pairing":
+            url_team = f"{BCP_API_BASE}/events/{clean_eid}/pairings?round={round_num}&pairingType=TeamPairing"
+            t_data, t_err = cls.execute_call(
+                url=url_team,
+                method="GET",
+                user_id=user_id,
+                explicit_token=explicit_token,
+                allow_unauthenticated=True
+            )
+            if t_data and isinstance(t_data, dict):
+                active = t_data.get("active") or t_data.get("data") or []
+                if isinstance(active, list) and active:
+                    return True, None, active
+            elif isinstance(t_data, list) and t_data:
+                return True, None, t_data
+
+        # Fallback to scraper if execute_call returned empty
+        try:
+            from scraper import BestCoastPairingsScraper
+            scraper = BestCoastPairingsScraper(db=None)
+            items = scraper.fetch_event_pairings_for_round(clean_eid, round_num, pairing_type)
+            if items:
+                return True, None, items
+        except Exception:
+            pass
+
+        return True, None, []
+
+    @classmethod
     def register_player(
         cls,
         event_id: str,
