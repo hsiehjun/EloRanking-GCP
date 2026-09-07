@@ -618,6 +618,16 @@ function renderEventTeamsRows() {
     if (tableWrap) tableWrap.style.display = 'none';
     if (container) container.style.display = 'flex';
 
+    const summaryTextEl = document.getElementById('event-teams-summary-text');
+    if (summaryTextEl) {
+      summaryTextEl.innerText = `${teams.length} ${isDoubles ? 'Pairs' : 'Teams'} Registered (${(eventPlayersCache && eventPlayersCache.length) || 0} Competitors)`;
+    }
+    const btnToggleAll = document.getElementById('btn-toggle-all-teams');
+    if (btnToggleAll) {
+      allTeamsCollapsed = false;
+      btnToggleAll.innerHTML = '⊟ Collapse All';
+    }
+
     let filtered = teams;
     if (eventModalSearchQuery) {
       const q = eventModalSearchQuery;
@@ -662,33 +672,33 @@ function renderEventTeamsRows() {
       return;
     }
 
+    const hasMatches = eventMatchesCache && eventMatchesCache.length > 0;
+    const hasPlacings = eventPlayersCache && eventPlayersCache.some(p => p.placement && p.placement > 0);
+    const isStarted = Boolean(hasPlacings || hasMatches);
+
     if (container) {
       container.innerHTML = '';
       filtered.forEach((t, idx) => {
         const card = document.createElement('div');
         card.className = 'team-roster-card';
-        card.style.background = 'var(--bg-card, #1e293b)';
-        card.style.border = '1px solid var(--border, #334155)';
-        card.style.borderRadius = '10px';
-        card.style.overflow = 'hidden';
-        card.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
 
         const placingBadge = (t.placing && t.placing > 0)
           ? `<span style="font-size:0.72rem; padding:2px 8px; border-radius:12px; background:rgba(234,179,8,0.16); color:#facc15; border:1px solid rgba(234,179,8,0.32); font-weight:700;">Rank #${t.placing}</span>`
           : '';
-        const pointsBadge = (t.points != null && t.points !== '')
+        const pointsBadge = (isStarted && t.points != null && Number(t.points) > 0)
           ? `<span style="font-size:0.72rem; padding:2px 8px; border-radius:12px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:600;">${t.points} pts</span>`
           : '';
         const checkinBadge = t.checked_in
           ? `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:600;">✓ Checked In</span>`
           : `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(148,163,184,0.1); color:#94a3b8; border:1px solid rgba(148,163,184,0.2); font-weight:500;">Awaiting Check-in</span>`;
 
-        const avgEloBadge = t.avg_elo
-          ? `<div style="text-align:right; background:rgba(255,255,255,0.04); padding:3px 9px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
-               <div style="font-size:0.65rem; text-transform:uppercase; color:var(--text-muted, #94a3b8); font-weight:700; letter-spacing:0.02em;">${isDoubles ? 'Duo Avg Elo' : 'Team Avg Elo'}</div>
-               <div style="font-size:0.92rem; font-weight:800; font-family:var(--font-mono, monospace);" class="elo-badge ${getEloBadgeClass(t.avg_elo)}">${Math.round(t.avg_elo)}</div>
-             </div>`
-          : '';
+        const avgEloVal = t.avg_elo ? Math.round(t.avg_elo) : 1500;
+        const avgEloBadge = `
+          <div style="text-align:right; background:rgba(0,0,0,0.3); padding:3px 9px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+            <div style="font-size:0.62rem; text-transform:uppercase; color:var(--text-muted, #94a3b8); font-weight:700; letter-spacing:0.04em;">${isDoubles ? 'Duo Avg Elo' : 'Team Avg Elo'}</div>
+            <div style="font-size:0.92rem; font-weight:800; font-family:var(--font-mono, monospace);" class="elo-badge ${getEloBadgeClass(avgEloVal)}">${avgEloVal}</div>
+          </div>
+        `;
 
         const members = t.members || [];
         const memberRowsHtml = members.map((m, mIdx) => {
@@ -699,37 +709,36 @@ function renderEventTeamsRows() {
           const isCap = Boolean(m.is_captain);
 
           const capTag = isCap
-            ? `<span style="font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(234,179,8,0.2); color:#facc15; font-weight:700; border:1px solid rgba(234,179,8,0.35); margin-left:6px;">👑 CAPTAIN</span>`
+            ? `<span class="badge team-captain-badge" style="font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(234,179,8,0.2); color:#facc15; font-weight:700; border:1px solid rgba(234,179,8,0.35); margin-left:6px; flex-shrink:0;">👑 CAPTAIN</span>`
             : '';
 
           const checkinTag = m.checked_in != null
-            ? `<span style="font-size:0.72rem; color:${m.checked_in ? 'var(--win, #22c55e)' : 'var(--text-muted, #94a3b8)'}; font-weight:600; margin-left:0.5rem;">${m.checked_in ? '✅ Ready' : '📋 Enrolled'}</span>`
+            ? `<span style="font-size:0.72rem; color:${m.checked_in ? 'var(--win, #22c55e)' : 'var(--text-muted, #94a3b8)'}; font-weight:600;">${m.checked_in ? '✅ Ready' : '📋 Enrolled'}</span>`
             : '';
 
           return `
-            <div style="display:flex; align-items:center; justify-content:space-between; padding:0.65rem 1rem; border-bottom:${mIdx < members.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none'}; background:${mIdx % 2 === 0 ? 'rgba(0,0,0,0.12)' : 'transparent'}; gap:0.75rem; flex-wrap:wrap;">
-              <div style="display:flex; align-items:center; gap:0.6rem; min-width:180px; flex:1;">
-                <span style="font-size:0.85rem; cursor:default; width:18px; text-align:center;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
-                <div>
-                  <div style="display:flex; align-items:center; flex-wrap:wrap;">
-                    <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
-                      ${mName}
-                    </a>
-                    ${capTag}
-                  </div>
-                </div>
+            <div class="team-member-grid" style="border-bottom:${mIdx < members.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none'}; background:${mIdx % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent'};">
+              <div style="display:flex; align-items:center; gap:0.5rem; min-width:0;">
+                <span style="font-size:0.85rem; width:16px; text-align:center; flex-shrink:0;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
+                <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                  ${mName}
+                </a>
+                ${capTag}
               </div>
 
-              <div style="min-width:130px;">
-                <span class="badge" style="background:var(--bg-card, #1e293b); border:1px solid var(--border, #334155); font-size:0.75rem; color:#cbd5e1; padding:2px 7px;">
+              <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                <span class="badge" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.1); font-size:0.75rem; color:#cbd5e1; padding:2px 8px; border-radius:4px;" title="${mFac}">
                   ${mFac}
                 </span>
               </div>
 
-              <div style="display:flex; align-items:center; gap:0.75rem; justify-content:flex-end;">
-                <span class="elo-badge ${mBadge}" style="font-size:0.82rem; font-weight:700;">
+              <div style="text-align:right;">
+                <span class="elo-badge ${mBadge}" style="font-size:0.82rem; font-weight:700; padding:2px 7px;">
                   ${mElo}
                 </span>
+              </div>
+
+              <div class="team-col-checkin" style="text-align:right;">
                 ${checkinTag}
               </div>
             </div>
@@ -738,30 +747,37 @@ function renderEventTeamsRows() {
 
         card.innerHTML = `
           <!-- Card Header -->
-          <div style="background:linear-gradient(90deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95)); padding:0.85rem 1rem; border-bottom:1px solid var(--border, #334155); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.6rem;">
-            <div style="display:flex; align-items:center; gap:0.65rem; min-width:0; flex:1;">
-              <div style="font-size:1.25rem;">${isDoubles ? '👥' : '🛡️'}</div>
-              <div style="min-width:0;">
-                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-                  <span style="font-weight:700; font-size:1.02rem; color:#fff;">${escapeHtml(t.name || 'Team')}</span>
+          <div class="team-roster-header" onclick="toggleTeamRosterCard('${idx}')">
+            <div class="team-header-main">
+              <span id="team-chevron-${idx}" class="team-chevron">▼</span>
+              <div class="team-icon">${isDoubles ? '👥' : '🛡️'}</div>
+              <div class="team-info">
+                <div class="team-title-row">
+                  <span class="team-name">${escapeHtml(t.name || 'Team')}</span>
                   ${placingBadge}
                   ${pointsBadge}
                 </div>
-                <div style="font-size:0.78rem; color:var(--text-muted, #94a3b8); margin-top:3px; display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-                  ${t.captain_name ? `<span>👑 Captain: <strong style="color:#f1f5f9;">${escapeHtml(t.captain_name)}</strong></span><span>•</span>` : ''}
+                <div class="team-meta-row">
+                  ${t.captain_name ? `<span>👑 Captain:&nbsp;<strong style="color:#f1f5f9;">${escapeHtml(t.captain_name)}</strong></span><span>•</span>` : ''}
                   <span>${members.length} ${isDoubles ? 'Players (Duo)' : 'Competitors'}</span>
                 </div>
               </div>
             </div>
 
-            <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+            <div class="team-header-badges">
               ${avgEloBadge}
               ${checkinBadge}
             </div>
           </div>
 
           <!-- Members Roster -->
-          <div style="display:flex; flex-direction:column;">
+          <div id="team-members-${idx}" class="team-members-container" style="display:flex; flex-direction:column;">
+            <div class="team-member-header">
+              <div>Competitor</div>
+              <div>Faction</div>
+              <div style="text-align:right;">Elo Rating</div>
+              <div class="team-col-checkin" style="text-align:right;">Check-in</div>
+            </div>
             ${memberRowsHtml || '<div style="padding:0.75rem 1rem; color:var(--text-muted); font-size:0.8rem;">No members listed for this team yet.</div>'}
           </div>
         `;
@@ -776,8 +792,6 @@ function renderEventTeamsRows() {
         uCard.className = 'team-roster-card unassigned-roster';
         uCard.style.background = 'rgba(255,255,255,0.02)';
         uCard.style.border = '1px dashed var(--border, #334155)';
-        uCard.style.borderRadius = '10px';
-        uCard.style.overflow = 'hidden';
         uCard.style.marginTop = '0.5rem';
 
         const uRowsHtml = unassigned.map((m, mIdx) => {
@@ -785,13 +799,14 @@ function renderEventTeamsRows() {
           const mFac = escapeHtml(m.faction || 'Unknown');
           const mElo = m.current_elo ? Math.round(m.current_elo) : 1500;
           return `
-            <div style="display:flex; align-items:center; justify-content:space-between; padding:0.55rem 1rem; border-bottom:${mIdx < unassigned.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none'}; gap:0.75rem; font-size:0.82rem;">
+            <div class="team-member-grid" style="border-bottom:${mIdx < unassigned.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none'};">
               <div style="display:flex; align-items:center; gap:0.5rem;">
                 <span style="color:var(--text-muted);">•</span>
                 <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; color:#38bdf8; text-decoration:none;">${mName}</a>
               </div>
               <div><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.72rem;">${mFac}</span></div>
-              <div><span class="elo-badge ${getEloBadgeClass(mElo)}" style="font-size:0.78rem;">${mElo}</span></div>
+              <div style="text-align:right;"><span class="elo-badge ${getEloBadgeClass(mElo)}" style="font-size:0.78rem;">${mElo}</span></div>
+              <div class="team-col-checkin" style="text-align:right;"><span style="color:var(--text-muted); font-size:0.72rem;">Unassigned</span></div>
             </div>
           `;
         }).join('');
@@ -865,6 +880,35 @@ function renderEventTeamsRows() {
       tbody.appendChild(tr);
     });
   }
+}
+
+let allTeamsCollapsed = false;
+
+function toggleTeamRosterCard(idx) {
+  const membersEl = document.getElementById(`team-members-${idx}`);
+  const chevronEl = document.getElementById(`team-chevron-${idx}`);
+  if (!membersEl) return;
+  const isHidden = membersEl.style.display === 'none';
+  membersEl.style.display = isHidden ? 'flex' : 'none';
+  if (chevronEl) {
+    chevronEl.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(-90deg)';
+  }
+}
+
+function toggleAllTeamCards() {
+  allTeamsCollapsed = !allTeamsCollapsed;
+  const btn = document.getElementById('btn-toggle-all-teams');
+  if (btn) {
+    btn.innerHTML = allTeamsCollapsed ? '⊞ Expand All' : '⊟ Collapse All';
+  }
+  const memberContainers = document.querySelectorAll('.team-members-container');
+  memberContainers.forEach(container => {
+    container.style.display = allTeamsCollapsed ? 'none' : 'flex';
+  });
+  const chevrons = document.querySelectorAll('[id^="team-chevron-"]');
+  chevrons.forEach(ch => {
+    ch.style.transform = allTeamsCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+  });
 }
 
 function renderEventResultsRows() {
@@ -1452,4 +1496,5 @@ window.openTournamentRegistrationModal = openTournamentRegistrationModal;
 window.closeTournamentRegistrationModal = closeTournamentRegistrationModal;
 window.submitTournamentRegistration = submitTournamentRegistration;
 window.renderEventTeamsRows = renderEventTeamsRows;
-
+window.toggleTeamRosterCard = toggleTeamRosterCard;
+window.toggleAllTeamCards = toggleAllTeamCards;
