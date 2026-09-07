@@ -862,6 +862,10 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 player_dict["dropped"] = bool(p.get("dropped"))
             if p.get("checkedIn") is not None:
                 player_dict["checked_in"] = bool(p.get("checkedIn"))
+            player_dict["team_player_id"] = str(p.get("teamPlayerId") or p.get("team_player_id") or "")
+            player_dict["teamPlayerId"] = player_dict["team_player_id"]
+            player_dict["user_id"] = str(u.get("id") or p.get("userId") or "")
+            player_dict["army_list"] = str(p.get("armyList") or p.get("army_list") or p.get("listUrl") or "")
             formatted.append(player_dict)
         else:
             tot_metrics = p.get("total_metrics") or p.get("metrics") or []
@@ -887,9 +891,16 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             peak_elo = float(db_rating.get("peak_elo") or 1500.0) if db_rating else 1500.0
             resolved_fac = faction_name if faction_name != "Unknown" else (db_rating.get("top_faction") if db_rating else "Unknown")
             resolved_team = team_name or (db_rating.get("team") if db_rating else "")
+            team_player_id = str(p.get("teamPlayerId") or p.get("team_player_id") or "")
+            user_id = str(u.get("id") or p.get("userId") or "")
+            army_list = str(p.get("armyList") or p.get("army_list") or p.get("listUrl") or "")
 
             formatted.append({
                 "player_id": pid,
+                "user_id": user_id,
+                "team_player_id": team_player_id,
+                "teamPlayerId": team_player_id,
+                "army_list": army_list,
                 "full_name": full_name,
                 "faction": resolved_fac,
                 "team": resolved_team,
@@ -977,9 +988,32 @@ async def api_event_details(event_id: str, force_sync: bool = False):
     # Tournament placing and live roster come strictly from BCP API (strictly zero DB writes).
     try:
         scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
+
+        # 1. Detect if event is a Team or Doubles event
+        raw_ev = event_details.get("raw_json") or {}
+        is_team_event = bool(
+            raw_ev.get("teamEvent") or 
+            (raw_ev.get("totalTeamPlayers", 0) > 0) or
+            event_details.get("is_team_event")
+        )
+        is_doubles_event = bool(
+            raw_ev.get("doublesEvent") or
+            (is_team_event and raw_ev.get("totalTeamPlayers") and raw_ev.get("totalPlayers") and round(raw_ev.get("totalPlayers") / raw_ev.get("totalTeamPlayers")) == 2) or
+            ("double" in (event_details.get("name") or "").lower())
+        )
+
         bcp_players = scraper.fetch_event_players(event_id_str)
-        if not bcp_players:
-            bcp_players = scraper.fetch_event_teams(event_id_str)
+        bcp_teams = []
+        if is_team_event or not bcp_players:
+            bcp_teams = scraper.fetch_event_teams(event_id_str)
+            if bcp_teams and not is_team_event:
+                is_team_event = True
+                if round(len(bcp_players or []) / max(1, len(bcp_teams))) == 2 or ("double" in (event_details.get("name") or "").lower()):
+                    is_doubles_event = True
+
+        if not bcp_players and bcp_teams:
+            bcp_players = bcp_teams
+
         if bcp_players:
             existing_players = event_details.get("players", [])
             formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db)
@@ -989,6 +1023,65 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             if elos:
                 event_details["avg_field_elo"] = round(sum(elos) / len(elos), 1)
                 event_details["top_seed_elo"] = max(elos)
+
+        event_details["is_team_event"] = is_team_event
+        event_details["is_doubles_event"] = is_doubles_event
+
+        if is_team_event and bcp_teams:
+            # Group competitors under their respective registered teams
+            team_map = {}
+            for t in bcp_teams:
+                tid = str(t.get("id") or "").strip()
+                if not tid:
+                    continue
+                cap = t.get("captain") if isinstance(t.get("captain"), dict) else {}
+                cap_first = cap.get("firstName") or ""
+                cap_last = cap.get("lastName") or ""
+                cap_name = f"{cap_first} {cap_last}".strip() or t.get("captainName") or ""
+                team_map[tid] = {
+                    "id": tid,
+                    "team_id": tid,
+                    "name": t.get("name") or "Unnamed Team",
+                    "captain_id": str(t.get("captainId") or cap.get("id") or ""),
+                    "captain_name": cap_name,
+                    "checked_in": bool(t.get("checkedIn") or t.get("checked_in")),
+                    "dropped": bool(t.get("dropped")),
+                    "placing": t.get("placing") or t.get("rank") or t.get("place"),
+                    "points": t.get("points") or t.get("battlePoints") or 0,
+                    "members": []
+                }
+
+            unassigned = []
+            for p in event_details.get("players", []):
+                tpid = str(p.get("team_player_id") or p.get("teamPlayerId") or "").strip()
+                if tpid and tpid in team_map:
+                    target_team = team_map[tpid]
+                    is_cap = bool(
+                        (target_team.get("captain_id") and target_team["captain_id"] in (p.get("user_id"), p.get("player_id"))) or
+                        (target_team.get("captain_name") and target_team["captain_name"].lower() == p.get("full_name", "").lower())
+                    )
+                    p["is_captain"] = is_cap
+                    target_team["members"].append(p)
+                else:
+                    unassigned.append(p)
+
+            formatted_teams = list(team_map.values())
+            for tm in formatted_teams:
+                m_elos = [float(m["current_elo"]) for m in tm["members"] if m.get("current_elo") is not None]
+                tm["avg_elo"] = round(sum(m_elos) / len(m_elos), 1) if m_elos else 1500.0
+                tm["member_count"] = len(tm["members"])
+                tm["members"].sort(key=lambda m: (not m.get("is_captain"), -float(m.get("current_elo") or 1500.0)))
+
+            has_team_placings = any(tm.get("placing") for tm in formatted_teams)
+            if has_team_placings:
+                formatted_teams.sort(key=lambda tm: tm.get("placing") or 999999)
+            else:
+                formatted_teams.sort(key=lambda tm: tm.get("name", "").lower())
+
+            event_details["teams"] = formatted_teams
+            event_details["total_teams"] = len(formatted_teams)
+            if unassigned:
+                event_details["unassigned_players"] = unassigned
     except Exception as e:
         logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
 

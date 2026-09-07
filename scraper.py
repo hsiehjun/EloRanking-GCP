@@ -114,16 +114,45 @@ class BestCoastPairingsScraper:
         """Fetches full tournament details for a specific event."""
         return self._make_request(f"/events/{event_id}")
 
-    def fetch_event_pairings_for_round(self, event_id: str, round_num: int) -> List[Dict[str, Any]]:
-        """Fetches all pairings for a specific round of an event."""
+    def fetch_event_pairings_for_round(self, event_id: str, round_num: int, pairing_type: str = "Pairing") -> List[Dict[str, Any]]:
+        """Fetches all pairings for a specific round of an event. Falls back to TeamPairing if standard Pairing is empty."""
         resp = self._make_request(f"/events/{event_id}/pairings", params={
             "round": round_num,
-            "pairingType": "Pairing"
+            "pairingType": pairing_type
+        })
+        items = []
+        if isinstance(resp, dict):
+            if "active" in resp and isinstance(resp["active"], list):
+                items = resp["active"]
+            elif "data" in resp and isinstance(resp["data"], list):
+                items = resp["data"]
+        elif isinstance(resp, list):
+            items = resp
+
+        # Fallback to TeamPairing if standard Pairing is empty (e.g. Doubles or Team events)
+        if not items and pairing_type == "Pairing":
+            resp_team = self._make_request(f"/events/{event_id}/pairings", params={
+                "round": round_num,
+                "pairingType": "TeamPairing"
+            })
+            if isinstance(resp_team, dict):
+                if "active" in resp_team and isinstance(resp_team["active"], list):
+                    items = resp_team["active"]
+                elif "data" in resp_team and isinstance(resp_team["data"], list):
+                    items = resp_team["data"]
+            elif isinstance(resp_team, list):
+                items = resp_team
+
+        return items or []
+
+    def fetch_event_team_pairings_for_round(self, event_id: str, round_num: int) -> List[Dict[str, Any]]:
+        """Fetches team-level pairings (Team vs Team) for a team or doubles tournament round."""
+        resp = self._make_request(f"/events/{event_id}/pairings", params={
+            "round": round_num,
+            "pairingType": "TeamPairing"
         })
         if not resp:
             return []
-        
-        # BCP returns pairings in {"active": [...], "deleted": [...]} or {"data": [...]}
         if isinstance(resp, dict):
             if "active" in resp and isinstance(resp["active"], list):
                 return resp["active"]

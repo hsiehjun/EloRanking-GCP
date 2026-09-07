@@ -154,9 +154,17 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
         if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
 
-        if (fresh.team_standings && fresh.team_standings.length > 0) {
+        const isTeamEventFresh = Boolean(fresh.is_team_event || (fresh.teams && fresh.teams.length > 0));
+        const isDoublesFresh = Boolean(fresh.is_doubles_event);
+        const teamsListFresh = (fresh.teams && fresh.teams.length > 0) ? fresh.teams : (fresh.team_standings || []);
+
+        if (isTeamEventFresh || teamsListFresh.length > 0) {
           if (subtabTeams) subtabTeams.style.display = 'inline-flex';
-          if (tabTeamsCount) tabTeamsCount.innerText = fresh.team_standings.length;
+          const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
+          if (labelSpan) {
+            labelSpan.innerText = isDoublesFresh ? '👥 Doubles Rosters' : '🛡️ Team Rosters';
+          }
+          if (tabTeamsCount) tabTeamsCount.innerText = teamsListFresh.length;
           renderEventTeamsRows();
         } else {
           if (subtabTeams) subtabTeams.style.display = 'none';
@@ -248,7 +256,18 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     eventMatchesCache = ev.matches || [];
     eventPlayersCache = ev.players || [];
 
-    document.getElementById('event-modal-players').innerText = ev.total_players || eventPlayersCache.length || 0;
+    const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
+    const isDoublesEvent = Boolean(ev.is_doubles_event);
+    const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
+
+    if (isTeamEvent && teamsList.length > 0) {
+      const teamCount = ev.total_teams || teamsList.length;
+      const playerCount = ev.total_players || eventPlayersCache.length;
+      const typeStr = isDoublesEvent ? 'Pairs' : 'Teams';
+      document.getElementById('event-modal-players').innerText = `${teamCount} ${typeStr} (${playerCount} Players)`;
+    } else {
+      document.getElementById('event-modal-players').innerText = ev.total_players || eventPlayersCache.length || 0;
+    }
     document.getElementById('event-modal-rounds').innerText = ev.num_rounds || 0;
     document.getElementById('event-modal-matches').innerText = eventMatchesCache.length;
 
@@ -263,21 +282,25 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (tabEloCount) tabEloCount.innerText = eventPlayersCache.length;
     if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
 
-    if (ev.team_standings && ev.team_standings.length > 0) {
+    if (isTeamEvent || teamsList.length > 0) {
       if (subtabTeams) subtabTeams.style.display = 'inline-flex';
-      if (tabTeamsCount) tabTeamsCount.innerText = ev.team_standings.length;
+      const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
+      if (labelSpan) {
+        labelSpan.innerText = isDoublesEvent ? '👥 Doubles Rosters' : '🛡️ Team Rosters';
+      }
+      if (tabTeamsCount) tabTeamsCount.innerText = teamsList.length;
       renderEventTeamsRows();
     } else {
       if (subtabTeams) subtabTeams.style.display = 'none';
     }
 
-    const hasStandings = ev.team_standings && ev.team_standings.length > 0;
+    const hasStandings = teamsList.length > 0;
     const hasPlacings = placementsCount > 0 || eventMatchesCache.length > 0;
 
     if (!hasCachedRows || !currentEventModalTab) {
       if (initialTab && initialTab !== 'elo') {
         switchEventModalTab(initialTab);
-      } else if (hasStandings && !hasPlacings) {
+      } else if (isTeamEvent || (hasStandings && !hasPlacings)) {
         switchEventModalTab('teams');
       } else {
         switchEventModalTab('results');
@@ -363,13 +386,15 @@ function updateEventModalTabCountsForSearch() {
   const tabEloCount = document.getElementById('event-tab-elo-count');
   const tabMatchesCount = document.getElementById('event-tab-matches-count');
 
+  const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
   const placementsCount = eventPlayersCache ? eventPlayersCache.filter(p => p.placement && p.placement > 0).length : 0;
   const totalPlayers = eventPlayersCache ? eventPlayersCache.length : 0;
   const totalMatches = eventMatchesCache ? eventMatchesCache.length : 0;
+  const totalTeams = teams.length > 0 ? teams.length : standings.length;
 
   if (!eventModalSearchQuery) {
-    if (tabTeamsCount) tabTeamsCount.innerText = standings.length;
+    if (tabTeamsCount) tabTeamsCount.innerText = totalTeams;
     if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : totalPlayers;
     if (tabEloCount) tabEloCount.innerText = totalPlayers;
     if (tabMatchesCount) tabMatchesCount.innerText = totalMatches;
@@ -377,11 +402,28 @@ function updateEventModalTabCountsForSearch() {
   }
 
   const q = eventModalSearchQuery;
-  const filteredTeams = standings.filter(t => {
-    const name = (t.name || '').toLowerCase();
-    const captain = (t.captain || '').toLowerCase();
-    return name.includes(q) || captain.includes(q);
-  });
+  let filteredTeamsCount = 0;
+  if (teams.length > 0) {
+    filteredTeamsCount = teams.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      const cap = (t.captain_name || '').toLowerCase();
+      if (name.includes(q) || cap.includes(q)) return true;
+      if (t.members && Array.isArray(t.members)) {
+        return t.members.some(m => {
+          const mName = (m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || '').toLowerCase();
+          const mFac = (m.faction || '').toLowerCase();
+          return mName.includes(q) || mFac.includes(q);
+        });
+      }
+      return false;
+    }).length;
+  } else {
+    filteredTeamsCount = standings.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      const captain = (t.captain || '').toLowerCase();
+      return name.includes(q) || captain.includes(q);
+    }).length;
+  }
 
   const filteredPlayers = (eventPlayersCache || []).filter(p => {
     const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
@@ -400,7 +442,7 @@ function updateEventModalTabCountsForSearch() {
     return p1Name.includes(q) || p2Name.includes(q) || p1Fac.includes(q) || p2Fac.includes(q) || p1Team.includes(q) || p2Team.includes(q);
   });
 
-  if (tabTeamsCount) tabTeamsCount.innerText = filteredTeams.length;
+  if (tabTeamsCount) tabTeamsCount.innerText = filteredTeamsCount;
   if (tabResultsCount) tabResultsCount.innerText = filteredPlayers.length;
   if (tabEloCount) tabEloCount.innerText = filteredPlayers.length;
   if (tabMatchesCount) tabMatchesCount.innerText = filteredMatches.length;
@@ -409,10 +451,32 @@ function updateEventModalTabCountsForSearch() {
 function getEventModalCrossTabSuggestions(currentTab) {
   if (!eventModalSearchQuery) return '';
   const q = eventModalSearchQuery;
+  const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
-  
+  const isDoubles = Boolean(currentEventData && currentEventData.is_doubles_event);
+  const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || teams.length > 0));
+
+  let teamsMatchCount = 0;
+  if (teams.length > 0) {
+    teamsMatchCount = teams.filter(t => {
+      const name = (t.name || '').toLowerCase();
+      const cap = (t.captain_name || '').toLowerCase();
+      if (name.includes(q) || cap.includes(q)) return true;
+      if (t.members && Array.isArray(t.members)) {
+        return t.members.some(m => {
+          const mName = (m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || '').toLowerCase();
+          const mFac = (m.faction || '').toLowerCase();
+          return mName.includes(q) || mFac.includes(q);
+        });
+      }
+      return false;
+    }).length;
+  } else {
+    teamsMatchCount = standings.filter(t => (t.name || '').toLowerCase().includes(q) || (t.captain || '').toLowerCase().includes(q)).length;
+  }
+
   const counts = {
-    teams: standings.filter(t => (t.name || '').toLowerCase().includes(q) || (t.captain || '').toLowerCase().includes(q)).length,
+    teams: teamsMatchCount,
     results: (eventPlayersCache || []).filter(p => {
       const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
       const fac = (p.faction || '').toLowerCase();
@@ -436,10 +500,13 @@ function getEventModalCrossTabSuggestions(currentTab) {
     }).length
   };
 
+  const teamLabel = isDoubles ? 'Doubles Rosters' : (isTeam ? 'Team Rosters' : 'Team Standings');
+  const teamIcon = isDoubles ? '👥' : '🛡️';
+
   const tabsConfig = [
     { key: 'results', label: 'Standings & Competitors', icon: '🏆', count: counts.results },
     { key: 'matches', label: 'Match Pairings', icon: '⚔️', count: counts.matches },
-    { key: 'teams', label: 'Team Standings', icon: '🛡️', count: counts.teams }
+    { key: 'teams', label: teamLabel, icon: teamIcon, count: counts.teams }
   ];
 
   const available = tabsConfig.filter(t => t.key !== currentTab && t.count > 0);
@@ -526,14 +593,226 @@ function switchEventModalTab(tabKey) {
 }
 
 function renderEventTeamsRows() {
+  const container = document.getElementById('event-teams-container');
+  const tableWrap = document.getElementById('event-teams-table-wrap');
   const tbody = document.getElementById('event-teams-body');
-  if (!tbody) return;
 
+  const teams = (currentEventData && currentEventData.teams) || [];
   const standings = (currentEventData && currentEventData.team_standings) || [];
-  if (standings.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No team standings available for this tournament.</td></tr>';
+  const isDoubles = Boolean(currentEventData && currentEventData.is_doubles_event);
+  const itemTypeSingular = isDoubles ? 'pair' : 'team';
+  const itemTypePlural = isDoubles ? 'pairs' : 'teams';
+
+  if (teams.length === 0 && standings.length === 0) {
+    if (container) {
+      container.style.display = 'block';
+      container.innerHTML = `<div class="empty-state" style="padding:2.5rem 1rem; text-align:center; color:var(--text-muted);">No ${itemTypePlural} or rosters available for this tournament.</div>`;
+    }
+    if (tableWrap) tableWrap.style.display = 'none';
+    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="empty-state">No ${itemTypePlural} found.</td></tr>`;
     return;
   }
+
+  // Branch 1: Modern rich Team/Doubles Roster Cards
+  if (teams.length > 0) {
+    if (tableWrap) tableWrap.style.display = 'none';
+    if (container) container.style.display = 'flex';
+
+    let filtered = teams;
+    if (eventModalSearchQuery) {
+      const q = eventModalSearchQuery;
+      filtered = teams.filter(t => {
+        const name = (t.name || '').toLowerCase();
+        const captain = (t.captain_name || '').toLowerCase();
+        if (name.includes(q) || captain.includes(q)) return true;
+        if (t.members && Array.isArray(t.members)) {
+          return t.members.some(m => {
+            const mName = (m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || '').toLowerCase();
+            const mFac = (m.faction || '').toLowerCase();
+            return mName.includes(q) || mFac.includes(q);
+          });
+        }
+        return false;
+      });
+    }
+
+    const searchSummary = document.getElementById('event-modal-search-summary');
+    if (searchSummary && currentEventModalTab === 'teams') {
+      if (eventModalSearchQuery) {
+        searchSummary.innerText = `Showing ${filtered.length} of ${teams.length} ${itemTypePlural}`;
+        searchSummary.style.display = 'block';
+      } else {
+        searchSummary.style.display = 'none';
+      }
+    }
+
+    if (filtered.length === 0) {
+      const suggestions = getEventModalCrossTabSuggestions('teams');
+      if (container) {
+        container.innerHTML = `
+          <div class="empty-state" style="padding:2.5rem 1rem; text-align:center;">
+            <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No ${isDoubles ? 'Pairs' : 'Teams'} Found</div>
+            <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+              No ${itemTypePlural} match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+            </div>
+            ${suggestions}
+          </div>
+        `;
+      }
+      return;
+    }
+
+    if (container) {
+      container.innerHTML = '';
+      filtered.forEach((t, idx) => {
+        const card = document.createElement('div');
+        card.className = 'team-roster-card';
+        card.style.background = 'var(--bg-card, #1e293b)';
+        card.style.border = '1px solid var(--border, #334155)';
+        card.style.borderRadius = '10px';
+        card.style.overflow = 'hidden';
+        card.style.boxShadow = '0 4px 14px rgba(0, 0, 0, 0.2)';
+
+        const placingBadge = (t.placing && t.placing > 0)
+          ? `<span style="font-size:0.72rem; padding:2px 8px; border-radius:12px; background:rgba(234,179,8,0.16); color:#facc15; border:1px solid rgba(234,179,8,0.32); font-weight:700;">Rank #${t.placing}</span>`
+          : '';
+        const pointsBadge = (t.points != null && t.points !== '')
+          ? `<span style="font-size:0.72rem; padding:2px 8px; border-radius:12px; background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.3); font-weight:600;">${t.points} pts</span>`
+          : '';
+        const checkinBadge = t.checked_in
+          ? `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:600;">✓ Checked In</span>`
+          : `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(148,163,184,0.1); color:#94a3b8; border:1px solid rgba(148,163,184,0.2); font-weight:500;">Awaiting Check-in</span>`;
+
+        const avgEloBadge = t.avg_elo
+          ? `<div style="text-align:right; background:rgba(255,255,255,0.04); padding:3px 9px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+               <div style="font-size:0.65rem; text-transform:uppercase; color:var(--text-muted, #94a3b8); font-weight:700; letter-spacing:0.02em;">${isDoubles ? 'Duo Avg Elo' : 'Team Avg Elo'}</div>
+               <div style="font-size:0.92rem; font-weight:800; font-family:var(--font-mono, monospace);" class="elo-badge ${getEloBadgeClass(t.avg_elo)}">${Math.round(t.avg_elo)}</div>
+             </div>`
+          : '';
+
+        const members = t.members || [];
+        const memberRowsHtml = members.map((m, mIdx) => {
+          const mName = escapeHtml(m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
+          const mFac = escapeHtml(m.faction || 'Unknown');
+          const mElo = m.current_elo ? Math.round(m.current_elo) : 1500;
+          const mBadge = getEloBadgeClass(mElo);
+          const isCap = Boolean(m.is_captain);
+
+          const capTag = isCap
+            ? `<span style="font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(234,179,8,0.2); color:#facc15; font-weight:700; border:1px solid rgba(234,179,8,0.35); margin-left:6px;">👑 CAPTAIN</span>`
+            : '';
+
+          const checkinTag = m.checked_in != null
+            ? `<span style="font-size:0.72rem; color:${m.checked_in ? 'var(--win, #22c55e)' : 'var(--text-muted, #94a3b8)'}; font-weight:600; margin-left:0.5rem;">${m.checked_in ? '✅ Ready' : '📋 Enrolled'}</span>`
+            : '';
+
+          return `
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:0.65rem 1rem; border-bottom:${mIdx < members.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none'}; background:${mIdx % 2 === 0 ? 'rgba(0,0,0,0.12)' : 'transparent'}; gap:0.75rem; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:0.6rem; min-width:180px; flex:1;">
+                <span style="font-size:0.85rem; cursor:default; width:18px; text-align:center;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
+                <div>
+                  <div style="display:flex; align-items:center; flex-wrap:wrap;">
+                    <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                      ${mName}
+                    </a>
+                    ${capTag}
+                  </div>
+                </div>
+              </div>
+
+              <div style="min-width:130px;">
+                <span class="badge" style="background:var(--bg-card, #1e293b); border:1px solid var(--border, #334155); font-size:0.75rem; color:#cbd5e1; padding:2px 7px;">
+                  ${mFac}
+                </span>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:0.75rem; justify-content:flex-end;">
+                <span class="elo-badge ${mBadge}" style="font-size:0.82rem; font-weight:700;">
+                  ${mElo}
+                </span>
+                ${checkinTag}
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        card.innerHTML = `
+          <!-- Card Header -->
+          <div style="background:linear-gradient(90deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95)); padding:0.85rem 1rem; border-bottom:1px solid var(--border, #334155); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:0.6rem;">
+            <div style="display:flex; align-items:center; gap:0.65rem; min-width:0; flex:1;">
+              <div style="font-size:1.25rem;">${isDoubles ? '👥' : '🛡️'}</div>
+              <div style="min-width:0;">
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                  <span style="font-weight:700; font-size:1.02rem; color:#fff;">${escapeHtml(t.name || 'Team')}</span>
+                  ${placingBadge}
+                  ${pointsBadge}
+                </div>
+                <div style="font-size:0.78rem; color:var(--text-muted, #94a3b8); margin-top:3px; display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
+                  ${t.captain_name ? `<span>👑 Captain: <strong style="color:#f1f5f9;">${escapeHtml(t.captain_name)}</strong></span><span>•</span>` : ''}
+                  <span>${members.length} ${isDoubles ? 'Players (Duo)' : 'Competitors'}</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+              ${avgEloBadge}
+              ${checkinBadge}
+            </div>
+          </div>
+
+          <!-- Members Roster -->
+          <div style="display:flex; flex-direction:column;">
+            ${memberRowsHtml || '<div style="padding:0.75rem 1rem; color:var(--text-muted); font-size:0.8rem;">No members listed for this team yet.</div>'}
+          </div>
+        `;
+
+        container.appendChild(card);
+      });
+
+      // Unassigned players if any
+      const unassigned = currentEventData.unassigned_players || [];
+      if (unassigned.length > 0 && !eventModalSearchQuery) {
+        const uCard = document.createElement('div');
+        uCard.className = 'team-roster-card unassigned-roster';
+        uCard.style.background = 'rgba(255,255,255,0.02)';
+        uCard.style.border = '1px dashed var(--border, #334155)';
+        uCard.style.borderRadius = '10px';
+        uCard.style.overflow = 'hidden';
+        uCard.style.marginTop = '0.5rem';
+
+        const uRowsHtml = unassigned.map((m, mIdx) => {
+          const mName = escapeHtml(m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
+          const mFac = escapeHtml(m.faction || 'Unknown');
+          const mElo = m.current_elo ? Math.round(m.current_elo) : 1500;
+          return `
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:0.55rem 1rem; border-bottom:${mIdx < unassigned.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none'}; gap:0.75rem; font-size:0.82rem;">
+              <div style="display:flex; align-items:center; gap:0.5rem;">
+                <span style="color:var(--text-muted);">•</span>
+                <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; color:#38bdf8; text-decoration:none;">${mName}</a>
+              </div>
+              <div><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.72rem;">${mFac}</span></div>
+              <div><span class="elo-badge ${getEloBadgeClass(mElo)}" style="font-size:0.78rem;">${mElo}</span></div>
+            </div>
+          `;
+        }).join('');
+
+        uCard.innerHTML = `
+          <div style="padding:0.6rem 1rem; background:rgba(255,255,255,0.03); border-bottom:1px dashed var(--border, #334155); font-size:0.82rem; font-weight:700; color:var(--text-secondary);">
+            📋 Unassigned Competitors (${unassigned.length})
+          </div>
+          <div style="display:flex; flex-direction:column;">
+            ${uRowsHtml}
+          </div>
+        `;
+        container.appendChild(uCard);
+      }
+    }
+    return;
+  }
+
+  // Branch 2: Fallback for legacy simple team_standings table
+  if (container) container.style.display = 'none';
+  if (tableWrap) tableWrap.style.display = 'block';
 
   let filtered = standings;
   if (eventModalSearchQuery) {
@@ -556,32 +835,36 @@ function renderEventTeamsRows() {
 
   if (filtered.length === 0) {
     const suggestions = getEventModalCrossTabSuggestions('teams');
-    tbody.innerHTML = `
-      <tr>
-        <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
-          <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Teams Found</div>
-          <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
-            No teams match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
-          </div>
-          ${suggestions}
-        </td>
-      </tr>`;
+    if (tbody) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
+            <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Teams Found</div>
+            <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
+              No teams match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+            </div>
+            ${suggestions}
+          </td>
+        </tr>`;
+    }
     return;
   }
 
-  tbody.innerHTML = '';
-  filtered.forEach((t, idx) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td class="rank-cell">#${t.placing && t.placing > 0 ? t.placing : (idx + 1)}</td>
-      <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(t.name || 'Team')}</td>
-      <td style="color:var(--text-muted);">${escapeHtml(t.captain || '-')}</td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">${t.match_points != null ? t.match_points : '-'} pts</td>
-      <td style="font-family:var(--font-mono); font-weight:600; color:var(--text-secondary);">${t.game_wins != null ? t.game_wins : '-'}</td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points != null ? t.battle_points : '-'} pts</td>
-    `;
-    tbody.appendChild(tr);
-  });
+  if (tbody) {
+    tbody.innerHTML = '';
+    filtered.forEach((t, idx) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="rank-cell">#${t.placing && t.placing > 0 ? t.placing : (idx + 1)}</td>
+        <td style="font-weight:700; color:var(--text-primary);">${escapeHtml(t.name || 'Team')}</td>
+        <td style="color:var(--text-muted);">${escapeHtml(t.captain || '-')}</td>
+        <td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">${t.match_points != null ? t.match_points : '-'} pts</td>
+        <td style="font-family:var(--font-mono); font-weight:600; color:var(--text-secondary);">${t.game_wins != null ? t.game_wins : '-'}</td>
+        <td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points != null ? t.battle_points : '-'} pts</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
 }
 
 function renderEventResultsRows() {

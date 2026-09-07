@@ -1850,7 +1850,7 @@
         <!-- Sub-tabs within Tournament Modal -->
         <div class="subtabs-bar" style="margin-bottom: 0.75rem;">
           <button id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab('teams')" style="display: none;">
-            <span>🛡️ Team Standings</span>
+            <span id="event-subtab-teams-label">🛡️ Team Rosters</span>
             <span id="event-tab-teams-count" class="subtab-count-badge">0</span>
           </button>
           <button id="event-subtab-results" class="subtab-btn active" onclick="switchEventModalTab('results')">
@@ -1877,9 +1877,10 @@
           <div id="event-modal-search-summary" style="font-size: 0.78rem; color: var(--text-muted); display: none;"></div>
         </div>
 
-        <!-- View 0: Team Standings (for Team Tournaments) -->
+        <!-- View 0: Team Rosters & Standings (for Team & Doubles Tournaments) -->
         <div id="event-view-teams" style="display: none;">
-          <div class="table-container" style="max-height: 380px;">
+          <div id="event-teams-container" style="max-height: 460px; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 0.85rem;"></div>
+          <div id="event-teams-table-wrap" class="table-container" style="max-height: 380px; display: none;">
             <table id="event-teams-table">
               <thead>
                 <tr>
