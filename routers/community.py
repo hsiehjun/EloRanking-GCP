@@ -549,14 +549,38 @@ async def api_community_event_registration(
             for r in (user_regs or []):
                 if str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid:
                     is_registered = True
-                    matched_reg = r
+                    matched_reg = dict(r)
                     break
         except Exception:
             is_registered = False
 
+        # Live sync from BCP if user is linked to BCP
+        if not clean_eid.startswith("ES-"):
+            try:
+                from bcp_adapter import bcp_adapter
+                succ, _, bcp_events = bcp_adapter.fetch_user_registered_events(user["id"])
+                if succ and bcp_events:
+                    for ev_item in bcp_events:
+                        if str(ev_item.get("bcp_event_id") or ev_item.get("id") or "").strip() == clean_eid:
+                            is_registered = True
+                            if matched_reg:
+                                for k, v in ev_item.items():
+                                    if v or k not in matched_reg:
+                                        matched_reg[k] = v
+                            else:
+                                matched_reg = dict(ev_item)
+                            try:
+                                db.add_user_registered_tournament(user["id"], matched_reg)
+                            except Exception as esync_err:
+                                logger.debug(f"Syncing live BCP registered event notice: {esync_err}")
+                            break
+            except Exception as bcp_fetch_err:
+                logger.debug(f"Notice querying live user registered events: {bcp_fetch_err}")
+
         # Fallback check against live event players if not in cached tournaments
         if not is_registered and not clean_eid.startswith("ES-"):
             try:
+                from scraper import BestCoastPairingsScraper
                 scraper = BestCoastPairingsScraper()
                 bcp_players = scraper.fetch_event_players(clean_eid)
                 target_uids = {str(bcp_user_id), str(user.get("id"))} if bcp_user_id else {str(user.get("id"))}
@@ -603,10 +627,15 @@ async def api_community_event_registration(
 
             actual_pid = resolved_pid or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
 
+            fn_val = matched_reg.get("first_name") or fn
+            ln_val = matched_reg.get("last_name") or ln
+            full_name_val = f"{fn_val} {ln_val}".strip() or matched_reg.get("player_name") or matched_reg.get("name") or user_display or "Competitor"
+
             player_registration = {
                 "player_id": actual_pid,
-                "first_name": matched_reg.get("first_name") or fn,
-                "last_name": matched_reg.get("last_name") or ln,
+                "first_name": fn_val,
+                "last_name": ln_val,
+                "player_name": full_name_val,
                 "team_name": matched_reg.get("team_name") or matched_reg.get("team") or "",
                 "faction": matched_reg.get("faction") or "",
                 "army_id": matched_reg.get("army_id") or matched_reg.get("armyId") or "",
@@ -1009,6 +1038,24 @@ async def api_community_update_player(
         fn = payload.first_name or ""
         ln = payload.last_name or ""
         full_name = f"{fn} {ln}".strip() or session.get("display_name") or "Competitor"
+        fac_name = payload.faction_name or ""
+        det_name = payload.detachment_name or ""
+        if (not fac_name or not det_name) and (payload.army_id or payload.sub_faction_id):
+            try:
+                _, _, flist = bcp_adapter.fetch_gamesystem_factions("WGMSzfKFYA")
+                for f_item in (flist or []):
+                    if str(f_item.get("id")) == str(payload.army_id):
+                        if not fac_name:
+                            fac_name = f_item.get("name") or ""
+                        if payload.sub_faction_id and not det_name:
+                            for sf_item in (f_item.get("subFactions") or []):
+                                if str(sf_item.get("id")) == str(payload.sub_faction_id):
+                                    det_name = sf_item.get("name") or ""
+                                    break
+                        break
+            except Exception:
+                pass
+
         db.add_user_registered_tournament(user_id, {
             "bcp_event_id": clean_eid,
             "id": clean_eid,
@@ -1017,8 +1064,10 @@ async def api_community_update_player(
             "first_name": fn,
             "last_name": ln,
             "name": full_name,
-            "faction": payload.faction_name or set_fields.get("armyId") or "",
-            "detachment": payload.detachment_name or set_fields.get("subFactionId") or "",
+            "faction": fac_name or set_fields.get("armyId") or "",
+            "detachment": det_name or set_fields.get("subFactionId") or "",
+            "army_id": payload.army_id or set_fields.get("armyId") or "",
+            "sub_faction_id": payload.sub_faction_id or set_fields.get("subFactionId") or "",
             "team": payload.team_name or "",
         })
     except Exception as dberr:
@@ -1088,14 +1137,19 @@ async def api_community_submit_armylist(
     # Update local DB cached registration in event_participants
     try:
         db = get_database()
-        db.add_user_registered_tournament(user_id, {
+        reg_payload = {
             "bcp_event_id": clean_eid,
             "id": clean_eid,
             "player_id": clean_pid,
             "bcp_player_id": clean_pid,
             "army_list": list_text,
             "has_list_submitted": True
-        })
+        }
+        if payload.army_id:
+            reg_payload["army_id"] = payload.army_id
+        if payload.sub_faction_id:
+            reg_payload["sub_faction_id"] = payload.sub_faction_id
+        db.add_user_registered_tournament(user_id, reg_payload)
     except Exception as dberr:
         logger.debug(f"Local participant list sync notice: {dberr}")
 

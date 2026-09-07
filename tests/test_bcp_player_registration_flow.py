@@ -478,10 +478,160 @@ def test_bcp_player_id_resolution():
     print("✅ BCP authentic player ID resolution and self-healing verified!")
 
 
+def test_player_registration_state_preservation():
+    """Verify that updating player registration fields preserves previously submitted lists and checked-in status."""
+    from routers.community import (
+        api_community_update_player,
+        api_community_submit_armylist,
+        api_community_checkin_player,
+        api_community_event_registration,
+        UpdateEventPlayerPayload,
+        SubmitArmylistPayload,
+        CheckinPlayerPayload
+    )
+
+    event_id = "test_event_preserve"
+    player_id = "test_player_preserve"
+    user_id = "user_test_preserve"
+
+    mock_auth = MagicMock()
+    mock_auth.get_user_by_id.return_value = {
+        "id": user_id,
+        "bcp_user_id": "bcp_test_uid",
+        "email": "test@example.com",
+        "display_name": "Test General"
+    }
+    mock_auth.get_session.return_value = {
+        "id": user_id,
+        "bcp_user_id": "bcp_test_uid",
+        "email": "test@example.com",
+        "display_name": "Test General"
+    }
+    mock_auth.get_valid_bcp_tokens.return_value = {"access_token": "mock_tok"}
+
+    mock_db = MagicMock()
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer test_token"}
+    mock_req.cookies = {}
+
+    # 1. Test update_player stores army_id and sub_faction_id into DB
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.resolve_event_player_id", return_value=player_id), \
+         patch("bcp_adapter.BcpAdapter.update_player", return_value=(True, None, {"success": True})):
+
+        upd_payload = UpdateEventPlayerPayload(
+            player_id=player_id,
+            first_name="Roboute",
+            last_name="Guilliman",
+            team_name="Ultramarine Champions",
+            army_id="army_sm_01",
+            sub_faction_id="sub_gladius_01",
+            faction_name="Space Marines",
+            detachment_name="Gladius Task Force"
+        )
+        upd_res = asyncio.run(api_community_update_player(event_id, upd_payload, mock_req, token="test_token"))
+        assert upd_res["success"] is True
+
+        # Verify db.add_user_registered_tournament was called with army_id and sub_faction_id
+        assert mock_db.add_user_registered_tournament.called
+        last_saved = mock_db.add_user_registered_tournament.call_args[0][1]
+        assert last_saved["army_id"] == "army_sm_01"
+        assert last_saved["sub_faction_id"] == "sub_gladius_01"
+        assert last_saved["faction"] == "Space Marines"
+        assert last_saved["detachment"] == "Gladius Task Force"
+        assert last_saved["team"] == "Ultramarine Champions"
+
+    # 2. Test submit_armylist preserves army_id/sub_faction_id and sets has_list_submitted
+    mock_db.reset_mock()
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.resolve_event_player_id", return_value=player_id), \
+         patch("bcp_adapter.BcpAdapter.submit_armylist", return_value=(True, None, {"success": True})):
+
+        army_payload = SubmitArmylistPayload(
+            player_id=player_id,
+            list_text="++ Army List ++ 2000pts",
+            army_id="army_sm_01",
+            sub_faction_id="sub_gladius_01"
+        )
+        army_res = asyncio.run(api_community_submit_armylist(event_id, army_payload, mock_req, token="test_token"))
+        assert army_res["success"] is True
+
+        assert mock_db.add_user_registered_tournament.called
+        saved_list = mock_db.add_user_registered_tournament.call_args[0][1]
+        assert saved_list["army_list"] == "++ Army List ++ 2000pts"
+        assert saved_list["has_list_submitted"] is True
+        assert saved_list["army_id"] == "army_sm_01"
+        assert saved_list["sub_faction_id"] == "sub_gladius_01"
+
+    # 3. Test checkin_player marks checked_in True
+    mock_db.reset_mock()
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.resolve_event_player_id", return_value=player_id), \
+         patch("bcp_adapter.BcpAdapter.checkin_player", return_value=(True, None, {"success": True})):
+
+        chk_payload = CheckinPlayerPayload(player_id=player_id, has_list=True)
+        chk_res = asyncio.run(api_community_checkin_player(event_id, chk_payload, mock_req, token="test_token"))
+        assert chk_res["success"] is True
+
+        assert mock_db.add_user_registered_tournament.called
+        saved_chk = mock_db.add_user_registered_tournament.call_args[0][1]
+        assert saved_chk["checked_in"] is True
+
+    # 4. Test api_community_event_registration returns all preserved fields
+    mock_db.reset_mock()
+    mock_db.get_user_registered_tournaments.return_value = [
+        {
+            "id": event_id,
+            "bcp_event_id": event_id,
+            "player_id": player_id,
+            "first_name": "Roboute",
+            "last_name": "Guilliman",
+            "player_name": "Roboute Guilliman",
+            "team_name": "Ultramarine Champions",
+            "faction": "Space Marines",
+            "detachment": "Gladius Task Force",
+            "army_id": "army_sm_01",
+            "sub_faction_id": "sub_gladius_01",
+            "army_list": "++ Army List ++ 2000pts",
+            "has_list_submitted": True,
+            "checked_in": True,
+            "dropped": False
+        }
+    ]
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("core.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.fetch_user_registered_events", return_value=(False, "offline", [])):
+
+        reg_res = asyncio.run(api_community_event_registration(event_id, mock_req, token="test_token"))
+        assert reg_res["success"] is True
+        assert reg_res["is_registered"] is True
+        p_reg = reg_res["player_registration"]
+        assert p_reg["first_name"] == "Roboute"
+        assert p_reg["last_name"] == "Guilliman"
+        assert p_reg["team_name"] == "Ultramarine Champions"
+        assert p_reg["faction"] == "Space Marines"
+        assert p_reg["detachment"] == "Gladius Task Force"
+        assert p_reg["army_id"] == "army_sm_01"
+        assert p_reg["sub_faction_id"] == "sub_gladius_01"
+        assert p_reg["army_list"] == "++ Army List ++ 2000pts"
+        assert p_reg["has_list_submitted"] is True
+        assert p_reg["checked_in"] is True
+
+    print("✅ Player registration state preservation verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running BCP Tournament Player Self-Management Test Suite...")
     test_bcp_adapter_player_methods()
     test_bcp_player_id_resolution()
     test_community_router_player_endpoints()
     test_frontend_player_registration_components()
+    test_player_registration_state_preservation()
     print("\n🎉 ALL BCP PLAYER REGISTRATION WORKFLOW TESTS PASSED SUCCESSFULLY!")

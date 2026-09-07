@@ -984,6 +984,11 @@ class PostgresDatabase:
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list TEXT;
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS has_list_submitted BOOLEAN DEFAULT FALSE;
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS bcp_player_id TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_id TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS sub_faction_id TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS team TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS first_name TEXT;
+                    ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS last_name TEXT;
                     """)
                 conn.commit()
         except Exception as err:
@@ -1110,10 +1115,10 @@ class PostgresDatabase:
                     first_name = EXCLUDED.first_name,
                     last_name = EXCLUDED.last_name,
                     full_name = EXCLUDED.full_name,
-                    faction = EXCLUDED.faction,
+                    faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
                     team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                     dropped = EXCLUDED.dropped,
-                    checked_in = EXCLUDED.checked_in,
+                    checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
                     placement = COALESCE(EXCLUDED.placement, event_participants.placement),
                     battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points),
                     pod_num = COALESCE(EXCLUDED.pod_num, event_participants.pod_num);
@@ -1214,10 +1219,10 @@ class PostgresDatabase:
                                 first_name = EXCLUDED.first_name,
                                 last_name = EXCLUDED.last_name,
                                 full_name = EXCLUDED.full_name,
-                                faction = EXCLUDED.faction,
+                                faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                                 dropped = EXCLUDED.dropped,
-                                checked_in = EXCLUDED.checked_in,
+                                checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
                                 placement = COALESCE(EXCLUDED.placement, event_participants.placement),
                                 battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points),
                                 pod_num = COALESCE(EXCLUDED.pod_num, event_participants.pod_num);
@@ -1235,10 +1240,10 @@ class PostgresDatabase:
                                 first_name = EXCLUDED.first_name,
                                 last_name = EXCLUDED.last_name,
                                 full_name = EXCLUDED.full_name,
-                                faction = EXCLUDED.faction,
+                                faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                                 dropped = EXCLUDED.dropped,
-                                checked_in = EXCLUDED.checked_in,
+                                checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
                                 placement = COALESCE(EXCLUDED.placement, event_participants.placement),
                                 battle_points = COALESCE(EXCLUDED.battle_points, event_participants.battle_points),
                                 pod_num = COALESCE(EXCLUDED.pod_num, event_participants.pod_num);
@@ -3809,7 +3814,7 @@ class PostgresDatabase:
             return self._query_user_registered_tournaments(user_id)
         except Exception as e:
             err_str = str(e).lower()
-            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "bcp_player_id" in err_str or "undefinedcolumn" in err_str:
+            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "bcp_player_id" in err_str or "army_id" in err_str or "sub_faction_id" in err_str or "undefinedcolumn" in err_str:
                 self._ensure_event_participant_columns()
                 try:
                     return self._query_user_registered_tournaments(user_id)
@@ -3850,21 +3855,30 @@ class PostgresDatabase:
                     COALESCE(e.city, '') AS city,
                     COALESCE(e.state, '') AS state,
                     COALESCE(e.country, '') AS country,
+                    COALESCE(ep.first_name, '') AS first_name,
+                    COALESCE(ep.last_name, '') AS last_name,
+                    COALESCE(ep.full_name, '') AS full_name,
+                    COALESCE(ep.full_name, '') AS player_name,
+                    COALESCE(ep.team, '') AS team,
+                    COALESCE(ep.team, '') AS team_name,
                     COALESCE(ep.faction, '') AS faction,
                     COALESCE(ep.detachment, '') AS detachment,
+                    COALESCE(ep.army_id, '') AS army_id,
+                    COALESCE(ep.sub_faction_id, '') AS sub_faction_id,
                     COALESCE(ep.army_list, '') AS army_list,
                     COALESCE(ep.has_list_submitted, FALSE) AS has_list_submitted,
                     COALESCE(ep.checked_in, FALSE) AS checked_in,
+                    COALESCE(ep.dropped, FALSE) AS dropped,
                     COALESCE(e.points, 2000) AS points_limit,
                     COALESCE(e.num_rounds, 5) AS rounds,
                     COALESCE(e.total_players, 0) AS total_players,
                     CONCAT('https://www.bestcoastpairings.com/event/', e.id) AS bcp_url
                 FROM events e
                 JOIN event_participants ep ON e.id = ep.event_id
-                WHERE ep.player_id = ANY(%s)
+                WHERE (ep.player_id = ANY(%s) OR (ep.bcp_player_id IS NOT NULL AND ep.bcp_player_id != '' AND ep.bcp_player_id = ANY(%s)))
                   AND (e.event_date >= NOW() - INTERVAL '30 days' OR e.end_date >= NOW() - INTERVAL '30 days' OR e.event_date IS NULL)
                 ORDER BY COALESCE(e.event_date, e.end_date) ASC;
-                """, (target_pids,))
+                """, (target_pids, target_pids))
                 rows = cursor.fetchall()
                 res = []
                 seen_event_ids = set()
@@ -3969,9 +3983,17 @@ class PostgresDatabase:
                     country = ev.get("country") or loc.get("country") or ""
                     faction = ev.get("faction") or ev.get("army") or ""
                     detachment = ev.get("detachment") or ""
+                    army_id = str(ev.get("army_id") or ev.get("armyId") or "").strip()
+                    sub_faction_id = str(ev.get("sub_faction_id") or ev.get("subFactionId") or "").strip()
+                    team = str(ev.get("team_name") or ev.get("team") or "").strip()
+                    first_name = str(ev.get("first_name") or ev.get("firstName") or "").strip()
+                    last_name = str(ev.get("last_name") or ev.get("lastName") or "").strip()
+                    fn_combined = f"{first_name} {last_name}".strip()
+                    full_name_to_use = fn_combined or str(ev.get("full_name") or ev.get("player_name") or full_name).strip()
                     army_list = ev.get("army_list") or ev.get("armyList") or ""
                     has_list_submitted = bool(ev.get("has_list_submitted") or ev.get("hasList") or army_list)
                     checked_in = bool(ev.get("checked_in") or ev.get("checkedIn") or False)
+                    dropped = bool(ev.get("dropped") or False)
                     points_limit = int(ev.get("points_limit") or ev.get("points") or 2000)
                     rounds = int(ev.get("rounds") or ev.get("numberOfRounds") or ev.get("numRounds") or 5)
                     total_players = int(ev.get("total_players") or ev.get("totalPlayers") or ev.get("capacity") or 0)
@@ -4008,46 +4030,58 @@ class PostgresDatabase:
                     # 2. Upsert into canonical event_participants table
                     cursor.execute("""
                     INSERT INTO event_participants (
-                        event_id, player_id, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted, bcp_player_id
+                        event_id, player_id, first_name, last_name, full_name, faction, checked_in,
+                        detachment, army_list, has_list_submitted, bcp_player_id, army_id, sub_faction_id, team, dropped
                     ) VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (event_id, player_id) DO UPDATE SET
                         full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                        first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
+                        last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
+                        team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                         faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
-                        checked_in = EXCLUDED.checked_in,
                         detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                        army_id = COALESCE(NULLIF(EXCLUDED.army_id, ''), event_participants.army_id),
+                        sub_faction_id = COALESCE(NULLIF(EXCLUDED.sub_faction_id, ''), event_participants.sub_faction_id),
                         army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                        has_list_submitted = EXCLUDED.has_list_submitted,
+                        checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
+                        has_list_submitted = (EXCLUDED.has_list_submitted OR event_participants.has_list_submitted OR (COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list, '') <> '')),
+                        dropped = (EXCLUDED.dropped OR event_participants.dropped),
                         bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                     """, (
-                        bcp_event_id, player_id_to_use, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted, bcp_pid
+                        bcp_event_id, player_id_to_use, first_name, last_name, full_name_to_use, faction, checked_in,
+                        detachment, army_list, has_list_submitted, bcp_pid, army_id, sub_faction_id, team, dropped
                     ))
 
                     # If target_pid is different from user_id, also ensure user_id record is synced
                     if user_id != player_id_to_use:
                         cursor.execute("""
                         INSERT INTO event_participants (
-                            event_id, player_id, full_name, faction, checked_in,
-                            detachment, army_list, has_list_submitted, bcp_player_id
+                            event_id, player_id, first_name, last_name, full_name, faction, checked_in,
+                            detachment, army_list, has_list_submitted, bcp_player_id, army_id, sub_faction_id, team, dropped
                         ) VALUES (
-                            %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         ON CONFLICT (event_id, player_id) DO UPDATE SET
                             full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                            first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
+                            last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
+                            team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                             faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
-                            checked_in = EXCLUDED.checked_in,
                             detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                            army_id = COALESCE(NULLIF(EXCLUDED.army_id, ''), event_participants.army_id),
+                            sub_faction_id = COALESCE(NULLIF(EXCLUDED.sub_faction_id, ''), event_participants.sub_faction_id),
                             army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                            has_list_submitted = EXCLUDED.has_list_submitted,
+                            checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
+                            has_list_submitted = (EXCLUDED.has_list_submitted OR event_participants.has_list_submitted OR (COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list, '') <> '')),
+                            dropped = (EXCLUDED.dropped OR event_participants.dropped),
                             bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                         """, (
-                            bcp_event_id, user_id, full_name, faction, checked_in,
-                            detachment, army_list, has_list_submitted, bcp_pid
+                            bcp_event_id, user_id, first_name, last_name, full_name_to_use, faction, checked_in,
+                            detachment, army_list, has_list_submitted, bcp_pid, army_id, sub_faction_id, team, dropped
                         ))
 
             conn.commit()
@@ -4103,9 +4137,17 @@ class PostgresDatabase:
         country = event_data.get("country") or loc.get("country") or ""
         faction = event_data.get("faction") or event_data.get("army") or ""
         detachment = event_data.get("detachment") or ""
+        army_id = str(event_data.get("army_id") or event_data.get("armyId") or "").strip()
+        sub_faction_id = str(event_data.get("sub_faction_id") or event_data.get("subFactionId") or "").strip()
+        team = str(event_data.get("team") or event_data.get("team_name") or event_data.get("teamName") or "").strip()
+        first_name = str(event_data.get("first_name") or event_data.get("firstName") or "").strip()
+        last_name = str(event_data.get("last_name") or event_data.get("lastName") or "").strip()
+        fn_combined = f"{first_name} {last_name}".strip()
+        full_name_to_use = fn_combined or full_name or str(event_data.get("player_name") or event_data.get("name") or "").strip()
         army_list = event_data.get("army_list") or event_data.get("armyList") or ""
         has_list_submitted = bool(event_data.get("has_list_submitted") or event_data.get("hasList") or army_list)
         checked_in = bool(event_data.get("checked_in") or event_data.get("checkedIn") or False)
+        dropped = bool(event_data.get("dropped") or False)
         points_limit = int(event_data.get("points_limit") or event_data.get("points") or 2000)
         rounds = int(event_data.get("rounds") or event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds") or 5)
         total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or event_data.get("capacity") or 0)
@@ -4142,45 +4184,57 @@ class PostgresDatabase:
 
                 cursor.execute("""
                 INSERT INTO event_participants (
-                    event_id, player_id, full_name, faction, checked_in,
-                    detachment, army_list, has_list_submitted, bcp_player_id
+                    event_id, player_id, first_name, last_name, full_name, faction, checked_in,
+                    detachment, army_list, has_list_submitted, bcp_player_id, army_id, sub_faction_id, team, dropped
                 ) VALUES (
-                    %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (event_id, player_id) DO UPDATE SET
                     full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                    first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
+                    last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
+                    team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                     faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
-                    checked_in = EXCLUDED.checked_in,
                     detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                    army_id = COALESCE(NULLIF(EXCLUDED.army_id, ''), event_participants.army_id),
+                    sub_faction_id = COALESCE(NULLIF(EXCLUDED.sub_faction_id, ''), event_participants.sub_faction_id),
                     army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                    has_list_submitted = EXCLUDED.has_list_submitted,
+                    checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
+                    has_list_submitted = (EXCLUDED.has_list_submitted OR event_participants.has_list_submitted OR (COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list, '') <> '')),
+                    dropped = (EXCLUDED.dropped OR event_participants.dropped),
                     bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                 """, (
-                    bcp_event_id, player_id_to_use, full_name, faction, checked_in,
-                    detachment, army_list, has_list_submitted, bcp_pid
+                    bcp_event_id, player_id_to_use, first_name, last_name, full_name_to_use, faction, checked_in,
+                    detachment, army_list, has_list_submitted, bcp_pid, army_id, sub_faction_id, team, dropped
                 ))
 
                 if user_id != player_id_to_use:
                     cursor.execute("""
                     INSERT INTO event_participants (
-                        event_id, player_id, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted, bcp_player_id
+                        event_id, player_id, first_name, last_name, full_name, faction, checked_in,
+                        detachment, army_list, has_list_submitted, bcp_player_id, army_id, sub_faction_id, team, dropped
                     ) VALUES (
-                        %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (event_id, player_id) DO UPDATE SET
                         full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                        first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
+                        last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
+                        team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                         faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
-                        checked_in = EXCLUDED.checked_in,
                         detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                        army_id = COALESCE(NULLIF(EXCLUDED.army_id, ''), event_participants.army_id),
+                        sub_faction_id = COALESCE(NULLIF(EXCLUDED.sub_faction_id, ''), event_participants.sub_faction_id),
                         army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
-                        has_list_submitted = EXCLUDED.has_list_submitted,
+                        checked_in = (EXCLUDED.checked_in OR event_participants.checked_in),
+                        has_list_submitted = (EXCLUDED.has_list_submitted OR event_participants.has_list_submitted OR (COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list, '') <> '')),
+                        dropped = (EXCLUDED.dropped OR event_participants.dropped),
                         bcp_player_id = COALESCE(NULLIF(EXCLUDED.bcp_player_id, ''), event_participants.bcp_player_id);
                     """, (
-                        bcp_event_id, user_id, full_name, faction, checked_in,
-                        detachment, army_list, has_list_submitted, bcp_pid
+                        bcp_event_id, user_id, first_name, last_name, full_name_to_use, faction, checked_in,
+                        detachment, army_list, has_list_submitted, bcp_pid, army_id, sub_faction_id, team, dropped
                     ))
             conn.commit()
         return True

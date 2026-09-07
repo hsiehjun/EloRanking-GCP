@@ -327,7 +327,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (userRegData && userRegData.is_registered) {
       if (subtabPlayer) subtabPlayer.style.display = 'inline-flex';
       currentEventRegistration = userRegData;
-      populateEventPlayerDetails(userRegData);
+      await populateEventPlayerDetails(userRegData);
     } else {
       if (subtabPlayer) subtabPlayer.style.display = 'none';
       if (currentEventModalTab === 'player') {
@@ -337,7 +337,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
     if (initialTab && initialTab !== 'elo') {
       switchEventModalTab(initialTab);
-    } else if (currentEventModalTab === 'player' && userRegData && userRegData.is_registered) {
+    } else if (userRegData && userRegData.is_registered) {
+      // Competitor is registered for this event! Default to Player Details tab so submitted details & status are displayed immediately
       switchEventModalTab('player');
     } else if (isTeamEvent || teamsList.length > 0) {
       switchEventModalTab('teams');
@@ -1806,9 +1807,16 @@ async function populateEventPlayerDetails(regData) {
   const detachmentSelect = document.getElementById('player-reg-detachment');
 
   if (factionSelect && factions && factions.length > 0) {
-    let matchedFaction = factions.find(f => String(f.id) === String(reg.army_id));
+    let matchedFaction = null;
+    if (reg.army_id) {
+      matchedFaction = factions.find(f => String(f.id).trim() === String(reg.army_id).trim());
+    }
     if (!matchedFaction && reg.faction) {
-      matchedFaction = factions.find(f => f.name.toLowerCase() === reg.faction.toLowerCase());
+      const targetFac = String(reg.faction).trim().toLowerCase();
+      matchedFaction = factions.find(f => {
+        const fName = String(f.name || '').trim().toLowerCase();
+        return fName === targetFac || fName.includes(targetFac) || targetFac.includes(fName);
+      });
     }
     if (matchedFaction) {
       factionSelect.value = matchedFaction.id;
@@ -1816,9 +1824,16 @@ async function populateEventPlayerDetails(regData) {
 
       if (detachmentSelect) {
         const subFactions = matchedFaction.subFactions || [];
-        let matchedSub = subFactions.find(sf => String(sf.id) === String(reg.sub_faction_id));
+        let matchedSub = null;
+        if (reg.sub_faction_id) {
+          matchedSub = subFactions.find(sf => String(sf.id).trim() === String(reg.sub_faction_id).trim());
+        }
         if (!matchedSub && reg.detachment) {
-          matchedSub = subFactions.find(sf => sf.name.toLowerCase() === reg.detachment.toLowerCase());
+          const targetDet = String(reg.detachment).trim().toLowerCase();
+          matchedSub = subFactions.find(sf => {
+            const sfName = String(sf.name || '').trim().toLowerCase();
+            return sfName === targetDet || sfName.includes(targetDet) || targetDet.includes(sfName);
+          });
         }
         if (matchedSub) {
           detachmentSelect.value = matchedSub.id;
@@ -1938,8 +1953,8 @@ async function handleEventPlayerUpdate(e) {
 
   const armyId = factionSelect?.value || '';
   const subFactionId = detachmentSelect?.value || '';
-  const factionName = factionSelect?.options[factionSelect.selectedIndex]?.text || '';
-  const detachmentName = detachmentSelect?.options[detachmentSelect.selectedIndex]?.text || '';
+  const factionName = (factionSelect && factionSelect.selectedIndex > 0) ? (factionSelect.options[factionSelect.selectedIndex]?.text || '') : '';
+  const detachmentName = (detachmentSelect && detachmentSelect.selectedIndex > 0) ? (detachmentSelect.options[detachmentSelect.selectedIndex]?.text || '') : '';
 
   const btn = document.getElementById('btn-player-update');
   if (btn) {
@@ -2133,7 +2148,7 @@ async function handleEventPlayerCheckin() {
         reg.player_id = res.player_id;
       }
       reg.checked_in = true;
-      populateEventPlayerDetails(currentEventRegistration);
+      await populateEventPlayerDetails(currentEventRegistration);
       window.dispatchEvent(new CustomEvent('tournaments-updated'));
     } else {
       alert((res && (res.detail || res.error || res.message)) || 'Failed to check in on BCP.');
@@ -2184,7 +2199,7 @@ async function handleEventPlayerDrop() {
         reg.player_id = res.player_id;
       }
       reg.dropped = true;
-      populateEventPlayerDetails(currentEventRegistration);
+      await populateEventPlayerDetails(currentEventRegistration);
       window.dispatchEvent(new CustomEvent('tournaments-updated'));
     } else {
       alert((res && (res.detail || res.error || res.message)) || 'Failed to drop from tournament on BCP.');
