@@ -977,11 +977,11 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
   if (fieldAvg && userElo) {
     const diff = Math.round(userElo - fieldAvg);
     if (diff > 0) {
-      deltaMarkup = `<span style="font-size: 0.72rem; color: #10b981; font-weight: 700; margin-left: 4px;" title="You are rated +${diff} above this tournament's average field">(+${diff} vs your Elo)</span>`;
+      deltaMarkup = `<span style="font-size: 0.72rem; color: #10b981; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="You are rated +${diff} above this tournament's average field">(+${diff})</span>`;
     } else if (diff < 0) {
-      deltaMarkup = `<span style="font-size: 0.72rem; color: #f43f5e; font-weight: 700; margin-left: 4px;" title="This field average is ${Math.abs(diff)} points above your current Elo">(${diff} vs your Elo)</span>`;
+      deltaMarkup = `<span style="font-size: 0.72rem; color: #f43f5e; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="This field average is ${Math.abs(diff)} points above your current Elo">(${diff})</span>`;
     } else {
-      deltaMarkup = `<span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-left: 4px;">(Even with your Elo)</span>`;
+      deltaMarkup = `<span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="Your Elo is identical to this tournament's average field">(Even)</span>`;
     }
   }
 
@@ -1014,16 +1014,16 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
 
       <!-- Field Avg Elo & Top Seed Highlights -->
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 4px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem;">
-          <span style="color: #94a3b8;">⭐ Field Avg:</span>
-          <span id="field-avg-${escapeHtml(ev.id)}" style="font-weight: 800; color: #fff; font-family: monospace;">
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; gap: 6px;">
+          <span style="color: #94a3b8; white-space: nowrap;">⭐ Field Avg:</span>
+          <span id="field-avg-${escapeHtml(ev.id)}" style="font-weight: 800; color: #fff; font-family: monospace; white-space: nowrap;">
             ${fieldAvg ? `${fieldAvg} Elo ${deltaMarkup}` : (isUpcoming ? (ev.total_players > 0 ? `<span class="field-avg-computing" style="color: #38bdf8; font-weight: 600; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;"><span class="spinner-mini" style="display: inline-block; width: 9px; height: 9px; border: 1.5px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span><span>Computing Field...</span></span>` : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>') : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>')}
           </span>
         </div>
         <div id="top-seed-container-${escapeHtml(ev.id)}" style="${topSeed ? '' : 'display: none;'}">
-          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem;">
-            <span style="color: #94a3b8;">👑 Top Seed:</span>
-            <span id="top-seed-val-${escapeHtml(ev.id)}" style="font-weight: 700; color: #f59e0b; font-family: monospace;">${topSeed ? `${topSeed} Elo` : ''}</span>
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; gap: 6px;">
+            <span style="color: #94a3b8; white-space: nowrap;">👑 Top Seed:</span>
+            <span id="top-seed-val-${escapeHtml(ev.id)}" style="font-weight: 700; color: #f59e0b; font-family: monospace; white-space: nowrap;">${topSeed ? `${topSeed} Elo` : ''}</span>
           </div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: #64748b; margin-top: 2px;">
@@ -1139,11 +1139,11 @@ async function hydrateUpcomingFieldStats(eventIds, userElo) {
           if (userElo) {
             const diff = Math.round(userElo - avg);
             if (diff > 0) {
-              delta = `<span style="font-size: 0.72rem; color: #10b981; font-weight: 700; margin-left: 4px;" title="You are rated +${diff} above this tournament's average field">(+${diff} vs your Elo)</span>`;
+              delta = `<span style="font-size: 0.72rem; color: #10b981; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="You are rated +${diff} above this tournament's average field">(+${diff})</span>`;
             } else if (diff < 0) {
-              delta = `<span style="font-size: 0.72rem; color: #f43f5e; font-weight: 700; margin-left: 4px;" title="This field average is ${Math.abs(diff)} points above your current Elo">(${diff} vs your Elo)</span>`;
+              delta = `<span style="font-size: 0.72rem; color: #f43f5e; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="This field average is ${Math.abs(diff)} points above your current Elo">(${diff})</span>`;
             } else {
-              delta = `<span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-left: 4px;">(Even with your Elo)</span>`;
+              delta = `<span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="Your Elo is identical to this tournament's average field">(Even)</span>`;
             }
           }
           avgEl.innerHTML = `${avg} Elo ${delta}`;
