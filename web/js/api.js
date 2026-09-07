@@ -1092,6 +1092,26 @@ window.api = {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
       body: JSON.stringify({ region: region, message: message })
     });
+  },
+
+  // Community Hub: Event Registration Metadata & Status
+  async getCommunityEventRegistration(eventId) {
+    const token = this.getAuthToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/registration`, { headers });
+  },
+
+  // Community Hub: Submit Free In-App Event Registration
+  async registerCommunityEvent(eventId, payload) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/register`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
   }
 };
 

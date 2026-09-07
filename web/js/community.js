@@ -987,13 +987,62 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
       </div>
 
       <!-- Actions -->
-      <div style="display: flex; gap: 0.5rem; margin-top: auto; align-items: center;">
-        <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
-          📋 Roster & Details
-        </button>
-        <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
-          🔗 BCP
-        </a>
+      <div style="margin-top: auto; display: flex; flex-direction: column;">
+        ${isUpcoming ? (() => {
+          const isRegistered = Boolean(ev.is_registered);
+          const numTickets = Number(ev.num_tickets || 0);
+          const totalPlayers = Number(ev.total_players || 0);
+          const isSoldOut = numTickets > 0 && totalPlayers >= numTickets;
+          const ticketPrice = Number(ev.ticket_price || 0);
+          const usingOnlineReg = ev.using_online_reg !== false;
+          const externalUrl = ev.external_url || null;
+
+          if (isRegistered) {
+            return `
+              <button class="btn" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); cursor: default; margin-bottom: 0.45rem;">
+                ✅ Registered
+              </button>
+            `;
+          } else if (isSoldOut) {
+            return `
+              <button class="btn btn-secondary" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 600; opacity: 0.65; cursor: not-allowed; margin-bottom: 0.45rem;" title="Tournament has reached maximum capacity">
+                🚫 Sold Out (${totalPlayers}/${numTickets})
+              </button>
+            `;
+          } else if (externalUrl) {
+            return `
+              <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; text-decoration: none; margin-bottom: 0.45rem; box-sizing: border-box;">
+                🎟️ Get Tickets ↗
+              </a>
+            `;
+          } else if (!usingOnlineReg) {
+            return `
+              <button class="btn btn-secondary" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 600; opacity: 0.65; cursor: default; margin-bottom: 0.45rem;" title="Organizer handles registration manually in-store">
+                🔒 In-Store / TO Only
+              </button>
+            `;
+          } else if (ticketPrice > 0) {
+            return `
+              <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}?checkout=true" target="_blank" rel="noopener" class="btn btn-warning" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; text-decoration: none; border: none; margin-bottom: 0.45rem; box-sizing: border-box;" title="Purchase ticket directly via Best Coast Pairings Checkout">
+                💳 $${ticketPrice.toFixed(2)} • Buy Ticket ↗
+              </a>
+            `;
+          } else {
+            return `
+              <button class="btn btn-success" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; margin-bottom: 0.45rem;" onclick="openEventRegistrationModal('${escapeHtml(ev.id)}')">
+                🎟️ Register (Free)
+              </button>
+            `;
+          }
+        })() : ''}
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
+            📋 ${isUpcoming ? 'Roster & Details' : 'Results & Placings'}
+          </button>
+          <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
+            🔗 BCP
+          </a>
+        </div>
       </div>
     </div>
   `;
@@ -2932,6 +2981,344 @@ window.clearTournamentsVenueFilter = clearTournamentsVenueFilter;
 window.filterCommunityTournaments = filterCommunityTournaments;
 window.hydrateUpcomingFieldStats = hydrateUpcomingFieldStats;
 window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;
+
+// =========================================================================
+// COMMUNITY EVENT REGISTRATION MODAL
+// =========================================================================
+
+let activeRegistrationEvent = null;
+let userRegistrationArmyLists = [];
+
+async function openEventRegistrationModal(eventId) {
+  if (!eventId) return;
+  const modal = document.getElementById('event-registration-modal');
+  if (!modal) return;
+
+  activeRegistrationEvent = null;
+  userRegistrationArmyLists = [];
+
+  const subTitleEl = document.getElementById('event-reg-modal-subtitle');
+  const venueEl = document.getElementById('event-reg-modal-venue');
+  const statusEl = document.getElementById('event-reg-status');
+  const submitBtn = document.getElementById('event-reg-submit-btn');
+  const savedListSelect = document.getElementById('event-reg-saved-list');
+  const nameInput = document.getElementById('event-reg-name');
+  const emailInput = document.getElementById('event-reg-email');
+  const factionSelect = document.getElementById('event-reg-faction');
+  const detachmentInput = document.getElementById('event-reg-detachment');
+  const armyListInput = document.getElementById('event-reg-army-list');
+  const systemIdInput = document.getElementById('event-reg-system-id');
+  const accountPill = document.getElementById('event-reg-account-pill');
+  const accountStatus = document.getElementById('event-reg-account-status');
+  const regBadge = document.getElementById('event-reg-badge');
+
+  if (statusEl) statusEl.style.display = 'none';
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Confirm & Complete Registration';
+  }
+
+  // Pre-fill from existing event list in communityState if available
+  let localEv = null;
+  if (communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
+    localEv = communityState.overview.events_upcoming.find(e => e.id === eventId);
+  }
+  if (localEv) {
+    if (subTitleEl) subTitleEl.textContent = localEv.name || 'Tournament Registration';
+    if (venueEl) venueEl.textContent = [localEv.venue, localEv.city, localEv.state].filter(Boolean).join(', ') || 'Warhammer 40k Tournament';
+  } else {
+    if (subTitleEl) subTitleEl.textContent = 'Loading Tournament Registration...';
+    if (venueEl) venueEl.textContent = '';
+  }
+
+  modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+
+  try {
+    const data = await window.api.getCommunityEventRegistration(eventId);
+    if (!data || !data.success) {
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = data?.detail || data?.error || 'Unable to load registration details.';
+      }
+      return;
+    }
+
+    activeRegistrationEvent = data;
+    if (subTitleEl) subTitleEl.textContent = data.event_name || 'Tournament Registration';
+    if (venueEl) venueEl.textContent = [data.venue, data.city, data.state].filter(Boolean).join(', ') || 'Warhammer 40k Tournament';
+
+    // Account pill update
+    const prof = data.user_profile || {};
+    if (accountPill && accountStatus && regBadge) {
+      if (prof.bcp_linked) {
+        accountPill.style.background = 'rgba(16, 185, 129, 0.1)';
+        accountPill.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        accountPill.style.color = '#10b981';
+        accountStatus.textContent = `Linked BCP Account (${prof.name || prof.email})`;
+        regBadge.textContent = 'BCP SYNC READY';
+        regBadge.style.background = 'rgba(16, 185, 129, 0.2)';
+        regBadge.style.color = '#10b981';
+      } else if (prof.logged_in) {
+        accountPill.style.background = 'rgba(56, 189, 248, 0.1)';
+        accountPill.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+        accountPill.style.color = '#38bdf8';
+        accountStatus.textContent = `Logged in as ${prof.name || prof.email}`;
+        regBadge.textContent = 'FREE ENTRY';
+        regBadge.style.background = 'rgba(56, 189, 248, 0.2)';
+        regBadge.style.color = '#38bdf8';
+      } else {
+        accountPill.style.background = 'rgba(148, 163, 184, 0.1)';
+        accountPill.style.borderColor = 'rgba(148, 163, 184, 0.25)';
+        accountPill.style.color = '#94a3b8';
+        accountStatus.textContent = 'Registering as Public Competitor';
+        regBadge.textContent = 'FREE ENTRY';
+      }
+    }
+
+    // Pre-fill user inputs
+    if (nameInput) {
+      nameInput.value = prof.name || (prof.first_name ? `${prof.first_name} ${prof.last_name}`.trim() : '');
+    }
+    if (emailInput) {
+      emailInput.value = prof.email || '';
+    }
+
+    // Populate Saved Army Lists from My Hub
+    userRegistrationArmyLists = Array.isArray(data.army_lists) ? data.army_lists : [];
+    if (savedListSelect) {
+      savedListSelect.innerHTML = '<option value="">-- Custom / Enter Below --</option>';
+      userRegistrationArmyLists.forEach(al => {
+        const opt = document.createElement('option');
+        opt.value = al.id;
+        opt.textContent = `${al.name} (${al.faction || 'Unassigned'}${al.points ? ' • ' + al.points + 'pts' : ''})`;
+        savedListSelect.appendChild(opt);
+      });
+
+      // If user has saved lists, auto-fill from first one if form is clean
+      if (userRegistrationArmyLists.length === 1 && !factionSelect?.value) {
+        savedListSelect.selectedIndex = 1;
+        onRegistrationSavedListChange();
+      }
+    }
+
+    // If user is already registered for this event
+    if (data.is_registered) {
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        statusEl.style.color = '#10b981';
+        statusEl.textContent = '✓ You are registered for this tournament. Updating details will sync to your roster.';
+      }
+      if (submitBtn) submitBtn.textContent = 'Update Registration Details';
+    }
+  } catch (err) {
+    console.error('Error opening event registration modal:', err);
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = `Error loading registration: ${err.message || err}`;
+    }
+  }
+}
+
+function closeEventRegistrationModal() {
+  const modal = document.getElementById('event-registration-modal');
+  if (modal) modal.style.display = 'none';
+  activeRegistrationEvent = null;
+}
+
+function onRegistrationSavedListChange() {
+  const savedListSelect = document.getElementById('event-reg-saved-list');
+  const factionSelect = document.getElementById('event-reg-faction');
+  const detachmentInput = document.getElementById('event-reg-detachment');
+  const armyListInput = document.getElementById('event-reg-army-list');
+
+  if (!savedListSelect) return;
+  const selectedId = savedListSelect.value;
+  if (!selectedId) return;
+
+  const matched = userRegistrationArmyLists.find(al => String(al.id) === String(selectedId));
+  if (!matched) return;
+
+  if (factionSelect && matched.faction) {
+    factionSelect.value = matched.faction;
+    if (!factionSelect.value) {
+      for (let i = 0; i < factionSelect.options.length; i++) {
+        if (factionSelect.options[i].text.toLowerCase() === matched.faction.toLowerCase()) {
+          factionSelect.selectedIndex = i;
+          break;
+        }
+      }
+    }
+  }
+
+  if (detachmentInput && matched.detachment) {
+    detachmentInput.value = matched.detachment;
+  }
+
+  if (armyListInput && matched.raw_text) {
+    armyListInput.value = matched.raw_text;
+  }
+}
+
+async function refreshRegistrationArmyLists() {
+  if (!activeRegistrationEvent) return;
+  const savedListSelect = document.getElementById('event-reg-saved-list');
+  if (savedListSelect) {
+    savedListSelect.innerHTML = '<option value="">Refreshing saved lists...</option>';
+  }
+  try {
+    const data = await window.api.getCommunityEventRegistration(activeRegistrationEvent.event_id || activeRegistrationEvent.id);
+    if (data && data.success) {
+      userRegistrationArmyLists = Array.isArray(data.army_lists) ? data.army_lists : [];
+      if (savedListSelect) {
+        savedListSelect.innerHTML = '<option value="">-- Custom / Enter Below --</option>';
+        userRegistrationArmyLists.forEach(al => {
+          const opt = document.createElement('option');
+          opt.value = al.id;
+          opt.textContent = `${al.name} (${al.faction || 'Unassigned'}${al.points ? ' • ' + al.points + 'pts' : ''})`;
+          savedListSelect.appendChild(opt);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Could not refresh saved army lists:', err);
+  }
+}
+
+async function submitEventRegistration() {
+  if (!activeRegistrationEvent) {
+    alert('No active tournament selected for registration.');
+    return;
+  }
+
+  const eventId = activeRegistrationEvent.event_id || activeRegistrationEvent.id;
+  const nameInput = document.getElementById('event-reg-name');
+  const emailInput = document.getElementById('event-reg-email');
+  const factionSelect = document.getElementById('event-reg-faction');
+  const detachmentInput = document.getElementById('event-reg-detachment');
+  const armyListInput = document.getElementById('event-reg-army-list');
+  const savedListSelect = document.getElementById('event-reg-saved-list');
+  const systemIdInput = document.getElementById('event-reg-system-id');
+  const statusEl = document.getElementById('event-reg-status');
+  const submitBtn = document.getElementById('event-reg-submit-btn');
+
+  const name = nameInput ? nameInput.value.trim() : '';
+  const email = emailInput ? emailInput.value.trim() : '';
+  const faction = factionSelect ? factionSelect.value.trim() : '';
+  const detachment = detachmentInput ? detachmentInput.value.trim() : '';
+  const armyList = armyListInput ? armyListInput.value.trim() : '';
+  const savedListId = savedListSelect ? savedListSelect.value : '';
+  const systemId = systemIdInput ? systemIdInput.value.trim() : '';
+
+  if (!name) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = 'Please enter competitor name.';
+    }
+    nameInput?.focus();
+    return;
+  }
+
+  if (!faction) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = 'Please select a primary faction.';
+    }
+    factionSelect?.focus();
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-mini" style="display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:middle;"></span> Processing Registration...';
+  }
+  if (statusEl) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'rgba(56, 189, 248, 0.1)';
+    statusEl.style.color = '#38bdf8';
+    statusEl.textContent = 'Registering competitor and syncing with tournament roster...';
+  }
+
+  const payload = {
+    name: name,
+    email: email,
+    faction: faction,
+    detachment: detachment,
+    army_list: armyList,
+    army_list_id: savedListId || null,
+    system_id: systemId || null
+  };
+
+  try {
+    const res = await window.api.registerCommunityEvent(eventId, payload);
+    if (res && res.success) {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(16, 185, 129, 0.15)';
+        statusEl.style.color = '#10b981';
+        const bcpMsg = res.bcp_synced ? ' & synced with Best Coast Pairings' : '';
+        statusEl.innerHTML = `✅ Successfully registered for ${escapeHtml(res.event_name || 'Tournament')}${bcpMsg}!`;
+      }
+
+      // Mark tournament as registered in local communityState
+      if (communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
+        const evItem = communityState.overview.events_upcoming.find(e => e.id === eventId);
+        if (evItem) {
+          evItem.is_registered = true;
+          evItem.total_players = (evItem.total_players || 0) + 1;
+        }
+      }
+      renderCommunityEvents();
+
+      // Dispatch global tournaments-updated event so My Hub updates registered tournaments
+      window.dispatchEvent(new CustomEvent('tournaments-updated', {
+        detail: { eventId: eventId, action: 'register', event: res }
+      }));
+      if (typeof loadRegisteredTournaments === 'function') {
+        try { loadRegisteredTournaments(); } catch {}
+      }
+
+      setTimeout(() => {
+        closeEventRegistrationModal();
+      }, 1400);
+    } else {
+      if (statusEl) {
+        statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = res?.detail || res?.message || 'Registration failed. Please try again.';
+      }
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirm & Complete Registration';
+      }
+    }
+  } catch (err) {
+    console.error('Registration error:', err);
+    if (statusEl) {
+      statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = `Error: ${err.message || err}`;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Confirm & Complete Registration';
+    }
+  }
+}
+
+window.openEventRegistrationModal = openEventRegistrationModal;
+window.closeEventRegistrationModal = closeEventRegistrationModal;
+window.onRegistrationSavedListChange = onRegistrationSavedListChange;
+window.refreshRegistrationArmyLists = refreshRegistrationArmyLists;
+window.submitEventRegistration = submitEventRegistration;
 
 // Backwards compatibility aliases
 window.changeCommunityRegion = (region) => {

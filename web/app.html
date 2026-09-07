@@ -1953,6 +1953,116 @@
     </div>
   </div>
 
+  <!-- MODAL: Community Event Registration -->
+  <div id="event-registration-modal" class="modal-backdrop" style="display: none;" onclick="if(event.target === this) closeEventRegistrationModal()">
+    <div class="modal-content event-reg-modal-content">
+      <div class="modal-header event-modal-header">
+        <div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 1.25rem;">🎟️</span>
+            <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #fff;">Register for Tournament</h3>
+          </div>
+          <div id="event-reg-modal-subtitle" style="font-size: 0.8rem; color: #38bdf8; margin-top: 3px; font-weight: 600;">Tournament Name</div>
+          <div id="event-reg-modal-venue" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 1px;">Venue • Location</div>
+        </div>
+        <button class="modal-close" onclick="closeEventRegistrationModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.3rem; line-height: 1; padding: 4px;" title="Close">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 0.85rem;">
+        <!-- BCP Account Connection Status Pill -->
+        <div id="event-reg-account-pill" style="padding: 0.55rem 0.85rem; border-radius: 8px; font-size: 0.78rem; display: flex; align-items: center; justify-content: space-between; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); color: #38bdf8;">
+          <span id="event-reg-account-status">Checking player profile...</span>
+          <span id="event-reg-badge" class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-size: 0.68rem; font-weight: 700;">FREE ENTRY</span>
+        </div>
+
+        <!-- Competitor Profile Row -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Competitor Name *</label>
+            <input type="text" id="event-reg-name" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="Full Name" required>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Email Address *</label>
+            <input type="email" id="event-reg-email" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="competitor@example.com" required>
+          </div>
+        </div>
+
+        <!-- Saved Army List Selector (from My Hub) -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label class="form-label" style="font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin: 0;">Select Saved Army List (from My Hub)</label>
+            <span style="font-size: 0.72rem; color: #38bdf8; cursor: pointer;" onclick="refreshRegistrationArmyLists()">🔄 Refresh Lists</span>
+          </div>
+          <select id="event-reg-saved-list" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" onchange="onRegistrationSavedListChange()">
+            <option value="">-- Select a saved army list --</option>
+          </select>
+        </div>
+
+        <!-- Faction & Detachment Row -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Primary Faction *</label>
+            <select id="event-reg-faction" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" required>
+              <option value="">Select Faction</option>
+              <option value="Adepta Sororitas">Adepta Sororitas</option>
+              <option value="Adeptus Custodes">Adeptus Custodes</option>
+              <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
+              <option value="Aeldari">Aeldari</option>
+              <option value="Astra Militarum">Astra Militarum</option>
+              <option value="Black Templars">Black Templars</option>
+              <option value="Blood Angels">Blood Angels</option>
+              <option value="Chaos Daemons">Chaos Daemons</option>
+              <option value="Chaos Knights">Chaos Knights</option>
+              <option value="Chaos Space Marines">Chaos Space Marines</option>
+              <option value="Dark Angels">Dark Angels</option>
+              <option value="Death Guard">Death Guard</option>
+              <option value="Deathwatch">Deathwatch</option>
+              <option value="Drukhari">Drukhari</option>
+              <option value="Genestealer Cults">Genestealer Cults</option>
+              <option value="Grey Knights">Grey Knights</option>
+              <option value="Imperial Knights">Imperial Knights</option>
+              <option value="Leagues of Votann">Leagues of Votann</option>
+              <option value="Necrons">Necrons</option>
+              <option value="Orks">Orks</option>
+              <option value="Space Marines">Space Marines</option>
+              <option value="Space Wolves">Space Wolves</option>
+              <option value="T'au Empire">T'au Empire</option>
+              <option value="Thousand Sons">Thousand Sons</option>
+              <option value="Tyranids">Tyranids</option>
+              <option value="World Eaters">World Eaters</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Detachment</label>
+            <input type="text" id="event-reg-detachment" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. Gladius Task Force">
+          </div>
+        </div>
+
+        <!-- Army List Content -->
+        <div>
+          <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army List Text (Optional / Can submit later)</label>
+          <textarea id="event-reg-army-list" class="form-input" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical; font-size: 16px; font-family: monospace;" placeholder="Paste army list or New Recruit export..."></textarea>
+        </div>
+
+        <!-- Optional ITC / BCP System ID -->
+        <div>
+          <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">ITC / BCP System ID <span style="color: var(--text-muted); font-weight: 400;">(Optional)</span></label>
+          <input type="text" id="event-reg-system-id" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. ITC PIN or BCP User ID">
+        </div>
+
+        <!-- Status Message Banner -->
+        <div id="event-reg-status" style="display: none; padding: 0.65rem 0.85rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; line-height: 1.4;"></div>
+      </div>
+
+      <div class="modal-footer" style="padding: 0.85rem 1.25rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button type="button" class="btn btn-outline" onclick="closeEventRegistrationModal()">Cancel</button>
+        <button type="button" id="event-reg-submit-btn" class="btn btn-primary" style="background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; font-weight: 700;" onclick="submitEventRegistration()">
+          Confirm & Complete Registration
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL: Tournament Self-Registration -->
   <div id="modal-tournament-register" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; backdrop-filter: blur(5px);" onclick="if(event.target === this) closeTournamentRegistrationModal()">
     <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 20px 45px rgba(0,0,0,0.6); position: relative;">

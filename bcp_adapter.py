@@ -35,7 +35,8 @@ class BcpAdapter:
         method: str = "POST",
         json_data: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
-        explicit_token: Optional[str] = None
+        explicit_token: Optional[str] = None,
+        allow_unauthenticated: bool = False
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
         Executes HTTP call to BCP API with Cognito token management and retry logic.
@@ -50,14 +51,11 @@ class BcpAdapter:
             except Exception as auth_err:
                 logger.warning(f"Notice retrieving BCP tokens for user {user_id}: {auth_err}")
 
-        if not tok:
-            logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
-            return None, "No BCP authorization token available"
-
-        def _do_request(token_val: str) -> Tuple[Optional[Dict[str, Any]], Optional[int], Optional[str]]:
-            clean_tok = token_val.replace("Bearer ", "").replace("bearer ", "").strip()
+        def _do_request(token_val: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[int], Optional[str]]:
             headers = DEFAULT_HEADERS.copy()
-            headers["Authorization"] = f"Bearer {clean_tok}"
+            if token_val:
+                clean_tok = token_val.replace("Bearer ", "").replace("bearer ", "").strip()
+                headers["Authorization"] = f"Bearer {clean_tok}"
             headers["Content-Type"] = "application/json"
 
             if json_data is not None:
@@ -81,6 +79,17 @@ class BcpAdapter:
             except Exception as e:
                 logger.warning(f"⚠️ [BCP API Network Error] {method} {url}: {e}")
                 return None, 0, str(e)
+
+        if not tok:
+            if not allow_unauthenticated:
+                logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
+                return None, "No BCP authorization token available"
+            data, status, err = _do_request(None)
+            if data is not None or status in (200, 201):
+                return data, None
+            if err:
+                logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
+            return None, err
 
         # 1. Primary Request
         data, status, err = _do_request(tok)
@@ -202,15 +211,20 @@ class BcpAdapter:
         if player_data.get("army_list") or player_data.get("armyList"):
             bcp_payload["armyList"] = player_data.get("army_list") or player_data.get("armyList")
 
+        system_id = player_data.get("system_id") or player_data.get("systemId") or player_data.get("itc_id") or player_data.get("itcId") or player_data.get("itc_pin")
+        if system_id:
+            bcp_payload["systemId"] = str(system_id).strip()
+            bcp_payload["itcId"] = str(system_id).strip()
+
         # 1. Primary: POST /v1/players (or /teamplayers)
-        data, err = cls.execute_call(reg_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=explicit_token)
+        data, err = cls.execute_call(reg_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
         if data is not None or not err:
             logger.info(f"✅ Registered competitor to BCP event {event_id} via /{endpoint}")
             return True, None, data
 
         # 2. Fallback: Nested /events/{id}/players for legacy compatibility
         legacy_url = f"{BCP_API_BASE}/events/{event_id}/{endpoint}"
-        data2, err2 = cls.execute_call(legacy_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=explicit_token)
+        data2, err2 = cls.execute_call(legacy_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
         if data2 is not None or not err2:
             logger.info(f"✅ Registered competitor to BCP event {event_id} via legacy /events/{event_id}/{endpoint}")
             return True, None, data2

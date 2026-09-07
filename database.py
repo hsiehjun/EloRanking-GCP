@@ -4024,6 +4024,134 @@ class PostgresDatabase:
             conn.commit()
         return self.get_user_registered_tournaments(user_id)
 
+    def add_user_registered_tournament(self, user_id: str, event_data: Dict[str, Any]) -> bool:
+        """
+        Upserts a single registered tournament for a user without pruning other registrations.
+        Updates 'events' table with event metadata, and 'event_participants' with player's registration details.
+        """
+        if not user_id or not event_data:
+            return False
+        try:
+            return self._execute_add_registered_tournament(user_id, event_data)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "detachment" in err_str or "army_list" in err_str or "has_list_submitted" in err_str or "undefinedcolumn" in err_str:
+                self._ensure_event_participant_columns()
+                try:
+                    return self._execute_add_registered_tournament(user_id, event_data)
+                except Exception as retry_err:
+                    logger.error(f"Failed to add registered tournament after column check: {retry_err}")
+                    return False
+            logger.error(f"add_user_registered_tournament error: {e}")
+            return False
+
+    def _execute_add_registered_tournament(self, user_id: str, event_data: Dict[str, Any]) -> bool:
+        target_pid = user_id
+        full_name = str(event_data.get("player_name") or event_data.get("full_name") or "").strip()
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT player_id, display_name FROM users WHERE id = %s;", (user_id,))
+                    row = cur.fetchone()
+                    if row:
+                        target_pid = row[0] or user_id
+                        if not full_name:
+                            full_name = row[1] or ""
+        except Exception as e:
+            logger.debug(f"User lookup notice in add_user_registered_tournament: {e}")
+
+        bcp_event_id = str(event_data.get("bcp_event_id") or event_data.get("event_id") or event_data.get("id") or "").strip()
+        if not bcp_event_id:
+            return False
+
+        event_name = str(event_data.get("event_name") or event_data.get("name") or "Tournament").strip()
+        event_date = event_data.get("event_date") or event_data.get("eventDate") or event_data.get("startDate")
+        end_date = event_data.get("end_date") or event_data.get("endDate") or event_data.get("eventEndDate")
+        loc = event_data.get("location") if isinstance(event_data.get("location"), dict) else {}
+        venue_name = event_data.get("venue_name") or event_data.get("venue") or loc.get("venueName") or loc.get("name") or loc.get("venue") or ""
+        city = event_data.get("city") or loc.get("city") or ""
+        state = event_data.get("state") or loc.get("state") or ""
+        country = event_data.get("country") or loc.get("country") or ""
+        faction = event_data.get("faction") or event_data.get("army") or ""
+        detachment = event_data.get("detachment") or ""
+        army_list = event_data.get("army_list") or event_data.get("armyList") or ""
+        has_list_submitted = bool(event_data.get("has_list_submitted") or event_data.get("hasList") or army_list)
+        checked_in = bool(event_data.get("checked_in") or event_data.get("checkedIn") or False)
+        points_limit = int(event_data.get("points_limit") or event_data.get("points") or 2000)
+        rounds = int(event_data.get("rounds") or event_data.get("numberOfRounds") or event_data.get("numRounds") or event_data.get("num_rounds") or 5)
+        total_players = int(event_data.get("total_players") or event_data.get("totalPlayers") or event_data.get("capacity") or 0)
+        player_id_to_use = str(event_data.get("player_id") or target_pid or user_id).strip()
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("""
+                INSERT INTO events (
+                    id, name, event_date, end_date, city, state, country,
+                    venue, venue_name, num_rounds, points, total_players
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s
+                )
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    event_date = COALESCE(EXCLUDED.event_date, events.event_date),
+                    end_date = COALESCE(EXCLUDED.end_date, events.end_date),
+                    city = COALESCE(NULLIF(EXCLUDED.city, ''), events.city),
+                    state = COALESCE(NULLIF(EXCLUDED.state, ''), events.state),
+                    country = COALESCE(NULLIF(EXCLUDED.country, ''), events.country),
+                    venue = COALESCE(NULLIF(EXCLUDED.venue, ''), events.venue),
+                    venue_name = COALESCE(NULLIF(EXCLUDED.venue_name, ''), events.venue_name),
+                    num_rounds = COALESCE(EXCLUDED.num_rounds, events.num_rounds),
+                    points = COALESCE(EXCLUDED.points, events.points),
+                    total_players = COALESCE(EXCLUDED.total_players, events.total_players);
+                """, (
+                    bcp_event_id, event_name, event_date, end_date, city, state, country,
+                    venue_name, venue_name, rounds, points_limit, total_players
+                ))
+
+                cursor.execute("""
+                INSERT INTO event_participants (
+                    event_id, player_id, full_name, faction, checked_in,
+                    detachment, army_list, has_list_submitted
+                ) VALUES (
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s
+                )
+                ON CONFLICT (event_id, player_id) DO UPDATE SET
+                    full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                    faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
+                    checked_in = EXCLUDED.checked_in,
+                    detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                    army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
+                    has_list_submitted = EXCLUDED.has_list_submitted;
+                """, (
+                    bcp_event_id, player_id_to_use, full_name, faction, checked_in,
+                    detachment, army_list, has_list_submitted
+                ))
+
+                if user_id != player_id_to_use:
+                    cursor.execute("""
+                    INSERT INTO event_participants (
+                        event_id, player_id, full_name, faction, checked_in,
+                        detachment, army_list, has_list_submitted
+                    ) VALUES (
+                        %s, %s, %s, %s, %s,
+                        %s, %s, %s
+                    )
+                    ON CONFLICT (event_id, player_id) DO UPDATE SET
+                        full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), event_participants.full_name),
+                        faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
+                        checked_in = EXCLUDED.checked_in,
+                        detachment = COALESCE(NULLIF(EXCLUDED.detachment, ''), event_participants.detachment),
+                        army_list = COALESCE(NULLIF(EXCLUDED.army_list, ''), event_participants.army_list),
+                        has_list_submitted = EXCLUDED.has_list_submitted;
+                    """, (
+                        bcp_event_id, user_id, full_name, faction, checked_in,
+                        detachment, army_list, has_list_submitted
+                    ))
+            conn.commit()
+        return True
+
 
     # =========================================================================
     # EVENT STUDIO: JUDGE DISPATCH & TO CALLS
@@ -5708,13 +5836,13 @@ class PostgresDatabase:
                 req = urllib.request.Request(url, headers=headers)
                 with urllib.request.urlopen(req, timeout=3.0) as resp:
                     data = json.loads(resp.read().decode("utf-8"))
-                    evs = data.get("data", [])
+                    evs = data.get("data", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
                     if not evs:
                         break
                     raw_events.extend(evs)
                     if len(raw_events) >= 35:
                         break
-                    next_key = data.get("nextKey")
+                    next_key = data.get("nextKey") if isinstance(data, dict) else None
                     if not next_key:
                         break
             except Exception as e:
@@ -5809,6 +5937,21 @@ class PostgresDatabase:
             is_ended = bool(ev.get("isEnded") or ev.get("is_ended") or False)
             circuits = ev.get("circuits") or []
 
+            using_online_reg = bool(ev.get("usingOnlineReg", ev.get("using_online_reg", True)))
+            ticket_price = 0.0
+            try:
+                ticket_price = float(ev.get("ticket_price") if ev.get("ticket_price") is not None else (ev.get("ticketPrice") or ev.get("amount") or 0.0))
+            except (ValueError, TypeError):
+                ticket_price = 0.0
+            ticket_currency = str(ev.get("ticketCurrency") or ev.get("currency") or "usd").lower()
+            num_tickets = 0
+            try:
+                num_tickets = int(ev.get("numTickets") or ev.get("num_tickets") or ev.get("capacity") or 0)
+            except (ValueError, TypeError):
+                num_tickets = 0
+            external_url = ev.get("externalUrl") or ev.get("external_url") or ev.get("ticketUrl") or ev.get("ticket_url") or None
+            private_event = bool(ev.get("privateEvent") or ev.get("private_event") or False)
+
             normalized_events.append({
                 "id": eid,
                 "name": ev.get("name") or "Tournament",
@@ -5824,7 +5967,13 @@ class PostgresDatabase:
                 "is_ended": is_ended,
                 "circuits": circuits,
                 "distance_miles": dist_miles,
-                "event_group": "upcoming"
+                "event_group": "upcoming",
+                "using_online_reg": using_online_reg,
+                "ticket_price": ticket_price,
+                "ticket_currency": ticket_currency,
+                "num_tickets": num_tickets,
+                "external_url": external_url,
+                "private_event": private_event
             })
 
         PostgresDatabase.set_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, normalized_events)
@@ -6143,7 +6292,7 @@ class PostgresDatabase:
                     )
                     (
                         SELECT id, name, event_date, end_date, city, state, country,
-                               venue, total_players, num_rounds, current_round, is_ended, circuits,
+                               venue, total_players, num_rounds, current_round, is_ended, circuits, raw_json,
                                ROUND(distance_miles::numeric, 1) as distance_miles,
                                'upcoming' as event_group
                         FROM events_dist
@@ -6156,7 +6305,7 @@ class PostgresDatabase:
                     UNION ALL
                     (
                         SELECT id, name, event_date, end_date, city, state, country,
-                               venue, total_players, num_rounds, current_round, is_ended, circuits,
+                               venue, total_players, num_rounds, current_round, is_ended, circuits, raw_json,
                                ROUND(distance_miles::numeric, 1) as distance_miles,
                                'recent' as event_group
                         FROM events_dist
@@ -6179,6 +6328,25 @@ class PostgresDatabase:
                 events_upcoming_db = [dict(r) for r in all_event_rows if r.get("event_group") == "upcoming"]
                 events_recent_all = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
                 events_recent = events_recent_all[:25]
+
+                for db_ev in events_upcoming_db:
+                    rj = db_ev.get("raw_json") if isinstance(db_ev.get("raw_json"), dict) else {}
+                    db_ev.setdefault("using_online_reg", bool(rj.get("usingOnlineReg", rj.get("using_online_reg", True))))
+                    t_price = 0.0
+                    try:
+                        t_price = float(rj.get("ticket_price") if rj.get("ticket_price") is not None else (rj.get("ticketPrice") or rj.get("amount") or 0.0))
+                    except (ValueError, TypeError):
+                        t_price = 0.0
+                    db_ev.setdefault("ticket_price", t_price)
+                    db_ev.setdefault("ticket_currency", str(rj.get("ticketCurrency") or rj.get("currency") or "usd").lower())
+                    n_tickets = 0
+                    try:
+                        n_tickets = int(rj.get("numTickets") or rj.get("num_tickets") or rj.get("capacity") or 0)
+                    except (ValueError, TypeError):
+                        n_tickets = 0
+                    db_ev.setdefault("num_tickets", n_tickets)
+                    db_ev.setdefault("external_url", rj.get("externalUrl") or rj.get("external_url") or rj.get("ticketUrl") or rj.get("ticket_url") or None)
+                    db_ev.setdefault("private_event", bool(rj.get("privateEvent") or rj.get("private_event") or False))
 
                 # Fetch live upcoming tournaments from BCP API (3 months / 92 days ahead)
                 bcp_upcoming = []
@@ -6230,6 +6398,9 @@ class PostgresDatabase:
                             combined["is_ended"] = b_ev["is_ended"]
                         if combined.get("distance_miles") is None and b_ev.get("distance_miles") is not None:
                             combined["distance_miles"] = b_ev["distance_miles"]
+                        for reg_field in ("using_online_reg", "ticket_price", "ticket_currency", "num_tickets", "external_url", "private_event"):
+                            if b_ev.get(reg_field) is not None:
+                                combined[reg_field] = b_ev.get(reg_field)
                         merged_upcoming.append(combined)
                     else:
                         merged_upcoming.append(b_ev)
@@ -6239,6 +6410,18 @@ class PostgresDatabase:
                     if eid and eid not in seen_upcoming_ids:
                         seen_upcoming_ids.add(eid)
                         merged_upcoming.append(db_ev)
+
+                user_registered_eids = set()
+                if current_user_id:
+                    try:
+                        user_regs = self.get_user_registered_tournaments(current_user_id)
+                        user_registered_eids = {str(r.get("id") or r.get("bcp_event_id") or "").strip() for r in (user_regs or []) if (r.get("id") or r.get("bcp_event_id"))}
+                    except Exception as reg_err:
+                        logger.debug(f"Registered tournaments lookup notice in community overview: {reg_err}")
+
+                for u_ev in merged_upcoming:
+                    u_id = str(u_ev.get("id") or "").strip()
+                    u_ev["is_registered"] = bool(u_id and u_id in user_registered_eids)
 
                 def upcoming_sort_key(ev):
                     d_raw = ev.get("event_date") or "9999-12-31"
@@ -6265,6 +6448,7 @@ class PostgresDatabase:
                         ev["end_date"] = ev["end_date"].isoformat()
                     if ev.get("distance_miles") is not None:
                         ev["distance_miles"] = float(ev["distance_miles"])
+                    ev.pop("raw_json", None)
 
                 # 3. Discover Local Competitors & Tournament Participants
                 user_event_ids = set()

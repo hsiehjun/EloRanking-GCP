@@ -544,8 +544,22 @@ tbody tr:hover {
   overflow-y: auto;
   box-sizing: border-box;
 }
-#event-modal, #team-modal, #faction-modal, #player-modal, #scorecard-modal, #modal-tournament-register {
+#event-modal, #team-modal, #faction-modal, #player-modal, #scorecard-modal, #modal-tournament-register, #event-registration-modal {
   z-index: 1000;
+}
+.event-reg-modal-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 92%;
+  max-width: 540px;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 3rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 #bcp-link-modal, #user-settings-modal {
   z-index: 1000;
@@ -4351,9 +4365,26 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .modal-backdrop,
   #modal-add-player,
   #modal-swap-players,
-  #modal-tournament-register {
+  #modal-tournament-register,
+  #event-registration-modal {
     padding-top: max(1.5rem, calc(0.75rem + env(safe-area-inset-top, 0px))) !important;
     padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom, 0px))) !important;
+  }
+  #event-registration-modal.modal-backdrop {
+    align-items: flex-start !important;
+    padding: 0.5rem !important;
+  }
+  .event-reg-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 1rem) !important;
+    margin: 0 auto;
+    border-radius: var(--radius-md);
+  }
+  .event-reg-modal-content .form-input,
+  .event-reg-modal-content select,
+  .event-reg-modal-content textarea {
+    font-size: 16px !important;
   }
   .landing-btn-signin,
   .landing-btn-register {
@@ -4390,7 +4421,8 @@ html.is-ios #app-header {
 html.is-ios .modal-backdrop,
 html.is-ios #modal-add-player,
 html.is-ios #modal-swap-players,
-html.is-ios #modal-tournament-register {
+html.is-ios #modal-tournament-register,
+html.is-ios #event-registration-modal {
   padding-top: max(1.5rem, calc(0.75rem + env(safe-area-inset-top, 0px))) !important;
   padding-bottom: max(1.5rem, calc(0.75rem + env(safe-area-inset-bottom, 0px))) !important;
 }
