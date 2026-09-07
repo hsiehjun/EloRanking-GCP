@@ -195,6 +195,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   stopEventSyncPoll();
   currentOpenEventId = eventId;
   eventModalSearchQuery = '';
+  selectedEventRound = 'all';
   const searchInput = document.getElementById('event-modal-search');
   if (searchInput) searchInput.value = '';
   const clearBtn = document.getElementById('event-modal-search-clear');
@@ -211,7 +212,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
 
   // Set active tab immediately to prevent visual flashing (default to tournament results)
-  switchEventModalTab(initialTab || (currentEventData && currentEventData.team_standings && currentEventData.team_standings.length > 0 ? 'teams' : 'results'));
+  switchEventModalTab(initialTab || 'results');
 
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink) {
@@ -276,10 +277,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (!hasCachedRows || !currentEventModalTab) {
       if (initialTab) {
         switchEventModalTab(initialTab);
-      } else if (hasStandings) {
-        switchEventModalTab('teams');
       } else if (hasPlacings) {
         switchEventModalTab('results');
+      } else if (hasStandings) {
+        switchEventModalTab('teams');
       } else {
         switchEventModalTab('elo');
       }
@@ -288,6 +289,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     renderEventResultsRows();
     renderEventEloRows();
     renderEventPairingsRows();
+    updateEventModalTabCountsForSearch();
 
     if (rbody) rbody.style.opacity = '1';
     if (ebody) ebody.style.opacity = '1';
@@ -357,10 +359,121 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
 }
 
+function updateEventModalTabCountsForSearch() {
+  const tabTeamsCount = document.getElementById('event-tab-teams-count');
+  const tabResultsCount = document.getElementById('event-tab-results-count');
+  const tabEloCount = document.getElementById('event-tab-elo-count');
+  const tabMatchesCount = document.getElementById('event-tab-matches-count');
+
+  const standings = (currentEventData && currentEventData.team_standings) || [];
+  const placementsCount = eventPlayersCache ? eventPlayersCache.filter(p => p.placement && p.placement > 0).length : 0;
+  const totalPlayers = eventPlayersCache ? eventPlayersCache.length : 0;
+  const totalMatches = eventMatchesCache ? eventMatchesCache.length : 0;
+
+  if (!eventModalSearchQuery) {
+    if (tabTeamsCount) tabTeamsCount.innerText = standings.length;
+    if (tabResultsCount) tabResultsCount.innerText = placementsCount > 0 ? placementsCount : totalPlayers;
+    if (tabEloCount) tabEloCount.innerText = totalPlayers;
+    if (tabMatchesCount) tabMatchesCount.innerText = totalMatches;
+    return;
+  }
+
+  const q = eventModalSearchQuery;
+  const filteredTeams = standings.filter(t => {
+    const name = (t.name || '').toLowerCase();
+    const captain = (t.captain || '').toLowerCase();
+    return name.includes(q) || captain.includes(q);
+  });
+
+  const filteredPlayers = (eventPlayersCache || []).filter(p => {
+    const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
+    const fac = (p.faction || '').toLowerCase();
+    const team = (p.team || '').toLowerCase();
+    return name.includes(q) || fac.includes(q) || team.includes(q);
+  });
+
+  const filteredMatches = (eventMatchesCache || []).filter(m => {
+    const p1Name = (m.player1_name || '').toLowerCase();
+    const p2Name = (m.player2_name || '').toLowerCase();
+    const p1Fac = (m.player1_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction) || '').toLowerCase();
+    const p2Fac = (m.player2_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction) || '').toLowerCase();
+    const p1Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.team) || '').toLowerCase();
+    const p2Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.team) || '').toLowerCase();
+    return p1Name.includes(q) || p2Name.includes(q) || p1Fac.includes(q) || p2Fac.includes(q) || p1Team.includes(q) || p2Team.includes(q);
+  });
+
+  if (tabTeamsCount) tabTeamsCount.innerText = filteredTeams.length;
+  if (tabResultsCount) tabResultsCount.innerText = filteredPlayers.length;
+  if (tabEloCount) tabEloCount.innerText = filteredPlayers.length;
+  if (tabMatchesCount) tabMatchesCount.innerText = filteredMatches.length;
+}
+
+function getEventModalCrossTabSuggestions(currentTab) {
+  if (!eventModalSearchQuery) return '';
+  const q = eventModalSearchQuery;
+  const standings = (currentEventData && currentEventData.team_standings) || [];
+  
+  const counts = {
+    teams: standings.filter(t => (t.name || '').toLowerCase().includes(q) || (t.captain || '').toLowerCase().includes(q)).length,
+    results: (eventPlayersCache || []).filter(p => {
+      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
+      const fac = (p.faction || '').toLowerCase();
+      const team = (p.team || '').toLowerCase();
+      return name.includes(q) || fac.includes(q) || team.includes(q);
+    }).length,
+    elo: (eventPlayersCache || []).filter(p => {
+      const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
+      const fac = (p.faction || '').toLowerCase();
+      const team = (p.team || '').toLowerCase();
+      return name.includes(q) || fac.includes(q) || team.includes(q);
+    }).length,
+    matches: (eventMatchesCache || []).filter(m => {
+      const p1Name = (m.player1_name || '').toLowerCase();
+      const p2Name = (m.player2_name || '').toLowerCase();
+      const p1Fac = (m.player1_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction) || '').toLowerCase();
+      const p2Fac = (m.player2_faction || (eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction) || '').toLowerCase();
+      const p1Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.team) || '').toLowerCase();
+      const p2Team = ((eventPlayersCache && eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.team) || '').toLowerCase();
+      return p1Name.includes(q) || p2Name.includes(q) || p1Fac.includes(q) || p2Fac.includes(q) || p1Team.includes(q) || p2Team.includes(q);
+    }).length
+  };
+
+  const tabsConfig = [
+    { key: 'results', label: 'Tournament Results', icon: '🏆', count: counts.results },
+    { key: 'matches', label: 'Match Pairings', icon: '⚔️', count: counts.matches },
+    { key: 'elo', label: 'Elo Ratings', icon: '⭐', count: counts.elo },
+    { key: 'teams', label: 'Team Standings', icon: '🛡️', count: counts.teams }
+  ];
+
+  const available = tabsConfig.filter(t => t.key !== currentTab && t.count > 0);
+  if (available.length === 0) return '';
+
+  let html = `
+    <div style="margin-top:1rem; padding:0.75rem 0.85rem; background:rgba(56,189,248,0.06); border:1px solid rgba(56,189,248,0.22); border-radius:8px; display:block; width:100%; box-sizing:border-box; white-space:normal;">
+      <div style="font-size:0.82rem; color:var(--text-secondary); margin-bottom:0.6rem; line-height:1.4; white-space:normal;">
+        Matches found in other tournament tabs for "<strong>${escapeHtml(q)}</strong>":
+      </div>
+      <div style="display:flex; flex-direction:column; gap:0.45rem;">
+  `;
+
+  available.forEach(t => {
+    html += `
+      <button type="button" class="btn btn-sm" onclick="switchEventModalTab('${t.key}')" style="background:#0284c7; color:#fff; font-size:0.8rem; padding:0.42rem 0.75rem; border-radius:6px; border:none; cursor:pointer; font-weight:600; display:flex; align-items:center; justify-content:center; gap:6px; width:100%; box-sizing:border-box; white-space:normal;">
+        <span>${t.icon}</span> <span>Switch to ${t.label} (${t.count})</span>
+      </button>
+    `;
+  });
+
+  html += `</div></div>`;
+  return html;
+}
+
 function handleEventModalSearch(query) {
   eventModalSearchQuery = (query || '').trim().toLowerCase();
   const clearBtn = document.getElementById('event-modal-search-clear');
   if (clearBtn) clearBtn.style.display = eventModalSearchQuery ? 'block' : 'none';
+
+  updateEventModalTabCountsForSearch();
 
   if (currentEventModalTab === 'teams') {
     renderEventTeamsRows();
@@ -415,6 +528,7 @@ function switchEventModalTab(tabKey) {
     if (viewResults) viewResults.style.display = 'block';
     renderEventResultsRows();
   }
+  updateEventModalTabCountsForSearch();
 }
 
 function renderEventTeamsRows() {
@@ -447,6 +561,7 @@ function renderEventTeamsRows() {
   }
 
   if (filtered.length === 0) {
+    const suggestions = getEventModalCrossTabSuggestions('teams');
     tbody.innerHTML = `
       <tr>
         <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
@@ -454,6 +569,7 @@ function renderEventTeamsRows() {
           <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
             No teams match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
           </div>
+          ${suggestions}
         </td>
       </tr>`;
     return;
@@ -531,6 +647,7 @@ function renderEventResultsRows() {
   }
 
   if (playersToRender.length === 0) {
+    const suggestions = getEventModalCrossTabSuggestions('results');
     tbody.innerHTML = `
       <tr>
         <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
@@ -538,6 +655,7 @@ function renderEventResultsRows() {
           <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
             No competitors match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
           </div>
+          ${suggestions}
         </td>
       </tr>`;
     return;
@@ -611,6 +729,7 @@ function renderEventEloRows() {
   }
 
   if (playersToRender.length === 0) {
+    const suggestions = getEventModalCrossTabSuggestions('elo');
     tbody.innerHTML = `
       <tr>
         <td colspan="4" class="empty-state" style="padding:2.5rem 1rem;">
@@ -618,6 +737,7 @@ function renderEventEloRows() {
           <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
             No competitors match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
           </div>
+          ${suggestions}
         </td>
       </tr>`;
     return;
@@ -729,6 +849,7 @@ function renderEventPairingsRows() {
   }
 
   if (matchesToRender.length === 0) {
+    const suggestions = getEventModalCrossTabSuggestions('matches');
     tbody.innerHTML = `
       <tr>
         <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
@@ -736,6 +857,7 @@ function renderEventPairingsRows() {
           <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
             No match pairings match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>"${selectedEventRound !== 'all' ? ` in Round ${selectedEventRound}` : ''}.
           </div>
+          ${suggestions}
         </td>
       </tr>`;
     return;

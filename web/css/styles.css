@@ -819,16 +819,39 @@ tbody tr:hover {
 }
 
 @media (max-width: 768px) {
-  #event-modal.modal-backdrop {
+  #event-modal.modal-backdrop,
+  #player-modal.modal-backdrop {
     align-items: flex-start !important;
     padding: max(0.5rem, env(safe-area-inset-top, 0px)) 0.5rem max(0.5rem, env(safe-area-inset-bottom, 0px)) 0.5rem !important;
   }
-  #event-modal .modal-window {
+  #event-modal .modal-window,
+  #player-modal .modal-window {
     width: 100% !important;
     max-width: 100% !important;
     max-height: calc(100dvh - max(1rem, env(safe-area-inset-top, 0px)) - max(0.5rem, env(safe-area-inset-bottom, 0px))) !important;
     margin: 0 auto !important;
     border-radius: 14px !important;
+  }
+  #player-modal .modal-body {
+    padding: 0.85rem 1rem 1rem !important;
+  }
+  #event-modal-search,
+  #player-modal-search {
+    font-size: 16px !important; /* Prevents iOS Safari auto-zoom on input focus */
+  }
+  .player-modal-search-wrap {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.4rem !important;
+  }
+  .player-modal-search-box {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .event-modal-search-wrap {
+    width: 100% !important;
+    gap: 0.4rem !important;
   }
   .event-modal-header {
     padding: 0.85rem 1rem 0.75rem !important;
@@ -1102,6 +1125,7 @@ tbody tr:hover {
   padding: 3rem 1rem;
   color: var(--text-muted);
   font-size: 0.9rem;
+  white-space: normal !important;
 }
 
 /* ==========================================================================
@@ -1610,6 +1634,7 @@ input, select, textarea {
     text-align: center !important;
     width: 100% !important;
     padding: 2.5rem 1rem !important;
+    white-space: normal !important;
   }
   .table-container td.empty-state::before {
     display: none !important;
