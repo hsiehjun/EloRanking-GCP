@@ -1232,11 +1232,11 @@ async function saveTableScore(tableNum) {
         source_app: 'EventStudio'
       });
       if (res && res.bcp_synced) {
-        alert(`Table ${tableNum} score saved & synced to Best Coast Pairings!`);
+        alert(`Table ${tableNum} score successfully submitted to Best Coast Pairings!`);
       } else if (res && res.bcp_notice) {
-        alert(`Table ${tableNum} score saved locally. BCP notice: ${res.bcp_notice}`);
+        alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
       } else {
-        alert(`Table ${tableNum} score saved!`);
+        alert(`Table ${tableNum} score submitted!`);
       }
     } else {
       await window.api.saveStudioPairings(ev.id, {

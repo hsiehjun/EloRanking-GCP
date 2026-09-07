@@ -800,7 +800,57 @@ def test_eventstudio_submit_score_resolves_live_bcp_pairing_id():
         assert kwargs["explicit_token"] == "valid_bcp_id_token_xyz"
         assert kwargs["user_id"] == "usr_999"
 
+        # Verify zero DB interactions for BCP tournaments
+        mock_db.get_studio_event.assert_not_called()
+        mock_db.save_studio_event.assert_not_called()
+
     print("✅ test_eventstudio_submit_score_resolves_live_bcp_pairing_id passed!")
+
+def test_eventstudio_submit_score_for_native_draft_saves_locally():
+    """Verify that native draft tournaments (ES-*) save scores locally without BCP calls."""
+    from routers.eventstudio import api_eventstudio_submit_score, SubmitScorePayload
+    from bcp_adapter import BcpAdapter
+
+    mock_db = MagicMock()
+    mock_db.get_studio_event.return_value = {
+        "id": "ES-TEST-123",
+        "pairings": {
+            "1": [
+                {"table": 1, "p1_score": 0, "p2_score": 0, "is_done": False}
+            ]
+        }
+    }
+
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "usr_local", "email": "local@example.com"}
+
+    req = MagicMock()
+    req.headers = {"Authorization": "Bearer session_token"}
+    req.cookies = {}
+
+    payload = SubmitScorePayload(
+        event_id="ES-TEST-123",
+        table=1,
+        round_num=1,
+        p1_score=75,
+        p2_score=45,
+        source_app="GameTracker-OmniTactica"
+    )
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch.object(BcpAdapter, "fetch_event_pairings") as mock_fetch, \
+         patch.object(BcpAdapter, "submit_pairing_scores") as mock_submit:
+
+        res = asyncio.run(api_eventstudio_submit_score(payload, req))
+        assert res["success"] is True
+        assert res["bcp_synced"] is False
+        mock_db.get_studio_event.assert_called_once_with("ES-TEST-123")
+        mock_db.save_studio_event.assert_called_once()
+        mock_fetch.assert_not_called()
+        mock_submit.assert_not_called()
+
+    print("✅ test_eventstudio_submit_score_for_native_draft_saves_locally passed!")
 
 def test_bcp_adapter_submit_pairing_scores_guards_and_payload():
     """Verify BcpAdapter.submit_pairing_scores rejects numeric table IDs and constructs correct gameData."""
@@ -848,6 +898,7 @@ if __name__ == "__main__":
     test_competitors_can_track_pairings()
     test_tracker_room_creation_for_both_players()
     test_eventstudio_submit_score_resolves_live_bcp_pairing_id()
+    test_eventstudio_submit_score_for_native_draft_saves_locally()
     test_bcp_adapter_submit_pairing_scores_guards_and_payload()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 

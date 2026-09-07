@@ -2618,23 +2618,25 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
 
     logger.info(f"EventStudio: Submitting Table {payload.table} Round {payload.round_num} Score ({payload.p1_score} - {payload.p2_score}) Source: {payload.source_app}")
     
-    # 4. Update OmniTactica Local Studio Event Database FIRST (Local-First Guarantee)
-    ev = db.get_studio_event(payload.event_id)
+    # 4. Strictly for native EventStudio tournaments (ES-*), update local draft
     bcp_pairing_id = payload.pairing_id if (payload.pairing_id and not str(payload.pairing_id).isdigit() and len(str(payload.pairing_id)) > 3) else None
-    if ev:
-        pairings_map = ev.get("pairings") or {}
-        round_pairings = pairings_map.get(str(payload.round_num)) or []
-        for match in round_pairings:
-            if match.get("table") == payload.table or str(match.get("table")) == str(payload.table):
-                match["p1_score"] = payload.p1_score
-                match["p2_score"] = payload.p2_score
-                match["is_done"] = True
-                if not bcp_pairing_id:
-                    bcp_pairing_id = match.get("bcp_pairing_id") or match.get("id")
-                break
-        pairings_map[str(payload.round_num)] = round_pairings
-        ev["pairings"] = pairings_map
-        db.save_studio_event(ev)
+    if payload.event_id.startswith("ES-"):
+        ev = db.get_studio_event(payload.event_id)
+        if ev:
+            pairings_map = ev.get("pairings") or {}
+            round_pairings = pairings_map.get(str(payload.round_num)) or []
+            for match in round_pairings:
+                if match.get("table") == payload.table or str(match.get("table")) == str(payload.table):
+                    match["p1_score"] = payload.p1_score
+                    match["p2_score"] = payload.p2_score
+                    match["is_done"] = True
+                    if not bcp_pairing_id:
+                        bcp_pairing_id = match.get("bcp_pairing_id") or match.get("id")
+                    break
+            pairings_map[str(payload.round_num)] = round_pairings
+            ev["pairings"] = pairings_map
+            db.save_studio_event(ev)
+
 
     # 5. Resolve live BCP pairing ID if missing for BCP-synced tournaments
     if not bcp_pairing_id and not payload.event_id.startswith("ES-"):

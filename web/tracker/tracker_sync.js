@@ -595,18 +595,23 @@
         statusEl.style.display = 'block';
         if (resData.bcp_synced) {
           statusEl.style.color = '#10b981';
-          statusEl.innerHTML = `✅ Score successfully synced with Best Coast Pairings & archived in Elo database!`;
+          statusEl.innerHTML = `✅ Score successfully submitted and synced with Best Coast Pairings!`;
         } else if (resData.bcp_notice) {
           statusEl.style.color = '#f59e0b';
-          statusEl.innerHTML = `⚠️ Score archived in database. Best Coast Pairings notice: ${resData.bcp_notice}`;
+          statusEl.innerHTML = `⚠️ Best Coast Pairings sync notice: ${resData.bcp_notice}`;
         } else {
           statusEl.style.color = '#10b981';
-          statusEl.innerHTML = `✅ Score successfully archived in database!`;
+          statusEl.innerHTML = `✅ Score successfully submitted!`;
         }
       }
       if (btn) {
-        btn.style.background = resData.bcp_synced ? '#10b981' : '#0284c7';
-        btn.textContent = resData.bcp_synced ? '✓ SUBMITTED TO BCP' : '✓ SAVED IN DB';
+        btn.style.background = resData.bcp_synced ? '#10b981' : '#f59e0b';
+        btn.textContent = resData.bcp_synced ? '✓ SUBMITTED TO BCP' : 'RETRY BCP SUBMIT';
+        if (resData.bcp_synced) {
+          btn.disabled = true;
+        } else {
+          btn.disabled = false;
+        }
       }
 
       st.is_finished = true;
@@ -619,7 +624,7 @@
       if (statusEl) {
         statusEl.style.display = 'block';
         statusEl.style.color = '#ef4444';
-        statusEl.textContent = `Notice: Score archived in DB. (BCP direct sync: ${err.message})`;
+        statusEl.textContent = `Error submitting to Best Coast Pairings: ${err.message}`;
       }
       if (btn) { btn.disabled = false; btn.textContent = 'RETRY BCP SUBMIT'; }
     }
