@@ -1609,6 +1609,86 @@ async def api_eventstudio_save_roster(event_id: str, payload: Dict[str, Any], re
         "event": saved
     }
 
+@router.delete("/api/eventstudio/event/{event_id}/player/{player_id}", summary="Remove competitor from tournament roster (OmniTactica & BCP)")
+async def api_eventstudio_remove_player(event_id: str, player_id: str, request: Request):
+    session = _get_to_session_or_403(request)
+    user_id = session.get("id")
+    auth_mgr = get_auth_manager()
+    db = get_database()
+
+    bcp_deleted = False
+    bcp_err = None
+
+    if not event_id.startswith("ES-"):
+        # 1. Resolve BCP token: check caller's token first, then organizer token if available
+        to_bcp_token = request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token")
+        if not to_bcp_token and user_id:
+            to_bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+
+        ev = db.get_studio_event(event_id)
+        if not to_bcp_token and ev and ev.get("organizer_id"):
+            to_bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
+
+        if not to_bcp_token and ev and ev.get("organizer_bcp_id"):
+            with db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT id FROM users WHERE bcp_user_id = %s LIMIT 1;", (ev.get("organizer_bcp_id"),))
+                    urow = cur.fetchone()
+                    if urow and urow[0]:
+                        to_bcp_token = auth_mgr.get_valid_bcp_token(urow[0])
+
+        is_team = False
+        if isinstance(ev, dict):
+            try:
+                team_sz = int(ev.get("team_size") or 1)
+                is_team = team_sz > 1 or ev.get("event_type") in ("Teams Event", "Doubles Event")
+            except (ValueError, TypeError):
+                is_team = False
+
+        bcp_deleted, bcp_err = bcp_adapter.delete_player(
+            player_id=player_id,
+            event_id=event_id,
+            user_id=user_id,
+            explicit_token=to_bcp_token,
+            is_team=is_team
+        )
+        if not bcp_deleted:
+            logger.warning(f"Notice: BCP competitor removal returned: {bcp_err}")
+            if bcp_err and "not found" not in bcp_err.lower():
+                raise HTTPException(status_code=400, detail=f"Failed to remove competitor from BCP: {bcp_err}")
+
+        # Invalidate any in-memory roster cache
+        try:
+            if _roster_cache and event_id in _roster_cache:
+                del _roster_cache[event_id]
+        except Exception:
+            pass
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "player_id": player_id,
+            "bcp_deleted": bcp_deleted
+        }
+
+    # OmniTactica-only event (ES-)
+    ev = db.get_studio_event(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    roster = [p for p in (ev.get("roster") or []) if str(p.get("id") or p.get("player_id") or p.get("name") or "") != player_id]
+    ev["roster"] = roster
+    ev["total_players"] = len(roster)
+    saved = db.save_studio_event(ev)
+
+    return {
+        "success": True,
+        "event_id": event_id,
+        "player_id": player_id,
+        "roster_count": len(roster),
+        "event": saved
+    }
+
 def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> List[Dict[str, Any]]:
     """
     Computes Elo-enhanced Swiss pairings with rematch and team conflict avoidance.

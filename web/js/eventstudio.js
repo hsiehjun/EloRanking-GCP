@@ -2091,11 +2091,24 @@ async function removePlayer(playerId) {
 
   if (!confirm("Are you sure you want to remove this player from the tournament?")) return;
 
+  // Optimistically update local view
   ev.roster = (ev.roster || []).filter(p => (p.id || p.player_id || p.name) !== playerId);
   ev.total_players = ev.roster.length;
-
-  await window.api.saveStudioRoster(ev.id, { roster: ev.roster });
   renderRosterSubtab();
+
+  try {
+    const res = await window.api.removeStudioPlayer(ev.id, playerId);
+    if (res && res.success) {
+      await loadTournamentWorkspace(ev.id);
+    } else {
+      alert(res?.detail || res?.error || res?.message || "Failed to remove competitor.");
+      await loadTournamentWorkspace(ev.id);
+    }
+  } catch (err) {
+    console.error("Remove player error:", err);
+    alert(`Failed to remove competitor: ${err.message || err}`);
+    await loadTournamentWorkspace(ev.id);
+  }
 }
 
 async function bulkCheckInPlayers() {

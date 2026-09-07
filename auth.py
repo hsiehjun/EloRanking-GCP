@@ -1591,8 +1591,8 @@ class AuthManager:
                 ref_tok = row.get("bcp_refresh_token")
 
                 # If token still valid (>1 min remaining) and not forced, return what we have
-                if not force_refresh and (id_tok or acc_tok):
-                    check_tok = id_tok or acc_tok
+                if not force_refresh and (acc_tok or id_tok):
+                    check_tok = acc_tok or id_tok
                     claims = _decode_jwt_payload(check_tok) if check_tok else {}
                     exp = claims.get("exp")
                     now_ts = datetime.now(timezone.utc).timestamp()
@@ -1621,9 +1621,9 @@ class AuthManager:
                     try:
                         with urllib.request.urlopen(oauth_req, timeout=10) as resp:
                             data = json.loads(resp.read().decode("utf-8"))
-                            new_acc = data.get("accessToken") or data.get("access_token")
-                            new_id = data.get("idToken") or data.get("id_token") or new_acc
-                            new_ref = data.get("refreshToken") or data.get("refresh_token") or ref_tok
+                            new_acc = data.get("accessToken") or data.get("access_token") or (data.get("AuthenticationResult", {}) or {}).get("AccessToken")
+                            new_id = data.get("idToken") or data.get("id_token") or (data.get("AuthenticationResult", {}) or {}).get("IdToken") or new_acc
+                            new_ref = data.get("refreshToken") or data.get("refresh_token") or (data.get("AuthenticationResult", {}) or {}).get("RefreshToken") or ref_tok
                             if new_acc or new_id:
                                 cur.execute("""
                                 UPDATE users SET
@@ -1644,7 +1644,7 @@ class AuthManager:
 
     def get_valid_bcp_token(self, user_id: str, force_refresh: bool = False) -> Optional[str]:
         tokens = self.get_valid_bcp_tokens(user_id, force_refresh=force_refresh)
-        return tokens.get("id_token") or tokens.get("access_token")
+        return tokens.get("access_token") or tokens.get("id_token")
 
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""

@@ -6532,6 +6532,9 @@ class PostgresDatabase:
                             user_event_names[eid] = u_row["event_name"] or "Tournament Match"
 
                 local_competitors = []
+                leaderboard = []
+                local_teams = []
+                user_local_elo = None
                 player_local_stats = collections.defaultdict(lambda: {
                     "elo": 1500.0,
                     "peak_elo": 1500.0,

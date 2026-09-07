@@ -60,8 +60,10 @@ class BcpAdapter:
 
             if json_data is not None:
                 body_bytes = json.dumps(json_data).encode("utf-8")
-            elif method in ("POST", "PUT", "PATCH", "DELETE"):
+                headers["Content-Type"] = "application/json"
+            elif method in ("POST", "PUT", "PATCH"):
                 body_bytes = b"{}"
+                headers["Content-Type"] = "application/json"
             else:
                 body_bytes = None
 
@@ -70,7 +72,7 @@ class BcpAdapter:
             try:
                 with urllib.request.urlopen(req, timeout=12) as resp:
                     raw = resp.read().decode("utf-8")
-                    data = json.loads(raw) if raw else {}
+                    data = json.loads(raw) if raw and raw.strip() else {}
                     logger.info(f"✅ [BCP API SUCCESS {resp.status}] {method} {url}")
                     return data, resp.status, None
             except urllib.error.HTTPError as he:
@@ -85,18 +87,18 @@ class BcpAdapter:
                 logger.warning(f"⚠️ [BCP API] No BCP token available for {method} {url}")
                 return None, "No BCP authorization token available"
             data, status, err = _do_request(None)
-            if data is not None or status in (200, 201):
-                return data, None
+            if data is not None or status in (200, 201, 204):
+                return data if data is not None else {}, None
             if err:
                 logger.warning(f"⚠️ [BCP API Failed] {method} {url}: {err}")
             return None, err
 
         # 1. Primary Request
         data, status, err = _do_request(tok)
-        if data is not None:
-            return data, None
+        if data is not None or status in (200, 201, 204):
+            return data if data is not None else {}, None
 
-        # 2. If 401 or 403, retry with alternate token (id_token vs access_token) or force-refresh
+        # 2. If 401 or 403, retry with fresh token
         if status in (401, 403) and user_id:
             logger.info(f"🔄 [BCP API] Status {status} on {method} {url}. Attempting token retry / refresh...")
             try:
@@ -106,25 +108,31 @@ class BcpAdapter:
                 alt_tok = tok_dict.get("id_token") if tok == tok_dict.get("access_token") else tok_dict.get("access_token")
                 if alt_tok and alt_tok != tok:
                     data, status, err = _do_request(alt_tok)
-                    if data is not None:
-                        return data, None
+                    if data is not None or status in (200, 201, 204):
+                        return data if data is not None else {}, None
 
+                # Force refresh from /oauth/token if initial tokens failed
                 fresh_dict = auth_mgr.get_valid_bcp_tokens(user_id, force_refresh=True)
-                for cand_tok in [fresh_dict.get("access_token"), fresh_dict.get("id_token")]:
-                    if cand_tok and cand_tok != tok and cand_tok != alt_tok:
-                        data, status, err = _do_request(cand_tok)
-                        if data is not None:
-                            return data, None
+                fresh_acc = fresh_dict.get("access_token")
+                if fresh_acc and fresh_acc != tok and fresh_acc != alt_tok:
+                    data, status, err = _do_request(fresh_acc)
+                    if data is not None or status in (200, 201, 204):
+                        return data if data is not None else {}, None
+
+                fresh_id = fresh_dict.get("id_token")
+                if fresh_id and fresh_id != tok and fresh_id != alt_tok and fresh_id != fresh_acc:
+                    data, status, err = _do_request(fresh_id)
+                    if data is not None or status in (200, 201, 204):
+                        return data if data is not None else {}, None
             except Exception as ref_err:
                 logger.warning(f"Notice during token retry / refresh for user {user_id}: {ref_err}")
 
-        # 3. If token authentication failed with 401/403 and unauthenticated calls are allowed (e.g. public player registration),
-        # fall back to unauthenticated execution
-        if status in (401, 403) and allow_unauthenticated:
-            logger.info(f"🔄 [BCP API] Token was rejected with HTTP {status}. Falling back to unauthenticated {method} {url}...")
+        # 3. Fallback to unauthenticated if allowed
+        if allow_unauthenticated:
+            logger.info(f"🔄 [BCP API] Primary request failed ({err}). Falling back to unauthenticated {method} {url}...")
             data_unauth, status_unauth, err_unauth = _do_request(None)
-            if data_unauth is not None or status_unauth in (200, 201):
-                return data_unauth, None
+            if data_unauth is not None or status_unauth in (200, 201, 204):
+                return data_unauth if data_unauth is not None else {}, None
             if err_unauth:
                 err = err_unauth
 
@@ -208,8 +216,6 @@ class BcpAdapter:
             "lastName": ln or "",
             "email": player_data.get("email") or ""
         }
-        if bcp_user_id and explicit_token:
-            bcp_payload["userId"] = str(bcp_user_id)
 
         faction = player_data.get("faction") or player_data.get("army")
         if faction and faction not in ("Unassigned", "Unknown"):
@@ -229,13 +235,49 @@ class BcpAdapter:
             bcp_payload["systemId"] = str(system_id).strip()
             bcp_payload["itcId"] = str(system_id).strip()
 
+        # Check if competitor is already on BCP event roster before calling API
+        def _check_already_registered():
+            try:
+                try:
+                    from google3.experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
+                except ImportError:
+                    try:
+                        from experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
+                    except ImportError:
+                        from scraper import BestCoastPairingsScraper
+                from unittest.mock import MagicMock
+                try:
+                    scraper = BestCoastPairingsScraper()
+                except Exception:
+                    scraper = BestCoastPairingsScraper(db=MagicMock())
+                roster = scraper.fetch_event_players(event_id)
+                check_fn = (fn or "").strip().lower()
+                check_ln = (ln or "").strip().lower()
+                check_name = f"{check_fn} {check_ln}".strip()
+                check_email = (player_data.get("email") or "").strip().lower()
+                for p in (roster or []):
+                    u = p.get("user") or {}
+                    p_fn = (u.get("firstName") or p.get("firstName") or "").strip().lower()
+                    p_ln = (u.get("lastName") or p.get("lastName") or "").strip().lower()
+                    p_name = (p.get("name") or f"{p_fn} {p_ln}").strip().lower()
+                    p_email = (u.get("email") or p.get("email") or "").strip().lower()
+                    if check_email and p_email and check_email == p_email:
+                        return True, p
+                    if check_fn and check_ln and p_fn == check_fn and p_ln == check_ln:
+                        return True, p
+                    if check_name and p_name and check_name == p_name:
+                        return True, p
+            except Exception as ex:
+                logger.debug(f"BCP existing roster check notice: {ex}")
+            return False, None
+
         # 1. Primary: POST /v1/players (or /teamplayers)
         data, err = cls.execute_call(reg_url, method="POST", json_data=bcp_payload, user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
         if data is not None or not err:
             logger.info(f"✅ Registered competitor to BCP event {event_id} via /{endpoint}")
             return True, None, data
 
-        if err and "already exists" in err.lower():
+        if err and ("already exists" in err.lower() or "already registered" in err.lower()):
             logger.info(f"ℹ️ Competitor already registered in BCP event {event_id}")
             return True, None, {"already_registered": True}
 
@@ -246,11 +288,61 @@ class BcpAdapter:
             logger.info(f"✅ Registered competitor to BCP event {event_id} via legacy /events/{event_id}/{endpoint}")
             return True, None, data2
 
-        if err2 and "already exists" in err2.lower():
+        if err2 and ("already exists" in err2.lower() or "already registered" in err2.lower()):
             logger.info(f"ℹ️ Competitor already registered in BCP event {event_id}")
             return True, None, {"already_registered": True}
 
+        # Final check: did the registration succeed despite an error response?
+        is_already_after, reg_p_after = _check_already_registered()
+        if is_already_after:
+            logger.info(f"ℹ️ Competitor {fn} {ln} confirmed registered on BCP event {event_id}")
+            return True, None, {"already_registered": True, "player": reg_p_after}
+
         return False, (err or err2 or "BCP roster registration failed"), None
+
+    @classmethod
+    def delete_player(
+        cls,
+        player_id: str,
+        event_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None,
+        is_team: bool = False
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Removes a competitor or team from a BCP event roster using DELETE /v1/players/{id}.
+        """
+        clean_pid = str(player_id or "").strip()
+        if not clean_pid:
+            return False, "Missing player_id for BCP player removal"
+
+        endpoint = "teamplayers" if is_team else "players"
+        url = f"{BCP_API_BASE}/{endpoint}/{clean_pid}"
+
+        # 1. Primary: DELETE /v1/players/{id}
+        data, err = cls.execute_call(url, method="DELETE", user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            logger.info(f"✅ Successfully deleted competitor {clean_pid} from BCP via DELETE /{endpoint}/{clean_pid}")
+            return True, None
+
+        # 2. Fallback: teamplayers if players failed, or vice versa
+        alt_endpoint = "players" if is_team else "teamplayers"
+        alt_url = f"{BCP_API_BASE}/{alt_endpoint}/{clean_pid}"
+        data2, err2 = cls.execute_call(alt_url, method="DELETE", user_id=user_id, explicit_token=explicit_token)
+        if data2 is not None or not err2:
+            logger.info(f"✅ Successfully deleted competitor {clean_pid} from BCP via DELETE /{alt_endpoint}/{clean_pid}")
+            return True, None
+
+        # 3. Fallback: Legacy /events/{event_id}/{endpoint}/{player_id} if event_id provided
+        if event_id:
+            clean_eid = str(event_id).strip()
+            legacy_url = f"{BCP_API_BASE}/events/{clean_eid}/{endpoint}/{clean_pid}"
+            data3, err3 = cls.execute_call(legacy_url, method="DELETE", user_id=user_id, explicit_token=explicit_token)
+            if data3 is not None or not err3:
+                logger.info(f"✅ Successfully deleted competitor {clean_pid} from BCP via DELETE /events/{clean_eid}/{endpoint}/{clean_pid}")
+                return True, None
+
+        return False, (err or err2 or "Failed to remove player from BCP")
 
     @classmethod
     def submit_pairing_scores(

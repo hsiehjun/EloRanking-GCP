@@ -3344,6 +3344,7 @@ async function submitEventRegistration() {
     statusEl.textContent = 'Registering competitor and syncing with tournament roster...';
   }
 
+  const bcpToken = localStorage.getItem('bcp_session_token') || localStorage.getItem('bcp_access_token') || '';
   const payload = {
     name: fullName,
     first_name: fn,
@@ -3354,7 +3355,8 @@ async function submitEventRegistration() {
     detachment: detachment || null,
     army_list: armyList || null,
     army_list_id: savedListId || null,
-    system_id: systemId || null
+    system_id: systemId || null,
+    bcp_token: bcpToken || null
   };
 
   try {

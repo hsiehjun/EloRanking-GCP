@@ -708,6 +708,17 @@ window.api = {
     });
   },
 
+  // EventStudio: Remove/Delete Player from Roster (OmniTactica & BCP)
+  async removeStudioPlayer(eventId, playerId) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/player/${encodeURIComponent(playerId)}`, {
+      method: 'DELETE',
+      headers
+    });
+  },
+
   // Tournament Registration (Player self-register or TO add competitor)
   async registerForTournament(eventId, payload = {}) {
     const token = this.getAuthToken();
