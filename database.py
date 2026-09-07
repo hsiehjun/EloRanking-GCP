@@ -6170,6 +6170,7 @@ class PostgresDatabase:
                             e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
                             COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
                             e.total_players, e.num_rounds, e.current_round, e.is_ended, e.circuits,
+                            e.raw_json,
                             COALESCE(
                                 e.latitude,
                                 CASE 
@@ -6330,7 +6331,16 @@ class PostgresDatabase:
                 events_recent = events_recent_all[:25]
 
                 for db_ev in events_upcoming_db:
-                    rj = db_ev.get("raw_json") if isinstance(db_ev.get("raw_json"), dict) else {}
+                    raw_val = db_ev.get("raw_json")
+                    if isinstance(raw_val, str):
+                        try:
+                            rj = json.loads(raw_val)
+                        except Exception:
+                            rj = {}
+                    elif isinstance(raw_val, dict):
+                        rj = raw_val
+                    else:
+                        rj = {}
                     db_ev.setdefault("using_online_reg", bool(rj.get("usingOnlineReg", rj.get("using_online_reg", True))))
                     t_price = 0.0
                     try:

@@ -362,6 +362,7 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
   }
 
   communityState.isLoading = true;
+  communityState.overviewError = null;
   _activeCommunityHubKey = requestKey;
 
   _activeCommunityHubPromise = (async () => {
@@ -390,6 +391,7 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
       communityState.overview = data;
       communityState.overviewKey = requestKey;
       communityState.overviewLoadedAt = Date.now();
+      communityState.overviewError = null;
 
       // Update location details
       if (data.location?.location_name) {
@@ -427,6 +429,9 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
       if (err && (err.name === 'AbortError' || err.message === 'The user aborted a request.')) return;
 
       console.error('Failed to load community hub:', err);
+      const errMsg = err.message || 'An unexpected error occurred while fetching community data.';
+      communityState.overviewError = errMsg;
+
       const tourneyView = document.getElementById('comm-tournaments-content');
       if (tourneyView) {
         tourneyView.innerHTML = `
@@ -434,7 +439,7 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
             <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
             <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Tournaments</h4>
             <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-              ${escapeHtml(err.message || 'An unexpected error occurred while fetching tournament data.')}
+              ${escapeHtml(errMsg)}
             </p>
             <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
           </div>
@@ -447,7 +452,33 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
             <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
             <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Competitors</h4>
             <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
-              ${escapeHtml(err.message || 'An unexpected error occurred while fetching competitor data.')}
+              ${escapeHtml(errMsg)}
+            </p>
+            <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
+          </div>
+        `;
+      }
+      const playersGrid = document.getElementById('players-grid');
+      if (playersGrid) {
+        playersGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+            <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Sparring Radar</h4>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+              ${escapeHtml(errMsg)}
+            </p>
+            <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
+          </div>
+        `;
+      }
+      const storesGrid = document.getElementById('comm-stores-grid');
+      if (storesGrid && communityState.activeSubtab === 'stores') {
+        storesGrid.innerHTML = `
+          <div style="grid-column: 1 / -1; padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+            <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+            <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Stores</h4>
+            <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+              ${escapeHtml(errMsg)}
             </p>
             <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
           </div>
@@ -733,8 +764,10 @@ async function refreshCommunityTournaments(btnElement = null) {
 
   try {
     await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, true);
-    renderCommunityEvents();
-    fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
+    if (communityState.overview) {
+      renderCommunityEvents();
+      fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
+    }
   } catch (err) {
     console.error('Failed to refresh tournaments:', err);
   } finally {
@@ -762,6 +795,19 @@ function renderCommunityEvents() {
 
   const overview = communityState.overview;
   if (!overview) {
+    if (communityState.overviewError) {
+      container.innerHTML = `
+        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Tournaments</h4>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+            ${escapeHtml(communityState.overviewError)}
+          </p>
+          <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
+        </div>
+      `;
+      return;
+    }
     setSubtabLoaderIfEmpty(container, getCommunitySubtabLoaderHtml('tournaments'));
     return;
   }
@@ -1425,7 +1471,9 @@ async function refreshCommunityScene(btnElement = null) {
 
   try {
     await loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName, true);
-    renderCurrentSceneView();
+    if (communityState.overview) {
+      renderCurrentSceneView();
+    }
   } catch (err) {
     console.error('Failed to refresh local scene:', err);
   } finally {
@@ -1455,6 +1503,19 @@ function renderCurrentSceneView() {
   if (!container) return;
 
   if (!communityState.overview) {
+    if (communityState.overviewError) {
+      container.innerHTML = `
+        <div style="padding: 2.5rem 1rem; text-align: center; color: var(--text-muted); background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border);">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+          <h4 style="color: #fff; margin-bottom: 0.4rem;">Unable to Load Local Competitors</h4>
+          <p style="font-size: 0.85rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto 1.25rem;">
+            ${escapeHtml(communityState.overviewError)}
+          </p>
+          <button class="btn btn-primary" onclick="loadCommunityHub(null, null, null, null, true)">🔄 Retry</button>
+        </div>
+      `;
+      return;
+    }
     setSubtabLoaderIfEmpty(container, getCommunitySubtabLoaderHtml('scene'));
     if (!communityState.isLoading) {
       loadCommunityHub(communityState.lat, communityState.lng, communityState.radiusMiles, communityState.locationName);

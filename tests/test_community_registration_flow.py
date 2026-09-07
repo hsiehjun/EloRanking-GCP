@@ -422,6 +422,48 @@ def test_frontend_card_and_modal_integrity():
     print("✅ Frontend card buttons, modal layout, 16px mobile rules & bundling verified!")
 
 
+def test_community_sql_cte_column_integrity_and_error_handling():
+    """Verify combined_events_sql CTE column consistency and frontend error resilience."""
+    db_py = (ROOT_DIR / "database.py").read_text(encoding="utf-8")
+    comm_js = (ROOT_DIR / "web" / "js" / "community.js").read_text(encoding="utf-8")
+
+    # 1. SQL CTE Column Consistency
+    # Ensure events_filtered explicitly selects raw_json so events_dist has it
+    assert "e.raw_json," in db_py or "e.raw_json AS raw_json," in db_py, (
+        "CRITICAL: events_filtered CTE must explicitly select e.raw_json so events_dist contains the raw_json column!"
+    )
+
+    # 2. Extract combined_events_sql block and verify CTE column presence
+    assert "WITH events_filtered AS (" in db_py
+    assert "events_dist AS (" in db_py
+    cte_start = db_py.find("WITH events_filtered AS (")
+    cte_end = db_py.find("cursor.execute(", cte_start)
+    sql_block = db_py[cte_start:cte_end]
+
+    # Verify that in events_filtered, raw_json is selected before ev_lat / ev_lng
+    filtered_part = sql_block[:sql_block.find("events_dist AS (")]
+    assert "raw_json" in filtered_part, "raw_json missing from events_filtered CTE"
+
+    # 3. Frontend Error Resilience
+    # Ensure overviewError is tracked and cleared on start
+    assert "communityState.overviewError = null;" in comm_js, "overviewError reset missing in community.js"
+    assert "communityState.overviewError = errMsg;" in comm_js, "overviewError assignment missing in catch block"
+
+    # Ensure all 4 subview containers (tournaments, scene, radar, stores) are updated on error
+    assert "Unable to Load Local Tournaments" in comm_js
+    assert "Unable to Load Local Competitors" in comm_js
+    assert "Unable to Load Sparring Radar" in comm_js
+    assert "Unable to Load Local Stores" in comm_js
+
+    # Ensure renderCommunityEvents & renderCurrentSceneView check overviewError
+    assert "if (communityState.overviewError)" in comm_js, "overviewError check missing in render functions"
+
+    # Ensure refreshCommunityTournaments & refreshCommunityScene do not overwrite error with spinner
+    assert "if (communityState.overview) {\n      renderCommunityEvents();" in comm_js or "if (communityState.overview) {\n      renderCurrentSceneView();" in comm_js
+
+    print("✅ SQL CTE column integrity and frontend error resilience verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running Community Registration Automated Test Suite...")
     test_database_upcoming_events_normalization()
@@ -429,4 +471,5 @@ if __name__ == "__main__":
     test_bcp_adapter_unauthenticated_and_system_id()
     test_community_registration_endpoints()
     test_frontend_card_and_modal_integrity()
+    test_community_sql_cte_column_integrity_and_error_handling()
     print("\n🎉 ALL COMMUNITY REGISTRATION FLOW TESTS PASSED SUCCESSFULLY!")
