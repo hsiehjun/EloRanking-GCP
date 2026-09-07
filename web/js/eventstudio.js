@@ -911,25 +911,48 @@ async function startTournamentEvent() {
   const ev = studioState.activeTournament;
   if (!ev) return;
 
+  const isBcp = !String(ev.id || "").startsWith("ES-");
   const roster = (ev.roster || []).filter(p => !p.dropped);
-  if (roster.length < 2) {
+  const activeCount = roster.length > 0 ? roster.length : (ev.total_players || 0);
+
+  if (!isBcp && activeCount < 2) {
     alert("At least 2 active competitors are required to start the tournament.");
     return;
   }
 
-  if (!confirm(`🚀 Start tournament "${ev.name}"? This will officially open Round 1 and lock registration on OmniTactica and Best Coast Pairings.`)) {
+  if (!confirm(`🚀 Start tournament "${ev.name}"? This will officially open Round 1 and generate pairings on Best Coast Pairings.`)) {
     return;
   }
 
   const startBtns = document.querySelectorAll("#manage-event-start-btn");
   startBtns.forEach(btn => {
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Starting...';
+    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Starting & Generating Pairings...';
   });
 
   try {
     const res = await window.api.startStudioEvent(ev.id);
     if (res && res.success) {
+      // If BCP event and pairings status is generating, poll pairingsStatus
+      if (isBcp) {
+        let pStatus = res.pairings_status?.status || (res.pairings_status?.data && res.pairings_status.data.status) || "";
+        let pollCount = 0;
+        while (pStatus === "generating" && pollCount < 8) {
+          startBtns.forEach(btn => {
+            btn.innerHTML = `<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Generating Pairings (${pollCount + 1}s)...`;
+          });
+          await new Promise(r => setTimeout(r, 1200));
+          pollCount++;
+          try {
+            const statusRes = await window.api.getStudioPairingsStatus(ev.id);
+            pStatus = statusRes?.data?.status || statusRes?.status || "";
+            if (pStatus === "completed" || pStatus === "failed") break;
+          } catch (e) {
+            console.warn("Notice checking pairings status:", e);
+          }
+        }
+      }
+
       studioState.activeTournament = res.event || { ...ev, started: true, status: "active", current_round: 1 };
       await loadTournamentWorkspace(ev.id);
       switchManageSubtab("pairings");

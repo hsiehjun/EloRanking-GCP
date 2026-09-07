@@ -276,6 +276,191 @@ def test_managed_tournaments_refresh_button_and_player_counts():
 
     print("✅ test_managed_tournaments_refresh_button_and_player_counts passed!")
 
+def test_bcp_generate_pairings_and_content_length_zero():
+    """Verify BcpAdapter sends POST /generatePairings with Content-Length: 0 and empty body."""
+    from bcp_adapter import BcpAdapter
+    import json
+
+    captured_req = None
+    def mock_urlopen(req, timeout=12):
+        nonlocal captured_req
+        captured_req = req
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = json.dumps({"eventId": "WQzWygYPwWfi", "status": "completed"}).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = False
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        ok, err, data = BcpAdapter.start_event_or_generate_pairings(
+            event_id="WQzWygYPwWfi",
+            explicit_token="token_abc_123"
+        )
+        assert ok is True
+        assert err is None
+        assert captured_req is not None
+        assert captured_req.get_full_url() == "https://newprod-api.bestcoastpairings.com/v1/events/WQzWygYPwWfi/generatePairings"
+        assert captured_req.get_method() == "POST"
+        assert captured_req.data == b""
+        # Headers check (case-insensitive in urllib)
+        hdrs = {k.lower(): v for k, v in captured_req.headers.items()}
+        assert hdrs.get("content-length") == "0"
+        assert hdrs.get("content-type") == "application/json"
+        assert hdrs.get("authorization") == "Bearer token_abc_123"
+        assert hdrs.get("client-id") == "web-app"
+        assert hdrs.get("env") == "bcp"
+
+    print("✅ test_bcp_generate_pairings_and_content_length_zero passed!")
+
+def test_bcp_get_pairings_status():
+    """Verify BcpAdapter GET /pairingsStatus endpoint call."""
+    from bcp_adapter import BcpAdapter
+    import json
+
+    captured_req = None
+    def mock_urlopen(req, timeout=12):
+        nonlocal captured_req
+        captured_req = req
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = json.dumps({"eventId": "WQzWygYPwWfi", "status": "completed"}).encode("utf-8")
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.__exit__.return_value = False
+        return mock_resp
+
+    with patch("urllib.request.urlopen", side_effect=mock_urlopen):
+        ok, err, data = BcpAdapter.get_pairings_status(
+            event_id="WQzWygYPwWfi",
+            explicit_token="token_abc_123"
+        )
+        assert ok is True
+        assert err is None
+        assert data.get("status") == "completed"
+        assert captured_req.get_full_url() == "https://newprod-api.bestcoastpairings.com/v1/events/WQzWygYPwWfi/pairingsStatus"
+        assert captured_req.get_method() == "GET"
+
+    print("✅ test_bcp_get_pairings_status passed!")
+
+def test_eventstudio_start_event_decoupled_and_pairings_status():
+    """Verify starting BCP tournament calls BCP directly, polls status, and does zero DB writes."""
+    from routers.eventstudio import api_eventstudio_start_event, api_eventstudio_get_pairings_status
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {
+        "id": "to_user_1",
+        "role": "TO",
+        "email": "swimgeek751@gmail.com"
+    }
+    mock_auth.get_valid_bcp_token.return_value = "bcp_tok_123"
+
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer session_token"}
+    mock_req.cookies = {}
+
+    mock_bcp_event = {
+        "id": "WQzWygYPwWfi",
+        "name": "Hsiehjun Grand Tournament",
+        "started": True,
+        "activeRound": 1,
+        "currentRound": 1
+    }
+    mock_bcp_players = [
+        {"id": "p1", "user": {"firstName": "Player", "lastName": "One"}},
+        {"id": "p2", "user": {"firstName": "Player", "lastName": "Two"}}
+    ]
+    mock_bcp_pairings = [
+        {
+            "id": "pair1",
+            "table": 1,
+            "player1": {"id": "p1", "user": {"firstName": "Player", "lastName": "One"}},
+            "player2": {"id": "p2", "user": {"firstName": "Player", "lastName": "Two"}}
+        }
+    ]
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.start_event_or_generate_pairings", return_value=(True, None, {"status": "ok"})) as mock_start, \
+         patch("bcp_adapter.BcpAdapter.get_pairings_status", return_value=(True, None, {"eventId": "WQzWygYPwWfi", "status": "completed"})) as mock_status, \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_details", return_value=mock_bcp_event), \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_players", return_value=mock_bcp_players), \
+         patch("scraper.BestCoastPairingsScraper.fetch_event_pairings_for_round", return_value=mock_bcp_pairings):
+
+        # 1. Start Event
+        res = asyncio.run(api_eventstudio_start_event("WQzWygYPwWfi", mock_req))
+        assert res["success"] is True
+        assert res["bcp_started"] is True
+        assert res["pairings_status"]["status"] == "completed"
+        ev = res["event"]
+        assert ev["started"] is True
+        assert ev["current_round"] == 1
+        assert "1" in ev["pairings"]
+        r1_pairings = ev["pairings"]["1"]
+        assert len(r1_pairings) == 1
+        assert r1_pairings[0]["p1_name"] == "Player One"
+        assert r1_pairings[0]["p2_name"] == "Player Two"
+
+        # Verify zero DB reads or writes for BCP event!
+        mock_db.get_studio_event.assert_not_called()
+        mock_db.save_studio_event.assert_not_called()
+        mock_start.assert_called_once()
+        mock_status.assert_called_once()
+
+        # 2. Pairings Status endpoint
+        status_res = asyncio.run(api_eventstudio_get_pairings_status("WQzWygYPwWfi", mock_req))
+        assert status_res["success"] is True
+        assert status_res["status"] == "completed"
+
+    print("✅ test_eventstudio_start_event_decoupled_and_pairings_status passed!")
+
+def test_bcp_pairing_normalization_enriches_fields():
+    """Verify _normalize_bcp_pairing enriches raw BCP pairings with fields needed by UI."""
+    from routers.eventstudio import _normalize_bcp_pairing
+    raw_bcp = {
+        "id": "pairing_999",
+        "table": 3,
+        "player1": {
+            "id": "p_alpha",
+            "name": "Alpha Player",
+            "army": "World Eaters",
+            "team": "Team Red"
+        },
+        "player2": {
+            "id": "p_beta",
+            "user": {"firstName": "Beta", "lastName": "Gamer"},
+            "faction": {"name": "Aeldari"}
+        },
+        "player1Game": {"points": 88},
+        "player2Game": {"points": 65},
+        "isDone": True
+    }
+
+    norm = _normalize_bcp_pairing(raw_bcp)
+    assert norm["table"] == 3
+    assert norm["p1_name"] == "Alpha Player"
+    assert norm["p1_faction"] == "World Eaters"
+    assert norm["p1_team"] == "Team Red"
+    assert norm["p1_score"] == 88
+    assert norm["p2_name"] == "Beta Gamer"
+    assert norm["p2_faction"] == "Aeldari"
+    assert norm["p2_score"] == 65
+    assert norm["is_done"] is True
+    assert norm["is_bye"] is False
+
+    # Test BYE scenario
+    bye_bcp = {
+        "id": "pairing_bye",
+        "table": 4,
+        "player1": {"id": "p_solo", "name": "Solo Winner"},
+        "isBye": True
+    }
+    norm_bye = _normalize_bcp_pairing(bye_bcp)
+    assert norm_bye["p1_name"] == "Solo Winner"
+    assert norm_bye["p2_name"] == "BYE"
+    assert norm_bye["is_bye"] is True
+
+    print("✅ test_bcp_pairing_normalization_enriches_fields passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -285,4 +470,8 @@ if __name__ == "__main__":
     test_community_overview_no_unbound_local_elo()
     test_bcp_register_player_already_registered_check()
     test_managed_tournaments_refresh_button_and_player_counts()
+    test_bcp_generate_pairings_and_content_length_zero()
+    test_bcp_get_pairings_status()
+    test_eventstudio_start_event_decoupled_and_pairings_status()
+    test_bcp_pairing_normalization_enriches_fields()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")

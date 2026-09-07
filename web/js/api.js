@@ -742,6 +742,16 @@ window.api = {
     });
   },
 
+  // EventStudio: Get Pairings Status from BCP
+  async getStudioPairingsStatus(eventId) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings_status`, {
+      headers
+    });
+  },
+
   // EventStudio: Swap Table Pairings dynamically before applying
   async swapStudioPairings(eventId, payload) {
     const token = this.getAuthToken();

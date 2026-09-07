@@ -61,9 +61,11 @@ class BcpAdapter:
             if json_data is not None:
                 body_bytes = json.dumps(json_data).encode("utf-8")
                 headers["Content-Type"] = "application/json"
+                headers["Content-Length"] = str(len(body_bytes))
             elif method in ("POST", "PUT", "PATCH"):
-                body_bytes = b"{}"
+                body_bytes = b""
                 headers["Content-Type"] = "application/json"
+                headers["Content-Length"] = "0"
             else:
                 body_bytes = None
 
@@ -179,6 +181,24 @@ class BcpAdapter:
             return True, None, data3
 
         return False, (err or "Failed to start event on BCP"), None
+
+    @classmethod
+    def get_pairings_status(
+        cls,
+        event_id: str,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
+        """
+        Polls BCP newapi GET /v1/events/{id}/pairingsStatus.
+        Returns: (success, error_str, status_dict)
+        """
+        clean_eid = str(event_id).strip()
+        url = f"{BCP_API_BASE}/events/{clean_eid}/pairingsStatus"
+        data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
+        if data is not None or not err:
+            return True, None, (data or {})
+        return False, (err or "Failed to fetch pairings status"), None
 
     @classmethod
     def register_player(

@@ -172,6 +172,98 @@ def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dic
         )
     return session
 
+def _normalize_bcp_pairing(
+    pairing: Dict[str, Any],
+    default_table: int = 1,
+    roster_by_id: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Normalizes a Best Coast Pairings pairing object to ensure all fields expected by
+    Event Studio UI (p1_name, p1_faction, p1_team, p1_elo, p1_win_prob, p1_score,
+    p2_name, p2_faction, p2_team, p2_elo, p2_win_prob, p2_score, table, is_bye, is_done)
+    are present while preserving all raw BCP keys.
+    """
+    if not isinstance(pairing, dict):
+        return {}
+
+    table_num = pairing.get("table") or pairing.get("tableNumber") or default_table
+    try:
+        table_num = int(table_num)
+    except Exception:
+        table_num = default_table
+
+    p1_obj = pairing.get("player1") or {}
+    p2_obj = pairing.get("player2") or {}
+    p1_user = p1_obj.get("user") if isinstance(p1_obj.get("user"), dict) else {}
+    p2_user = p2_obj.get("user") if isinstance(p2_obj.get("user"), dict) else {}
+
+    p1_id = str(p1_obj.get("id") or p1_user.get("id") or pairing.get("player1Id") or "")
+    p2_id = str(p2_obj.get("id") or p2_user.get("id") or pairing.get("player2Id") or "")
+
+    p1_first = p1_user.get("firstName") or p1_obj.get("firstName") or ""
+    p1_last = p1_user.get("lastName") or p1_obj.get("lastName") or ""
+    p1_full = f"{p1_first} {p1_last}".strip()
+    p1_name = p1_obj.get("name") or p1_full or pairing.get("p1_name") or pairing.get("p1Name") or "Player 1"
+
+    p2_first = p2_user.get("firstName") or p2_obj.get("firstName") or ""
+    p2_last = p2_user.get("lastName") or p2_obj.get("lastName") or ""
+    p2_full = f"{p2_first} {p2_last}".strip()
+    p2_name = p2_obj.get("name") or p2_full or pairing.get("p2_name") or pairing.get("p2Name") or ("Player 2" if p2_id else "BYE")
+
+    r1 = (roster_by_id or {}).get(p1_id)
+    r2 = (roster_by_id or {}).get(p2_id)
+
+    p1_fac = p1_obj.get("army") or p1_obj.get("faction") or (r1.get("faction") if r1 else "") or ""
+    if isinstance(p1_fac, dict):
+        p1_fac = p1_fac.get("name") or ""
+
+    p2_fac = p2_obj.get("army") or p2_obj.get("faction") or (r2.get("faction") if r2 else "") or ""
+    if isinstance(p2_fac, dict):
+        p2_fac = p2_fac.get("name") or ""
+
+    p1_team = p1_obj.get("team") or (r1.get("team") if r1 else "") or ""
+    if isinstance(p1_team, dict):
+        p1_team = p1_team.get("name") or ""
+
+    p2_team = p2_obj.get("team") or (r2.get("team") if r2 else "") or ""
+    if isinstance(p2_team, dict):
+        p2_team = p2_team.get("name") or ""
+
+    p1_game = pairing.get("player1Game") or {}
+    p2_game = pairing.get("player2Game") or {}
+
+    p1_score = p1_game.get("points") if p1_game.get("points") is not None else pairing.get("p1_score", 0)
+    p2_score = p2_game.get("points") if p2_game.get("points") is not None else pairing.get("p2_score", 0)
+
+    is_bye = bool(pairing.get("isBye") or not p2_id or p2_name == "BYE" or not p2_obj)
+    is_done = bool(pairing.get("isDone", False) or (p1_game.get("points") is not None and p2_game.get("points") is not None and not is_bye))
+
+    res = dict(pairing)
+    res.update({
+        "id": str(pairing.get("id") or f"bcp-pairing-{table_num}"),
+        "table": table_num,
+        "p1_id": p1_id,
+        "p1_name": p1_name,
+        "p1_faction": str(p1_fac or "Unassigned"),
+        "p1_team": str(p1_team or ""),
+        "p1_elo": float(r1.get("elo") or 1500.0) if r1 else 1500.0,
+        "p1_win_prob": 50.0,
+        "p1_score": int(p1_score or 0),
+        "p2_id": p2_id if not is_bye else None,
+        "p2_name": p2_name if not is_bye else "BYE",
+        "p2_faction": str(p2_fac or "") if not is_bye else "",
+        "p2_team": str(p2_team or "") if not is_bye else "",
+        "p2_elo": float(r2.get("elo") or 1500.0) if (r2 and not is_bye) else 0.0,
+        "p2_win_prob": 50.0 if not is_bye else 0.0,
+        "p2_score": int(p2_score or 0) if not is_bye else 0,
+        "is_bye": is_bye,
+        "is_done": is_done,
+        "is_rematch": False,
+        "rematch_rounds": [],
+        "same_team": bool(p1_team and p2_team and str(p1_team).strip().lower() == str(p2_team).strip().lower() and not is_bye),
+    })
+    return res
+
 def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """
     Directly queries Best Coast Pairings API for event details, live competitor roster,
@@ -189,8 +281,8 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
         raw_rounds = bcp_event.get("numberOfRounds") or bcp_event.get("numRounds") or 5
         raw_pts = bcp_event.get("points") or 2000
         raw_cap = bcp_event.get("totalPlayers") or bcp_event.get("capacity") or 32
-        cur_round = bcp_event.get("currentRound") or 1
-        started = bool(bcp_event.get("started") or (bcp_event.get("currentRound", 0) > 0))
+        cur_round = bcp_event.get("activeRound") or bcp_event.get("currentRound") or 1
+        started = bool(bcp_event.get("started") or (bcp_event.get("currentRound", 0) > 0) or (bcp_event.get("activeRound", 0) > 0))
         ended = bool(bcp_event.get("ended"))
 
         # 1. Fetch live roster directly from BCP API
@@ -199,6 +291,7 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
             raw_roster = scraper.fetch_event_teams(event_id)
 
         roster = []
+        roster_by_id = {}
         for idx, p in enumerate(raw_roster or []):
             if not isinstance(p, dict):
                 continue
@@ -213,7 +306,7 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
                 team_name = str(team_val or p.get("teamName") or p.get("club") or "")
 
             pid = str(p.get("id") or u.get("id") or f"P-{idx}")
-            roster.append({
+            player_dict = {
                 "id": pid,
                 "player_id": pid,
                 "user_id": str(p.get("userId") or u.get("id") or ""),
@@ -230,15 +323,24 @@ def _fetch_bcp_event_workspace(event_id: str, user: Optional[Dict[str, Any]] = N
                 "paid": bool(p.get("paid", True)),
                 "placing": p.get("placing") or p.get("place") or p.get("rank"),
                 "points": p.get("points") or p.get("battlePoints") or 0,
-            })
+            }
+            roster.append(player_dict)
+            roster_by_id[pid] = player_dict
+            if player_dict["user_id"]:
+                roster_by_id[player_dict["user_id"]] = player_dict
 
-        # 2. Fetch live round pairings if event has started
+        # 2. Fetch live round pairings if event has started or pairings exist
         pairings_map = {}
-        if started:
-            for r in range(1, int(cur_round) + 1):
-                r_pairings = scraper.fetch_event_pairings_for_round(event_id, r)
-                if r_pairings:
-                    pairings_map[str(r)] = r_pairings
+        max_round_to_check = max(1, int(cur_round))
+        for r in range(1, max_round_to_check + 1):
+            raw_r_pairings = scraper.fetch_event_pairings_for_round(event_id, r)
+            if raw_r_pairings:
+                norm_pairings = []
+                for idx, pairing in enumerate(raw_r_pairings):
+                    norm = _normalize_bcp_pairing(pairing, default_table=idx + 1, roster_by_id=roster_by_id)
+                    norm_pairings.append(norm)
+                pairings_map[str(r)] = norm_pairings
+                started = True
 
         return {
             "id": event_id,
@@ -1178,10 +1280,63 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
 @router.post("/api/eventstudio/event/{event_id}/start", summary="Start tournament on OmniTactica and BCP")
 async def api_eventstudio_start_event(event_id: str, request: Request):
     user = _get_to_session_or_403(request)
-    db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
 
+    # 1. BCP Managed Tournament Flow (Direct & Decoupled, zero DB mutation)
+    if not event_id.startswith("ES-"):
+        bcp_token = None
+        if user_id:
+            bcp_token = auth_mgr.get_valid_bcp_token(user_id)
+
+        # Trigger POST /v1/events/{id}/generatePairings on BCP
+        bcp_started, bcp_err, bcp_res = bcp_adapter.start_event_or_generate_pairings(
+            event_id,
+            user_id=user_id,
+            explicit_token=bcp_token,
+            is_league=False
+        )
+        if not bcp_started and bcp_err:
+            raise HTTPException(status_code=400, detail=f"BCP tournament start failed: {bcp_err}")
+
+        # Poll/query GET /v1/events/{id}/pairingsStatus on BCP
+        _, _, status_data = bcp_adapter.get_pairings_status(
+            event_id,
+            user_id=user_id,
+            explicit_token=bcp_token
+        )
+
+        # Fetch updated live workspace directly from BCP API
+        bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+        if not bcp_ev:
+            bcp_ev = {
+                "id": event_id,
+                "started": True,
+                "status": "active",
+                "current_round": 1,
+                "bcp_synced": True,
+                "pairings_bcp_synced": True,
+                "roster": [],
+                "pairings": {}
+            }
+        else:
+            bcp_ev["started"] = True
+            bcp_ev["status"] = "active"
+            bcp_ev["pairings_bcp_synced"] = True
+
+        return {
+            "success": True,
+            "event_id": event_id,
+            "started": True,
+            "current_round": bcp_ev.get("current_round", 1),
+            "bcp_started": True,
+            "pairings_status": status_data or {"eventId": event_id, "status": "completed"},
+            "event": bcp_ev,
+            "message": "Tournament started successfully! Round 1 pairings generated on Best Coast Pairings."
+        }
+
+    # 2. Local Studio Event Flow (Native OmniTactica)
+    db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
         details = db.get_event_details(event_id)
@@ -1211,24 +1366,6 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
         except Exception as pe:
             logger.warning(f"Notice auto-generating round 1 pairings on start: {pe}")
 
-    bcp_started = False
-    bcp_err = None
-    if not event_id.startswith("ES-"):
-        bcp_token = None
-        if user_id:
-            bcp_token = auth_mgr.get_valid_bcp_token(user_id)
-        if not bcp_token and ev.get("organizer_id"):
-            bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
-
-        bcp_started, bcp_err, bcp_res = bcp_adapter.start_event_or_generate_pairings(
-            event_id,
-            user_id=user_id,
-            explicit_token=bcp_token,
-            is_league=bool(ev.get("is_league") or ev.get("leagueEvent"))
-        )
-        if bcp_started:
-            ev["pairings_bcp_synced"] = True
-
     saved = db.save_studio_event(ev)
 
     return {
@@ -1236,10 +1373,35 @@ async def api_eventstudio_start_event(event_id: str, request: Request):
         "event_id": event_id,
         "started": True,
         "current_round": ev.get("current_round", 1),
-        "bcp_started": bcp_started,
-        "bcp_notice": bcp_err if not bcp_started and not event_id.startswith("ES-") else None,
+        "bcp_started": False,
         "event": saved,
         "message": "Tournament started successfully! Round 1 is active."
+    }
+
+@router.get("/api/eventstudio/event/{event_id}/pairings_status", summary="Get pairings generation status from BCP")
+async def api_eventstudio_get_pairings_status(event_id: str, request: Request):
+    user = _get_to_session_or_403(request)
+    auth_mgr = get_auth_manager()
+    user_id = user["id"] if user else None
+
+    if event_id.startswith("ES-"):
+        return {"success": True, "event_id": event_id, "status": "completed", "data": {"status": "completed"}}
+
+    bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
+    ok, err, data = bcp_adapter.get_pairings_status(
+        event_id,
+        user_id=user_id,
+        explicit_token=bcp_token
+    )
+    if not ok and err:
+        return {"success": False, "event_id": event_id, "error": err, "status": "unknown"}
+
+    status_val = (data or {}).get("status") or "completed"
+    return {
+        "success": True,
+        "event_id": event_id,
+        "status": status_val,
+        "data": data or {"status": status_val}
     }
 
 @router.post("/api/eventstudio/event/{event_id}/register", summary="Register player for tournament on OmniTactica and BCP")
