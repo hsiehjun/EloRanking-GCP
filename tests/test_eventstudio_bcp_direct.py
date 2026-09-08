@@ -878,6 +878,28 @@ def test_bcp_adapter_submit_pairing_scores_guards_and_payload():
 
     print("✅ test_bcp_adapter_submit_pairing_scores_guards_and_payload passed!")
 
+def test_event_modal_subtabs_hidden_on_mobile_and_desktop():
+    """Verify that conditional subtabs (player details, team placings, elo rankings) are hidden by default and on mobile."""
+    app_html = (root_dir / "web" / "app.html").read_text()
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text()
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text()
+
+    # 1. Check HTML defaults
+    assert 'id="event-subtab-player"' in app_html
+    assert 'id="event-subtab-player" class="subtab-btn" onclick="switchEventModalTab(\'player\')" style="display: none !important;"' in app_html
+    assert 'id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab(\'teams\')" style="display: none !important;"' in app_html
+
+    # 2. Check CSS guarantees hidden subtabs stay hidden
+    assert '.subtab-btn[style*="display: none"]' in styles_css
+    assert '#event-subtab-player[style*="display: none"]' in styles_css
+    assert '#event-subtab-teams[style*="display: none"]' in styles_css
+
+    # 3. Check tournaments.js resets subtabs on open
+    assert "subtabPlayerInit.style.setProperty('display', 'none', 'important')" in tournaments_js
+    assert "subtabTeamsInit.style.setProperty('display', 'none', 'important')" in tournaments_js
+
+    print("✅ test_event_modal_subtabs_hidden_on_mobile_and_desktop passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -900,5 +922,6 @@ if __name__ == "__main__":
     test_eventstudio_submit_score_resolves_live_bcp_pairing_id()
     test_eventstudio_submit_score_for_native_draft_saves_locally()
     test_bcp_adapter_submit_pairing_scores_guards_and_payload()
+    test_event_modal_subtabs_hidden_on_mobile_and_desktop()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 

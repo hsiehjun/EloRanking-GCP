@@ -159,7 +159,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         const teamsListFresh = (fresh.teams && fresh.teams.length > 0) ? fresh.teams : (fresh.team_standings || []);
 
         if (isTeamEventFresh || teamsListFresh.length > 0) {
-          if (subtabTeams) subtabTeams.style.display = 'inline-flex';
+          if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
           const hasFreshTeamPlacings = teamsListFresh.some(t => t.placing && t.placing > 0);
           const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
           if (labelSpan) {
@@ -168,7 +168,7 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
           if (tabTeamsCount) tabTeamsCount.innerText = teamsListFresh.length;
           renderEventTeamsRows();
         } else {
-          if (subtabTeams) subtabTeams.style.display = 'none';
+          if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
         }
 
         const resultsBtnFresh = document.getElementById('event-subtab-results');
@@ -229,6 +229,19 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   // Set active tab immediately to prevent visual flashing (default to teams for team tournaments, results otherwise)
   const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
   switchEventModalTab(initialTab || (guessedIsTeam ? 'teams' : 'results'));
+
+  const subtabPlayerInit = document.getElementById('event-subtab-player');
+  const subtabTeamsInit = document.getElementById('event-subtab-teams');
+  const subtabEloInit = document.getElementById('event-subtab-elo');
+  if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', 'none', 'important');
+  if (subtabTeamsInit) {
+    if (guessedIsTeam) {
+      subtabTeamsInit.style.setProperty('display', 'inline-flex', 'important');
+    } else {
+      subtabTeamsInit.style.setProperty('display', 'none', 'important');
+    }
+  }
+  if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
 
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink) {
@@ -293,7 +306,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const hasTeamPlacings = teamsList.some(t => t.placing && t.placing > 0);
 
     if (isTeamEvent || teamsList.length > 0) {
-      if (subtabTeams) subtabTeams.style.display = 'inline-flex';
+      if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
       const labelSpan = document.getElementById('event-subtab-teams-label') || (subtabTeams && subtabTeams.querySelector('span:first-child'));
       if (labelSpan) {
         labelSpan.innerText = isDoublesEvent ? (hasTeamPlacings ? '🏆 Duo Placings' : '👥 Doubles Rosters') : (hasTeamPlacings ? '🏆 Team Placings' : '🛡️ Team Rosters');
@@ -301,7 +314,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       if (tabTeamsCount) tabTeamsCount.innerText = teamsList.length;
       renderEventTeamsRows();
     } else {
-      if (subtabTeams) subtabTeams.style.display = 'none';
+      if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
     }
 
     const resultsBtn = document.getElementById('event-subtab-results');
@@ -325,11 +338,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
     const subtabPlayer = document.getElementById('event-subtab-player');
     if (userRegData && userRegData.is_registered) {
-      if (subtabPlayer) subtabPlayer.style.display = 'inline-flex';
+      if (subtabPlayer) subtabPlayer.style.setProperty('display', 'inline-flex', 'important');
       currentEventRegistration = userRegData;
       await populateEventPlayerDetails(userRegData);
     } else {
-      if (subtabPlayer) subtabPlayer.style.display = 'none';
+      if (subtabPlayer) subtabPlayer.style.setProperty('display', 'none', 'important');
       if (currentEventModalTab === 'player') {
         currentEventModalTab = isTeamEvent ? 'teams' : 'results';
       }
@@ -342,7 +355,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       switchEventModalTab('player');
     } else if (isTeamEvent || teamsList.length > 0) {
       switchEventModalTab('teams');
-    } else if (!hasCachedRows || currentEventModalTab === 'teams') {
+    } else if (!hasCachedRows || currentEventModalTab === 'teams' || currentEventModalTab === 'player') {
       switchEventModalTab('results');
     }
 

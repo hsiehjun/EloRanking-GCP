@@ -296,6 +296,19 @@ main {
   border-color: rgba(56, 189, 248, 0.4);
 }
 
+.subtab-btn[style*="display: none"],
+.subtab-btn[style*="display:none"],
+.comm-subtab-btn[style*="display: none"],
+.comm-subtab-btn[style*="display:none"],
+#event-subtab-player[style*="display: none"],
+#event-subtab-player[style*="display:none"],
+#event-subtab-teams[style*="display: none"],
+#event-subtab-teams[style*="display:none"],
+#event-subtab-elo[style*="display: none"],
+#event-subtab-elo[style*="display:none"] {
+  display: none !important;
+}
+
 /* Controls Bar */
 .controls-bar {
   display: flex;
@@ -919,6 +932,10 @@ tbody tr:hover {
     padding: 0.38rem 0.65rem !important;
     white-space: nowrap !important;
   }
+  #event-modal .subtab-btn[style*="display: none"],
+  #event-modal .subtab-btn[style*="display:none"] {
+    display: none !important;
+  }
 }
 
 .modal-body {
@@ -1376,9 +1393,22 @@ input, select, textarea {
     font-size: 0.8rem !important;
     white-space: nowrap !important;
     flex-shrink: 0 !important;
-    display: inline-flex !important;
+    display: inline-flex;
     align-items: center !important;
     justify-content: center !important;
+  }
+
+  .subtab-btn[style*="display: none"],
+  .subtab-btn[style*="display:none"],
+  .comm-subtab-btn[style*="display: none"],
+  .comm-subtab-btn[style*="display:none"],
+  #event-subtab-player[style*="display: none"],
+  #event-subtab-player[style*="display:none"],
+  #event-subtab-teams[style*="display: none"],
+  #event-subtab-teams[style*="display:none"],
+  #event-subtab-elo[style*="display: none"],
+  #event-subtab-elo[style*="display:none"] {
+    display: none !important;
   }
 
   /* Controls & Search Bars */
