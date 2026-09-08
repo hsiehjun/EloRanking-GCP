@@ -810,13 +810,30 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                         if ov > 0: placing_num = ov
                     except (ValueError, TypeError): pass
 
-            if placing_num is None:
-                placing_num = idx + 1
-
         faction_obj = p.get("faction") or {}
         faction_name = faction_obj.get("name") if isinstance(faction_obj, dict) else (str(faction_obj) if faction_obj else "Unknown")
         team_obj = p.get("team") or {}
         team_name = team_obj.get("name") if isinstance(team_obj, dict) else (str(team_obj) if team_obj else "")
+
+        # Extract live match metrics from BCP competitor entry
+        tot_metrics = p.get("total_metrics") or p.get("metrics") or []
+        wins = 0
+        losses = 0
+        draws = 0
+        bps = 0
+        for m in tot_metrics:
+            if isinstance(m, dict):
+                mn = m.get("name")
+                mv = m.get("value", 0)
+                if mn in ("Wins", "wins", "numWins", "Games Won"):
+                    try: wins = float(mv)
+                    except (ValueError, TypeError): pass
+                elif mn in ("Losses", "losses", "numLosses", "Games Lost"):
+                    try: losses = float(mv)
+                    except (ValueError, TypeError): pass
+                elif mn in ("Battle Points", "battlePoints", "points"):
+                    try: bps = int(mv)
+                    except (ValueError, TypeError): pass
 
         # Lookup candidate IDs in existing or DB ratings
         candidate_ids = [
@@ -845,48 +862,48 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             player_dict = dict(cached)
             player_dict["placement"] = placing_num
             player_dict["official_placement"] = placing_num
-            player_dict["rank"] = placing_num or (idx + 1)
+            player_dict["rank"] = placing_num
             player_dict["player_id"] = str(cached.get("player_id") or pid)
             if db_rating:
                 player_dict["current_elo"] = float(db_rating.get("current_elo") or player_dict.get("current_elo") or 1500.0)
                 player_dict["peak_elo"] = float(db_rating.get("peak_elo") or player_dict.get("peak_elo") or 1500.0)
-            if not player_dict.get("full_name") or player_dict["full_name"] in ("Player", "Player 1", "Player 2"):
+
+            # Prioritize the fresh human-readable full_name directly from BCP event registration,
+            # while preserving the player_id / user_id identity for Elo tracking
+            if full_name and full_name not in ("Player", "Player 1", "Player 2"):
                 player_dict["full_name"] = full_name
-            if not player_dict.get("faction") or player_dict["faction"] == "Unknown":
-                player_dict["faction"] = faction_name if faction_name != "Unknown" else (db_rating.get("top_faction") if db_rating else "Unknown")
-            if not player_dict.get("team"):
-                player_dict["team"] = team_name or (db_rating.get("team") if db_rating else "")
+            elif not player_dict.get("full_name") or player_dict["full_name"] in ("Player", "Player 1", "Player 2"):
+                player_dict["full_name"] = (db_rating.get("player_name") if db_rating else "") or full_name or "Player"
+
+            if faction_name and faction_name != "Unknown":
+                player_dict["faction"] = faction_name
+            elif not player_dict.get("faction") or player_dict["faction"] == "Unknown":
+                player_dict["faction"] = (db_rating.get("top_faction") if db_rating else "Unknown") or "Unknown"
+
+            if team_name:
+                player_dict["team"] = team_name
+            elif not player_dict.get("team"):
+                player_dict["team"] = (db_rating.get("team") if db_rating else "")
+
             if p.get("podNum") is not None:
                 player_dict["pod_num"] = p.get("podNum")
             if p.get("dropped") is not None:
                 player_dict["dropped"] = bool(p.get("dropped"))
             if p.get("checkedIn") is not None:
                 player_dict["checked_in"] = bool(p.get("checkedIn"))
+
+            player_dict["event_wins"] = wins
+            player_dict["event_losses"] = losses
+            player_dict["event_draws"] = draws
+            player_dict["event_matches_count"] = int(wins + losses + draws)
+            player_dict["event_battle_points"] = bps or p.get("points") or 0
+
             player_dict["team_player_id"] = str(p.get("teamPlayerId") or p.get("team_player_id") or "")
             player_dict["teamPlayerId"] = player_dict["team_player_id"]
             player_dict["user_id"] = str(u.get("id") or p.get("userId") or "")
             player_dict["army_list"] = str(p.get("armyList") or p.get("army_list") or p.get("listUrl") or "")
             formatted.append(player_dict)
         else:
-            tot_metrics = p.get("total_metrics") or p.get("metrics") or []
-            wins = 0
-            losses = 0
-            draws = 0
-            bps = 0
-            for m in tot_metrics:
-                if isinstance(m, dict):
-                    mn = m.get("name")
-                    mv = m.get("value", 0)
-                    if mn in ("Wins", "wins", "numWins", "Games Won"):
-                        try: wins = float(mv)
-                        except (ValueError, TypeError): pass
-                    elif mn in ("Losses", "losses", "numLosses", "Games Lost"):
-                        try: losses = float(mv)
-                        except (ValueError, TypeError): pass
-                    elif mn in ("Battle Points", "battlePoints", "points"):
-                        try: bps = int(mv)
-                        except (ValueError, TypeError): pass
-
             current_elo = float(db_rating.get("current_elo") or 1500.0) if db_rating else 1500.0
             peak_elo = float(db_rating.get("peak_elo") or 1500.0) if db_rating else 1500.0
             resolved_fac = faction_name if faction_name != "Unknown" else (db_rating.get("top_faction") if db_rating else "Unknown")
@@ -906,7 +923,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 "team": resolved_team,
                 "placement": placing_num,
                 "official_placement": placing_num,
-                "rank": placing_num or (idx + 1),
+                "rank": placing_num,
                 "pod_num": p.get("podNum") or p.get("pod_num"),
                 "event_wins": wins,
                 "event_losses": losses,
@@ -928,7 +945,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
     else:
         formatted.sort(key=lambda x: (x.get("placement") or 999999, -float(x.get("current_elo") or 1500.0)))
         for rank_idx, p in enumerate(formatted, 1):
-            p["rank"] = p.get("placement") or rank_idx
+            p["rank"] = p.get("placement") or None
 
     return formatted
 

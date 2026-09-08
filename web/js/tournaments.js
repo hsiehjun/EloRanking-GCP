@@ -1072,9 +1072,10 @@ function renderEventResultsRows() {
 
   if (sortCfg.field === 'placement' || sortCfg.field === 'rank') {
     eventPlayersCache.sort((a, b) => {
-      const plA = (a.placement && a.placement > 0) ? a.placement : (a.rank || 999999);
-      const plB = (b.placement && b.placement > 0) ? b.placement : (b.rank || 999999);
-      return sortCfg.asc ? (plA - plB) : (plB - plA);
+      const plA = (a.placement && a.placement > 0) ? a.placement : 999999;
+      const plB = (b.placement && b.placement > 0) ? b.placement : 999999;
+      if (plA !== plB) return sortCfg.asc ? (plA - plB) : (plB - plA);
+      return (Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
     });
   } else if (sortCfg.field === 'current_elo') {
     eventPlayersCache.sort((a, b) => {
@@ -1131,14 +1132,22 @@ function renderEventResultsRows() {
     const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
     const drawStr = p.event_draws ? ` - ${p.event_draws}D` : '';
 
-    const rankDisplay = (p.placement && p.placement > 0)
+    const hasPlacement = Boolean(p.placement && p.placement > 0);
+    const hasMatchesPlayed = Boolean((p.event_matches_count && p.event_matches_count > 0) || hasPlacement);
+
+    const rankDisplay = hasPlacement
       ? `#${p.placement}`
-      : (isStarted ? `#${p.rank || (idx + 1)}` : `#${p.rank || (idx + 1)} Seed`);
+      : (isStarted ? (p.rank && p.rank > 0 && hasMatchesPlayed ? `#${p.rank}` : '-') : `#${p.rank || (idx + 1)} Seed`);
 
     const recordDisplay = isStarted
-      ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
-          ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
-        </td>`
+      ? (hasMatchesPlayed
+          ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
+              ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
+            </td>`
+          : `<td>
+              <span style="color:var(--text-muted); font-size:0.85rem;">${p.dropped ? '🚫 Dropped' : (p.checked_in ? '📋 0 Matches' : '⚠️ Not Checked In')}</span>
+            </td>`
+        )
       : `<td>
           ${p.checked_in
             ? '<span style="color:var(--win); font-weight:600; font-size:0.85rem;">✅ Checked In</span>'
@@ -1147,9 +1156,12 @@ function renderEventResultsRows() {
         </td>`;
 
     const pointsDisplay = isStarted
-      ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
-          ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
-        </td>`
+      ? (hasMatchesPlayed
+          ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
+              ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
+            </td>`
+          : `<td style="color:var(--text-muted); font-family:var(--font-mono);">-</td>`
+        )
       : `<td style="color:var(--text-muted); font-family:var(--font-mono);">-</td>`;
 
     tr.innerHTML = `

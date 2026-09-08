@@ -916,6 +916,97 @@ def test_predictor_head_to_head_event_modal_link():
 
     print("✅ test_predictor_head_to_head_event_modal_link passed!")
 
+def test_format_bcp_roster_unplaced_competitors_and_bcp_name_priority():
+    """Verify format_bcp_roster_to_players prioritizes BCP human-readable names and leaves unplaced competitors without artificial placement collisions."""
+    from routers.leaderboard import format_bcp_roster_to_players
+
+    raw_players = [
+        {
+            "id": "twitty_bcp_id",
+            "userId": "twitty_user_id",
+            "user": {"id": "twitty_user_id", "firstName": "Daniel", "lastName": "Twitty"},
+            "placing": 26,
+            "checkedIn": True,
+            "metrics": [{"name": "Wins", "value": 3}, {"name": "Losses", "value": 2}, {"name": "Battle Points", "value": 350}]
+        },
+        {
+            "id": "wilson_bcp_id",
+            "userId": "wilson_user_id",
+            "user": {"id": "wilson_user_id", "firstName": "Joshua", "lastName": "Wilson"},
+            "placing": None,
+            "checkedIn": False,
+            "dropped": False,
+            "metrics": []
+        },
+        {
+            "id": "work_bcp_id",
+            "userId": "work_user_id",
+            "user": {"id": "work_user_id", "firstName": "John", "lastName": "Work"},
+            "placing": 5,
+            "checkedIn": True,
+            "metrics": [{"name": "Wins", "value": 5}, {"name": "Losses", "value": 0}, {"name": "Battle Points", "value": 500}]
+        }
+    ]
+
+    existing_players = [
+        {
+            "player_id": "canonical_db_work_id",
+            "user_id": "work_user_id",
+            "full_name": "J W",  # Stale abbreviated name in DB
+            "current_elo": 1820.0,
+            "peak_elo": 1850.0
+        }
+    ]
+
+    mock_db = MagicMock()
+    mock_db.get_player_ratings_by_ids.return_value = {
+        "work_user_id": {"current_elo": 1820.0, "peak_elo": 1850.0, "player_name": "J W"}
+    }
+
+    with patch("routers.leaderboard.get_database", return_value=mock_db):
+        formatted = format_bcp_roster_to_players(raw_players, existing_players)
+
+    # Verify 3 formatted players
+    assert len(formatted) == 3
+
+    # Check John Work
+    work = next(p for p in formatted if p["user_id"] == "work_user_id")
+    assert work["full_name"] == "John Work"  # Fresh name from BCP takes priority over "J W"
+    assert work["player_id"] == "canonical_db_work_id"  # Preserved player_id for Elo
+    assert work["placement"] == 5
+    assert work["rank"] == 5
+
+    # Check Daniel Twitty
+    twitty = next(p for p in formatted if p["user_id"] == "twitty_user_id")
+    assert twitty["full_name"] == "Daniel Twitty"
+    assert twitty["placement"] == 26
+    assert twitty["rank"] == 26
+
+    # Check Joshua Wilson
+    wilson = next(p for p in formatted if p["user_id"] == "wilson_user_id")
+    assert wilson["full_name"] == "Joshua Wilson"
+    assert wilson["placement"] is None  # Must NOT collide or be assigned idx + 1
+    assert wilson["rank"] is None
+    assert wilson["checked_in"] is False
+
+    # Placed players should be at the top, unplaced at the bottom
+    assert formatted[-1]["user_id"] == "wilson_user_id"
+
+    print("✅ test_format_bcp_roster_unplaced_competitors_and_bcp_name_priority passed!")
+
+def test_tournaments_js_unplaced_competitors_rendering():
+    """Verify tournaments.js and bundle handle unplaced competitors with hyphen rank, no 0-0 record, and no 0 pts."""
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+
+    assert "⚠️ Not Checked In" in tournaments_js
+    assert "🚫 Dropped" in tournaments_js
+    assert "📋 0 Matches" in tournaments_js
+    assert "Not Checked In" in bundle_js
+    assert "0 Matches" in bundle_js
+
+    print("✅ test_tournaments_js_unplaced_competitors_rendering passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -940,6 +1031,9 @@ if __name__ == "__main__":
     test_bcp_adapter_submit_pairing_scores_guards_and_payload()
     test_event_modal_subtabs_hidden_on_mobile_and_desktop()
     test_predictor_head_to_head_event_modal_link()
+    test_format_bcp_roster_unplaced_competitors_and_bcp_name_priority()
+    test_tournaments_js_unplaced_competitors_rendering()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
+
 
 

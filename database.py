@@ -1671,7 +1671,7 @@ class PostgresDatabase:
                 cursor.execute("""
                 SELECT 
                     ep.player_id, 
-                    COALESCE(pr.player_name, ep.full_name, 'Player') as full_name,
+                    COALESCE(NULLIF(TRIM(ep.full_name), ''), pr.player_name, 'Player') as full_name,
                     COALESCE(ep.faction, pr.top_faction, 'Unknown') as faction,
                     COALESCE(ep.team, pr.team, '') as team,
                     ep.dropped, ep.checked_in,
