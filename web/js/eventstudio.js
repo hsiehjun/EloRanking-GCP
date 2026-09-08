@@ -40,6 +40,7 @@ async function initStudio() {
 
   if (canAccessTO) {
     await loadStudioEvents();
+    startStudioPolling();
   }
 }
 
@@ -338,6 +339,164 @@ async function refreshTournamentWorkspace(btn) {
   }
 }
 
+let studioPollTimer = null;
+let studioIsPolling = false;
+
+function flashLiveSyncIndicator() {
+  const dots = document.querySelectorAll("#studio-live-sync-dot");
+  dots.forEach(dot => {
+    dot.style.transform = "scale(1.4)";
+    dot.style.background = "#34d399";
+    dot.style.boxShadow = "0 0 10px #34d399";
+    setTimeout(() => {
+      dot.style.transform = "scale(1)";
+      dot.style.background = "#10b981";
+      dot.style.boxShadow = "0 0 6px #10b981";
+    }, 600);
+  });
+}
+
+async function pollTournamentWorkspaceQuietly(eventId) {
+  if (studioIsPolling || !eventId) return;
+  studioIsPolling = true;
+  try {
+    const res = await window.api.getStudioEvent(eventId);
+    const ev = (res && res.event) ? res.event : res;
+    if (!ev || !ev.id || ev.id !== studioState.activeTournament?.id) return;
+
+    flashLiveSyncIndicator();
+    studioState.activeTournament = ev;
+
+    // Header updates
+    const nameEl = document.getElementById("manage-event-name");
+    const dateEl = document.getElementById("manage-event-date");
+    const locEl = document.getElementById("manage-event-location");
+    const roundsPtsEl = document.getElementById("manage-event-rounds-pts");
+    const rosterCountEl = document.getElementById("manage-roster-count");
+
+    if (nameEl && ev.name) nameEl.textContent = ev.name;
+    const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
+    const locStr = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
+    const rounds = ev.num_rounds || ev.rounds || 5;
+    const pts = ev.points || 2000;
+    if (dateEl) dateEl.textContent = dateStr;
+    if (locEl) locEl.textContent = locStr;
+    if (roundsPtsEl) roundsPtsEl.textContent = `${rounds} Rounds (${pts} pts)`;
+
+    const roster = ev.roster || [];
+    if (rosterCountEl) rosterCountEl.textContent = roster.length;
+
+    // Lifecycle badge
+    const isEnded = Boolean(ev.is_ended || ev.isEnded);
+    const isStarted = Boolean(ev.started || (ev.status === "active") || (ev.current_round && ev.current_round > 1));
+    const statusBadges = document.querySelectorAll("#manage-event-status-badge");
+    statusBadges.forEach(badge => {
+      badge.style.display = "inline-block";
+      if (isEnded) {
+        badge.className = "badge";
+        badge.style.background = "rgba(239, 68, 68, 0.15)";
+        badge.style.color = "#f87171";
+        badge.style.borderColor = "rgba(239, 68, 68, 0.35)";
+        badge.textContent = "🔴 CONCLUDED";
+      } else if (isStarted) {
+        badge.className = "badge badge-online";
+        badge.style.background = "";
+        badge.style.color = "";
+        badge.style.borderColor = "";
+        badge.textContent = `🟢 IN PROGRESS • ROUND ${ev.current_round || 1}`;
+      } else {
+        badge.className = "badge";
+        badge.style.background = "rgba(234, 179, 8, 0.15)";
+        badge.style.color = "#facc15";
+        badge.style.borderColor = "rgba(234, 179, 8, 0.35)";
+        badge.textContent = "🟡 REGISTRATION OPEN";
+      }
+    });
+
+    const startBtns = document.querySelectorAll("#manage-event-start-btn");
+    startBtns.forEach(btn => {
+      btn.style.display = (!isStarted && !isEnded) ? "inline-flex" : "none";
+    });
+
+    // Guard against interrupting active typing or modals
+    const activeEl = document.activeElement;
+    const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+    const hasOpenModal = Boolean(document.querySelector('.modal.active, .modal[style*="display: flex"], .modal[style*="display: block"]'));
+
+    if (!hasOpenModal) {
+      if (studioState.activeSubtab === "roster") {
+        if (!isInputFocused || activeEl.id !== "roster-search-input") {
+          const searchInp = document.getElementById("roster-search-input");
+          const prevSearch = searchInp ? searchInp.value : "";
+          renderRosterSubtab();
+          if (prevSearch && searchInp) {
+            searchInp.value = prevSearch;
+            if (typeof filterRosterTable === 'function') filterRosterTable();
+          }
+        }
+      } else if (studioState.activeSubtab === "pairings") {
+        if (!isInputFocused) {
+          renderPairingsSubtab();
+        }
+      } else if (studioState.activeSubtab === "standings") {
+        renderStandingsSubtab();
+      } else if (studioState.activeSubtab === "meta") {
+        renderMetaSubtab();
+      }
+    }
+  } catch (err) {
+    console.debug("Notice during quiet workspace poll:", err);
+  } finally {
+    studioIsPolling = false;
+  }
+}
+
+async function pollStudioEventsQuietly() {
+  const user = (typeof currentUser !== 'undefined') ? currentUser : null;
+  const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
+  if (!isTO) return;
+  try {
+    const res = await window.api.getStudioEvents();
+    if (res && Array.isArray(res.events)) {
+      studioState.eventsList = res.events;
+      const countEls = document.querySelectorAll("#es-events-count");
+      countEls.forEach(el => { el.textContent = studioState.eventsList.length; });
+      renderEventsDirectory();
+    }
+  } catch (e) {
+    console.debug("Notice during quiet events poll:", e);
+  }
+}
+
+function startStudioPolling() {
+  stopStudioPolling();
+  studioPollTimer = setInterval(async () => {
+    if (document.hidden) return;
+    if (studioState.activeTab === "manage" && studioState.activeTournament?.id) {
+      await pollTournamentWorkspaceQuietly(studioState.activeTournament.id);
+    } else if (studioState.activeTab === "events") {
+      await pollStudioEventsQuietly();
+    }
+  }, 10000);
+}
+
+function stopStudioPolling() {
+  if (studioPollTimer) {
+    clearInterval(studioPollTimer);
+    studioPollTimer = null;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && studioState.activeTab === "manage" && studioState.activeTournament?.id) {
+    pollTournamentWorkspaceQuietly(studioState.activeTournament.id);
+  }
+});
+
+window.addEventListener("beforeunload", () => {
+  stopStudioPolling();
+});
+
 async function loadStudioEvents() {
   const user = (typeof currentUser !== 'undefined') ? currentUser : null;
   const isTO = Boolean(user && typeof isUserTO === 'function' && isUserTO(user));
@@ -381,12 +540,16 @@ function switchStudioTab(tabName, eventId = null) {
   if (studioState.activeTab === "events") {
     renderEventsDirectory();
     loadStudioEvents(); // Background refresh so latest BCP changes appear without manual reload
+    startStudioPolling();
   } else if (studioState.activeTab === "create") {
     if (typeof initGooglePlaces === 'function') {
       setTimeout(initGooglePlaces, 50);
     }
-  } else if (studioState.activeTab === "manage" && eventId) {
-    loadTournamentWorkspace(eventId);
+  } else if (studioState.activeTab === "manage") {
+    if (eventId) {
+      loadTournamentWorkspace(eventId);
+    }
+    startStudioPolling();
   }
 }
 
@@ -1229,8 +1392,16 @@ async function saveTableScore(tableNum) {
         pairing_id: pid,
         p1_name: match ? (match.p1_name || match.player1_name) : 'Player 1',
         p2_name: match ? (match.p2_name || match.player2_name) : 'Player 2',
+        game_details: {
+          p1_game_id: match ? (match.player1GameId || match.p1_game_id) : null,
+          p2_game_id: match ? (match.player2GameId || match.p2_game_id) : null,
+          metaData: match ? (match.metaData || {}) : {}
+        },
         source_app: 'EventStudio'
       });
+      if (typeof pollTournamentWorkspaceQuietly === 'function') {
+        pollTournamentWorkspaceQuietly(ev.id);
+      }
       if (res && res.bcp_synced) {
         alert(`Table ${tableNum} score successfully submitted to Best Coast Pairings!`);
       } else if (res && res.bcp_notice) {
@@ -1243,6 +1414,9 @@ async function saveTableScore(tableNum) {
         round: currentRound,
         pairings: roundPairings
       });
+      if (typeof pollTournamentWorkspaceQuietly === 'function') {
+        pollTournamentWorkspaceQuietly(ev.id);
+      }
       alert(`Table ${tableNum} score saved!`);
     }
   } catch (err) {
@@ -2388,6 +2562,10 @@ window.toggleCreateRegMode = toggleCreateRegMode;
 window.toggleSettingsRegMode = toggleSettingsRegMode;
 window.renderSettingsSubtab = renderSettingsSubtab;
 window.saveTournamentSettings = saveTournamentSettings;
+window.startStudioPolling = startStudioPolling;
+window.stopStudioPolling = stopStudioPolling;
+window.pollTournamentWorkspaceQuietly = pollTournamentWorkspaceQuietly;
+window.flashLiveSyncIndicator = flashLiveSyncIndicator;
 
 function toggleTeamOptions(context) {
   const typeEl = document.getElementById(`${context}-event-type`);

@@ -791,6 +791,17 @@ class BcpAdapter:
         if not resolved_winner and game_data and isinstance(game_data, dict):
             resolved_winner = game_data.get("winner_id") or game_data.get("winnerId")
 
+        meta = {
+            "p1-gamePoints": str(p1_score),
+            "p2-gamePoints": str(p2_score),
+            "p1-gameResult": str(p1_res),
+            "p2-gameResult": str(p2_res),
+            "p1-marginOfVictory": int(p1_score - p2_score),
+            "p2-marginOfVictory": int(p2_score - p1_score)
+        }
+        if isinstance(game_data, dict) and isinstance(game_data.get("metaData"), dict):
+            meta.update(game_data["metaData"])
+
         payload: Dict[str, Any] = {
             "pairingType": "Pairing",
             "isDone": True,
@@ -808,6 +819,7 @@ class BcpAdapter:
                 "points": int(p2_score),
                 "result": p2_res
             },
+            "metaData": meta,
             "gameData": {
                 "isDone": True,
                 "player1Score": int(p1_score),
@@ -824,9 +836,23 @@ class BcpAdapter:
                     "points": int(p2_score),
                     "result": p2_res
                 },
+                "metaData": meta,
                 "metrics": []
             }
         }
+
+        p1_gid = game_data.get("p1_game_id") or game_data.get("player1GameId") if isinstance(game_data, dict) else None
+        p2_gid = game_data.get("p2_game_id") or game_data.get("player2GameId") if isinstance(game_data, dict) else None
+
+        if p1_gid:
+            payload["player1GameId"] = str(p1_gid)
+            payload["player1Game"]["id"] = str(p1_gid)
+            payload["gameData"]["player1Game"]["id"] = str(p1_gid)
+        if p2_gid:
+            payload["player2GameId"] = str(p2_gid)
+            payload["player2Game"]["id"] = str(p2_gid)
+            payload["gameData"]["player2Game"]["id"] = str(p2_gid)
+
         if resolved_winner:
             payload["winnerId"] = str(resolved_winner)
             payload["gameData"]["winnerId"] = str(resolved_winner)

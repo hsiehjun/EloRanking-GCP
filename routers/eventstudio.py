@@ -235,17 +235,45 @@ def _normalize_bcp_pairing(
 
     p1_game = pairing.get("player1Game") or {}
     p2_game = pairing.get("player2Game") or {}
+    meta = pairing.get("metaData") or {}
 
-    p1_score = p1_game.get("points") if p1_game.get("points") is not None else pairing.get("p1_score", 0)
-    p2_score = p2_game.get("points") if p2_game.get("points") is not None else pairing.get("p2_score", 0)
+    p1_score = None
+    if p1_game.get("points") is not None:
+        p1_score = p1_game.get("points")
+    elif meta.get("p1-gamePoints") is not None:
+        try: p1_score = int(meta.get("p1-gamePoints"))
+        except Exception: pass
+    elif pairing.get("player1Score") is not None:
+        p1_score = pairing.get("player1Score")
+    elif pairing.get("p1_score") is not None:
+        p1_score = pairing.get("p1_score")
+    if p1_score is None:
+        p1_score = 0
+
+    p2_score = None
+    if p2_game.get("points") is not None:
+        p2_score = p2_game.get("points")
+    elif meta.get("p2-gamePoints") is not None:
+        try: p2_score = int(meta.get("p2-gamePoints"))
+        except Exception: pass
+    elif pairing.get("player2Score") is not None:
+        p2_score = pairing.get("player2Score")
+    elif pairing.get("p2_score") is not None:
+        p2_score = pairing.get("p2_score")
+    if p2_score is None:
+        p2_score = 0
 
     is_bye = bool(pairing.get("isBye") or not p2_id or p2_name == "BYE" or not p2_obj)
-    is_done = bool(pairing.get("isDone", False) or (p1_game.get("points") is not None and p2_game.get("points") is not None and not is_bye))
+    has_meta_scores = bool(meta.get("p1-gamePoints") is not None and meta.get("p2-gamePoints") is not None)
+    is_done = bool(pairing.get("isDone", False) or has_meta_scores or (p1_game.get("points") is not None and p2_game.get("points") is not None and not is_bye))
 
     res = dict(pairing)
     res.update({
         "id": str(pairing.get("id") or f"bcp-pairing-{table_num}"),
         "table": table_num,
+        "player1GameId": pairing.get("player1GameId") or (p1_game.get("id") if isinstance(p1_game, dict) else None),
+        "player2GameId": pairing.get("player2GameId") or (p2_game.get("id") if isinstance(p2_game, dict) else None),
+        "metaData": meta,
         "p1_id": p1_id,
         "p1_name": p1_name,
         "p1_faction": str(p1_fac or "Unassigned"),
@@ -268,6 +296,78 @@ def _normalize_bcp_pairing(
     })
     return res
 
+def _resolve_canonical_event_id(
+    raw_event_id: str,
+    user: Optional[Dict[str, Any]] = None,
+    explicit_token: Optional[str] = None
+) -> str:
+    """
+    BCP event IDs are case-sensitive (e.g. PQa9c4QnLmcF vs PQa9c4QnLmcf).
+    If a direct BCP fetch fails with 404, check:
+    1. Local database for known events matching case-insensitively.
+    2. Organizer's active BCP events list matching case-insensitively.
+    Returns canonical event ID if found, otherwise returns original raw_event_id.
+    """
+    if not raw_event_id or raw_event_id.startswith("ES-"):
+        return raw_event_id
+
+    clean_target = str(raw_event_id).strip()
+    target_lower = clean_target.lower()
+
+    # 1. Check local DB case-insensitively
+    try:
+        db = get_database()
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id FROM tournaments WHERE LOWER(id) = %s OR LOWER(id) = %s LIMIT 1;", 
+                    (target_lower, f"event/{target_lower}")
+                )
+                row = cur.fetchone()
+                if row and row[0]:
+                    clean = str(row[0]).replace("event/", "").strip()
+                    if clean and clean.lower() == target_lower:
+                        return clean
+                cur.execute(
+                    "SELECT id FROM studio_events WHERE LOWER(id) = %s LIMIT 1;", 
+                    (target_lower,)
+                )
+                srow = cur.fetchone()
+                if srow and srow[0]:
+                    clean = str(srow[0]).replace("event/", "").strip()
+                    if clean and clean.lower() == target_lower:
+                        return clean
+    except Exception as e:
+        logger.debug(f"Notice resolving canonical event ID from DB: {e}")
+
+    # 2. Check organizer's active BCP events list
+    try:
+        tok = explicit_token
+        if not tok and user and user.get("id"):
+            try:
+                from core import get_auth_manager
+                auth_mgr = get_auth_manager()
+                tok_dict = auth_mgr.get_valid_bcp_tokens(user["id"])
+                tok = tok_dict.get("id_token") or tok_dict.get("access_token")
+            except Exception:
+                pass
+
+        if tok:
+            url = f"{BCP_API_BASE}/events?limit=100&toEvents=true"
+            data, _ = bcp_adapter.execute_call(url, method="GET", explicit_token=tok)
+            if isinstance(data, dict):
+                data = data.get("data") or data.get("events") or []
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, dict):
+                        iid = str(item.get("id") or "").strip()
+                        if iid.lower() == target_lower:
+                            return iid
+    except Exception as e:
+        logger.debug(f"Notice resolving canonical event ID from BCP organizer events: {e}")
+
+    return raw_event_id
+
 def _fetch_bcp_event_workspace(
     event_id: str,
     user: Optional[Dict[str, Any]] = None,
@@ -279,11 +379,24 @@ def _fetch_bcp_event_workspace(
     """
     try:
         from scraper import BestCoastPairingsScraper
-        db = get_database()
+        db = None
+        try:
+            db = get_database()
+        except Exception:
+            pass
         scraper = BestCoastPairingsScraper(db=db)
-        bcp_event = scraper.fetch_event_details(event_id)
+
+        canonical_id = event_id
+        bcp_event = scraper.fetch_event_details(canonical_id)
+        if not bcp_event or not isinstance(bcp_event, dict):
+            resolved_id = _resolve_canonical_event_id(canonical_id, user=user, explicit_token=explicit_token)
+            if resolved_id != canonical_id:
+                canonical_id = resolved_id
+                bcp_event = scraper.fetch_event_details(canonical_id)
         if not bcp_event or not isinstance(bcp_event, dict):
             return None
+
+        event_id = canonical_id
 
         loc = bcp_event.get("location") if isinstance(bcp_event.get("location"), dict) else {}
         raw_rounds = bcp_event.get("numberOfRounds") or bcp_event.get("numRounds") or 5
@@ -2630,10 +2743,17 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     p2_name = payload.p2_name or "Player 2"
     p1_fac = (payload.game_details or {}).get("p1_faction") or ""
     p2_fac = (payload.game_details or {}).get("p2_faction") or ""
+    p1_gid = None
+    p2_gid = None
+    if isinstance(payload.game_details, dict):
+        p1_gid = payload.game_details.get("p1_game_id") or payload.game_details.get("player1GameId")
+        p2_gid = payload.game_details.get("p2_game_id") or payload.game_details.get("player2GameId")
 
     if not bcp_pairing_id and not payload.event_id.startswith("ES-"):
+        canonical_event_id = _resolve_canonical_event_id(payload.event_id, user=user, explicit_token=bcp_token)
         try:
-            _, _, p_list = bcp_adapter.fetch_event_pairings(payload.event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
+            res_p = bcp_adapter.fetch_event_pairings(canonical_event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
+            p_list = res_p[2] if isinstance(res_p, tuple) and len(res_p) >= 3 else (res_p if isinstance(res_p, list) else [])
             for p in p_list:
                 if p.get("table") == table_val or str(p.get("table")) == str(table_val):
                     bcp_pairing_id = p.get("id") or p.get("bcp_pairing_id")
@@ -2647,6 +2767,10 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
                     p2_name = payload.p2_name or p2_obj.get("name") or "Player 2"
                     p1_fac = p1_fac or p1_obj.get("faction") or ""
                     p2_fac = p2_fac or p2_obj.get("faction") or ""
+                    p1_g = p.get("player1Game") or {}
+                    p2_g = p.get("player2Game") or {}
+                    p1_gid = p1_gid or p.get("player1GameId") or (p1_g.get("id") if isinstance(p1_g, dict) else None)
+                    p2_gid = p2_gid or p.get("player2GameId") or (p2_g.get("id") if isinstance(p2_g, dict) else None)
                     break
         except Exception as pe:
             logger.warning(f"Notice resolving live BCP pairing ID for table {table_val}: {pe}")
@@ -2737,6 +2861,10 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         submit_game_data = dict(payload.game_details or {})
         if winner_id and "winner_id" not in submit_game_data:
             submit_game_data["winner_id"] = str(winner_id)
+        if p1_gid and "p1_game_id" not in submit_game_data:
+            submit_game_data["p1_game_id"] = str(p1_gid)
+        if p2_gid and "p2_game_id" not in submit_game_data:
+            submit_game_data["p2_game_id"] = str(p2_gid)
         bcp_synced, bcp_err = bcp_adapter.submit_pairing_scores(
             pairing_id=bcp_pairing_id,
             p1_score=payload.p1_score,

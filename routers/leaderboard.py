@@ -1292,8 +1292,15 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
                             p1_game = p.get("player1Game") or {}
                             p2_game = p.get("player2Game") or {}
+                            meta_p = p.get("metaData") or {}
                             p1_score = p1_game.get("points") if p1_game.get("points") is not None else p.get("player1Score")
+                            if p1_score is None and meta_p.get("p1-gamePoints") is not None:
+                                try: p1_score = int(meta_p.get("p1-gamePoints"))
+                                except Exception: pass
                             p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
+                            if p2_score is None and meta_p.get("p2-gamePoints") is not None:
+                                try: p2_score = int(meta_p.get("p2-gamePoints"))
+                                except Exception: pass
 
                             # Seamlessly merge scores from local match or tracker game if BCP hasn't synced points yet
                             if p1_score is None:

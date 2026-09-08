@@ -28,7 +28,13 @@ class BestCoastPairingsScraper:
     """Scrapes tournaments, player rosters, and round-by-round pairings from Best Coast Pairings."""
 
     def __init__(self, db: Optional[Database] = None, request_delay: float = 0.5):
-        self.db = db or get_db()
+        if db is not None:
+            self.db = db
+        else:
+            try:
+                self.db = get_db()
+            except Exception:
+                self.db = None
         self.headers = DEFAULT_HEADERS.copy()
         self.request_delay = request_delay
 
@@ -577,12 +583,27 @@ class BestCoastPairingsScraper:
         # Scores and results
         p1_game = pairing.get("player1Game") or {}
         p2_game = pairing.get("player2Game") or {}
+        meta = pairing.get("metaData") or {}
 
         p1_score = p1_game.get("points")
+        if p1_score is None and meta.get("p1-gamePoints") is not None:
+            try: p1_score = int(meta.get("p1-gamePoints"))
+            except Exception: pass
+
         p2_score = p2_game.get("points")
+        if p2_score is None and meta.get("p2-gamePoints") is not None:
+            try: p2_score = int(meta.get("p2-gamePoints"))
+            except Exception: pass
 
         p1_result = p1_game.get("result")  # 2: Win, 0: Loss, 1: Draw
+        if p1_result is None and meta.get("p1-gameResult") is not None:
+            try: p1_result = int(meta.get("p1-gameResult"))
+            except Exception: pass
+
         p2_result = p2_game.get("result")
+        if p2_result is None and meta.get("p2-gameResult") is not None:
+            try: p2_result = int(meta.get("p2-gameResult"))
+            except Exception: pass
 
         is_done = bool(pairing.get("isDone", True))
         has_scores = p1_score is not None and p2_score is not None

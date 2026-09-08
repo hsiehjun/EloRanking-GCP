@@ -1326,6 +1326,124 @@ def test_tournament_registration_mobile_styles_and_attributes():
 
     print("✅ test_tournament_registration_mobile_styles_and_attributes passed!")
 
+def test_eventstudio_bcp_case_healing_and_canonical_resolution():
+    """Verify case-healing resolves BCP event IDs with mismatched casing."""
+    from routers.eventstudio import _resolve_canonical_event_id, _fetch_bcp_event_workspace
+    from bcp_adapter import BcpAdapter
+    from scraper import BestCoastPairingsScraper
+
+    # Mock organizer events with canonical casing
+    mock_bcp_events = [
+        {"id": "PQa9c4QnLmcF", "name": "Hsiehjun", "totalPlayers": 2}
+    ]
+    with patch.object(BcpAdapter, "execute_call", return_value=(mock_bcp_events, None)):
+        canonical = _resolve_canonical_event_id("PQa9c4QnLmcf", explicit_token="dummy_token")
+        assert canonical == "PQa9c4QnLmcF", f"Expected PQa9c4QnLmcF, got {canonical}"
+
+    # Test _fetch_bcp_event_workspace heals casing on 404
+    def mock_fetch_details(eid):
+        if eid == "PQa9c4QnLmcF":
+            return {"id": "PQa9c4QnLmcF", "name": "Hsiehjun", "totalPlayers": 2, "numberOfRounds": 3}
+        return None
+
+    with patch.object(BestCoastPairingsScraper, "fetch_event_details", side_effect=mock_fetch_details), \
+         patch.object(BestCoastPairingsScraper, "fetch_event_players", return_value=[{"id": "p1", "name": "Alice"}, {"id": "p2", "name": "Bob"}]), \
+         patch("routers.eventstudio._resolve_canonical_event_id", return_value="PQa9c4QnLmcF"):
+        ws = _fetch_bcp_event_workspace("PQa9c4QnLmcf", explicit_token="dummy_token")
+        assert ws is not None
+        assert ws["id"] == "PQa9c4QnLmcF"
+        assert ws["name"] == "Hsiehjun"
+        assert len(ws["roster"]) == 2
+
+    print("✅ test_eventstudio_bcp_case_healing_and_canonical_resolution passed!")
+
+def test_bcp_metadata_scores_and_payload_wiring():
+    """Verify pairing normalization extracts metaData scores and submit_pairing_scores includes metaData."""
+    from routers.eventstudio import _normalize_bcp_pairing
+    from bcp_adapter import BcpAdapter
+
+    # Normalization fallback to metaData
+    raw_pairing = {
+        "id": "tS6xZ5SoIjgr",
+        "table": 1,
+        "player1Id": "H3LVYHvSuwOD",
+        "player2Id": "SSR4aLbSI3fS",
+        "player1": {"id": "H3LVYHvSuwOD", "name": "John4 Hsieh4"},
+        "player2": {"id": "SSR4aLbSI3fS", "name": "John3 Hsieh3"},
+        "player1GameId": "JooLPYpKNqg4",
+        "player2GameId": "P6P6fDC5Nytj",
+        "player1Game": {"id": "JooLPYpKNqg4", "points": None},
+        "player2Game": {"id": "P6P6fDC5Nytj", "points": None},
+        "metaData": {
+            "p1-gamePoints": "32",
+            "p2-gamePoints": "48",
+            "p1-gameResult": "0",
+            "p2-gameResult": "2"
+        }
+    }
+    norm = _normalize_bcp_pairing(raw_pairing)
+    assert norm["p1_score"] == 32
+    assert norm["p2_score"] == 48
+    assert norm["is_done"] is True
+    assert norm["player1GameId"] == "JooLPYpKNqg4"
+    assert norm["player2GameId"] == "P6P6fDC5Nytj"
+
+    # submit_pairing_scores payload verification
+    with patch.object(BcpAdapter, "execute_call", return_value=({"success": True}, None)) as mock_call:
+        ok, err = BcpAdapter.submit_pairing_scores(
+            pairing_id="tS6xZ5SoIjgr",
+            p1_score=32,
+            p2_score=48,
+            game_data={
+                "player1GameId": "JooLPYpKNqg4",
+                "player2GameId": "P6P6fDC5Nytj"
+            }
+        )
+        assert ok is True
+        mock_call.assert_called_once()
+        payload = mock_call.call_args[1]["json_data"]
+        assert payload["player1Score"] == 32
+        assert payload["player2Score"] == 48
+        assert payload["player1GameId"] == "JooLPYpKNqg4"
+        assert payload["player2GameId"] == "P6P6fDC5Nytj"
+        assert payload["metaData"]["p1-gamePoints"] == "32"
+        assert payload["metaData"]["p2-gamePoints"] == "48"
+        assert payload["metaData"]["p1-gameResult"] == "0"
+        assert payload["metaData"]["p2-gameResult"] == "2"
+        assert payload["metaData"]["p1-marginOfVictory"] == -16
+        assert payload["metaData"]["p2-marginOfVictory"] == 16
+
+    print("✅ test_bcp_metadata_scores_and_payload_wiring passed!")
+
+def test_eventstudio_quiet_polling_and_live_sync_ui():
+    """Verify live polling functions and sync indicator are present in code and bundle."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+
+    # Check web/js/eventstudio.js
+    es_js = (root / "web" / "js" / "eventstudio.js").read_text()
+    assert "startStudioPolling" in es_js
+    assert "stopStudioPolling" in es_js
+    assert "pollTournamentWorkspaceQuietly" in es_js
+    assert "flashLiveSyncIndicator" in es_js
+    assert "window.startStudioPolling = startStudioPolling" in es_js
+    assert "pollStudioEventsQuietly" in es_js
+
+    # Check web/app.html & web/eventstudio.html
+    app_html = (root / "web" / "app.html").read_text()
+    es_html = (root / "web" / "eventstudio.html").read_text()
+    assert 'id="studio-live-sync-indicator"' in app_html
+    assert 'id="studio-live-sync-dot"' in app_html
+    assert 'id="studio-live-sync-indicator"' in es_html
+    assert 'id="studio-live-sync-dot"' in es_html
+
+    # Check app.bundle.min.js
+    bundle_js = (root / "web" / "js" / "app.bundle.min.js").read_text()
+    assert "startStudioPolling" in bundle_js
+    assert "pollTournamentWorkspaceQuietly" in bundle_js
+
+    print("✅ test_eventstudio_quiet_polling_and_live_sync_ui passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1358,6 +1476,9 @@ if __name__ == "__main__":
     test_eventstudio_submit_score_saves_to_db_and_tracker_game()
     test_spectate_tournament_tracker_and_pairings_button()
     test_tournament_registration_mobile_styles_and_attributes()
+    test_eventstudio_bcp_case_healing_and_canonical_resolution()
+    test_bcp_metadata_scores_and_payload_wiring()
+    test_eventstudio_quiet_polling_and_live_sync_ui()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 
 

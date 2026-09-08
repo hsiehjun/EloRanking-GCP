@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=e78cbe1ebd">
-  <link rel="stylesheet" href="/css/styles.css?v=e78cbe1ebd">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=e78cbe1ebd">
+  <link rel="stylesheet" href="/css/theme.css?v=b190e243ea">
+  <link rel="stylesheet" href="/css/styles.css?v=b190e243ea">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=b190e243ea">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -1110,6 +1110,7 @@
               <!-- Round Timer & External Link Actions -->
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                 <button id="btn-refresh-tournament-workspace" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="refreshTournamentWorkspace(this)" title="Refresh live pairings, scores, and roster from BCP"><span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh Live</button>
+                <span id="studio-live-sync-indicator" style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color:#10b981; padding:0.25rem 0.6rem; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); border-radius:6px; font-weight:600;" title="Automatic background live sync active"><span id="studio-live-sync-dot" style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block; box-shadow:0 0 6px #10b981; transition:transform 0.3s ease, background 0.3s ease;"></span> Live Sync</span>
                 <button id="manage-event-start-btn" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; color: #fff; font-weight: 700;" onclick="startTournamentEvent()">▶️ Start Event</button>
                 <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.6rem;">
                   <span style="font-size: 0.75rem; color: var(--text-muted);">ROUND TIMER</span>
@@ -2511,8 +2512,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "e78cbe1ebd";</script>
-  <script src="/js/app.bundle.min.js?v=e78cbe1ebd"></script>
+  <script>window.APP_VERSION = "b190e243ea";</script>
+  <script src="/js/app.bundle.min.js?v=b190e243ea"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
