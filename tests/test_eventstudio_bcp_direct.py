@@ -900,6 +900,22 @@ def test_event_modal_subtabs_hidden_on_mobile_and_desktop():
 
     print("✅ test_event_modal_subtabs_hidden_on_mobile_and_desktop passed!")
 
+def test_predictor_head_to_head_event_modal_link():
+    """Verify that head-to-head match history in Match Predictor makes event names clickable to open the event modal."""
+    predictor_js = (root_dir / "web" / "js" / "predictor.js").read_text()
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text()
+
+    # 1. Check predictor.js has h2h-event-cell, player-link, and openEventModal invocation
+    assert "h2h-event-cell" in predictor_js
+    assert "player-link" in predictor_js
+    assert "openEventModal(eventId, false)" in predictor_js
+
+    # 2. Check minified bundle has the click handler wired
+    assert "h2h-event-cell" in bundle_js
+    assert "openEventModal" in bundle_js
+
+    print("✅ test_predictor_head_to_head_event_modal_link passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -923,5 +939,7 @@ if __name__ == "__main__":
     test_eventstudio_submit_score_for_native_draft_saves_locally()
     test_bcp_adapter_submit_pairing_scores_guards_and_payload()
     test_event_modal_subtabs_hidden_on_mobile_and_desktop()
+    test_predictor_head_to_head_event_modal_link()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
+
 

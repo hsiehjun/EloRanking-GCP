@@ -176,14 +176,32 @@ function renderHeadToHeadHistory(h2h) {
       badgeClass = 'badge-win';
     }
 
+    const eventName = m.event_name || 'Tournament';
+    const eventId = m.event_id ? String(m.event_id).trim() : '';
+
     tr.innerHTML = `
       <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:0.85rem;">${(m.match_date || '').slice(0, 10)}</td>
-      <td style="font-weight:600; color:#fff;">${escapeHtml(m.event_name || 'Tournament')}</td>
+      <td class="h2h-event-cell" style="${eventId ? 'cursor:pointer;' : ''}">
+        ${eventId ? `<span class="player-link" style="font-weight:600; cursor:pointer;" title="View Tournament Details">${escapeHtml(eventName)}</span>` : `<span style="font-weight:600; color:#fff;">${escapeHtml(eventName)}</span>`}
+      </td>
       <td style="font-family:var(--font-mono);">R${m.round || 1}</td>
       <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Winner ? 'var(--win)' : 'var(--text-secondary)'};">${scoreP1}</td>
       <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Winner ? 'var(--win)' : 'var(--text-secondary)'};">${scoreP2}</td>
       <td><span class="badge ${badgeClass}">${escapeHtml(outcomeText)}</span></td>
     `;
+
+    if (eventId) {
+      const eventCell = tr.querySelector('.h2h-event-cell');
+      if (eventCell) {
+        eventCell.onclick = (e) => {
+          e.stopPropagation();
+          if (typeof openEventModal === 'function') {
+            openEventModal(eventId, false);
+          }
+        };
+      }
+    }
+
     tbody.appendChild(tr);
   });
 }
