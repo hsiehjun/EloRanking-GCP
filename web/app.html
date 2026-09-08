@@ -1832,21 +1832,10 @@
       </div>
 
       <div class="modal-body">
-        <!-- Summary Stats Strip -->
-        <div class="tournament-stats-strip">
-          <div class="stat-pill">
-            <span class="pill-label">👥 Enrolled:</span>
-            <span class="pill-val" id="event-modal-players">-</span>
-          </div>
-          <div class="stat-pill">
-            <span class="pill-label">🔄 Rounds:</span>
-            <span class="pill-val" id="event-modal-rounds">-</span>
-          </div>
-          <div class="stat-pill">
-            <span class="pill-label">⚔️ Matches:</span>
-            <span class="pill-val" id="event-modal-matches" style="color: var(--accent);">-</span>
-          </div>
-        </div>
+        <!-- Tournament metadata (Rounds displayed in header subtitle, player & match counts on tab badges) -->
+        <span id="event-modal-players" style="display: none;"></span>
+        <span id="event-modal-rounds" style="display: none;"></span>
+        <span id="event-modal-matches" style="display: none;"></span>
 
         <!-- Sub-tabs within Tournament Modal -->
         <div class="subtabs-bar" style="margin-bottom: 0.75rem;">

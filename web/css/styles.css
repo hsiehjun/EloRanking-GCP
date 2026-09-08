@@ -917,11 +917,7 @@ tbody tr:hover {
     padding: 0.85rem 1rem 1rem !important;
   }
   #event-modal .tournament-stats-strip {
-    display: flex !important;
-    gap: 0.4rem !important;
-    margin-bottom: 0.75rem !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
+    display: none !important;
   }
   #event-modal .stat-pill {
     flex: 1 !important;
@@ -1124,6 +1120,9 @@ tbody tr:hover {
 .ac-item:hover { background: var(--bg-card-hover); }
 
 /* Tournament Stats Strip */
+#event-modal .tournament-stats-strip {
+  display: none !important;
+}
 .tournament-stats-strip {
   display: flex;
   align-items: center;

@@ -139,9 +139,21 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
         eventMatchesCache = fresh.matches || [];
         eventPlayersCache = fresh.players || [];
 
-        document.getElementById('event-modal-players').innerText = fresh.total_players || eventPlayersCache.length || 0;
-        document.getElementById('event-modal-rounds').innerText = fresh.num_rounds || 0;
-        document.getElementById('event-modal-matches').innerText = eventMatchesCache.length;
+        const elPlayers = document.getElementById('event-modal-players');
+        if (elPlayers) elPlayers.innerText = fresh.total_players || eventPlayersCache.length || 0;
+        const elRounds = document.getElementById('event-modal-rounds');
+        if (elRounds) elRounds.innerText = fresh.num_rounds || 0;
+        const elMatches = document.getElementById('event-modal-matches');
+        if (elMatches) elMatches.innerText = eventMatchesCache.length;
+
+        const metaEl = document.getElementById('modal-event-meta');
+        if (metaEl) {
+          const loc = [fresh.city, fresh.state, fresh.country].filter(Boolean).join(', ') || 'Online / Unspecified';
+          const dStr = (fresh.event_date || '').slice(0, 10);
+          const numRounds = fresh.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
+          const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
+          metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
+        }
 
         const tabResultsCount = document.getElementById('event-tab-results-count');
         const tabEloCount = document.getElementById('event-tab-elo-count');
@@ -272,25 +284,32 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     document.getElementById('modal-event-name').innerText = ev.name || 'Tournament Details';
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || '').slice(0, 10);
-    document.getElementById('modal-event-meta').innerText = `📅 ${dStr} • 📍 ${loc}`;
-
     eventMatchesCache = ev.matches || [];
     eventPlayersCache = ev.players || [];
+
+    const numRounds = ev.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
+    const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
+    document.getElementById('modal-event-meta').innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
 
     const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
     const isDoublesEvent = Boolean(ev.is_doubles_event);
     const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
 
-    if (isTeamEvent && teamsList.length > 0) {
-      const teamCount = ev.total_teams || teamsList.length;
-      const playerCount = ev.total_players || eventPlayersCache.length;
-      const typeStr = isDoublesEvent ? 'Pairs' : 'Teams';
-      document.getElementById('event-modal-players').innerText = `${teamCount} ${typeStr} (${playerCount} Players)`;
-    } else {
-      document.getElementById('event-modal-players').innerText = ev.total_players || eventPlayersCache.length || 0;
+    const elPlayers = document.getElementById('event-modal-players');
+    if (elPlayers) {
+      if (isTeamEvent && teamsList.length > 0) {
+        const teamCount = ev.total_teams || teamsList.length;
+        const playerCount = ev.total_players || eventPlayersCache.length;
+        const typeStr = isDoublesEvent ? 'Pairs' : 'Teams';
+        elPlayers.innerText = `${teamCount} ${typeStr} (${playerCount} Players)`;
+      } else {
+        elPlayers.innerText = ev.total_players || eventPlayersCache.length || 0;
+      }
     }
-    document.getElementById('event-modal-rounds').innerText = ev.num_rounds || 0;
-    document.getElementById('event-modal-matches').innerText = eventMatchesCache.length;
+    const elRounds = document.getElementById('event-modal-rounds');
+    if (elRounds) elRounds.innerText = ev.num_rounds || 0;
+    const elMatches = document.getElementById('event-modal-matches');
+    if (elMatches) elMatches.innerText = eventMatchesCache.length;
 
     const tabResultsCount = document.getElementById('event-tab-results-count');
     const tabEloCount = document.getElementById('event-tab-elo-count');
