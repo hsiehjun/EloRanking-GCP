@@ -648,6 +648,9 @@ function switchConnectSubtab(tabName) {
 /* --------------------------------------------------------------------------
    SUBVIEW 1: SPARRING PARTNERS (LFG RADAR)
    -------------------------------------------------------------------------- */
+let _activeNearbyPlayersPromise = null;
+let _activeNearbyPlayersKey = null;
+
 async function loadNearbyPlayers() {
   const container = document.getElementById('players-grid');
   const countBadge = document.getElementById('badge-players-count');
@@ -703,6 +706,19 @@ async function loadNearbyPlayers() {
     return;
   }
 
+  const style = document.getElementById('filter-style')?.value || 'all';
+  const lat = (typeof communityState !== 'undefined' && communityState.lat != null)
+    ? communityState.lat
+    : (p.latitude || 32.7157);
+  const lng = (typeof communityState !== 'undefined' && communityState.lng != null)
+    ? communityState.lng
+    : (p.longitude || -117.1611);
+
+  const queryKey = `${Number(lat).toFixed(4)}_${Number(lng).toFixed(4)}_${radius}_${style}`;
+  if (_activeNearbyPlayersPromise && _activeNearbyPlayersKey === queryKey) {
+    return _activeNearbyPlayersPromise;
+  }
+
   const hasExistingCards = Boolean(container.querySelector('.oc-player-card'));
   if (!hasExistingCards) {
     container.innerHTML = `
@@ -713,16 +729,10 @@ async function loadNearbyPlayers() {
     `;
   }
 
-  const style = document.getElementById('filter-style')?.value || 'all';
-  const lat = (typeof communityState !== 'undefined' && communityState.lat != null)
-    ? communityState.lat
-    : (p.latitude || 32.7157);
-  const lng = (typeof communityState !== 'undefined' && communityState.lng != null)
-    ? communityState.lng
-    : (p.longitude || -117.1611);
-
-  try {
-    const res = await window.api.searchConnectPlayers(lat, lng, radius, style);
+  _activeNearbyPlayersKey = queryKey;
+  _activeNearbyPlayersPromise = (async () => {
+    try {
+      const res = await window.api.searchConnectPlayers(lat, lng, radius, style);
     const players = (res && res.players) ? res.players : [];
     connectState.playersList = players;
 
@@ -831,9 +841,17 @@ async function loadNearbyPlayers() {
       `;
     }).join('');
 
-  } catch (err) {
-    container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #ef4444; padding: 2rem;">Error scanning radar: ${escapeHtml(err.message)}</div>`;
-  }
+    } catch (err) {
+      container.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: #ef4444; padding: 2rem;">Error scanning radar: ${escapeHtml(err.message)}</div>`;
+    }
+  })().finally(() => {
+    if (_activeNearbyPlayersKey === queryKey) {
+      _activeNearbyPlayersPromise = null;
+      _activeNearbyPlayersKey = null;
+    }
+  });
+
+  return _activeNearbyPlayersPromise;
 }
 
 function getEloTierBadge(elo) {

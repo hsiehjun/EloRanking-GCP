@@ -315,12 +315,13 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
               } else {
                 checkinStatus = `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.7rem; padding: 2px 7px;">⚠️ Not Checked In</span>`;
               }
+              const isEnded = Boolean(ev.status?.ended === true || ev.raw_json?.status?.ended === true);
 
               return `
                 <div class="hub-event-item-card">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
-                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
+                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false, ${isEnded ? "'results'" : "'player'"})">
                         ${escapeHtml(evName)}
                       </span>
                     </div>
@@ -350,9 +351,15 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                       <a href="${bcpUrl}" target="_blank" rel="noopener" class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="event.stopPropagation()">
                         BCP ↗
                       </a>
-                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
-                        👤 Manage / Check In
-                      </button>
+                      ${isEnded ? `
+                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'results')">
+                          🏆 Results & Placings
+                        </button>
+                      ` : `
+                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
+                          👤 Manage / Check In
+                        </button>
+                      `}
                       <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
                         Roster ➔
                       </button>

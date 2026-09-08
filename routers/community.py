@@ -477,6 +477,12 @@ async def api_community_event_registration(
 
     # Extract registration parameters
     rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
+    if isinstance(ev.get("raw_json"), str):
+        try:
+            rj = json.loads(ev.get("raw_json"))
+        except Exception:
+            rj = {}
+    status_obj = ev.get("status") if isinstance(ev.get("status"), dict) else (rj.get("status") if isinstance(rj.get("status"), dict) else {})
     using_online_reg = bool(ev.get("using_online_reg", ev.get("usingOnlineReg", rj.get("usingOnlineReg", rj.get("using_online_reg", True)))))
     
     ticket_price = 0.0
@@ -747,6 +753,8 @@ async def api_community_event_registration(
         "event_name": ev.get("name") or "Tournament",
         "event_date": ev.get("event_date") if hasattr(ev.get("event_date"), "isoformat") else str(ev.get("event_date") or ""),
         "end_date": ev.get("end_date") if hasattr(ev.get("end_date"), "isoformat") else str(ev.get("end_date") or ""),
+        "status": status_obj,
+        "is_ended": bool(status_obj.get("ended", ev.get("is_ended", False))),
         "city": ev.get("city") or "",
         "state": ev.get("state") or "",
         "country": ev.get("country") or "",

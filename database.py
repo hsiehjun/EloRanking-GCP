@@ -1055,7 +1055,7 @@ class PostgresDatabase:
                     event_data.get("totalPlayers", event_data.get("total_players", 0)),
                     event_data.get("numberOfRounds", event_data.get("num_rounds", 0)),
                     event_data.get("currentRound", event_data.get("current_round", 0)),
-                    bool(event_data.get("isEnded", event_data.get("is_ended", False))),
+                    bool((event_data.get("status") or {}).get("ended")) if isinstance(event_data.get("status"), dict) and "ended" in event_data["status"] else bool(event_data.get("isEnded", event_data.get("is_ended", False))),
                     event_data.get("gameSystemId", event_data.get("game_system_id")),
                     json.dumps(event_data.get("raw_json", event_data)),
                     datetime.now(timezone.utc),
@@ -2050,10 +2050,23 @@ class PostgresDatabase:
                         res["top_seed_elo"] = max(elos)
 
                 raw_meta = res.get("raw_json") or {}
+                if isinstance(raw_meta, str):
+                    try:
+                        raw_meta = json.loads(raw_meta)
+                    except Exception:
+                        raw_meta = {}
                 if isinstance(raw_meta, dict):
+                    res["status"] = raw_meta.get("status") or {
+                        "ended": bool(res.get("is_ended")),
+                        "started": bool(res.get("started"))
+                    }
                     res["team_standings"] = raw_meta.get("team_standings", [])
                     res["is_team_event"] = bool(raw_meta.get("teamEvent") or raw_meta.get("team_standings"))
                 else:
+                    res["status"] = {
+                        "ended": bool(res.get("is_ended")),
+                        "started": bool(res.get("started"))
+                    }
                     res["team_standings"] = []
                     res["is_team_event"] = False
 

@@ -355,11 +355,22 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       console.debug("Notice checking user registration:", e);
     }
 
+    // Check if event is concluded based on BCP's status.ended
+    const isEnded = Boolean(
+      ev?.status?.ended === true ||
+      ev?.raw_json?.status?.ended === true ||
+      userRegData?.status?.ended === true
+    );
+
     const subtabPlayer = document.getElementById('event-subtab-player');
+    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered && !isEnded);
+
     if (userRegData && userRegData.is_registered) {
-      if (subtabPlayer) subtabPlayer.style.setProperty('display', 'inline-flex', 'important');
+      if (subtabPlayer) subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
       currentEventRegistration = userRegData;
-      await populateEventPlayerDetails(userRegData);
+      if (shouldShowPlayerTab) {
+        await populateEventPlayerDetails(userRegData);
+      }
 
       // Harmonize current user player details into eventPlayersCache if present
       const pReg = userRegData.player || userRegData.player_registration;
@@ -410,10 +421,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       }
     }
 
-    if (initialTab && initialTab !== 'elo') {
+    if (initialTab && initialTab !== 'elo' && (initialTab !== 'player' || shouldShowPlayerTab)) {
       switchEventModalTab(initialTab);
-    } else if (userRegData && userRegData.is_registered) {
-      // Competitor is registered for this event! Default to Player Details tab so submitted details & status are displayed immediately
+    } else if (shouldShowPlayerTab) {
+      // Competitor is registered for this active event! Default to Player Details tab so submitted details & status are displayed immediately
       switchEventModalTab('player');
     } else if (isTeamEvent || teamsList.length > 0) {
       switchEventModalTab('teams');
@@ -676,6 +687,15 @@ window.clearEventModalSearch = clearEventModalSearch;
 
 function switchEventModalTab(tabKey) {
   if (tabKey === 'elo') tabKey = 'results';
+  const isEnded = Boolean(
+    currentEventData?.status?.ended === true ||
+    currentEventData?.raw_json?.status?.ended === true ||
+    currentEventRegistration?.status?.ended === true
+  );
+  if (tabKey === 'player' && isEnded) {
+    const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
+    tabKey = isTeam ? 'teams' : 'results';
+  }
   currentEventModalTab = tabKey || 'results';
   const btnPlayer = document.getElementById('event-subtab-player');
   const btnTeams = document.getElementById('event-subtab-teams');

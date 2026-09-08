@@ -1058,7 +1058,8 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                     "total_players": ev_data.get("totalPlayers") or 0,
                     "num_rounds": ev_data.get("numberOfRounds") or ev_data.get("numRounds") or 0,
                     "current_round": ev_data.get("currentRound") or 0,
-                    "is_ended": bool(ev_data.get("isEnded", False)),
+                    "status": ev_data.get("status") if isinstance(ev_data.get("status"), dict) else {},
+                    "is_ended": bool((ev_data.get("status") or {}).get("ended", ev_data.get("isEnded", False))),
                     "pairings_status": ev_data.get("pairingsStatus", "draft"),
                     "raw_json": ev_data,
                     "matches": [],
@@ -1357,6 +1358,21 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                         event_details["num_rounds"] = raw_ev.get("numberOfRounds") or raw_ev.get("numRounds") or max_r
         except Exception as pe:
             logger.warning(f"BCP live pairings fetch notice for {event_id_str}: {pe}")
+
+    raw_ev = event_details.get("raw_json") or {}
+    if isinstance(raw_ev, str):
+        try:
+            raw_ev = json.loads(raw_ev)
+        except Exception:
+            raw_ev = {}
+    if "status" not in event_details or not isinstance(event_details.get("status"), dict) or not event_details["status"]:
+        if isinstance(raw_ev, dict) and isinstance(raw_ev.get("status"), dict):
+            event_details["status"] = raw_ev["status"]
+        else:
+            event_details["status"] = {
+                "ended": bool(event_details.get("is_ended")),
+                "started": bool(event_details.get("started"))
+            }
 
     event_details["sync_in_progress"] = False
     return event_details

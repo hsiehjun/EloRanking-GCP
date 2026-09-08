@@ -101,16 +101,18 @@ async function initCommunityHub(targetSubtab = null) {
     }
     // If no saved coords and no GPS, adopt from profile
     if (communityState.lat == null && !gpsPos && res.profile.latitude && res.profile.longitude) {
-      communityState.lat = parseFloat(res.profile.latitude);
-      communityState.lng = parseFloat(res.profile.longitude);
+      communityState.lat = parseFloat(parseFloat(res.profile.latitude).toFixed(4));
+      communityState.lng = parseFloat(parseFloat(res.profile.longitude).toFixed(4));
       communityState.locationName = res.profile.home_venue_name || res.profile.city || 'My Location';
     }
   }
 
   // If GPS returned real coordinates upfront, use them before the first fetch
   if (gpsPos && gpsPos.coords) {
-    const gLat = gpsPos.coords.latitude;
-    const gLng = gpsPos.coords.longitude;
+    const rawLat = gpsPos.coords.latitude;
+    const rawLng = gpsPos.coords.longitude;
+    const gLat = parseFloat(rawLat.toFixed(4));
+    const gLng = parseFloat(rawLng.toFixed(4));
     communityState.lat = gLat;
     communityState.lng = gLng;
     localStorage.setItem('comm_lat', String(gLat));
@@ -154,7 +156,8 @@ async function initCommunityHub(targetSubtab = null) {
   }
 
   const subtab = targetSubtab || communityState.activeSubtab || 'radar';
-  switchCommunitySubtab(subtab);
+  // Skip subtab render here: loadCommunityHub() below orchestrates the active subtab load once coordinates are locked
+  switchCommunitySubtab(subtab, true);
 
   // Optimistically render header immediately before awaiting data fetch
   renderCommunityHeader({
@@ -398,8 +401,8 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
         communityState.locationName = data.location.location_name;
       }
       if (data.location?.lat != null && data.location?.lng != null) {
-        communityState.lat = parseFloat(data.location.lat);
-        communityState.lng = parseFloat(data.location.lng);
+        communityState.lat = parseFloat(parseFloat(data.location.lat).toFixed(4));
+        communityState.lng = parseFloat(parseFloat(data.location.lng).toFixed(4));
         localStorage.setItem('comm_lat', String(communityState.lat));
         localStorage.setItem('comm_lng', String(communityState.lng));
         localStorage.setItem('comm_loc_name', communityState.locationName);
@@ -414,13 +417,8 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
       // Render region/location header info
       renderCommunityHeader(data.location || data.region);
 
-      // Render current active subtab
+      // Render current active subtab (already invokes loadNearbyPlayers if activeSubtab === 'radar')
       renderCurrentSubtab();
-
-      // Auto-refresh Sparring Radar players count & data in background only if on radar subtab
-      if (communityState.activeSubtab === 'radar' && typeof loadNearbyPlayers === 'function') {
-        loadNearbyPlayers();
-      }
 
       // Asynchronously fetch live BCP upcoming tournaments in background without blocking initial render
       fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
@@ -567,8 +565,10 @@ function detectCommunityGPS(showAlerts = true) {
       if (icon) icon.textContent = '🛰️';
       if (label) label.textContent = 'GPS';
 
-      const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
+      const rawLat = position.coords.latitude;
+      const rawLng = position.coords.longitude;
+      const lat = parseFloat(rawLat.toFixed(4));
+      const lng = parseFloat(rawLng.toFixed(4));
       // Unified multi-tier reverse geocoding with instant hub resolution, backend parity, and metro distance checks
       const resolved = (typeof resolveLocationFromCoordinates === 'function')
         ? await resolveLocationFromCoordinates(lat, lng)
@@ -598,8 +598,8 @@ function detectCommunityGPS(showAlerts = true) {
  * Updates active community location and saves to localStorage
  */
 function updateCommunityLocation(lat, lng, locationName, radius = null) {
-  let finalLat = (lat != null && !isNaN(parseFloat(lat))) ? parseFloat(lat) : null;
-  let finalLng = (lng != null && !isNaN(parseFloat(lng))) ? parseFloat(lng) : null;
+  let finalLat = (lat != null && !isNaN(parseFloat(lat))) ? parseFloat(parseFloat(lat).toFixed(4)) : null;
+  let finalLng = (lng != null && !isNaN(parseFloat(lng))) ? parseFloat(parseFloat(lng).toFixed(4)) : null;
 
   // Only resolve from city name if coordinates were NOT provided!
   // When exact GPS coordinates are passed, NEVER overwrite them with coarse city coordinates.
@@ -683,7 +683,7 @@ function openCommunityLocationModal() {
 /**
  * Switch Community Hub Subtab
  */
-function switchCommunitySubtab(subtabName) {
+function switchCommunitySubtab(subtabName, skipRender = false) {
   // If user requests chat or messages, open floating chat widget
   if (subtabName === 'chat' || subtabName === 'messages' || subtabName === 'chats') {
     if (typeof toggleFloatingChat === 'function') {
@@ -734,7 +734,9 @@ function switchCommunitySubtab(subtabName) {
     if (btnComp) btnComp.classList.toggle('active', mode === 'competitors');
   }
 
-  renderCurrentSubtab();
+  if (!skipRender) {
+    renderCurrentSubtab();
+  }
 }
 
 /**
@@ -1175,75 +1177,91 @@ async function hydrateUpcomingFieldStats(eventIds, userElo) {
   }
 }
 
+let _activeBcpUpcomingPromise = null;
+let _activeBcpUpcomingKey = null;
+
 /**
  * Asynchronously fetches live BCP upcoming tournaments in background and merges them
  */
 async function fetchAndMergeBcpUpcoming(lat, lng, radiusMiles) {
   if (lat == null || lng == null) return;
-  try {
-    const res = await window.api.getCommunityBcpUpcoming(lat, lng, radiusMiles, 92);
-    if (!res || !res.success || !Array.isArray(res.events) || res.events.length === 0) return;
-
-    if (!communityState.overview) return;
-    const existing = communityState.overview.events_upcoming || [];
-    const existingMap = new Map();
-    existing.forEach(ev => {
-      if (ev && ev.id) existingMap.set(ev.id, ev);
-    });
-
-    let hasNewOrUpdated = false;
-    const merged = [...existing];
-
-    res.events.forEach(bEv => {
-      const eid = bEv.id;
-      if (!eid) return;
-      if (existingMap.has(eid)) {
-        const cur = existingMap.get(eid);
-        let updated = false;
-        if (bEv.total_players && bEv.total_players > (cur.total_players || 0)) {
-          cur.total_players = bEv.total_players;
-          updated = true;
-        }
-        if (bEv.current_round && bEv.current_round !== cur.current_round) {
-          cur.current_round = bEv.current_round;
-          updated = true;
-        }
-        if (bEv.distance_miles != null && cur.distance_miles == null) {
-          cur.distance_miles = bEv.distance_miles;
-          updated = true;
-        }
-        if (updated) hasNewOrUpdated = true;
-      } else {
-        merged.push(bEv);
-        existingMap.set(eid, bEv);
-        hasNewOrUpdated = true;
-      }
-    });
-
-    if (hasNewOrUpdated) {
-      merged.sort((a, b) => {
-        const da = a.event_date || '9999-12-31';
-        const db = b.event_date || '9999-12-31';
-        if (da !== db) return da.localeCompare(db);
-        return (a.distance_miles || 9999) - (b.distance_miles || 9999);
-      });
-      communityState.overview.events_upcoming = merged.slice(0, 35);
-
-      // Re-render if currently on tournaments subtab
-      if (communityState.activeSubtab === 'tournaments') {
-        renderCommunityEvents();
-      }
-
-      // Hydrate field stats for any new upcoming events that lack them
-      const missingStats = communityState.overview.events_upcoming.filter(ev => ev.avg_field_elo == null);
-      if (missingStats.length > 0) {
-        const userElo = (typeof currentUser !== 'undefined' && currentUser && currentUser.current_elo) ? Number(currentUser.current_elo) : null;
-        hydrateUpcomingFieldStats(missingStats.map(ev => ev.id), userElo);
-      }
-    }
-  } catch (err) {
-    console.debug('Notice fetching background BCP upcoming events:', err);
+  const bcpKey = `${Number(lat).toFixed(4)}_${Number(lng).toFixed(4)}_${radiusMiles}`;
+  if (_activeBcpUpcomingPromise && _activeBcpUpcomingKey === bcpKey) {
+    return _activeBcpUpcomingPromise;
   }
+  _activeBcpUpcomingKey = bcpKey;
+  _activeBcpUpcomingPromise = (async () => {
+    try {
+      const res = await window.api.getCommunityBcpUpcoming(lat, lng, radiusMiles, 92);
+      if (!res || !res.success || !Array.isArray(res.events) || res.events.length === 0) return;
+
+      if (!communityState.overview) return;
+      const existing = communityState.overview.events_upcoming || [];
+      const existingMap = new Map();
+      existing.forEach(ev => {
+        if (ev && ev.id) existingMap.set(ev.id, ev);
+      });
+
+      let hasNewOrUpdated = false;
+      const merged = [...existing];
+
+      res.events.forEach(bEv => {
+        const eid = bEv.id;
+        if (!eid) return;
+        if (existingMap.has(eid)) {
+          const cur = existingMap.get(eid);
+          let updated = false;
+          if (bEv.total_players && bEv.total_players > (cur.total_players || 0)) {
+            cur.total_players = bEv.total_players;
+            updated = true;
+          }
+          if (bEv.current_round && bEv.current_round !== cur.current_round) {
+            cur.current_round = bEv.current_round;
+            updated = true;
+          }
+          if (bEv.distance_miles != null && cur.distance_miles == null) {
+            cur.distance_miles = bEv.distance_miles;
+            updated = true;
+          }
+          if (updated) hasNewOrUpdated = true;
+        } else {
+          merged.push(bEv);
+          existingMap.set(eid, bEv);
+          hasNewOrUpdated = true;
+        }
+      });
+
+      if (hasNewOrUpdated) {
+        merged.sort((a, b) => {
+          const da = a.event_date || '9999-12-31';
+          const db = b.event_date || '9999-12-31';
+          if (da !== db) return da.localeCompare(db);
+          return (a.distance_miles || 9999) - (b.distance_miles || 9999);
+        });
+        communityState.overview.events_upcoming = merged.slice(0, 35);
+
+        // Re-render if currently on tournaments subtab
+        if (communityState.activeSubtab === 'tournaments') {
+          renderCommunityEvents();
+        }
+
+        // Hydrate field stats for any new upcoming events that lack them
+        const missingStats = communityState.overview.events_upcoming.filter(ev => ev.avg_field_elo == null);
+        if (missingStats.length > 0) {
+          const userElo = (typeof currentUser !== 'undefined' && currentUser && currentUser.current_elo) ? Number(currentUser.current_elo) : null;
+          hydrateUpcomingFieldStats(missingStats.map(ev => ev.id), userElo);
+        }
+      }
+    } catch (err) {
+      console.debug('Notice fetching background BCP upcoming events:', err);
+    }
+  })().finally(() => {
+    if (_activeBcpUpcomingKey === bcpKey) {
+      _activeBcpUpcomingPromise = null;
+      _activeBcpUpcomingKey = null;
+    }
+  });
+  return _activeBcpUpcomingPromise;
 }
 
 /**
