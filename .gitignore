@@ -7,6 +7,4 @@ data/*
 scratch/
 *.sql
 *.tar.gz
-*.db
-*.sqlite
 .DS_Store
