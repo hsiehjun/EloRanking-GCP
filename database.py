@@ -3886,23 +3886,46 @@ class PostgresDatabase:
                 JOIN event_participants ep ON e.id = ep.event_id
                 WHERE (ep.player_id = ANY(%s) OR (ep.bcp_player_id IS NOT NULL AND ep.bcp_player_id != '' AND ep.bcp_player_id = ANY(%s)))
                   AND (e.event_date >= NOW() - INTERVAL '30 days' OR e.end_date >= NOW() - INTERVAL '30 days' OR e.event_date IS NULL)
-                ORDER BY COALESCE(e.event_date, e.end_date) ASC;
+                ORDER BY COALESCE(e.event_date, e.end_date) ASC, ep.checked_in DESC, ep.has_list_submitted DESC, (CASE WHEN ep.faction IS NOT NULL AND ep.faction != '' AND ep.faction != 'Unknown' THEN 1 ELSE 0 END) DESC;
                 """, (target_pids, target_pids))
                 rows = cursor.fetchall()
-                res = []
-                seen_event_ids = set()
+                by_event = {}
                 for r in rows:
                     item = dict(r)
-                    ev_id = str(item.get("id") or item.get("bcp_event_id") or "")
-                    if ev_id in seen_event_ids:
+                    ev_id = str(item.get("id") or item.get("bcp_event_id") or "").strip()
+                    if not ev_id:
                         continue
-                    seen_event_ids.add(ev_id)
                     if item.get("event_date") and hasattr(item["event_date"], "isoformat"):
                         item["event_date"] = item["event_date"].isoformat()
                     if item.get("end_date") and hasattr(item["end_date"], "isoformat"):
                         item["end_date"] = item["end_date"].isoformat()
-                    res.append(item)
-                return res
+
+                    if ev_id not in by_event:
+                        by_event[ev_id] = item
+                    else:
+                        existing = by_event[ev_id]
+                        # Merge so positive flags and richer data win across multiple user/competitor rows
+                        if item.get("checked_in"):
+                            existing["checked_in"] = True
+                        if item.get("has_list_submitted"):
+                            existing["has_list_submitted"] = True
+                        if item.get("dropped"):
+                            existing["dropped"] = True
+                        if item.get("faction") and str(item["faction"]).strip() not in ("", "Unknown") and (not existing.get("faction") or existing["faction"] == "Unknown"):
+                            existing["faction"] = item["faction"]
+                        if item.get("detachment") and not existing.get("detachment"):
+                            existing["detachment"] = item["detachment"]
+                        if item.get("army_list") and not existing.get("army_list"):
+                            existing["army_list"] = item["army_list"]
+                        if item.get("army_id") and not existing.get("army_id"):
+                            existing["army_id"] = item["army_id"]
+                        if item.get("sub_faction_id") and not existing.get("sub_faction_id"):
+                            existing["sub_faction_id"] = item["sub_faction_id"]
+                        if item.get("bcp_player_id") and not existing.get("bcp_player_id"):
+                            existing["bcp_player_id"] = item["bcp_player_id"]
+                        if item.get("player_id") and not existing.get("player_id"):
+                            existing["player_id"] = item["player_id"]
+                return list(by_event.values())
 
     def save_user_registered_tournaments(self, user_id: str, events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -4244,6 +4267,26 @@ class PostgresDatabase:
                     """, (
                         bcp_event_id, user_id, first_name, last_name, full_name_to_use, faction, checked_in,
                         detachment, army_list, has_list_submitted, bcp_pid, army_id, sub_faction_id, team, dropped
+                    ))
+
+                sync_pids = list({user_id, target_pid, player_id_to_use, bcp_pid_cand} - {None, ""})
+                if sync_pids:
+                    cursor.execute("""
+                    UPDATE event_participants
+                    SET
+                        checked_in = (checked_in OR %s),
+                        has_list_submitted = (has_list_submitted OR %s),
+                        faction = COALESCE(NULLIF(%s, ''), faction),
+                        detachment = COALESCE(NULLIF(%s, ''), detachment),
+                        army_list = COALESCE(NULLIF(%s, ''), army_list),
+                        army_id = COALESCE(NULLIF(%s, ''), army_id),
+                        sub_faction_id = COALESCE(NULLIF(%s, ''), sub_faction_id),
+                        bcp_player_id = COALESCE(NULLIF(%s, ''), bcp_player_id)
+                    WHERE event_id = %s
+                      AND (player_id = ANY(%s) OR (bcp_player_id IS NOT NULL AND bcp_player_id != '' AND bcp_player_id = ANY(%s)));
+                    """, (
+                        checked_in, has_list_submitted, faction, detachment, army_list, army_id, sub_faction_id, bcp_pid,
+                        bcp_event_id, sync_pids, sync_pids
                     ))
             conn.commit()
         return True

@@ -70,11 +70,14 @@ async function loadMyHubDashboard() {
   // 2. Parallel async hydration of dashboard analytics and live tracker sessions
   try {
     const token = window.api ? window.api.getAuthToken() : '';
-    const [dashRes, sessRes] = await Promise.allSettled([
+    const [dashRes, sessRes, regRes] = await Promise.allSettled([
       window.api.getUserDashboard(currentUser.player_id),
       fetch(`/api/tracker/sessions?token=${encodeURIComponent(token)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
-      }).then(r => r.ok ? r.json() : null).catch(() => null)
+      }).then(r => r.ok ? r.json() : null).catch(() => null),
+      (window.api && typeof window.api.getUserRegisteredTournaments === 'function')
+        ? window.api.getUserRegisteredTournaments()
+        : Promise.resolve(null)
     ]);
 
     if (dashRes.status !== 'fulfilled' || !dashRes.value || dashRes.value.error) {
@@ -95,6 +98,10 @@ async function loadMyHubDashboard() {
       data.unfinished_sessions = data.active_sessions.slice(1);
       data.completed_history = (sessData.completed_history || []).filter(m => !hiddenSet.has(m.match_id || m.id));
       data.tracker_history = data.completed_history;
+    }
+
+    if (regRes.status === 'fulfilled' && regRes.value && Array.isArray(regRes.value.tournaments) && regRes.value.tournaments.length > 0) {
+      data.registered_tournaments = regRes.value.tournaments;
     }
 
     myHubData = data;
@@ -461,6 +468,9 @@ async function syncBcpRegisteredTournaments() {
       const tournaments = res.tournaments || [];
       if (myHubData) {
         myHubData.registered_tournaments = tournaments;
+        try {
+          localStorage.setItem('my_hub_cache', JSON.stringify(myHubData));
+        } catch (e) {}
       }
       const cardContainer = document.getElementById('hub-registered-tournaments-card');
       if (cardContainer) {

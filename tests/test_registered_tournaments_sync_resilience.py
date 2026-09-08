@@ -354,6 +354,100 @@ def test_scraper_sync_event_roster_pruning_and_404_deletion():
     print("✅ scraper sync_event_roster pruning and 404 deletion verified!")
 
 
+def test_multi_row_registered_tournaments_merging_and_frontend_sync():
+    """Verify that _query_user_registered_tournaments merges positive check-in/list flags and detachment,
+    format_bcp_roster_to_players parses army/detachment, and frontend files contain proper sync guards."""
+    from database import PostgresDatabase
+    db = PostgresDatabase.__new__(PostgresDatabase)
+
+    # 1. Multi-row merging: positive flags and non-empty faction/detachment must win
+    mock_cursor = MagicMock()
+    stale_row = {
+        "id": "ev_dw_1",
+        "bcp_event_id": "ev_dw_1",
+        "event_name": "Warhammer 40k Tournament",
+        "event_date": "2026-09-12T10:00:00Z",
+        "end_date": "2026-09-13T18:00:00Z",
+        "faction": "Unknown",
+        "detachment": "",
+        "checked_in": False,
+        "has_list_submitted": False,
+        "dropped": False,
+        "army_list": "",
+        "points_limit": 2000,
+        "rounds": 5,
+        "total_players": 32,
+        "bcp_url": "https://www.bestcoastpairings.com/event/ev_dw_1"
+    }
+    enriched_row = {
+        "id": "ev_dw_1",
+        "bcp_event_id": "ev_dw_1",
+        "event_name": "Warhammer 40k Tournament",
+        "event_date": "2026-09-12T10:00:00Z",
+        "end_date": "2026-09-13T18:00:00Z",
+        "faction": "Deathwatch",
+        "detachment": "Disruption",
+        "checked_in": True,
+        "has_list_submitted": True,
+        "dropped": False,
+        "army_list": "Deathwatch Army List 2000pts",
+        "points_limit": 2000,
+        "rounds": 5,
+        "total_players": 32,
+        "bcp_url": "https://www.bestcoastpairings.com/event/ev_dw_1"
+    }
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_conn.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+    db.get_connection = MagicMock(return_value=mock_conn)
+
+    mock_cursor.fetchone.return_value = ("p_pid_1", "p_bcp_1")
+    mock_cursor.fetchall.return_value = [stale_row, enriched_row]
+
+    merged_res = db._query_user_registered_tournaments("user_1")
+    assert len(merged_res) == 1, "Must deduplicate multiple rows for the same event"
+    m_ev = merged_res[0]
+    assert m_ev["checked_in"] is True, "Positive checked_in flag must win over False"
+    assert m_ev["has_list_submitted"] is True, "Positive has_list_submitted flag must win over False"
+    assert m_ev["faction"] == "Deathwatch", "Enriched faction must win over Unknown"
+    assert m_ev["detachment"] == "Disruption", "Enriched detachment must win over empty string"
+    assert m_ev["army_list"] == "Deathwatch Army List 2000pts", "Enriched army list must be preserved"
+
+    # 2. format_bcp_roster_to_players extracts army/armyName and detachment from BCP competitor
+    from routers.leaderboard import format_bcp_roster_to_players
+    bcp_comp = [{
+        "id": "bcp_comp_1",
+        "userId": "u_john",
+        "user": {"id": "u_john", "firstName": "John", "lastName": "Hsieh"},
+        "army": "Deathwatch",
+        "detachment": "Disruption",
+        "checkedIn": True,
+        "placement": 1,
+        "total_metrics": []
+    }]
+    formatted = format_bcp_roster_to_players(bcp_comp)
+    assert len(formatted) == 1
+    assert formatted[0]["faction"] == "Deathwatch", "Must extract faction from BCP army field"
+    assert formatted[0]["detachment"] == "Disruption", "Must extract detachment from BCP detachment field"
+    assert formatted[0]["checked_in"] is True, "Must extract checked_in status from BCP checkedIn field"
+
+    # 3. Frontend files contain proper sync guards and detachment rendering
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+    my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+    community_py = (root_dir / "routers" / "community.py").read_text(encoding="utf-8")
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+
+    assert "eventHasAnyMatches" in tournaments_js, "tournaments.js must determine if matches have actually been played"
+    assert "✅ Checked In" in tournaments_js, "tournaments.js must display Checked In when unstarted"
+    assert "getUserRegisteredTournaments" in my_hub_js, "my_hub.js must parallel hydrate registered tournaments"
+    assert "my_hub_cache" in my_hub_js, "my_hub.js must persist updated registrations to cache"
+    assert '"player": player_registration' in community_py, "community.py must return player alias"
+    assert "Checked In" in bundle_js, "bundle must contain minified Checked In display"
+
+    print("✅ test_multi_row_registered_tournaments_merging_and_frontend_sync passed!")
+
+
 if __name__ == '__main__':
     test_database_unified_events_sync_methods()
     test_database_sync_events_and_participants_sql_execution()
@@ -362,4 +456,6 @@ if __name__ == '__main__':
     test_bcp_adapter_fetch_user_registered_events_canonical_url()
     test_unregistered_tournament_pruning_and_empty_list_handling()
     test_scraper_sync_event_roster_pruning_and_404_deletion()
+    test_multi_row_registered_tournaments_merging_and_frontend_sync()
     print('ALL UNIFIED REGISTERED TOURNAMENTS SYNC TESTS PASSED!')
+

@@ -763,6 +763,7 @@ async def api_community_event_registration(
         "can_buy_ticket": can_buy_ticket,
         "is_registered": is_registered,
         "player_registration": player_registration,
+        "player": player_registration,
         "bcp_url": f"https://www.bestcoastpairings.com/event/{clean_eid}",
         "bcp_checkout_url": f"https://www.bestcoastpairings.com/event/{clean_eid}?checkout=true",
         "user_profile": user_profile,

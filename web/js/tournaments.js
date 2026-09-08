@@ -341,6 +341,49 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       if (subtabPlayer) subtabPlayer.style.setProperty('display', 'inline-flex', 'important');
       currentEventRegistration = userRegData;
       await populateEventPlayerDetails(userRegData);
+
+      // Harmonize current user player details into eventPlayersCache if present
+      const pReg = userRegData.player || userRegData.player_registration;
+      if (pReg && eventPlayersCache && eventPlayersCache.length > 0) {
+        const regPid = String(pReg.player_id || pReg.bcp_player_id || '').trim();
+        const regFn = String(pReg.first_name || (userRegData.user_profile && userRegData.user_profile.first_name) || '').trim().toLowerCase();
+        const regLn = String(pReg.last_name || (userRegData.user_profile && userRegData.user_profile.last_name) || '').trim().toLowerCase();
+        const regFullName = `${regFn} ${regLn}`.trim();
+
+        const matchedCachePlayer = eventPlayersCache.find(p => {
+          const pPid = String(p.player_id || p.bcp_player_id || '').trim();
+          if (regPid && pPid && (regPid === pPid || pPid.includes(regPid) || regPid.includes(pPid))) return true;
+          const pName = String(p.full_name || `${p.first_name || ''} ${p.last_name || ''}`).trim().toLowerCase();
+          if (regFullName && pName && (regFullName === pName || pName.includes(regFullName))) return true;
+          if (typeof currentUser !== 'undefined' && currentUser) {
+            if (p.player_id && p.player_id === currentUser.player_id) return true;
+            if (p.user_id && p.user_id === currentUser.id) return true;
+            if (p.account_user_id && p.account_user_id === currentUser.id) return true;
+          }
+          return false;
+        });
+
+        if (matchedCachePlayer) {
+          if (pReg.checked_in !== undefined && pReg.checked_in !== null) {
+            matchedCachePlayer.checked_in = Boolean(pReg.checked_in);
+          }
+          if (pReg.dropped !== undefined && pReg.dropped !== null) {
+            matchedCachePlayer.dropped = Boolean(pReg.dropped);
+          }
+          if (pReg.faction && (!matchedCachePlayer.faction || matchedCachePlayer.faction === 'Unknown')) {
+            matchedCachePlayer.faction = pReg.faction;
+          }
+          if (pReg.detachment && (!matchedCachePlayer.detachment || matchedCachePlayer.detachment === 'Unknown')) {
+            matchedCachePlayer.detachment = pReg.detachment;
+          }
+          if (pReg.army_list) {
+            matchedCachePlayer.army_list = pReg.army_list;
+          }
+          if (pReg.has_list_submitted !== undefined) {
+            matchedCachePlayer.has_list_submitted = Boolean(pReg.has_list_submitted);
+          }
+        }
+      }
     } else {
       if (subtabPlayer) subtabPlayer.style.setProperty('display', 'none', 'important');
       if (currentEventModalTab === 'player') {
@@ -1060,9 +1103,11 @@ function renderEventResultsRows() {
     return;
   }
 
-  const hasPlacements = eventPlayersCache && eventPlayersCache.some(p => p.placement && p.placement > 0);
-  const hasMatches = eventMatchesCache && eventMatchesCache.length > 0;
-  const isStarted = Boolean(hasPlacements || hasMatches);
+  const eventHasAnyMatches = Boolean(
+    (eventMatchesCache && eventMatchesCache.length > 0) ||
+    (eventPlayersCache && eventPlayersCache.some(p => (p.event_matches_count && p.event_matches_count > 0) || (p.event_wins && p.event_wins > 0) || (p.event_losses && p.event_losses > 0)))
+  );
+  const isStarted = eventHasAnyMatches;
 
   // Sorting
   const sortCfg = (typeof currentSort !== 'undefined' && currentSort['event-results']) || {
@@ -1133,35 +1178,30 @@ function renderEventResultsRows() {
     const drawStr = p.event_draws ? ` - ${p.event_draws}D` : '';
 
     const hasPlacement = Boolean(p.placement && p.placement > 0);
-    const hasMatchesPlayed = Boolean((p.event_matches_count && p.event_matches_count > 0) || hasPlacement);
+    const hasMatchesPlayed = Boolean(eventHasAnyMatches && ((p.event_matches_count && p.event_matches_count > 0) || (p.event_wins && p.event_wins > 0) || (p.event_losses && p.event_losses > 0)));
 
-    const rankDisplay = hasPlacement
+    const rankDisplay = (hasMatchesPlayed && hasPlacement)
       ? `#${p.placement}`
-      : (isStarted ? (p.rank && p.rank > 0 && hasMatchesPlayed ? `#${p.rank}` : '-') : `#${p.rank || (idx + 1)} Seed`);
+      : (hasMatchesPlayed && p.rank && p.rank > 0 ? `#${p.rank}` : '-');
 
-    const recordDisplay = isStarted
-      ? (hasMatchesPlayed
-          ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
-              ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
-            </td>`
-          : `<td>
-              <span style="color:var(--text-muted); font-size:0.85rem;">${p.dropped ? '🚫 Dropped' : (p.checked_in ? '📋 0 Matches' : '⚠️ Not Checked In')}</span>
-            </td>`
-        )
+    const recordDisplay = hasMatchesPlayed
+      ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
+          ${p.event_wins || 0}W - ${p.event_losses || 0}L${drawStr}
+        </td>`
       : `<td>
-          ${p.checked_in
-            ? '<span style="color:var(--win); font-weight:600; font-size:0.85rem;">✅ Checked In</span>'
-            : '<span style="color:var(--text-muted); font-size:0.85rem;">📋 Enrolled</span>'
+          ${p.dropped
+            ? '<span style="color:var(--loss); font-size:0.85rem;">🚫 Dropped</span>'
+            : (isStarted
+                ? (p.checked_in ? '<span style="color:var(--win); font-weight:600; font-size:0.85rem;">📋 0 Matches</span>' : '<span style="color:var(--text-muted); font-size:0.85rem;">⚠️ Not Checked In</span>')
+                : (p.checked_in ? '<span style="color:var(--win); font-weight:600; font-size:0.85rem;">✅ Checked In</span>' : '<span style="color:var(--text-muted); font-size:0.85rem;">⚠️ Not Checked In</span>')
+              )
           }
         </td>`;
 
-    const pointsDisplay = isStarted
-      ? (hasMatchesPlayed
-          ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
-              ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
-            </td>`
-          : `<td style="color:var(--text-muted); font-family:var(--font-mono);">-</td>`
-        )
+    const pointsDisplay = hasMatchesPlayed
+      ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--accent);">
+          ${p.event_battle_points || 0} pts <span style="font-size:0.75rem; color:var(--text-muted);">(${avgScore}/g)</span>
+        </td>`
       : `<td style="color:var(--text-muted); font-family:var(--font-mono);">-</td>`;
 
     tr.innerHTML = `
@@ -1173,7 +1213,7 @@ function renderEventResultsRows() {
         </div>
       </td>
       <td>
-        <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}</span>
+        <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}</span>
       </td>
       ${recordDisplay}
       ${pointsDisplay}
@@ -1249,7 +1289,7 @@ function renderEventEloRows() {
         </div>
       </td>
       <td>
-        <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}</span>
+        <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}</span>
       </td>
       <td class="elo-badge ${eloBadgeClass}">
         ${Number(p.current_elo || 1500).toFixed(1)}
