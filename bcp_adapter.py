@@ -773,7 +773,8 @@ class BcpAdapter:
         p2_score: int,
         game_data: Optional[Dict[str, Any]] = None,
         user_id: Optional[str] = None,
-        explicit_token: Optional[str] = None
+        explicit_token: Optional[str] = None,
+        winner_id: Optional[str] = None
     ) -> Tuple[bool, Optional[str]]:
         """
         Submits match scores to BCP for a specific pairing using newapi submitScores endpoint.
@@ -786,18 +787,50 @@ class BcpAdapter:
         p2_res = 2 if p2_score > p1_score else (1 if p1_score == p2_score else 0)
 
         url = f"{BCP_API_BASE}/pairings/{clean_pid}/submitScores"
+        resolved_winner = winner_id
+        if not resolved_winner and game_data and isinstance(game_data, dict):
+            resolved_winner = game_data.get("winner_id") or game_data.get("winnerId")
+
         payload: Dict[str, Any] = {
             "pairingType": "Pairing",
+            "isDone": True,
+            "player1Score": int(p1_score),
+            "player2Score": int(p2_score),
+            "player1Points": int(p1_score),
+            "player2Points": int(p2_score),
+            "player1Result": p1_res,
+            "player2Result": p2_res,
+            "player1Game": {
+                "points": int(p1_score),
+                "result": p1_res
+            },
+            "player2Game": {
+                "points": int(p2_score),
+                "result": p2_res
+            },
             "gameData": {
+                "isDone": True,
                 "player1Score": int(p1_score),
                 "player2Score": int(p2_score),
                 "player1Points": int(p1_score),
                 "player2Points": int(p2_score),
                 "player1Result": p1_res,
                 "player2Result": p2_res,
+                "player1Game": {
+                    "points": int(p1_score),
+                    "result": p1_res
+                },
+                "player2Game": {
+                    "points": int(p2_score),
+                    "result": p2_res
+                },
                 "metrics": []
             }
         }
+        if resolved_winner:
+            payload["winnerId"] = str(resolved_winner)
+            payload["gameData"]["winnerId"] = str(resolved_winner)
+
         if game_data and isinstance(game_data, dict):
             payload["gameData"].update(game_data)
 

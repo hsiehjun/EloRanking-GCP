@@ -1223,6 +1223,37 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 players_list = event_details.get("players") or []
                 player_by_id = {str(p.get("id") or p.get("player_id")): p for p in players_list}
 
+                existing_matches_map = {}
+                for em in (event_details.get("matches") or []):
+                    if isinstance(em, dict):
+                        r_key = (int(em.get("round") or 1), int(em.get("table_number") or em.get("table") or 1))
+                        existing_matches_map[r_key] = em
+                        if em.get("id"):
+                            existing_matches_map[str(em.get("id"))] = em
+
+                tracker_games_map = {}
+                try:
+                    with db.get_connection() as conn:
+                        with conn.cursor() as cur:
+                            cur.execute("""
+                                SELECT round_num, table_num, is_finished, started, p1_score, p2_score, match_id
+                                FROM tracker_games
+                                WHERE event_id = %s;
+                            """, (event_id_str,))
+                            for trk in cur.fetchall():
+                                r_n = int(trk[0] or 1)
+                                t_n = int(trk[1] or 1)
+                                tracker_games_map[(r_n, t_n)] = {
+                                    "has_tracker_game": True,
+                                    "tracker_is_done": bool(trk[2]),
+                                    "tracker_started": bool(trk[3]),
+                                    "p1_score": trk[4],
+                                    "p2_score": trk[5],
+                                    "match_id": trk[6]
+                                }
+                except Exception as tge:
+                    logger.debug(f"Notice fetching tracker games map for {event_id_str}: {tge}")
+
                 for r in range(1, max_r + 1):
                     raw_pairings = scraper.fetch_event_pairings_for_round(event_id_str, r)
                     if raw_pairings:
@@ -1253,13 +1284,32 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             p2_fac = p2.get("army") or p2.get("faction") or p2_reg.get("faction") or ""
                             if isinstance(p2_fac, dict): p2_fac = p2_fac.get("name") or ""
 
+                            table_num = int(p.get("table") or idx + 1)
+                            r_key = (r, table_num)
+                            local_m = existing_matches_map.get(r_key) or existing_matches_map.get(str(p.get("id") or ""))
+                            local_tg = tracker_games_map.get(r_key)
+
                             p1_game = p.get("player1Game") or {}
                             p2_game = p.get("player2Game") or {}
                             p1_score = p1_game.get("points") if p1_game.get("points") is not None else p.get("player1Score")
                             p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
 
+                            # Seamlessly merge scores from local match or tracker game if BCP hasn't synced points yet
+                            if p1_score is None:
+                                if local_m and local_m.get("player1_score") is not None:
+                                    p1_score = local_m.get("player1_score")
+                                elif local_tg and local_tg.get("p1_score") is not None:
+                                    p1_score = local_tg.get("p1_score")
+
+                            if p2_score is None:
+                                if local_m and local_m.get("player2_score") is not None:
+                                    p2_score = local_m.get("player2_score")
+                                elif local_tg and local_tg.get("p2_score") is not None:
+                                    p2_score = local_tg.get("p2_score")
+
                             is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE")
-                            is_done = bool(p.get("isDone") or (p1_score is not None and p2_score is not None and not is_bye))
+                            has_local_done = bool((local_m and local_m.get("is_done")) or (local_tg and local_tg.get("tracker_is_done")))
+                            is_done = bool(p.get("isDone") or (p1_score is not None and p2_score is not None and not is_bye) or has_local_done)
 
                             winner_id = None
                             if is_done and p1_score is not None and p2_score is not None:
@@ -1273,12 +1323,16 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             elif is_bye:
                                 winner_id = p1_id
 
+                            has_tracker_game = bool((local_m and local_m.get("has_tracker_game")) or (local_tg and local_tg.get("has_tracker_game")))
+                            tracker_is_done = bool((local_m and local_m.get("tracker_is_done")) or (local_tg and local_tg.get("tracker_is_done")))
+                            tracker_started = bool((local_m and local_m.get("tracker_started")) or (local_tg and local_tg.get("tracker_started")))
+
                             live_matches.append({
                                 "id": str(p.get("id") or f"pair-{r}-{idx+1}"),
                                 "event_id": event_id_str,
                                 "round": int(p.get("round") or r),
-                                "table_number": int(p.get("table") or idx + 1),
-                                "table": int(p.get("table") or idx + 1),
+                                "table_number": table_num,
+                                "table": table_num,
                                 "player1_id": p1_id,
                                 "player1_name": p1_name,
                                 "player1_faction": p1_fac,
@@ -1293,9 +1347,9 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 "is_bye": is_bye,
                                 "is_done": is_done,
                                 "published": bool(p.get("published", True)),
-                                "has_tracker_game": False,
-                                "tracker_is_done": False,
-                                "tracker_started": False
+                                "has_tracker_game": has_tracker_game,
+                                "tracker_is_done": tracker_is_done,
+                                "tracker_started": tracker_started
                             })
                 if live_matches:
                     event_details["matches"] = live_matches

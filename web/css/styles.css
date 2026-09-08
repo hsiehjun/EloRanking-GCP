@@ -560,7 +560,8 @@ tbody tr:hover {
 #event-modal, #team-modal, #faction-modal, #player-modal, #scorecard-modal, #modal-tournament-register, #event-registration-modal {
   z-index: 1000;
 }
-.event-reg-modal-content {
+.event-reg-modal-content,
+.tournament-reg-modal-content {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -573,6 +574,14 @@ tbody tr:hover {
   max-height: calc(100dvh - 3rem);
   overflow-y: auto;
   overscroll-behavior: contain;
+  box-sizing: border-box;
+}
+
+.event-reg-grid-row,
+.player-details-grid-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
 }
 #bcp-link-modal, #user-settings-modal {
   z-index: 1000;
@@ -6005,5 +6014,68 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
-
-
+/* Responsive tournament registration and player details modals for mobile */
+@media (max-width: 640px) {
+  #event-registration-modal.modal-backdrop,
+  #modal-tournament-register.modal-backdrop {
+    align-items: flex-start !important;
+    padding: 0.5rem !important;
+    overflow-y: auto !important;
+  }
+  .event-reg-modal-content,
+  .tournament-reg-modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100dvh - 1rem) !important;
+    margin: 0 auto !important;
+    border-radius: var(--radius-md) !important;
+    padding: 1.1rem 1rem !important;
+    box-sizing: border-box !important;
+  }
+  .event-reg-grid-row,
+  .player-details-grid-row {
+    grid-template-columns: 1fr !important;
+    gap: 0.65rem !important;
+  }
+  .event-reg-modal-content .modal-footer,
+  .tournament-reg-modal-content .modal-footer,
+  #form-tournament-register .modal-footer {
+    flex-direction: column-reverse !important;
+    width: 100% !important;
+    gap: 0.5rem !important;
+    padding: 0.75rem 0 0 0 !important;
+  }
+  .event-reg-modal-content .modal-footer button,
+  .tournament-reg-modal-content .modal-footer button,
+  #form-tournament-register .modal-footer button {
+    width: 100% !important;
+    min-height: 44px !important;
+    font-size: 15px !important;
+    justify-content: center !important;
+    display: flex !important;
+    align-items: center !important;
+  }
+  .event-reg-modal-content input,
+  .event-reg-modal-content select,
+  .event-reg-modal-content textarea,
+  .tournament-reg-modal-content input,
+  .tournament-reg-modal-content select,
+  .tournament-reg-modal-content textarea,
+  #modal-tournament-register input,
+  #modal-tournament-register select,
+  #modal-tournament-register textarea,
+  #form-player-details input,
+  #form-player-details select,
+  #form-player-details textarea,
+  #player-reg-saved-lists-select {
+    font-size: 16px !important;
+    min-height: 42px;
+    touch-action: manipulation;
+  }
+  .event-reg-loading-modal-content {
+    width: 90% !important;
+    max-width: 360px !important;
+    margin: 0 auto !important;
+    padding: 1.5rem 1rem !important;
+  }
+}

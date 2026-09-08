@@ -1168,6 +1168,164 @@ def test_registration_popup_loading_screen_and_flow():
 
     print("✅ test_registration_popup_loading_screen_and_flow passed!")
 
+def test_bcp_adapter_submit_pairing_scores_root_and_game_payload():
+    """Verify submit_pairing_scores includes isDone, winnerId, and points at both root and gameData levels."""
+    from bcp_adapter import BcpAdapter
+
+    with patch.object(BcpAdapter, "execute_call", return_value=({"success": True}, None)) as mock_exec:
+        ok, err = BcpAdapter.submit_pairing_scores(
+            pairing_id="test_pairing_999",
+            p1_score=95,
+            p2_score=60,
+            winner_id="player_alpha",
+            user_id="user_host"
+        )
+        assert ok is True
+        mock_exec.assert_called_once()
+        args, kwargs = mock_exec.call_args
+        assert "pairings/test_pairing_999/submitScores" in args[0]
+        payload = kwargs["json_data"]
+
+        # Root-level properties (Required by BCP to transition pairing to finished)
+        assert payload["isDone"] is True
+        assert payload["player1Score"] == 95
+        assert payload["player2Score"] == 60
+        assert payload["player1Points"] == 95
+        assert payload["player2Points"] == 60
+        assert payload["player1Result"] == 2
+        assert payload["player2Result"] == 0
+        assert payload["winnerId"] == "player_alpha"
+        assert payload["player1Game"] == {"points": 95, "result": 2}
+        assert payload["player2Game"] == {"points": 60, "result": 0}
+
+        # gameData nested payload
+        gd = payload["gameData"]
+        assert gd["player1Score"] == 95
+        assert gd["player2Score"] == 60
+        assert gd["player1Points"] == 95
+        assert gd["player2Points"] == 60
+        assert gd["player1Result"] == 2
+        assert gd["player2Result"] == 0
+        assert gd["winnerId"] == "player_alpha"
+        assert gd["player1Game"] == {"points": 95, "result": 2}
+        assert gd["player2Game"] == {"points": 60, "result": 0}
+
+    print("✅ test_bcp_adapter_submit_pairing_scores_root_and_game_payload passed!")
+
+def test_eventstudio_submit_score_saves_to_db_and_tracker_game():
+    """Verify api_eventstudio_submit_score immediately updates local DB matches and tracker_games for live tournaments."""
+    from routers.eventstudio import api_eventstudio_submit_score, SubmitScorePayload
+    from bcp_adapter import BcpAdapter
+
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "usr_p1", "role": "player"}
+    mock_auth.get_valid_bcp_tokens.return_value = {"access_token": "mock_bcp_tok"}
+
+    req = MagicMock()
+    req.headers = {"Authorization": "Bearer tok"}
+    req.cookies = {}
+
+    payload = SubmitScorePayload(
+        event_id="BCP-TOURNAMENT-42",
+        round_num=1,
+        table_num=1,
+        p1_id="usr_p1",
+        p2_id="usr_p2",
+        p1_name="Alice",
+        p2_name="Bob",
+        p1_score=90,
+        p2_score=70,
+        pairing_id="bcp_pair_123",
+        source_app="GameTracker-OmniTactica"
+    )
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    mock_conn.__enter__.return_value = mock_conn
+    mock_db.get_connection.return_value = mock_conn
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch.object(BcpAdapter, "fetch_event_pairings", return_value=[]), \
+         patch.object(BcpAdapter, "submit_pairing_scores", return_value=(True, None)) as mock_bcp_sub:
+
+        res = asyncio.run(api_eventstudio_submit_score(payload, req))
+        assert res["success"] is True
+        assert res["bcp_synced"] is True
+
+        # Check DB upsert_match called
+        mock_db.upsert_match.assert_called_once()
+        match_call = mock_db.upsert_match.call_args[0][0]
+        assert match_call["event_id"] == "BCP-TOURNAMENT-42"
+        assert match_call["player1_name"] == "Alice"
+        assert match_call["player2_name"] == "Bob"
+        assert match_call["player1_score"] == 90
+        assert match_call["player2_score"] == 70
+        assert match_call["winner_id"] == "usr_p1"
+        assert match_call["is_done"] is True
+
+        # Check tracker_games updated via connection cursor execute
+        mock_cur.execute.assert_called_once()
+        tracker_sql = mock_cur.execute.call_args[0][0]
+        assert "UPDATE tracker_games" in tracker_sql
+        assert "is_finished = TRUE" in tracker_sql
+        assert "bcp_submitted = TRUE" in tracker_sql
+
+        # Check BCP adapter called with winner_id in game_data
+        mock_bcp_sub.assert_called_once_with(
+            pairing_id="bcp_pair_123",
+            p1_score=90,
+            p2_score=70,
+            game_data={"winner_id": "usr_p1"},
+            user_id="usr_p1",
+            explicit_token="mock_bcp_tok"
+        )
+
+    print("✅ test_eventstudio_submit_score_saves_to_db_and_tracker_game passed!")
+
+def test_spectate_tournament_tracker_and_pairings_button():
+    """Verify spectateTournamentTracker is exported and pairings rows render Spectate for non-table users."""
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text()
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text()
+
+    # 1. tournaments.js defines spectateTournamentTracker
+    assert "async function spectateTournamentTracker" in tournaments_js
+    assert "window.spectateTournamentTracker = spectateTournamentTracker" in tournaments_js
+
+    # 2. tournaments.js renders Spectate button for non-editing users
+    assert "👁️ Spectate" in tournaments_js
+    assert "spectateTournamentTracker(" in tournaments_js
+
+    # 3. app.bundle.min.js includes spectateTournamentTracker
+    assert "spectateTournamentTracker" in bundle_js
+
+    print("✅ test_spectate_tournament_tracker_and_pairings_button passed!")
+
+def test_tournament_registration_mobile_styles_and_attributes():
+    """Verify registration modal, loading modal, and player details form are styled for mobile."""
+    app_html = (root_dir / "web" / "app.html").read_text()
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text()
+
+    # 1. HTML classes
+    assert 'class="modal-content event-reg-loading-modal-content"' in app_html
+    assert 'class="modal-content event-reg-modal-content"' in app_html
+    assert 'class="modal-content tournament-reg-modal-content"' in app_html
+    assert 'class="event-reg-grid-row"' in app_html
+    assert 'class="player-details-grid-row"' in app_html
+
+    # 2. CSS responsive rules
+    assert ".event-reg-modal-content" in styles_css
+    assert ".tournament-reg-modal-content" in styles_css
+    assert ".event-reg-grid-row" in styles_css
+    assert ".player-details-grid-row" in styles_css
+    assert "@media (max-width: 640px)" in styles_css
+    assert "grid-template-columns: 1fr !important" in styles_css
+    assert "font-size: 16px !important" in styles_css
+
+    print("✅ test_tournament_registration_mobile_styles_and_attributes passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1196,6 +1354,10 @@ if __name__ == "__main__":
     test_tournaments_js_unplaced_competitors_rendering()
     test_tournament_tracker_table_pairing_role_enforcement()
     test_registration_popup_loading_screen_and_flow()
+    test_bcp_adapter_submit_pairing_scores_root_and_game_payload()
+    test_eventstudio_submit_score_saves_to_db_and_tracker_game()
+    test_spectate_tournament_tracker_and_pairings_button()
+    test_tournament_registration_mobile_styles_and_attributes()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 
 

@@ -583,6 +583,8 @@
           pairing_id: pairingId,
           p1_score: p1Score,
           p2_score: p2Score,
+          p1_id: game.p1Id || st.p1_id || null,
+          p2_id: game.p2Id || st.p2_id || null,
           p1_name: game.p1Name || st.p1_name || 'Player 1',
           p2_name: game.p2Name || st.p2_name || 'Player 2',
           source_app: 'GameTracker-OmniTactica',
@@ -590,6 +592,8 @@
           game_details: {
             match_id: matchId,
             first_turn: firstTurnVal,
+            p1_id: game.p1Id || st.p1_id || null,
+            p2_id: game.p2Id || st.p2_id || null,
             p1_faction: game.p1Faction || st.p1_faction,
             p2_faction: game.p2Faction || st.p2_faction
           }
@@ -791,6 +795,8 @@
       // Join room to bind Player 2 slot or Spectator (Strict 2-Player Capacity)
       try {
         const myName = currentUser ? (currentUser.display_name || (currentUser.email ? currentUser.email.split('@')[0] : '')) : '';
+        const urlParamsJoin = new URLSearchParams(window.location.search);
+        const isSpectateExplicit = urlParamsJoin.get('role') === 'spectator' || urlParamsJoin.get('spectate') === 'true';
         const resp = await fetch(`/api/tracker/room/${clientState.matchId}/join`, {
           method: 'POST',
           headers: {
@@ -799,7 +805,8 @@
           },
           body: JSON.stringify({
             token: getAuthToken(),
-            player_name: myName || undefined
+            player_name: myName || undefined,
+            claim_role: isSpectateExplicit ? 'spectator' : undefined
           })
         });
         if (resp.ok) {

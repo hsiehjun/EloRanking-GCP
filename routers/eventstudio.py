@@ -40,12 +40,15 @@ router = APIRouter(tags=["Event Studio & TO Suite"])
 
 class SubmitScorePayload(BaseModel):
     event_id: str
-    table: int
+    table: Optional[int] = None
+    table_num: Optional[int] = None
     round_num: int
     p1_score: int
     p2_score: int
     p1_name: Optional[str] = "Player 1"
     p2_name: Optional[str] = "Player 2"
+    p1_id: Optional[str] = None
+    p2_id: Optional[str] = None
     winner_id: Optional[str] = None
     source_app: Optional[str] = "EventStudio"
     game_details: Optional[Dict[str, Any]] = None
@@ -2616,17 +2619,107 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         except Exception as oe:
             logger.debug(f"Notice resolving TO BCP token for event {payload.event_id}: {oe}")
 
-    logger.info(f"EventStudio: Submitting Table {payload.table} Round {payload.round_num} Score ({payload.p1_score} - {payload.p2_score}) Source: {payload.source_app}")
+    table_val = int(payload.table if payload.table is not None else (payload.table_num or 1))
+    logger.info(f"EventStudio: Submitting Table {table_val} Round {payload.round_num} Score ({payload.p1_score} - {payload.p2_score}) Source: {payload.source_app}")
     
-    # 4. Strictly for native EventStudio tournaments (ES-*), update local draft
+    # 4. Resolve live BCP pairing ID if missing for BCP-synced tournaments & extract competitor info
     bcp_pairing_id = payload.pairing_id if (payload.pairing_id and not str(payload.pairing_id).isdigit() and len(str(payload.pairing_id)) > 3) else None
+    p1_id = getattr(payload, "p1_id", None)
+    p2_id = getattr(payload, "p2_id", None)
+    p1_name = payload.p1_name or "Player 1"
+    p2_name = payload.p2_name or "Player 2"
+    p1_fac = (payload.game_details or {}).get("p1_faction") or ""
+    p2_fac = (payload.game_details or {}).get("p2_faction") or ""
+
+    if not bcp_pairing_id and not payload.event_id.startswith("ES-"):
+        try:
+            _, _, p_list = bcp_adapter.fetch_event_pairings(payload.event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
+            for p in p_list:
+                if p.get("table") == table_val or str(p.get("table")) == str(table_val):
+                    bcp_pairing_id = p.get("id") or p.get("bcp_pairing_id")
+                    p1_obj = p.get("player1") or {}
+                    p2_obj = p.get("player2") or {}
+                    u1 = p1_obj.get("user") if isinstance(p1_obj.get("user"), dict) else {}
+                    u2 = p2_obj.get("user") if isinstance(p2_obj.get("user"), dict) else {}
+                    p1_id = p1_id or str(p1_obj.get("id") or p.get("player1Id") or u1.get("id") or "")
+                    p2_id = p2_id or str(p2_obj.get("id") or p.get("player2Id") or u2.get("id") or "")
+                    p1_name = payload.p1_name or p1_obj.get("name") or "Player 1"
+                    p2_name = payload.p2_name or p2_obj.get("name") or "Player 2"
+                    p1_fac = p1_fac or p1_obj.get("faction") or ""
+                    p2_fac = p2_fac or p2_obj.get("faction") or ""
+                    break
+        except Exception as pe:
+            logger.warning(f"Notice resolving live BCP pairing ID for table {table_val}: {pe}")
+
+    p1_score = int(payload.p1_score)
+    p2_score = int(payload.p2_score)
+    is_draw = (p1_score == p2_score)
+    winner_id = payload.winner_id
+    if not winner_id and not is_draw:
+        if p1_score > p2_score:
+            winner_id = p1_id
+        elif p2_score > p1_score:
+            winner_id = p2_id
+    loser_id = p2_id if (winner_id and winner_id == p1_id) else (p1_id if (winner_id and winner_id == p2_id) else None)
+
+    # 5. Persist match scores immediately to OmniTactica database
+    match_id = bcp_pairing_id or f"BCP-{payload.event_id}-R{payload.round_num}-T{table_val}"
+    match_record = {
+        "id": match_id,
+        "event_id": payload.event_id,
+        "round": int(payload.round_num),
+        "table_number": int(table_val),
+        "match_date": datetime.now(timezone.utc).isoformat(),
+        "player1_id": p1_id or None,
+        "player1_name": p1_name,
+        "player1_faction": p1_fac,
+        "player1_score": p1_score,
+        "player2_id": p2_id or None,
+        "player2_name": p2_name,
+        "player2_faction": p2_fac,
+        "player2_score": p2_score,
+        "winner_id": winner_id,
+        "loser_id": loser_id,
+        "is_draw": is_draw,
+        "is_bye": False,
+        "is_done": True,
+        "raw_json": {
+            "source_app": payload.source_app,
+            "pairing_id": bcp_pairing_id,
+            "game_details": payload.game_details or {}
+        }
+    }
+    try:
+        if hasattr(db, "upsert_match"):
+            db.upsert_match(match_record)
+    except Exception as me:
+        logger.debug(f"Notice upserting match {match_id} into DB: {me}")
+
+    try:
+        with db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE tracker_games
+                    SET p1_score = %s,
+                        p2_score = %s,
+                        is_finished = TRUE,
+                        bcp_submitted = TRUE,
+                        updated_at = NOW()
+                    WHERE (event_id = %s AND round_num = %s AND table_num = %s)
+                       OR match_id = %s;
+                """, (p1_score, p2_score, payload.event_id, payload.round_num, table_val, match_id))
+            conn.commit()
+    except Exception as tge:
+        logger.debug(f"Notice updating tracker_games for table {table_val}: {tge}")
+
+    # 6. Strictly for native EventStudio tournaments (ES-*), update local draft
     if payload.event_id.startswith("ES-"):
         ev = db.get_studio_event(payload.event_id)
         if ev:
             pairings_map = ev.get("pairings") or {}
             round_pairings = pairings_map.get(str(payload.round_num)) or []
             for match in round_pairings:
-                if match.get("table") == payload.table or str(match.get("table")) == str(payload.table):
+                if match.get("table") == table_val or str(match.get("table")) == str(table_val):
                     match["p1_score"] = payload.p1_score
                     match["p2_score"] = payload.p2_score
                     match["is_done"] = True
@@ -2637,40 +2730,31 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             ev["pairings"] = pairings_map
             db.save_studio_event(ev)
 
-
-    # 5. Resolve live BCP pairing ID if missing for BCP-synced tournaments
-    if not bcp_pairing_id and not payload.event_id.startswith("ES-"):
-        try:
-            _, _, p_list = bcp_adapter.fetch_event_pairings(payload.event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
-            for p in p_list:
-                if p.get("table") == payload.table or str(p.get("table")) == str(payload.table):
-                    bcp_pairing_id = p.get("id") or p.get("bcp_pairing_id")
-                    break
-        except Exception as pe:
-            logger.warning(f"Notice resolving live BCP pairing ID for table {payload.table}: {pe}")
-
-    # 6. Push to BCP via BcpAdapter if pairing ID is known
+    # 7. Push to BCP via BcpAdapter if pairing ID is known
     bcp_synced = False
     bcp_notice = None
     if bcp_pairing_id and not payload.event_id.startswith("ES-"):
+        submit_game_data = dict(payload.game_details or {})
+        if winner_id and "winner_id" not in submit_game_data:
+            submit_game_data["winner_id"] = str(winner_id)
         bcp_synced, bcp_err = bcp_adapter.submit_pairing_scores(
             pairing_id=bcp_pairing_id,
             p1_score=payload.p1_score,
             p2_score=payload.p2_score,
-            game_data=payload.game_details or {},
+            game_data=submit_game_data,
             user_id=user_id,
             explicit_token=bcp_token
         )
         if not bcp_synced:
             bcp_notice = bcp_err
     elif not payload.event_id.startswith("ES-"):
-        bcp_notice = f"Could not resolve BCP pairing ID for table {payload.table} round {payload.round_num}"
+        bcp_notice = f"Could not resolve BCP pairing ID for table {table_val} round {payload.round_num}"
         logger.warning(f"⚠️ {bcp_notice}")
 
     return {
         "success": True,
         "event_id": payload.event_id,
-        "table": payload.table,
+        "table": table_val,
         "round_num": payload.round_num,
         "p1_score": payload.p1_score,
         "p2_score": payload.p2_score,

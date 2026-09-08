@@ -1909,7 +1909,7 @@
               <h4 style="margin: 0 0 0.85rem 0; font-size: 0.92rem; font-weight: 700; color: #fff;">Player Details</h4>
               
               <form id="form-player-details" onsubmit="handleEventPlayerUpdate(event)" style="display: flex; flex-direction: column; gap: 0.75rem;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="player-details-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                   <div>
                     <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">First Name *</label>
                     <input type="text" id="player-reg-firstname" required class="search-input" style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem;" />
@@ -1925,7 +1925,7 @@
                   <input type="text" id="player-reg-team" placeholder="e.g. Zero Comp Gaming" class="search-input" style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem;" />
                 </div>
 
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="player-details-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
                   <div>
                     <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.25rem;">Faction *</label>
                     <select id="player-reg-faction" onchange="onPlayerFactionChange(this.value)" required style="width: 100%; box-sizing: border-box; height: 36px; padding: 0.4rem 0.65rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.82rem; cursor: pointer;">
@@ -2077,7 +2077,7 @@
 
   <!-- MODAL: Community Event Registration Loading Screen -->
   <div id="event-reg-loading-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center; z-index: 10001;" onclick="if(event.target === this) closeEventRegistrationLoadingModal()">
-    <div class="modal-content" style="max-width: 380px; text-align: center; padding: 2rem 1.5rem; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+    <div class="modal-content event-reg-loading-modal-content" style="max-width: 380px; text-align: center; padding: 2rem 1.5rem; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
       <div style="margin-bottom: 1rem;">
         <span class="spinner-mini" style="display: inline-block; width: 36px; height: 36px; border: 3px solid rgba(56, 189, 248, 0.2); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
       </div>
@@ -2109,7 +2109,7 @@
         </div>
 
         <!-- Primary Registration Fields (Matching BCP Requirements: First Name, Last Name, Email, Team) -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div class="event-reg-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div>
             <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">First Name *</label>
             <input type="text" id="event-reg-first-name" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="First Name" required oninput="syncRegistrationFullName()">
@@ -2121,7 +2121,7 @@
         </div>
         <input type="hidden" id="event-reg-name">
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div class="event-reg-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div>
             <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">BCP Account (Email) *</label>
             <input type="email" id="event-reg-email" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="player@example.com" required>
@@ -2154,7 +2154,7 @@
             </div>
 
             <!-- Faction & Detachment Row -->
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div class="event-reg-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
               <div>
                 <label class="form-label" style="display: block; font-size: 0.76rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Primary Faction</label>
                 <select id="event-reg-faction" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;">
@@ -2222,8 +2222,8 @@
 
   <!-- MODAL: Tournament Self-Registration -->
   <div id="modal-tournament-register" class="modal-backdrop" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; backdrop-filter: blur(5px);" onclick="if(event.target === this) closeTournamentRegistrationModal()">
-    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 20px 45px rgba(0,0,0,0.6); position: relative;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+    <div class="modal-content tournament-reg-modal-content" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 20px 45px rgba(0,0,0,0.6); position: relative;">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
         <div>
           <h3 style="color: #fff; margin: 0; font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 6px;">
             <span>⚡</span> <span>Tournament Registration</span>
@@ -2236,12 +2236,12 @@
         <div style="display: flex; flex-direction: column; gap: 0.85rem;">
           <div>
             <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Full Name *</label>
-            <input type="text" id="reg-player-name" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. John Hsieh" required>
+            <input type="text" id="reg-player-name" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. John Hsieh" required>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="event-reg-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div>
               <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Faction / Army *</label>
-              <input type="text" id="reg-player-faction" list="factions-datalist" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Necrons" required>
+              <input type="text" id="reg-player-faction" list="factions-datalist" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. Necrons" required>
               <datalist id="factions-datalist">
                 <option value="Adepta Sororitas"></option>
                 <option value="Adeptus Custodes"></option>
@@ -2273,26 +2273,26 @@
             </div>
             <div>
               <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Detachment</label>
-              <input type="text" id="reg-player-detachment" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Hypercrypt Legion">
+              <input type="text" id="reg-player-detachment" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. Hypercrypt Legion">
             </div>
           </div>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+          <div class="event-reg-grid-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
             <div>
               <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Team / Club</label>
-              <input type="text" id="reg-player-team" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="e.g. Team Zero Comp">
+              <input type="text" id="reg-player-team" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. Team Zero Comp">
             </div>
             <div>
               <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Email (for Confirmation)</label>
-              <input type="email" id="reg-player-email" class="form-input" style="width: 100%; box-sizing: border-box;" placeholder="competitor@example.com">
+              <input type="email" id="reg-player-email" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="competitor@example.com">
             </div>
           </div>
           <div>
             <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army List (Text / Waha / Battlescribe / NewRecruit)</label>
-            <textarea id="reg-player-armylist" class="form-input" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical;" placeholder="Paste army list text or roster link here..."></textarea>
+            <textarea id="reg-player-armylist" class="form-input" rows="3" style="width: 100%; box-sizing: border-box; resize: vertical; font-size: 16px;" placeholder="Paste army list text or roster link here..."></textarea>
           </div>
           <div id="reg-status-message" style="display: none; padding: 0.65rem 0.85rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; line-height: 1.4;"></div>
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
           <button type="button" class="btn btn-outline" onclick="closeTournamentRegistrationModal()">Cancel</button>
           <button type="submit" id="btn-submit-registration" class="btn btn-primary" style="background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; font-weight: 700;">Complete Registration</button>
         </div>

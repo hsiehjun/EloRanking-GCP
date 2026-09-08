@@ -288,6 +288,10 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         candidate_user.get("can_access_to")
     ))
 
+    claim_role = getattr(payload, "claim_role", None)
+    if claim_role == "spectator":
+        return ("spectator", None)
+
     if u_id and p1_id == u_id:
         return ("player1", None)
     if u_id and p2_id == u_id:
