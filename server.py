@@ -58,12 +58,13 @@ app = FastAPI(
 async def add_cache_headers(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path.startswith("/api/auth") or path.startswith("/api/user") or path.startswith("/api/connect") or path.startswith("/api/tracker") or path.startswith("/api/chat"):
-        # Never cache authentication, session, user, connect, chat, or live tracker endpoints
+    if path.startswith("/api/auth") or path.startswith("/api/user") or path.startswith("/api/connect") or path.startswith("/api/tracker") or path.startswith("/api/chat") or path.startswith("/api/version"):
+        # Never cache authentication, session, user, connect, chat, live tracker, or version endpoints
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
     elif path.startswith("/css") or path.startswith("/js"):
-        response.headers["Cache-Control"] = "public, max-age=86400, stale-while-revalidate=604800"
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
     elif path.startswith("/api/"):
         response.headers["Cache-Control"] = "public, max-age=15, stale-while-revalidate=60"
     return response
@@ -215,8 +216,36 @@ async def serve_index(request: Request, token: Optional[str] = Query(None)):
         return RedirectResponse(url="/app", status_code=307)
     idx_file = web_dir / "index.html"
     if idx_file.exists():
-        return FileResponse(str(idx_file), media_type="text/html")
+        return FileResponse(
+            str(idx_file),
+            media_type="text/html",
+            headers={"Cache-Control": "no-cache, must-revalidate"}
+        )
     raise HTTPException(status_code=404, detail="index.html not found")
+
+@app.get("/api/version", include_in_schema=False)
+async def api_version():
+    v_file = web_dir / "version.json"
+    version_str = "1.0.0"
+    updated_at = None
+    if v_file.exists():
+        try:
+            v_data = json.loads(v_file.read_text(encoding="utf-8"))
+            version_str = str(v_data.get("version") or version_str).strip()
+            updated_at = v_data.get("updated_at")
+        except Exception:
+            pass
+    return JSONResponse(
+        content={
+            "version": version_str,
+            "updated_at": updated_at,
+            "status": "ok"
+        },
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache"
+        }
+    )
 
 # Authenticated Application Shell
 @app.get("/app", include_in_schema=False)
@@ -490,19 +519,64 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 def start_server(port: int = 8080, host: str = "0.0.0.0"):
-    """Starts the production Uvicorn ASGI server."""
-    if not FASTAPI_AVAILABLE:
-        print("[Error] FastAPI and Uvicorn are required to start the production web service.")
-        sys.exit(1)
-    
-    uvicorn.run(
-        "server:app",
-        host=host,
-        port=port,
-        reload=False,
-        workers=1,
-        access_log=True
-    )
+    """Starts the production Uvicorn ASGI server or fallback HTTP server."""
+    if FASTAPI_AVAILABLE and uvicorn is not None:
+        uvicorn.run(
+            "server:app",
+            host=host,
+            port=port,
+            reload=False,
+            workers=1,
+            access_log=True
+        )
+    else:
+        import http.server
+        import socketserver
+
+        class OmniRequestHandler(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, directory=str(web_dir), **kwargs)
+
+            def end_headers(self):
+                if self.path.startswith("/css") or self.path.startswith("/js"):
+                    self.send_header("Cache-Control", "no-cache, must-revalidate")
+                    self.send_header("Pragma", "no-cache")
+                elif self.path.startswith("/api/version") or self.path.endswith(".html") or self.path in ("/", "/app", "/login"):
+                    self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                    self.send_header("Pragma", "no-cache")
+                super().end_headers()
+
+            def do_GET(self):
+                clean_path = self.path.split("?")[0]
+                if clean_path in ("/", "/index", "/index.html"):
+                    self.path = "/index.html"
+                elif clean_path in ("/app", "/app.html"):
+                    self.path = "/app.html"
+                elif clean_path in ("/login", "/login.html"):
+                    self.path = "/login.html"
+                elif clean_path == "/api/version":
+                    v_file = web_dir / "version.json"
+                    v_data = b'{"version":"1.0.0","status":"ok"}'
+                    if v_file.exists():
+                        try:
+                            v_data = v_file.read_bytes()
+                        except Exception:
+                            pass
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(v_data)))
+                    self.end_headers()
+                    self.wfile.write(v_data)
+                    return
+                super().do_GET()
+
+        socketserver.TCPServer.allow_reuse_address = True
+        with socketserver.TCPServer((host, port), OmniRequestHandler) as httpd:
+            print(f"🚀 OmniTactica HTTP server listening on http://{host}:{port}")
+            try:
+                httpd.serve_forever()
+            except KeyboardInterrupt:
+                print("\nShutting down server...")
 
 
 if __name__ == "__main__":

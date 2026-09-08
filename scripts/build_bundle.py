@@ -89,5 +89,48 @@ def build_bundle():
     print(f"   Raw Total: {total_raw_bytes / 1024:.1f} KB")
     print(f"   Bundled:   {bundle_bytes / 1024:.1f} KB (Reduced by {savings:.1f}%)")
 
+    import hashlib
+    import json
+    import re
+    from datetime import datetime, timezone
+
+    bundle_hash = hashlib.md5(full_bundle.encode("utf-8")).hexdigest()[:10]
+
+    # 1. Stamped version manifest for live PWA update checking
+    version_file = ROOT_DIR / "web" / "version.json"
+    version_data = {
+        "version": bundle_hash,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    version_file.write_text(json.dumps(version_data, indent=2) + "\n", encoding="utf-8")
+    print(f"  ✓ Stamped web/version.json with release hash: {bundle_hash}")
+
+    # 2. Update cache-busting query params and APP_VERSION in HTML templates
+    html_targets = [
+        ROOT_DIR / "web" / "app.html",
+        ROOT_DIR / "web" / "index.html",
+        ROOT_DIR / "web" / "eventstudio.html"
+    ]
+    for html_path in html_targets:
+        if not html_path.exists():
+            continue
+        content = html_path.read_text(encoding="utf-8")
+        
+        # Replace ?v=... for styles and scripts
+        updated = re.sub(
+            r'((?:/css/[a-zA-Z0-9_-]+\.css|/js/[a-zA-Z0-9_.-]+\.js))\?v=[a-zA-Z0-9._-]+',
+            rf'\1?v={bundle_hash}',
+            content
+        )
+        # Update window.APP_VERSION in app.html
+        updated = re.sub(
+            r'window\.APP_VERSION\s*=\s*["\'][^"\']*["\']',
+            f'window.APP_VERSION = "{bundle_hash}"',
+            updated
+        )
+        if updated != content:
+            html_path.write_text(updated, encoding="utf-8")
+            print(f"  ✓ Updated asset query versions (?v={bundle_hash}) in {html_path.name}")
+
 if __name__ == "__main__":
     build_bundle()

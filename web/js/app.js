@@ -409,6 +409,141 @@ function showIosPwaBanner() {
   };
 }
 
+// ==========================================
+// PWA & BROWSER LIVE UPDATE DETECTION
+// ==========================================
+let _pwaUpdateBannerActive = false;
+let _pwaLastVersionCheckTime = 0;
+
+async function checkAppVersionForUpdates() {
+  const now = Date.now();
+  // Throttle checks to at most once every 30 seconds
+  if (now - _pwaLastVersionCheckTime < 30000) {
+    return;
+  }
+  _pwaLastVersionCheckTime = now;
+
+  const currentVersion = window.APP_VERSION;
+  if (!currentVersion || currentVersion === 'dev') {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/version?_t=${now}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache, no-store' }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const serverVersion = data && data.version ? String(data.version).trim() : null;
+
+    if (serverVersion && serverVersion !== currentVersion && serverVersion !== 'dev') {
+      console.log(`[PWA Update] Client version (${currentVersion}) differs from server (${serverVersion}). Prompting reload.`);
+      showAppUpdateBanner(serverVersion);
+    }
+  } catch (e) {
+    // Network errors or offline shouldn't break the app
+  }
+}
+
+function showAppUpdateBanner(newVersion) {
+  if (document.getElementById('pwa-update-banner') || _pwaUpdateBannerActive) return;
+  const dismissedUntil = localStorage.getItem('pwa_update_dismissed_until');
+  if (dismissedUntil && Date.now() < Number(dismissedUntil)) {
+    return;
+  }
+
+  _pwaUpdateBannerActive = true;
+  const banner = document.createElement('div');
+  banner.id = 'pwa-update-banner';
+  banner.className = 'pwa-update-banner';
+  banner.setAttribute('role', 'alert');
+  banner.setAttribute('aria-live', 'assertive');
+
+  banner.innerHTML = `
+    <div class="pwa-update-content">
+      <span class="pwa-update-icon">🚀</span>
+      <div class="pwa-update-text">
+        <span class="pwa-update-title">Update Available</span>
+        <span class="pwa-update-subtitle">New release ready to load</span>
+      </div>
+    </div>
+    <div class="pwa-update-actions">
+      <button type="button" class="pwa-update-btn" id="btn-pwa-apply-update">Reload</button>
+      <button type="button" class="pwa-update-close" id="btn-pwa-dismiss-update" aria-label="Dismiss">✕</button>
+    </div>
+  `;
+
+  document.body.appendChild(banner);
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      banner.classList.add('visible');
+    });
+  });
+
+  const applyBtn = document.getElementById('btn-pwa-apply-update');
+  if (applyBtn) {
+    applyBtn.onclick = () => applyAppUpdateNow();
+  }
+
+  const dismissBtn = document.getElementById('btn-pwa-dismiss-update');
+  if (dismissBtn) {
+    dismissBtn.onclick = () => dismissAppUpdateBanner();
+  }
+}
+
+function dismissAppUpdateBanner() {
+  const banner = document.getElementById('pwa-update-banner');
+  if (banner) {
+    banner.classList.remove('visible');
+    setTimeout(() => {
+      banner.remove();
+      _pwaUpdateBannerActive = false;
+    }, 350);
+  }
+  // Snooze for 15 minutes
+  localStorage.setItem('pwa_update_dismissed_until', String(Date.now() + 15 * 60 * 1000));
+}
+
+async function applyAppUpdateNow() {
+  const updateBtn = document.getElementById('btn-pwa-apply-update');
+  if (updateBtn) {
+    updateBtn.textContent = 'Updating...';
+    updateBtn.disabled = true;
+  }
+
+  // Clear client cache storage if available
+  if (window.caches) {
+    try {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    } catch (e) {
+      console.warn('[PWA Update] Caches clear error:', e);
+    }
+  }
+
+  // Check and update service workers if registered
+  if ('serviceWorker' in navigator) {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const reg of registrations) {
+        await reg.update();
+      }
+    } catch (e) {
+      console.warn('[PWA Update] Service worker update error:', e);
+    }
+  }
+
+  // Force cache-busting page reload
+  const url = new URL(window.location.href);
+  url.searchParams.set('_upd', String(Date.now()));
+  window.location.replace(url.toString());
+}
+
+window.checkAppVersionForUpdates = checkAppVersionForUpdates;
+window.applyAppUpdateNow = applyAppUpdateNow;
+window.dismissAppUpdateBanner = dismissAppUpdateBanner;
+
 document.addEventListener('DOMContentLoaded', async () => {
   if (typeof initAuth === 'function') {
     await initAuth();
@@ -416,6 +551,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (typeof syncAppAuthView === 'function') {
     syncAppAuthView();
   }
+
+  // Live update checks
+  setTimeout(checkAppVersionForUpdates, 2000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkAppVersionForUpdates();
+    }
+  });
+  window.addEventListener('focus', () => {
+    checkAppVersionForUpdates();
+  });
+  setInterval(checkAppVersionForUpdates, 5 * 60 * 1000);
 
   // Gate all features behind login
   if (!currentUser) {

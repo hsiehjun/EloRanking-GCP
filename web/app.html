@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=15.0">
-  <link rel="stylesheet" href="/css/styles.css?v=86.0">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=20.0">
+  <link rel="stylesheet" href="/css/theme.css?v=e78cbe1ebd">
+  <link rel="stylesheet" href="/css/styles.css?v=e78cbe1ebd">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=e78cbe1ebd">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -1574,7 +1574,7 @@
           <p style="font-size: 0.78rem; color: var(--text-muted); margin: 0 0 0.75rem; line-height: 1.4;">
             If using OmniTactica as an installed mobile app (PWA) and you experience delayed updates or cached layouts, reload to fetch the latest platform release.
           </p>
-          <button type="button" onclick="if(window.caches) { caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); }).catch(function(){}); } window.location.reload(true);" class="btn btn-outline" style="width: 100%; box-sizing: border-box; font-size: 0.82rem; padding: 0.6rem; justify-content: center; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
+          <button type="button" onclick="if(typeof applyAppUpdateNow === 'function'){ applyAppUpdateNow(); } else { if(window.caches) { caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); }).catch(function(){}); } window.location.reload(true); }" class="btn btn-outline" style="width: 100%; box-sizing: border-box; font-size: 0.82rem; padding: 0.6rem; justify-content: center; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);">
             🔄 Reload App &amp; Force Cache Refresh
           </button>
         </div>
@@ -2511,7 +2511,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script src="/js/app.bundle.min.js?v=86.0"></script>
+  <script>window.APP_VERSION = "e78cbe1ebd";</script>
+  <script src="/js/app.bundle.min.js?v=e78cbe1ebd"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

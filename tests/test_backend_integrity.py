@@ -149,10 +149,9 @@ def test_route_parity():
 
     import core
     import server
-
     assert server.app is not None, "server.app failed to initialize"
     registered_routes = [(r[0], r[1]) for r in server.app.routes]
-    assert len(registered_routes) in (188, 190, 192, 197), f"Expected 192-197 routes, found {len(registered_routes)}"
+    assert len(registered_routes) in (188, 190, 192, 197, 198), f"Expected 192-198 routes, found {len(registered_routes)}"
 
     canonical_path = Path("/tmp/canonical_routes.json")
     if canonical_path.exists():

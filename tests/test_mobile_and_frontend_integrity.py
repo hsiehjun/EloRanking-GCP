@@ -859,8 +859,13 @@ def test_matchup_spotlights_integrity():
 
     # 3. Cache busting
     import re
-    css_v = re.search(r'styles\.css\?v=([0-9.]+)', app_content)
-    assert css_v and float(css_v.group(1)) >= 83.0, "styles.css not bumped to v>=83.0"
+    css_v = re.search(r'styles\.css\?v=([0-9a-zA-Z._-]+)', app_content)
+    assert css_v, "styles.css cache-busting version parameter missing in app.html"
+    v_str = css_v.group(1)
+    if re.match(r'^[0-9.]+$', v_str):
+        assert float(v_str) >= 83.0, "styles.css not bumped to v>=83.0"
+    else:
+        assert len(v_str) >= 6, f"Release hash too short: {v_str}"
     assert "app.bundle.min.js" in app_content or "my_hub.js" in app_content, "app.bundle.min.js not referenced in app.html"
 
     print("✅ Favorite Prey & Nemesis Army spotlights and mobile 50/50 layout integrity verified!")
