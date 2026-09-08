@@ -1059,7 +1059,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                     "num_rounds": ev_data.get("numberOfRounds") or ev_data.get("numRounds") or 0,
                     "current_round": ev_data.get("currentRound") or 0,
                     "status": ev_data.get("status") if isinstance(ev_data.get("status"), dict) else {},
-                    "is_ended": bool((ev_data.get("status") or {}).get("ended", ev_data.get("isEnded", False))),
+                    "is_ended": bool(ev_data.get("ended") or ev_data.get("isEnded") or (isinstance(ev_data.get("status"), dict) and ev_data["status"].get("ended"))),
                     "pairings_status": ev_data.get("pairingsStatus", "draft"),
                     "raw_json": ev_data,
                     "matches": [],
@@ -1365,14 +1365,28 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             raw_ev = json.loads(raw_ev)
         except Exception:
             raw_ev = {}
-    if "status" not in event_details or not isinstance(event_details.get("status"), dict) or not event_details["status"]:
-        if isinstance(raw_ev, dict) and isinstance(raw_ev.get("status"), dict):
-            event_details["status"] = raw_ev["status"]
-        else:
-            event_details["status"] = {
-                "ended": bool(event_details.get("is_ended")),
-                "started": bool(event_details.get("started"))
-            }
+
+    # Event Name Safeguard: Restore authentic name if DB row has generic placeholder
+    if event_details.get("name") in ("Tournament", "Unnamed Tournament", "Tournament Details", None, ""):
+        if isinstance(raw_ev, dict) and raw_ev.get("name") and raw_ev["name"] not in ("Tournament", "Unnamed Tournament", "Tournament Details"):
+            event_details["name"] = raw_ev["name"]
+
+    # Canonical ended status check
+    is_ended = bool(
+        event_details.get("is_ended") or
+        event_details.get("ended") or
+        (isinstance(raw_ev, dict) and (
+            raw_ev.get("ended") is True or
+            raw_ev.get("isEnded") is True or
+            (isinstance(raw_ev.get("status"), dict) and raw_ev["status"].get("ended") is True)
+        ))
+    )
+    event_details["is_ended"] = is_ended
+    event_details["ended"] = is_ended
+    event_details["status"] = {
+        "ended": is_ended,
+        "started": bool(event_details.get("started") or (isinstance(raw_ev, dict) and raw_ev.get("started", True)))
+    }
 
     event_details["sync_in_progress"] = False
     return event_details

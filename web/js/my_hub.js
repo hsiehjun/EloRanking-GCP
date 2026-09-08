@@ -315,7 +315,14 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
               } else {
                 checkinStatus = `<span class="badge" style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); font-size: 0.7rem; padding: 2px 7px;">⚠️ Not Checked In</span>`;
               }
-              const isEnded = Boolean(ev.status?.ended === true || ev.raw_json?.status?.ended === true);
+              const isEnded = Boolean(
+                ev.ended === true ||
+                ev.is_ended === true ||
+                ev.status?.ended === true ||
+                ev.raw_json?.ended === true ||
+                ev.raw_json?.isEnded === true ||
+                ev.raw_json?.status?.ended === true
+              );
 
               return `
                 <div class="hub-event-item-card">

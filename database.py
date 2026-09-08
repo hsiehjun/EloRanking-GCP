@@ -4055,18 +4055,7 @@ class PostgresDatabase:
                         %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s
                     )
-                    ON CONFLICT (id) DO UPDATE SET
-                        name = EXCLUDED.name,
-                        event_date = COALESCE(EXCLUDED.event_date, events.event_date),
-                        end_date = COALESCE(EXCLUDED.end_date, events.end_date),
-                        city = COALESCE(NULLIF(EXCLUDED.city, ''), events.city),
-                        state = COALESCE(NULLIF(EXCLUDED.state, ''), events.state),
-                        country = COALESCE(NULLIF(EXCLUDED.country, ''), events.country),
-                        venue = COALESCE(NULLIF(EXCLUDED.venue, ''), events.venue),
-                        venue_name = COALESCE(NULLIF(EXCLUDED.venue_name, ''), events.venue_name),
-                        num_rounds = COALESCE(EXCLUDED.num_rounds, events.num_rounds),
-                        points = COALESCE(EXCLUDED.points, events.points),
-                        total_players = COALESCE(EXCLUDED.total_players, events.total_players);
+                    ON CONFLICT (id) DO NOTHING;
                     """, (
                         bcp_event_id, event_name, event_date, end_date, city, state, country,
                         venue_name, venue_name, rounds, points_limit, total_players
@@ -4210,18 +4199,7 @@ class PostgresDatabase:
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s
                 )
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    event_date = COALESCE(EXCLUDED.event_date, events.event_date),
-                    end_date = COALESCE(EXCLUDED.end_date, events.end_date),
-                    city = COALESCE(NULLIF(EXCLUDED.city, ''), events.city),
-                    state = COALESCE(NULLIF(EXCLUDED.state, ''), events.state),
-                    country = COALESCE(NULLIF(EXCLUDED.country, ''), events.country),
-                    venue = COALESCE(NULLIF(EXCLUDED.venue, ''), events.venue),
-                    venue_name = COALESCE(NULLIF(EXCLUDED.venue_name, ''), events.venue_name),
-                    num_rounds = COALESCE(EXCLUDED.num_rounds, events.num_rounds),
-                    points = COALESCE(EXCLUDED.points, events.points),
-                    total_players = COALESCE(EXCLUDED.total_players, events.total_players);
+                ON CONFLICT (id) DO NOTHING;
                 """, (
                     bcp_event_id, event_name, event_date, end_date, city, state, country,
                     venue_name, venue_name, rounds, points_limit, total_players

@@ -281,7 +281,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       throw new Error((ev && ev.error) || 'Failed to load tournament data');
     }
     currentEventData = ev;
-    document.getElementById('modal-event-name').innerText = ev.name || 'Tournament Details';
+    let eventName = ev.name;
+    if (!eventName || eventName === 'Tournament' || eventName === 'Tournament Details' || eventName === 'Unnamed Tournament') {
+      eventName = ev.raw_json?.name || ev.event_name || 'Tournament Details';
+    }
+    document.getElementById('modal-event-name').innerText = eventName;
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || '').slice(0, 10);
     eventMatchesCache = ev.matches || [];
@@ -357,8 +361,14 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
     // Check if event is concluded based on BCP's status.ended
     const isEnded = Boolean(
+      ev?.ended === true ||
+      ev?.is_ended === true ||
       ev?.status?.ended === true ||
+      ev?.raw_json?.ended === true ||
+      ev?.raw_json?.isEnded === true ||
       ev?.raw_json?.status?.ended === true ||
+      userRegData?.ended === true ||
+      userRegData?.is_ended === true ||
       userRegData?.status?.ended === true
     );
 
@@ -688,8 +698,14 @@ window.clearEventModalSearch = clearEventModalSearch;
 function switchEventModalTab(tabKey) {
   if (tabKey === 'elo') tabKey = 'results';
   const isEnded = Boolean(
+    currentEventData?.ended === true ||
+    currentEventData?.is_ended === true ||
     currentEventData?.status?.ended === true ||
+    currentEventData?.raw_json?.ended === true ||
+    currentEventData?.raw_json?.isEnded === true ||
     currentEventData?.raw_json?.status?.ended === true ||
+    currentEventRegistration?.ended === true ||
+    currentEventRegistration?.is_ended === true ||
     currentEventRegistration?.status?.ended === true
   );
   if (tabKey === 'player' && isEnded) {

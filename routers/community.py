@@ -624,15 +624,6 @@ async def api_community_event_registration(
                     else:
                         matched_reg = dict(cp_reg)
 
-                    if user:
-                        try:
-                            db.add_user_registered_tournament(user["id"], {
-                                "id": clean_eid,
-                                "bcp_event_id": clean_eid,
-                                **matched_reg
-                            })
-                        except Exception as esync_err:
-                            logger.debug(f"Syncing live /currentPlayer to DB notice: {esync_err}")
             except Exception as cp_err:
                 logger.debug(f"Notice querying live /currentPlayer: {cp_err}")
 
@@ -651,10 +642,7 @@ async def api_community_event_registration(
                                         matched_reg[k] = v
                             else:
                                 matched_reg = dict(ev_item)
-                            try:
-                                db.add_user_registered_tournament(user["id"], matched_reg)
-                            except Exception as esync_err:
-                                logger.debug(f"Syncing live BCP registered event notice: {esync_err}")
+
                             break
             except Exception as bcp_fetch_err:
                 logger.debug(f"Notice querying live user registered events: {bcp_fetch_err}")
