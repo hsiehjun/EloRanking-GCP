@@ -1256,6 +1256,12 @@ function renderPairingsSubtab() {
     const rematchRounds = Array.isArray(match.rematch_rounds) && match.rematch_rounds.length > 0 ? match.rematch_rounds.join(', ') : '';
     const sameTeam = Boolean(match.same_team);
 
+    const matchId = `BCP-${ev.id}-R${currentRound}-T${table}`.toUpperCase();
+    const pid = match.id || match.bcp_pairing_id || '';
+    const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : '';
+    const pairingParam = cleanPid ? `&pairing_id=${encodeURIComponent(cleanPid)}` : '';
+    const trackerSpectateUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&role=spectator${pairingParam}`;
+
     return `
       <div class="es-match-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative;">
         <!-- Card Header -->
@@ -1313,7 +1319,7 @@ function renderPairingsSubtab() {
 
         <!-- Card Footer Actions -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
-          <a href="/tracker?eventId=${encodeURIComponent(ev.id)}&round=${currentRound}&table=${table}" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: underline; font-weight: 600;">Open Game Tracker ↗</a>
+          <a href="${trackerSpectateUrl}" target="_blank" onclick="ensureStudioTrackerRoom(event, '${escapeHtml(ev.id)}', ${currentRound}, ${table}, '${escapeHtml(p1Name)}', '${escapeHtml(p2Name)}', '${escapeHtml(match.p1_id || '')}', '${escapeHtml(match.p2_id || '')}', '${escapeHtml(p1Fac)}', '${escapeHtml(p2Fac)}', '${escapeHtml(cleanPid)}')" style="font-size: 0.75rem; color: #a5b4fc; text-decoration: underline; font-weight: 600;" title="Spectate Table ${table} as Spectator">👁️ Open Game Tracker ↗</a>
           <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.65rem;" onclick="saveTableScore(${table})">💾 Save Score</button>
         </div>
       </div>
@@ -1324,6 +1330,30 @@ function renderPairingsSubtab() {
     c.innerHTML = cardsHtml;
   });
 }
+
+async function ensureStudioTrackerRoom(e, eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, p1Fac, p2Fac, pairingId) {
+  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
+  try {
+    if (window.api && typeof window.api.createTournamentTrackerRoom === 'function') {
+      await window.api.createTournamentTrackerRoom({
+        match_id: matchId,
+        event_id: eventId,
+        round_num: Number(roundNum) || 1,
+        table_num: Number(tableNum) || 1,
+        pairing_id: pairingId || null,
+        p1_name: p1Name || 'Player 1',
+        p2_name: p2Name || 'Player 2',
+        p1_id: p1Id || null,
+        p2_id: p2Id || null,
+        p1_faction: p1Fac || null,
+        p2_faction: p2Fac || null
+      });
+    }
+  } catch (err) {
+    console.warn("Notice ensuring tracker room before spectator navigation:", err);
+  }
+}
+window.ensureStudioTrackerRoom = ensureStudioTrackerRoom;
 
 function selectRoundView(roundNum) {
   studioState.currentRoundView = roundNum;
@@ -1383,13 +1413,14 @@ async function saveTableScore(tableNum) {
   try {
     if (!String(ev.id).startsWith("ES-")) {
       const pid = match ? (match.id || match.bcp_pairing_id) : null;
+      const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : null;
       const res = await window.api.submitStudioScore({
         event_id: ev.id,
         table: Number(tableNum) || 1,
         round_num: Number(currentRound) || 1,
         p1_score: p1Score,
         p2_score: p2Score,
-        pairing_id: pid,
+        pairing_id: cleanPid,
         p1_name: match ? (match.p1_name || match.player1_name) : 'Player 1',
         p2_name: match ? (match.p2_name || match.player2_name) : 'Player 2',
         game_details: {
@@ -1404,10 +1435,68 @@ async function saveTableScore(tableNum) {
       }
       if (res && res.bcp_synced) {
         alert(`Table ${tableNum} score successfully submitted to Best Coast Pairings!`);
-      } else if (res && res.bcp_notice) {
-        alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
       } else {
-        alert(`Table ${tableNum} score submitted!`);
+        // Direct browser submission fallback to BCP newapi /pairings/{pairingId}/submitScores
+        const bcpTok = window.api.getBcpToken();
+        const targetPid = (res && res.pairing_id) || cleanPid;
+        let directSuccess = false;
+        if (bcpTok && targetPid && !String(targetPid).startsWith("bcp-pairing-")) {
+          try {
+            const p1Res = p1Score > p2Score ? 2 : (p1Score === p2Score ? 1 : 0);
+            const p2Res = p2Score > p1Score ? 2 : (p1Score === p2Score ? 1 : 0);
+            const cleanTargetPid = String(targetPid).trim();
+            const directResp = await fetch(`https://newprod-api.bestcoastpairings.com/v1/pairings/${encodeURIComponent(cleanTargetPid)}/submitScores`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${bcpTok.replace(/^Bearer\s+/i, '').trim()}`,
+                'client-id': 'web-app',
+                'env': 'bcp'
+              },
+              body: JSON.stringify({
+                pairingType: "Pairing",
+                isDone: true,
+                player1Score: p1Score,
+                player2Score: p2Score,
+                player1Points: p1Score,
+                player2Points: p2Score,
+                player1Result: p1Res,
+                player2Result: p2Res,
+                player1Game: {
+                  points: p1Score,
+                  result: p1Res,
+                  ...(match && (match.player1GameId || match.p1_game_id) ? { id: match.player1GameId || match.p1_game_id } : {})
+                },
+                player2Game: {
+                  points: p2Score,
+                  result: p2Res,
+                  ...(match && (match.player2GameId || match.p2_game_id) ? { id: match.player2GameId || match.p2_game_id } : {})
+                },
+                metaData: {
+                  "p1-gamePoints": String(p1Score),
+                  "p2-gamePoints": String(p2Score),
+                  "p1-gameResult": String(p1Res),
+                  "p2-gameResult": String(p2Res),
+                  "p1-marginOfVictory": p1Score - p2Score,
+                  "p2-marginOfVictory": p2Score - p1Score
+                }
+              })
+            });
+            if (directResp.ok) {
+              directSuccess = true;
+              alert(`Table ${tableNum} score successfully submitted directly to Best Coast Pairings (Direct 200 OK)!`);
+            }
+          } catch (de) {
+            console.warn("Direct BCP submit error:", de);
+          }
+        }
+        if (!directSuccess) {
+          if (res && res.bcp_notice) {
+            alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
+          } else {
+            alert(`Table ${tableNum} score submitted!`);
+          }
+        }
       }
     } else {
       await window.api.saveStudioPairings(ev.id, {

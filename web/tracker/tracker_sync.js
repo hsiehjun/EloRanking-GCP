@@ -729,6 +729,12 @@
       try { currentObj = JSON.parse(rawCurrent) || {}; } catch(e) {}
 
       let matchId = params.get('match_id') || params.get('room') || params.get('match') || currentObj.match_id || (currentObj.id && typeof currentObj.id === 'string' && currentObj.id.startsWith('WH40K-') ? currentObj.id : null);
+      if (!matchId && (params.get('eventId') || params.get('event_id')) && (params.get('table') || params.get('table_num'))) {
+        const evId = params.get('eventId') || params.get('event_id');
+        const rNum = params.get('round') || params.get('round_num') || 1;
+        const tNum = params.get('table') || params.get('table_num') || 1;
+        matchId = `BCP-${evId}-R${rNum}-T${tNum}`.toUpperCase();
+      }
 
       let chkData = {};
 

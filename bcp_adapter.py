@@ -217,37 +217,47 @@ class BcpAdapter:
         if not clean_eid:
             return False, "Missing event_id", []
 
-        url = f"{BCP_API_BASE}/events/{clean_eid}/pairings?round={round_num}&pairingType={pairing_type}"
-        data, err = cls.execute_call(
-            url=url,
-            method="GET",
-            user_id=user_id,
-            explicit_token=explicit_token,
-            allow_unauthenticated=True
-        )
-        if data and isinstance(data, dict):
-            active = data.get("active") or data.get("data") or []
-            if isinstance(active, list) and active:
-                return True, None, active
-        elif isinstance(data, list) and data:
-            return True, None, data
-
-        # Fallback to TeamPairing if singles is empty
-        if pairing_type == "Pairing":
-            url_team = f"{BCP_API_BASE}/events/{clean_eid}/pairings?round={round_num}&pairingType=TeamPairing"
-            t_data, t_err = cls.execute_call(
-                url=url_team,
+        url_candidates = [
+            f"{BCP_API_BASE}/pairings?eventId={clean_eid}&round={round_num}&pairingType={pairing_type}&limit=500&expand[]=player&expand[]=teamPlayer",
+            f"{BCP_API_BASE}/pairings?eventId={clean_eid}&round={round_num}&pairingType={pairing_type}",
+            f"{BCP_API_BASE}/events/{clean_eid}/pairings?round={round_num}&pairingType={pairing_type}"
+        ]
+        for url in url_candidates:
+            data, err = cls.execute_call(
+                url=url,
                 method="GET",
                 user_id=user_id,
                 explicit_token=explicit_token,
                 allow_unauthenticated=True
             )
-            if t_data and isinstance(t_data, dict):
-                active = t_data.get("active") or t_data.get("data") or []
+            if data and isinstance(data, dict):
+                active = data.get("data") or data.get("active") or []
                 if isinstance(active, list) and active:
                     return True, None, active
-            elif isinstance(t_data, list) and t_data:
-                return True, None, t_data
+            elif isinstance(data, list) and data:
+                return True, None, data
+
+        # Fallback to TeamPairing if singles is empty
+        if pairing_type == "Pairing":
+            url_team_candidates = [
+                f"{BCP_API_BASE}/pairings?eventId={clean_eid}&round={round_num}&pairingType=TeamPairing&limit=500&expand[]=player&expand[]=teamPlayer",
+                f"{BCP_API_BASE}/pairings?eventId={clean_eid}&round={round_num}&pairingType=TeamPairing",
+                f"{BCP_API_BASE}/events/{clean_eid}/pairings?round={round_num}&pairingType=TeamPairing"
+            ]
+            for url_team in url_team_candidates:
+                t_data, t_err = cls.execute_call(
+                    url=url_team,
+                    method="GET",
+                    user_id=user_id,
+                    explicit_token=explicit_token,
+                    allow_unauthenticated=True
+                )
+                if t_data and isinstance(t_data, dict):
+                    active = t_data.get("data") or t_data.get("active") or []
+                    if isinstance(active, list) and active:
+                        return True, None, active
+                elif isinstance(t_data, list) and t_data:
+                    return True, None, t_data
 
         # Fallback to scraper if execute_call returned empty
         try:

@@ -1444,6 +1444,65 @@ def test_eventstudio_quiet_polling_and_live_sync_ui():
 
     print("✅ test_eventstudio_quiet_polling_and_live_sync_ui passed!")
 
+def test_eventstudio_spectator_tracker_and_bcp_submit_scores():
+    """Verify Event Studio links TOs to tracker in spectator mode, auto-provisions table rooms, and submits scores via BCP submitScores."""
+    from pathlib import Path
+    from routers.tracker import init_tracker_room_from_tournament
+    root = Path(__file__).resolve().parent.parent
+
+    # 1. Event Studio Pairing Spectator Link & ensureStudioTrackerRoom in eventstudio.js
+    es_js = (root / "web" / "js" / "eventstudio.js").read_text()
+    assert "role=spectator" in es_js, "eventstudio.js must include role=spectator in tracker link"
+    assert 'target="_blank"' in es_js, "eventstudio.js must include target=_blank to preserve TO session"
+    assert "ensureStudioTrackerRoom" in es_js, "eventstudio.js must define ensureStudioTrackerRoom"
+    assert "window.ensureStudioTrackerRoom = ensureStudioTrackerRoom" in es_js
+    assert "/v1/pairings/${encodeURIComponent(cleanTargetPid)}/submitScores" in es_js or "submitScores" in es_js
+
+    # 2. bcp_adapter.py submitScores endpoint
+    bcp_adapter_py = (root / "bcp_adapter.py").read_text()
+    assert "/pairings/{clean_pid}/submitScores" in bcp_adapter_py
+    assert "/v1/pairings?eventId=" in bcp_adapter_py or "/pairings?eventId=" in bcp_adapter_py
+
+    # 3. tracker_sync.js table param fallback
+    sync_js = (root / "web" / "tracker" / "tracker_sync.js").read_text()
+    assert "params.get('eventId')" in sync_js
+    assert "BCP-${evId}-R${rNum}-T${tNum}" in sync_js
+
+    # 4. Auto-provisioning via init_tracker_room_from_tournament
+    mock_db = MagicMock()
+    mock_db.get_event_details.return_value = {
+        "id": "SPEC-EV-1",
+        "name": "Spectator Test Event",
+        "matches": [
+            {
+                "round_num": 1,
+                "table_num": 3,
+                "player1_name": "Spectator Alpha",
+                "player2_name": "Spectator Beta",
+                "player1_id": "p_alpha",
+                "player2_id": "p_beta",
+                "bcp_pairing_id": "MOBhLa7EXspc"
+            }
+        ]
+    }
+    mock_fs = MagicMock()
+
+    room = init_tracker_room_from_tournament("BCP-SPEC-EV-1-R1-T3", mock_fs, mock_db)
+    assert room is not None
+    assert isinstance(room, dict)
+    assert room["p1_name"] == "Spectator Alpha"
+    assert room["p2_name"] == "Spectator Beta"
+    assert room["table_num"] == 3
+    assert room["round_num"] == 1
+    assert room["pairing_id"] == "MOBhLa7EXspc"
+
+    mock_fs.create_room.assert_called_once()
+    saved_doc = mock_fs.create_room.call_args[0][1]
+    assert saved_doc["p1_name"] == "Spectator Alpha"
+    assert saved_doc["p2_name"] == "Spectator Beta"
+
+    print("✅ test_eventstudio_spectator_tracker_and_bcp_submit_scores passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1479,7 +1538,9 @@ if __name__ == "__main__":
     test_eventstudio_bcp_case_healing_and_canonical_resolution()
     test_bcp_metadata_scores_and_payload_wiring()
     test_eventstudio_quiet_polling_and_live_sync_ui()
+    test_eventstudio_spectator_tracker_and_bcp_submit_scores()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
+
 
 
 

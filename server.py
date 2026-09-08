@@ -313,9 +313,31 @@ async def serve_tracker_alias(request: Request, token: Optional[str] = Query(Non
     auth_header = request.headers.get("Authorization", "")
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
+
+    qp = dict(request.query_params)
+    event_id = qp.get("eventId") or qp.get("event_id")
+    table_num = qp.get("table") or qp.get("table_num")
+    round_num = qp.get("round") or qp.get("round_num") or 1
+    match_id = qp.get("match_id") or qp.get("room") or qp.get("id")
+    role = qp.get("role")
+
+    if not match_id and event_id and table_num:
+        match_id = f"BCP-{event_id}-R{round_num}-T{table_num}".upper()
+        if not role:
+            role = "spectator"
+        target = f"/11th/tracker/play?match_id={urllib.parse.quote_plus(match_id)}&role={urllib.parse.quote_plus(role)}"
+        if qp.get("pairing_id"):
+            target += f"&pairing_id={urllib.parse.quote_plus(qp['pairing_id'])}"
+    elif match_id or "play" in qp:
+        query_str = f"?{request.url.query}" if request.url.query else ""
+        target = f"/11th/tracker/play{query_str}"
+    else:
+        query_str = f"?{request.url.query}" if request.url.query else ""
+        target = f"/11th/tracker{query_str}"
+
     if not user:
-        return RedirectResponse(url="/login?redirect=/11th/tracker", status_code=303)
-    return RedirectResponse(url="/11th/tracker", status_code=303)
+        return RedirectResponse(url=f"/login?redirect={urllib.parse.quote_plus(target)}", status_code=303)
+    return RedirectResponse(url=target, status_code=303)
 
 @app.get("/tracker/play", include_in_schema=False)
 async def serve_tracker_play_alias(request: Request):

@@ -248,6 +248,155 @@ def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_eng
 
     return room
 
+def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str, Any]:
+    """Auto-provisions a tournament match room when accessed directly via match_id."""
+    m = re.match(r"^(BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
+    event_id = m.group(2) if m else None
+    round_num = int(m.group(3)) if m else 1
+    table_num = int(m.group(4)) if m else 1
+
+    p1_name = "Player 1"
+    p2_name = "Player 2"
+    p1_fac = None
+    p2_fac = None
+    p1_id = None
+    p2_id = None
+    pairing_id = None
+
+    if event_id:
+        try:
+            details = db.get_event_details(event_id) if hasattr(db, "get_event_details") else None
+            if details and details.get("matches"):
+                for mt in details["matches"]:
+                    mt_round = int(mt.get("round") or mt.get("round_num") or mt.get("round_number") or 1)
+                    mt_table = int(mt.get("table_number") or mt.get("table_num") or mt.get("table") or 1)
+                    if mt_round == round_num and mt_table == table_num:
+                        p1_name = mt.get("player1_name") or mt.get("p1_name") or p1_name
+                        p2_name = mt.get("player2_name") or mt.get("p2_name") or p2_name
+                        p1_fac = mt.get("player1_faction") or mt.get("p1_faction") or p1_fac
+                        p2_fac = mt.get("player2_faction") or mt.get("p2_faction") or p2_fac
+                        p1_id = mt.get("player1_id") or mt.get("p1_id") or p1_id
+                        p2_id = mt.get("player2_id") or mt.get("p2_id") or p2_id
+                        pairing_id = mt.get("bcp_pairing_id") or mt.get("pairing_id") or mt.get("id") or pairing_id
+                        break
+        except Exception:
+            pass
+
+    initial_state = {
+        "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
+        "match_id": match_id,
+        "event_id": event_id,
+        "round_num": round_num,
+        "table_num": table_num,
+        "pairing_id": pairing_id,
+        "user_id_p1": None,
+        "user_id_p2": None,
+        "game": {
+            "p1Name": p1_name,
+            "p2Name": p2_name,
+            "p1Faction": p1_fac,
+            "p2Faction": p2_fac,
+            "p1Detachments": [],
+            "p2Detachments": [],
+            "p1Disposition": None,
+            "p2Disposition": None,
+            "p1Primary": None,
+            "p2Primary": None,
+            "p1Role": None,
+            "p2Role": None,
+            "p1MissionType": None,
+            "p2MissionType": None,
+            "rollOffWinner": None,
+            "firstTurn": None,
+            "deployment": None,
+            "terrainLayout": None,
+            "trackCP": True,
+            "showCP": True,
+            "enableCP": True,
+            "cpCounter": True,
+            "cp": True,
+            "eventId": event_id,
+            "roundNum": round_num,
+            "tableNum": table_num,
+            "pairingId": pairing_id,
+            "p1Id": p1_id,
+            "p2Id": p2_id
+        },
+        "p1": {
+            "score": 0,
+            "rounds": [
+                {"round": i, "battleRound": i, "primaryScore": 0, "secondaryScore": 0, "secondaries": []}
+                for i in range(1, 6)
+            ],
+            "battleReady": True,
+            "cp": 0
+        },
+        "p2": {
+            "score": 0,
+            "rounds": [
+                {"round": i, "battleRound": i, "primaryScore": 0, "secondaryScore": 0, "secondaries": []}
+                for i in range(1, 6)
+            ],
+            "battleReady": True,
+            "cp": 0
+        },
+        "round": 1,
+        "started": False,
+        "trackCP": True,
+        "showCP": True,
+        "enableCP": True,
+        "cpCounter": True
+    }
+
+    initial_clock = {
+        "visible": False,
+        "running": False,
+        "active_player": 1,
+        "duration_minutes": 75,
+        "p1_remaining": 4500,
+        "p2_remaining": 4500,
+        "round_remaining": 9000,
+        "last_start_time": None,
+        "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000)
+    }
+
+    room = {
+        "match_id": match_id,
+        "event_id": event_id,
+        "round_num": round_num,
+        "table_num": table_num,
+        "pairing_id": pairing_id,
+        "user_id_p1": None,
+        "user_id_p2": None,
+        "referee_ids": [],
+        "version": 1,
+        "p1_name": p1_name,
+        "p2_name": p2_name,
+        "state": initial_state,
+        "chess_clock": initial_clock,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    TRACKER_ROOMS[match_id] = room
+    try:
+        fs_engine.create_room(match_id, {
+            "user_id_p1": None,
+            "user_id_p2": None,
+            "referee_ids": [],
+            "version": 1,
+            "p1_name": p1_name,
+            "p2_name": p2_name,
+            "state": initial_state,
+            "chess_clock": initial_clock,
+            "created_at": room["created_at"],
+            "updated_at": room["updated_at"]
+        })
+        logger.info(f"🏆 [TOURNAMENT TRACKER] Auto-initialized tournament room {match_id}")
+    except Exception as err:
+        logger.warning(f"Notice auto-initializing tournament room {match_id}: {err}")
+
+    return room
+
 def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict[str, Any], match_id: str, payload: Optional[Any] = None) -> Tuple[str, Optional[str]]:
     """
     Determines role ('player1', 'player2', 'referee', 'spectator') and slot to claim ('user_id_p1', 'user_id_p2', or None).
@@ -705,6 +854,8 @@ async def api_tracker_check_room(match_id: str, request: Request):
                 chat_room = db.find_chat_room_key(match_id)
                 if chat_room:
                     room = init_tracker_room_from_chat(match_id, chat_room, fs_engine)
+                elif match_id.startswith("BCP-") or match_id.startswith("ES-"):
+                    room = init_tracker_room_from_tournament(match_id, fs_engine, db)
                 else:
                     return {"exists": False, "match_id": match_id, "error": f"Room key '{match_id}' does not exist."}
             
@@ -802,6 +953,8 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                 chat_room = db.find_chat_room_key(match_id)
                 if chat_room:
                     room = init_tracker_room_from_chat(match_id, chat_room, fs_engine)
+                elif match_id.startswith("BCP-") or match_id.startswith("ES-"):
+                    room = init_tracker_room_from_tournament(match_id, fs_engine, db)
                 else:
                     raise HTTPException(status_code=404, detail="Match room not found")
             

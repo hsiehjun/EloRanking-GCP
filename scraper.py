@@ -122,32 +122,42 @@ class BestCoastPairingsScraper:
 
     def fetch_event_pairings_for_round(self, event_id: str, round_num: int, pairing_type: str = "Pairing") -> List[Dict[str, Any]]:
         """Fetches all pairings for a specific round of an event. Falls back to TeamPairing if standard Pairing is empty."""
-        resp = self._make_request(f"/events/{event_id}/pairings", params={
-            "round": round_num,
-            "pairingType": pairing_type
-        })
+        endpoints = [
+            ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": pairing_type, "limit": 500}),
+            (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": pairing_type})
+        ]
         items = []
-        if isinstance(resp, dict):
-            if "active" in resp and isinstance(resp["active"], list):
-                items = resp["active"]
-            elif "data" in resp and isinstance(resp["data"], list):
-                items = resp["data"]
-        elif isinstance(resp, list):
-            items = resp
+        for ep, params in endpoints:
+            resp = self._make_request(ep, params=params)
+            if isinstance(resp, dict):
+                if "data" in resp and isinstance(resp["data"], list) and resp["data"]:
+                    items = resp["data"]
+                    break
+                elif "active" in resp and isinstance(resp["active"], list) and resp["active"]:
+                    items = resp["active"]
+                    break
+            elif isinstance(resp, list) and resp:
+                items = resp
+                break
 
         # Fallback to TeamPairing if standard Pairing is empty (e.g. Doubles or Team events)
         if not items and pairing_type == "Pairing":
-            resp_team = self._make_request(f"/events/{event_id}/pairings", params={
-                "round": round_num,
-                "pairingType": "TeamPairing"
-            })
-            if isinstance(resp_team, dict):
-                if "active" in resp_team and isinstance(resp_team["active"], list):
-                    items = resp_team["active"]
-                elif "data" in resp_team and isinstance(resp_team["data"], list):
-                    items = resp_team["data"]
-            elif isinstance(resp_team, list):
-                items = resp_team
+            team_endpoints = [
+                ("/pairings", {"eventId": event_id, "round": round_num, "pairingType": "TeamPairing", "limit": 500}),
+                (f"/events/{event_id}/pairings", {"round": round_num, "pairingType": "TeamPairing"})
+            ]
+            for ep, params in team_endpoints:
+                resp_team = self._make_request(ep, params=params)
+                if isinstance(resp_team, dict):
+                    if "data" in resp_team and isinstance(resp_team["data"], list) and resp_team["data"]:
+                        items = resp_team["data"]
+                        break
+                    elif "active" in resp_team and isinstance(resp_team["active"], list) and resp_team["active"]:
+                        items = resp_team["active"]
+                        break
+                elif isinstance(resp_team, list) and resp_team:
+                    items = resp_team
+                    break
 
         return items or []
 

@@ -2755,12 +2755,17 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             res_p = bcp_adapter.fetch_event_pairings(canonical_event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
             p_list = res_p[2] if isinstance(res_p, tuple) and len(res_p) >= 3 else (res_p if isinstance(res_p, list) else [])
             for p in p_list:
-                if p.get("table") == table_val or str(p.get("table")) == str(table_val):
+                t_val = p.get("table") or p.get("tableNumber") or p.get("table_number")
+                p1_obj = p.get("player1") or {}
+                p2_obj = p.get("player2") or {}
+                u1 = p1_obj.get("user") if isinstance(p1_obj.get("user"), dict) else {}
+                u2 = p2_obj.get("user") if isinstance(p2_obj.get("user"), dict) else {}
+
+                table_matches = (t_val == table_val or str(t_val) == str(table_val))
+                p1_name_match = bool(payload.p1_name and (payload.p1_name.lower() in (str(p1_obj.get("name") or "").lower(), str(p2_obj.get("name") or "").lower())))
+
+                if table_matches or p1_name_match:
                     bcp_pairing_id = p.get("id") or p.get("bcp_pairing_id")
-                    p1_obj = p.get("player1") or {}
-                    p2_obj = p.get("player2") or {}
-                    u1 = p1_obj.get("user") if isinstance(p1_obj.get("user"), dict) else {}
-                    u2 = p2_obj.get("user") if isinstance(p2_obj.get("user"), dict) else {}
                     p1_id = p1_id or str(p1_obj.get("id") or p.get("player1Id") or u1.get("id") or "")
                     p2_id = p2_id or str(p2_obj.get("id") or p.get("player2Id") or u2.get("id") or "")
                     p1_name = payload.p1_name or p1_obj.get("name") or "Player 1"
