@@ -824,3 +824,41 @@ html.is-ios-standalone #gt-sync-hud {
 html.is-ios-standalone body:has(#gt-sync-hud) {
   padding-top: max(100px, calc(60px + env(safe-area-inset-top, 0px))) !important;
 }
+
+/* Spectator Mode: Enforce read-only UI for non-competitor spectators */
+body.is-spectator-mode #root button,
+body.is-spectator-mode #root input,
+body.is-spectator-mode #root select,
+body.is-spectator-mode #root textarea,
+body.is-spectator-mode #root [role="button"] {
+  pointer-events: none !important;
+  opacity: 0.85;
+  cursor: default !important;
+}
+
+body.is-spectator-mode #gt-invite-widget {
+  display: none !important;
+}
+
+/* Allow interaction with HUD, Army Lists, Scorecard, and Clock close */
+body.is-spectator-mode #gt-sync-hud,
+body.is-spectator-mode #gt-sync-hud *,
+body.is-spectator-mode #gt-army-list-modal,
+body.is-spectator-mode #gt-army-list-modal *,
+body.is-spectator-mode #gt-dice-roller-modal,
+body.is-spectator-mode #gt-dice-roller-modal * {
+  pointer-events: auto !important;
+}
+
+body.is-spectator-mode #gt-chess-clock-hud button:not(#gt-clock-close-btn),
+body.is-spectator-mode #gt-chess-clock-hud select,
+body.is-spectator-mode #gt-chess-clock-hud .gt-clock-player-box {
+  pointer-events: none !important;
+  opacity: 0.85;
+  cursor: default !important;
+}
+
+body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}

@@ -69,6 +69,16 @@
     hasRealtimeStream: false
   };
 
+  function updateSpectatorModeUI() {
+    if (typeof document !== 'undefined' && document.body) {
+      if (clientState.role === 'spectator') {
+        document.body.classList.add('is-spectator-mode');
+      } else {
+        document.body.classList.remove('is-spectator-mode');
+      }
+    }
+  }
+
   let dbHistoryCache = [];
 
   // 1. Storage interceptors - immediate execution in HEAD
@@ -754,7 +764,8 @@
             const data = await resp.json();
             matchId = data.match_id;
             clientState.matchId = matchId;
-            clientState.role = 'player1';
+            clientState.role = data.role || 'player1';
+            updateSpectatorModeUI();
             applyRemoteState(data.state);
           }
         } catch (e) {}
@@ -798,6 +809,7 @@
             return;
           }
           clientState.role = joinData.role || 'spectator';
+          updateSpectatorModeUI();
           if (joinData.state) {
             applyRemoteState(joinData.state);
           }
@@ -1092,6 +1104,7 @@
 
   // 5. Step 1: 2-Player Invite & Setup Helper inside Play Screen
   function injectPlayer2InviteWidget() {
+    if (clientState.role === 'spectator') return;
     function tryInjectWidget() {
       const existing = document.getElementById('gt-invite-widget');
       if (existing && document.body.contains(existing)) return;
@@ -1625,6 +1638,7 @@
   function notifyStateChanged() {
     if (clientState.isApplyingRemote) return;
     if (!clientState.matchId) return;
+    if (clientState.role === 'spectator') return;
 
     // Scrape active DOM wizard fields into state
     const wizard = scrapeSetupWizardState();
@@ -1755,6 +1769,7 @@
 
   async function broadcastState() {
     if (!clientState.matchId || clientState.isFinalizing) return;
+    if (clientState.role === 'spectator') return;
     const raw = originalGetItem('gdm-11e-tracker-state');
     if (!raw) return;
 
@@ -2023,6 +2038,7 @@
   }
 
   function autoToggleCpInDom() {
+    if (clientState.role === 'spectator') return;
     try {
       const buttons = Array.from(document.querySelectorAll('button'));
       for (const btn of buttons) {
@@ -2036,6 +2052,7 @@
 
   let stateDebounceTimer = null;
   function scheduleNotifyStateChanged() {
+    if (clientState.role === 'spectator') return;
     if (stateDebounceTimer) clearTimeout(stateDebounceTimer);
     stateDebounceTimer = setTimeout(() => {
       notifyStateChanged();
@@ -2051,18 +2068,39 @@
     cpObs.observe(document.body, { childList: true, subtree: true, characterData: true });
 
     document.addEventListener('input', (e) => {
+      if (clientState.role === 'spectator') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
       scheduleNotifyStateChanged();
-    });
+    }, true);
 
     document.addEventListener('change', (e) => {
+      if (clientState.role === 'spectator') {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
       if (e.target && e.target.closest && (e.target.closest('#gt-sync-hud') || e.target.closest('#gt-complete-modal') || e.target.closest('#gt-army-list-modal') || e.target.closest('#gt-user-status-bar'))) return;
       scheduleNotifyStateChanged();
-    });
+    }, true);
 
     document.addEventListener('click', (e) => {
       const target = e.target;
       if (!target) return;
+
+      if (clientState.role === 'spectator') {
+        if (target.closest && target.closest('#root')) {
+          const interactive = target.closest('button, input, select, textarea, [role="button"]');
+          if (interactive) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+        }
+      }
 
       // Intercept Game Tracker "Return to games" summary button to trigger conclusion & save
       const btnOrLink = target.closest ? target.closest('button, a') : null;
@@ -2117,6 +2155,7 @@
     }
 
     const isP1 = clientState.role === 'player1';
+    const isSpectator = clientState.role === 'spectator';
     const hasMyList = isP1 ? !!clientState.p1ArmyList : !!clientState.p2ArmyList;
     const hasOppList = isP1 ? !!clientState.p2ArmyList : !!clientState.p1ArmyList;
 
@@ -2128,7 +2167,7 @@
     const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
 
     // Signature memoization to prevent clobbering DOM on active user clicks
-    const sig = `${clientState.matchId}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${clientState.activeJudgeCall}`;
+    const sig = `${clientState.matchId}_${clientState.role}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${clientState.activeJudgeCall}`;
     if (hud.dataset.sig === sig) {
       return;
     }
@@ -2146,6 +2185,11 @@
         <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
           #${clientState.matchId}${tableNum ? ` (T${tableNum})` : ''}
         </span>
+        ${isSpectator ? `
+          <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
+            👀 Spectator Mode (Read-Only)
+          </span>
+        ` : ''}
       </div>
 
       <!-- Center: Connected Players Matchup -->
@@ -2164,7 +2208,7 @@
         <button onclick="window.gtToggleDiceRoller()" style="background:#0f172a; color:#f59e0b; border:1px solid rgba(245,158,11,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Synchronized Dice Roller">
           🎲 Dice
         </button>
-        ${tournamentId ? `
+        ${tournamentId && !isSpectator ? `
           <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
             🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
           </button>
@@ -2175,14 +2219,18 @@
         <button onclick="window.gtOpenArmyListModal('my')" style="background:${hasMyList ? '#059669' : '#1e293b'}; color:#fff; border:1px solid ${hasMyList ? '#10b981' : '#334155'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Your Army List">
           📋 My List ${hasMyList ? '🟢' : ''}
         </button>
-        ${isPlay ? `
+        ${isPlay && !isSpectator ? `
           <button onclick="window.__openScorecardModal()" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
             📄 Scorecard
           </button>
           <button onclick="window.__openCompleteModal()" style="background:#059669; color:#fff; border:1px solid #10b981; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Complete Game">
             🏁 Finish
           </button>
-        ` : ''}
+        ` : (isPlay ? `
+          <button onclick="window.__openScorecardModal()" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Scorecard">
+            📄 Scorecard
+          </button>
+        ` : '')}
         <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
           🔗 Share
         </button>
@@ -3199,7 +3247,7 @@ Space Marines - Gladius Task Force (2000 pts)
   }
 
   function broadcastChessClockFast() {
-    if (!clientState.matchId) return;
+    if (!clientState.matchId || clientState.role === 'spectator') return;
     const times = getEffectiveClockTimes();
     const payload = {
       visible: chessClock.visible,

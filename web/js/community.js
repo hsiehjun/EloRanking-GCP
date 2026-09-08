@@ -3051,6 +3051,12 @@ window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;
 let activeRegistrationEvent = null;
 let userRegistrationArmyLists = [];
 
+function closeEventRegistrationLoadingModal() {
+  const loadingModal = document.getElementById('event-reg-loading-modal');
+  if (loadingModal) loadingModal.style.display = 'none';
+}
+window.closeEventRegistrationLoadingModal = closeEventRegistrationLoadingModal;
+
 async function openEventRegistrationModal(eventId) {
   if (!eventId) return;
   const modal = document.getElementById('event-registration-modal');
@@ -3080,7 +3086,7 @@ async function openEventRegistrationModal(eventId) {
     submitBtn.textContent = 'Confirm & Complete Registration';
   }
 
-  // Pre-fill from existing event list in communityState if available
+  // Pre-fill event title info if available in local cache
   let localEv = null;
   if (communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
     localEv = communityState.overview.events_upcoming.find(e => e.id === eventId);
@@ -3093,12 +3099,24 @@ async function openEventRegistrationModal(eventId) {
     if (venueEl) venueEl.textContent = '';
   }
 
-  modal.style.display = 'flex';
-  if (typeof bringModalToFront === 'function') bringModalToFront(modal);
+  // Show dedicated loading screen while waiting for BCP network request
+  const loadingModal = document.getElementById('event-reg-loading-modal');
+  const loadingText = document.getElementById('event-reg-loading-text');
+  if (loadingText) {
+    loadingText.textContent = localEv ? `Fetching registration details for ${localEv.name || 'Tournament'}...` : 'Fetching tournament details and your player registration profile from BCP...';
+  }
+  if (loadingModal) {
+    loadingModal.style.display = 'flex';
+    if (typeof bringModalToFront === 'function') bringModalToFront(loadingModal);
+  }
 
   try {
     const data = await window.api.getCommunityEventRegistration(eventId);
+    if (loadingModal) loadingModal.style.display = 'none';
+
     if (!data || !data.success) {
+      modal.style.display = 'flex';
+      if (typeof bringModalToFront === 'function') bringModalToFront(modal);
       if (statusEl) {
         statusEl.style.display = 'block';
         statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
@@ -3201,7 +3219,14 @@ window.syncRegistrationFullName = syncRegistrationFullName;
       }
       if (submitBtn) submitBtn.textContent = 'Update Registration Details';
     }
+
+    // Data is completely populated - now reveal registration modal smoothly
+    modal.style.display = 'flex';
+    if (typeof bringModalToFront === 'function') bringModalToFront(modal);
   } catch (err) {
+    if (loadingModal) loadingModal.style.display = 'none';
+    modal.style.display = 'flex';
+    if (typeof bringModalToFront === 'function') bringModalToFront(modal);
     console.error('Error opening event registration modal:', err);
     if (statusEl) {
       statusEl.style.display = 'block';
@@ -3213,6 +3238,7 @@ window.syncRegistrationFullName = syncRegistrationFullName;
 }
 
 function closeEventRegistrationModal() {
+  closeEventRegistrationLoadingModal();
   const modal = document.getElementById('event-registration-modal');
   if (modal) modal.style.display = 'none';
   activeRegistrationEvent = null;

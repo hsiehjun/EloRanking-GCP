@@ -46,6 +46,8 @@ class TrackerCreatePayload(BaseModel):
     token: Optional[str] = None
     p1_name: Optional[str] = None
     p2_name: Optional[str] = None
+    p1_id: Optional[str] = None
+    p2_id: Optional[str] = None
     p1_faction: Optional[str] = None
     p2_faction: Optional[str] = None
     p1_detachment: Optional[str] = None
@@ -59,6 +61,7 @@ class TrackerCreatePayload(BaseModel):
 class TrackerJoinPayload(BaseModel):
     token: Optional[str] = None
     player_name: Optional[str] = None
+    player_id: Optional[str] = None
     claim_role: Optional[str] = None
     faction: Optional[str] = None
     detachment: Optional[str] = None
@@ -76,9 +79,55 @@ class TrackerStatePayload(BaseModel):
     version: int = 1
     state: Dict[str, Any]
 
+def check_user_matches_player(user: Optional[Dict[str, Any]], target_name: Optional[str], target_id: Optional[str] = None) -> bool:
+    """Determine if an authenticated user corresponds to a specific tournament pairing participant."""
+    if not user:
+        return False
+
+    # 1. Match by canonical ID or foreign BCP user ID
+    candidate_ids = set()
+    for k in ("id", "player_id", "bcp_user_id", "bcp_id", "userId", "user_id", "sub"):
+        v = user.get(k)
+        if v:
+            candidate_ids.add(str(v).strip().lower())
+
+    if target_id and str(target_id).strip().lower() in candidate_ids:
+        return True
+
+    if not target_name:
+        return False
+
+    t_clean = str(target_name).strip().lower()
+    if not t_clean or t_clean in ("bye", "open", "tbd", "unassigned", "none"):
+        return False
+
+    t_nospace = t_clean.replace(" ", "")
+
+    # 2. Match by player name attributes
+    user_names = []
+    for k in ("display_name", "competitor_name", "full_name", "name", "username"):
+        v = user.get(k)
+        if v and isinstance(v, str) and v.strip():
+            user_names.append(v.strip().lower())
+
+    fn = (user.get("first_name") or user.get("firstName") or "").strip().lower()
+    ln = (user.get("last_name") or user.get("lastName") or "").strip().lower()
+    if fn and ln:
+        user_names.append(f"{fn} {ln}")
+        user_names.append(f"{fn}{ln}")
+    elif fn:
+        user_names.append(fn)
+
+    for un in user_names:
+        un_clean = un.strip().lower()
+        if un_clean == t_clean or un_clean.replace(" ", "") == t_nospace:
+            return True
+
+    return False
+
 def normalize_tracker_match_id(raw: str) -> str:
     s = raw.strip().upper().replace(" ", "")
-    if s.startswith("WH40K-") or s.startswith("BCP-"):
+    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-"):
         return s
     s_clean = s.replace("-", "")
     if len(s_clean) == 8:
@@ -199,6 +248,76 @@ def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_eng
 
     return room
 
+def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict[str, Any], match_id: str, payload: Optional[Any] = None) -> Tuple[str, Optional[str]]:
+    """
+    Determines role ('player1', 'player2', 'referee', 'spectator') and slot to claim ('user_id_p1', 'user_id_p2', or None).
+    Ensures that for event matches (BCP-*, ES-*, or rooms with event_id), ONLY the assigned table competitors
+    can enter as player1 or player2. All other users (including players from different tables or byes) enter as spectator.
+    """
+    candidate_user = user
+    if not candidate_user and payload and (getattr(payload, "player_id", None) or getattr(payload, "player_name", None)):
+        candidate_user = {
+            "id": getattr(payload, "player_id", None),
+            "display_name": getattr(payload, "player_name", None)
+        }
+
+    u_id = candidate_user["id"] if candidate_user else None
+    p1_id = room_dict.get("user_id_p1")
+    p2_id = room_dict.get("user_id_p2")
+
+    st = room_dict.get("state", {}) if isinstance(room_dict.get("state"), dict) else {}
+    game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
+
+    p1_assigned_name = room_dict.get("p1_name") or game.get("p1Name") or getattr(payload, "p1_name", None) or "Player 1"
+    p2_assigned_name = room_dict.get("p2_name") or game.get("p2Name") or getattr(payload, "p2_name", None) or "Player 2"
+    p1_target_id = game.get("p1Id") or getattr(payload, "p1_id", None)
+    p2_target_id = game.get("p2Id") or getattr(payload, "p2_id", None)
+
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(payload and getattr(payload, "event_id", None)) or
+        bool(st.get("event_id")) or
+        bool(game.get("eventId"))
+    )
+
+    is_staff = bool(candidate_user and (
+        (u_id and u_id in room_dict.get("referee_ids", [])) or
+        candidate_user.get("role") in ("admin", "referee", "to", "organizer") or
+        candidate_user.get("is_admin") or
+        candidate_user.get("can_access_to")
+    ))
+
+    if u_id and p1_id == u_id:
+        return ("player1", None)
+    if u_id and p2_id == u_id:
+        return ("player2", None)
+
+    if is_tournament:
+        # Strict table pairings: ONLY the two matched competitors can claim player slots
+        matches_p1 = bool(candidate_user and check_user_matches_player(candidate_user, p1_assigned_name, p1_target_id))
+        matches_p2 = bool(candidate_user and check_user_matches_player(candidate_user, p2_assigned_name, p2_target_id))
+
+        if matches_p1 and not p1_id:
+            return ("player1", "user_id_p1")
+        if matches_p2 and not p2_id:
+            return ("player2", "user_id_p2")
+        if is_staff:
+            return ("referee", None)
+        return ("spectator", None)
+    else:
+        # Casual match logic
+        claim_role = getattr(payload, "claim_role", None)
+        if claim_role == "player2" and not p2_id:
+            return ("player2", "user_id_p2")
+        if claim_role == "player1" and not p1_id:
+            return ("player1", "user_id_p1")
+        if not p2_id and u_id != p1_id:
+            return ("player2", "user_id_p2")
+        if not p1_id:
+            return ("player1", "user_id_p1")
+        return ("spectator" if (p1_id and p2_id) else "player1", None)
+
 @router.post("/api/tracker/room/create", summary="Create or connect to a multiplayer match room with host player")
 async def api_tracker_create_room(request: Request, payload: Optional[TrackerCreatePayload] = None):
     db = get_database()
@@ -227,30 +346,27 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                     if isinstance(existing["state"].get("game"), dict):
                         existing["state"]["game"]["pairingId"] = payload.pairing_id
             u_id = user["id"] if user else None
-            p1_id = existing.get("user_id_p1")
-            p2_id = existing.get("user_id_p2")
-            
-            if u_id and p1_id == u_id:
-                role = "player1"
-            elif u_id and p2_id == u_id:
-                role = "player2"
-            elif not p2_id and u_id != p1_id:
-                # 2nd user claims Player 2 slot
+            role, claim_slot = determine_existing_room_role(user, existing, match_id, payload)
+            if claim_slot == "user_id_p1":
+                existing["user_id_p1"] = u_id
+                try:
+                    fs_engine = get_firestore_engine()
+                    fs_engine.update_room(match_id, {"user_id_p1": u_id})
+                except Exception:
+                    pass
+            elif claim_slot == "user_id_p2":
                 existing["user_id_p2"] = u_id or f"p2_{secrets.token_hex(3)}"
-                if user and user.get("display_name"):
+                if user and user.get("display_name") and not (match_id.startswith("BCP-") or match_id.startswith("ES-")):
                     if isinstance(existing.get("state"), dict) and isinstance(existing["state"].get("game"), dict):
                         existing["state"]["game"]["p2Name"] = user["display_name"]
-                role = "player2"
                 try:
                     fs_engine = get_firestore_engine()
                     fs_engine.update_room(match_id, {
                         "user_id_p2": existing["user_id_p2"],
-                        "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or user.get("display_name") if user else "Player 2"
+                        "p2_name": existing.get("state", {}).get("game", {}).get("p2Name") or (user.get("display_name") if user else "Player 2")
                     })
                 except Exception:
                     pass
-            else:
-                role = "spectator" if (p1_id and p2_id) else "player1"
 
             return {
                 "success": True,
@@ -269,27 +385,25 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         fs_doc = fs_engine.get_room(match_id)
         if fs_doc and fs_doc.get("state"):
             u_id = user["id"] if user else None
-            p1_id = fs_doc.get("user_id_p1")
-            p2_id = fs_doc.get("user_id_p2")
-            if u_id and p1_id == u_id:
-                role = "player1"
-            elif u_id and p2_id == u_id:
-                role = "player2"
-            elif not p2_id and u_id != p1_id:
-                role = "player2"
+            role, claim_slot = determine_existing_room_role(user, fs_doc, match_id, payload)
+            if claim_slot == "user_id_p1":
+                fs_doc["user_id_p1"] = u_id
+                try:
+                    fs_engine.update_room(match_id, {"user_id_p1": u_id})
+                except Exception:
+                    pass
+            elif claim_slot == "user_id_p2":
                 fs_doc["user_id_p2"] = u_id or f"p2_{secrets.token_hex(3)}"
-                if user and user.get("display_name"):
+                if user and user.get("display_name") and not (match_id.startswith("BCP-") or match_id.startswith("ES-")):
                     if isinstance(fs_doc.get("state"), dict) and isinstance(fs_doc["state"].get("game"), dict):
                         fs_doc["state"]["game"]["p2Name"] = user["display_name"]
                 try:
                     fs_engine.update_room(match_id, {
                         "user_id_p2": fs_doc["user_id_p2"],
-                        "p2_name": fs_doc.get("state", {}).get("game", {}).get("p2Name") or user.get("display_name") if user else "Player 2"
+                        "p2_name": fs_doc.get("state", {}).get("game", {}).get("p2Name") or (user.get("display_name") if user else "Player 2")
                     })
                 except Exception:
                     pass
-            else:
-                role = "spectator" if (p1_id and p2_id) else "player1"
 
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
@@ -312,20 +426,15 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                 "state": fs_doc["state"],
                 "chess_clock": fs_doc.get("chess_clock")
             }
+
         saved_game = db.get_tracker_game(match_id)
         if saved_game and saved_game.get("state"):
             u_id = user["id"] if user else None
-            p1_id = saved_game.get("user_id_p1")
-            p2_id = saved_game.get("user_id_p2")
-            if u_id and p1_id == u_id:
-                role = "player1"
-            elif u_id and p2_id == u_id:
-                role = "player2"
-            elif not p2_id and u_id != p1_id:
-                role = "player2"
+            role, claim_slot = determine_existing_room_role(user, saved_game, match_id, payload)
+            if claim_slot == "user_id_p1":
+                saved_game["user_id_p1"] = u_id
+            elif claim_slot == "user_id_p2":
                 saved_game["user_id_p2"] = u_id or f"p2_{secrets.token_hex(3)}"
-            else:
-                role = "spectator" if (p1_id and p2_id) else "player1"
 
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
@@ -351,10 +460,57 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     else:
         match_id = generate_unique_match_id(db)
 
-    p1_target = (payload.p1_name or "").strip().lower() if payload else ""
-    p2_target = (payload.p2_name or "").strip().lower() if payload else ""
-    u_display = (user.get("display_name") or user.get("name") or "").strip().lower() if user else ""
-    u_email = (user.get("email") or "").strip().lower() if user else ""
+    p1_target = (payload.p1_name or "").strip() if payload else ""
+    p2_target = (payload.p2_name or "").strip() if payload else ""
+    p1_target_id = payload.p1_id if payload else None
+    p2_target_id = payload.p2_id if payload else None
+
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(payload and payload.event_id)
+    )
+
+    is_staff = bool(user and (
+        user.get("role") in ("admin", "referee", "to", "organizer") or
+        user.get("is_admin") or
+        user.get("can_access_to")
+    ))
+
+    is_p1_creator = bool(user and p1_target and check_user_matches_player(user, p1_target, p1_target_id))
+    is_p2_creator = bool(user and p2_target and check_user_matches_player(user, p2_target, p2_target_id))
+
+    if is_tournament:
+        if is_p1_creator:
+            user_id_p1 = user["id"] if user else None
+            user_id_p2 = None
+            created_role = "player1"
+        elif is_p2_creator:
+            user_id_p1 = None
+            user_id_p2 = user["id"] if user else None
+            created_role = "player2"
+        elif is_staff:
+            user_id_p1 = None
+            user_id_p2 = None
+            created_role = "referee"
+        else:
+            user_id_p1 = None
+            user_id_p2 = None
+            created_role = "spectator"
+    else:
+        if is_p2_creator and not is_p1_creator:
+            user_id_p1 = None
+            user_id_p2 = user["id"] if user else None
+            created_role = "player2"
+        elif is_p1_creator:
+            user_id_p1 = user["id"] if user else None
+            user_id_p2 = None
+            created_role = "player1"
+        else:
+            # Non-competitor (e.g. TO/Staff) or casual room
+            user_id_p1 = user["id"] if (user and not (p1_target or p2_target)) else None
+            user_id_p2 = None
+            created_role = "spectator" if (p1_target and p2_target) else "player1"
 
     p1_name = (payload.p1_name if payload and payload.p1_name else None) or (user.get("display_name") if user else None) or "Player 1"
     p2_name = (payload.p2_name if payload and payload.p2_name else "Player 2")
@@ -362,23 +518,6 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     p2_fac = (payload.p2_faction if payload else None)
     p1_det = [payload.p1_detachment] if (payload and payload.p1_detachment) else []
     p2_det = [payload.p2_detachment] if (payload and payload.p2_detachment) else []
-
-    is_p2_creator = bool(user and p2_target and (u_display == p2_target or (u_email and p2_target in u_email)))
-    is_p1_creator = bool(user and p1_target and (u_display == p1_target or (u_email and p1_target in u_email)))
-
-    if is_p2_creator and not is_p1_creator:
-        user_id_p1 = None
-        user_id_p2 = user["id"] if user else None
-        created_role = "player2"
-    elif is_p1_creator:
-        user_id_p1 = user["id"] if user else None
-        user_id_p2 = None
-        created_role = "player1"
-    else:
-        # Non-competitor (e.g. TO/Staff) or casual room
-        user_id_p1 = user["id"] if (user and not (p1_target or p2_target)) else None
-        user_id_p2 = None
-        created_role = "spectator" if (p1_target and p2_target) else "player1"
     
     initial_state = {
         "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
@@ -392,6 +531,8 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "game": {
             "p1Name": p1_name,
             "p2Name": p2_name,
+            "p1Id": p1_target_id,
+            "p2Id": p2_target_id,
             "p1Faction": p1_fac,
             "p2Faction": p2_fac,
             "p1Detachments": p1_det,
@@ -565,17 +706,39 @@ async def api_tracker_check_room(match_id: str, request: Request):
             
     p1_id = room.get("user_id_p1")
     p2_id = room.get("user_id_p2")
+    st = room.get("state", {}) if isinstance(room.get("state"), dict) else {}
+    game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
+    p1_assigned_name = room.get("p1_name") or game.get("p1Name") or "Player 1"
+    p2_assigned_name = room.get("p2_name") or game.get("p2Name") or "Player 2"
+    p1_target_id = game.get("p1Id")
+    p2_target_id = game.get("p2Id")
+
     is_p1 = bool(user_id and p1_id == user_id)
     is_p2 = bool(user_id and p2_id == user_id)
     is_finished = bool(room.get("is_finished") or (isinstance(room.get("state"), dict) and room["state"].get("is_finished")))
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(st.get("event_id")) or
+        bool(game.get("eventId"))
+    )
+
+    if is_tournament:
+        matches_p1 = bool(user and check_user_matches_player(user, p1_assigned_name, p1_target_id))
+        matches_p2 = bool(user and check_user_matches_player(user, p2_assigned_name, p2_target_id))
+        is_open_for_p2 = bool(not is_finished and p2_id is None and matches_p2)
+        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2) or (not matches_p1 and not matches_p2 and not is_p1 and not is_p2))
+    else:
+        is_open_for_p2 = bool(not is_finished and p2_id is None and not is_p1)
+        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2))
     
     return {
         "exists": True,
         "match_id": match_id,
-        "p1_name": room.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
-        "p2_name": room.get("state", {}).get("game", {}).get("p2Name") or "Player 2",
-        "is_full": bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2)),
-        "is_open_for_p2": bool(not is_finished and p2_id is None and not is_p1),
+        "p1_name": p1_assigned_name,
+        "p2_name": p2_assigned_name,
+        "is_full": is_full,
+        "is_open_for_p2": is_open_for_p2,
         "is_finished": is_finished,
         "scorecard_url": f"/scorecard/{match_id}"
     }
@@ -640,57 +803,43 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             
     room = TRACKER_ROOMS[match_id]
     st = room.get("state", {})
-    game = st.get("game", {})
-    
-    # Determine Role with Tournament Participant Validation:
-    p1_assigned_name = (game.get("p1Name") or "").strip().lower()
-    p2_assigned_name = (game.get("p2Name") or "").strip().lower()
-    # Determine candidate Player 2 identity from payload / user session
-    incoming_name = (payload.player_name if payload and payload.player_name else None) or (user.get("display_name") if user else None) or (user.get("email", "").split("@")[0] if user else None)
-    u_name = (incoming_name or "").strip().lower()
-    is_tournament_match = match_id.startswith("BCP-") or bool(st.get("event_id"))
-    is_p1_owner = bool(user_id and room.get("user_id_p1") and room.get("user_id_p1") == user_id)
-    is_p2_owner = bool(user_id and room.get("user_id_p2") and room.get("user_id_p2") == user_id)
+    game = st.get("game", {}) if isinstance(st.get("game"), dict) else {}
 
-    # 1. Check if user is already registered Player 1 owner
-    if is_p1_owner and (not payload or payload.claim_role != "player2"):
-        role = "player1"
-    # 2. Check if user is already registered Player 2 owner
-    elif is_p2_owner and (not payload or payload.claim_role != "player1"):
-        role = "player2"
-        if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
-            game["p2Name"] = incoming_name
-    # 3. Check if Player 1 slot is open and user matches Player 1 name or explicit claim
-    elif not room.get("user_id_p1") and ((u_name and p1_assigned_name and (u_name == p1_assigned_name or u_name.replace(' ', '') == p1_assigned_name.replace(' ', ''))) or (payload and payload.claim_role == "player1") or (not room.get("user_id_p2") and not is_tournament_match)):
+    role, claim_slot = determine_existing_room_role(user, room, match_id, payload)
+    
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(st.get("event_id")) or
+        bool(game.get("eventId"))
+    )
+
+    if claim_slot == "user_id_p1":
         room["user_id_p1"] = user_id or f"p1_{secrets.token_hex(3)}"
-        if incoming_name and incoming_name != "Player 1" and incoming_name != game.get("p2Name"):
-            game["p1Name"] = incoming_name
-        role = "player1"
         room["version"] = room.get("version", 1) + 1
         try:
             fs_engine.update_room(match_id, {
                 "user_id_p1": room["user_id_p1"],
-                "p1_name": game.get("p1Name", "Player 1"),
+                "p1_name": game.get("p1Name", room.get("p1_name", "Player 1")),
                 "state": st,
                 "version": room["version"]
             })
         except Exception:
             pass
-    # 4. Check if explicit Player 2 claim or open Player 2 slot
-    elif (payload and payload.claim_role == "player2") or (not room.get("user_id_p2") and not is_p1_owner) or (not room.get("user_id_p2") and not is_tournament_match):
+    elif claim_slot == "user_id_p2":
         room["user_id_p2"] = user_id or f"p2_{secrets.token_hex(3)}"
-        if incoming_name and incoming_name != "Player 2" and incoming_name != game.get("p1Name"):
-            game["p2Name"] = incoming_name
         if payload and payload.faction and not game.get("p2Faction"):
             game["p2Faction"] = payload.faction
-        role = "player2"
+        if payload and payload.detachment and not game.get("p2Detachment"):
+            game["p2Detachment"] = payload.detachment
+        if not is_tournament and payload and payload.player_name and payload.player_name != "Player 2":
+            game["p2Name"] = payload.player_name
         room["version"] = room.get("version", 1) + 1
-        
-        # Sync to Firestore Native
+
         try:
             fs_engine.update_room(match_id, {
                 "user_id_p2": room["user_id_p2"],
-                "p2_name": game.get("p2Name", "Player 2"),
+                "p2_name": game.get("p2Name", room.get("p2_name", "Player 2")),
                 "state": st,
                 "version": room["version"],
                 "participants": {
@@ -704,7 +853,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             })
         except Exception:
             pass
-        
+
         # Broadcast P2 connection to opponent
         listeners = TRACKER_LISTENERS.get(match_id, [])
         msg = {
@@ -718,10 +867,6 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
                 await q.put(msg)
             except Exception:
                 pass
-    elif (user_id and user_id in room.get("referee_ids", [])) or (user and user.get("role") in ("admin", "referee", "to")):
-        role = "referee"
-    else:
-        role = "spectator"
         
     return {
         "success": True,
@@ -793,11 +938,15 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     
     room = TRACKER_ROOMS[match_id]
     
-    # Strict Permission Verification:
     is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
     is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
-    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to")))
-    is_tournament = match_id.startswith("BCP-") or bool(room.get("state", {}).get("event_id"))
+    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(room.get("state", {}).get("event_id")) or
+        bool(room.get("state", {}).get("game", {}).get("eventId"))
+    )
     
     if is_tournament:
         if not (is_p1 or is_p2 or is_ref):
@@ -1110,6 +1259,25 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     db = get_database()
     room = TRACKER_ROOMS.get(match_id) or fs_engine.get_room(match_id) or {}
     state = (payload.state if payload and payload.state else None) or room.get("state") or {}
+
+    user_id = user["id"] if user else None
+    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
+    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(room.get("state", {}).get("event_id")) or
+        bool(room.get("state", {}).get("game", {}).get("eventId"))
+    )
+
+    if is_tournament:
+        if not (is_p1 or is_p2 or is_ref):
+            raise HTTPException(status_code=403, detail="Permission denied: Only matched competitors or tournament organizers can finalize this tournament match.")
+    else:
+        if room.get("user_id_p1") or room.get("user_id_p2"):
+            if not (is_p1 or is_p2 or is_ref):
+                raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot finalize match")
     
     if isinstance(state, dict):
         state["is_finished"] = True
@@ -1305,6 +1473,12 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
     role = body.get("role") or "player1"
     army_list = body.get("army_list") or {}
 
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_id = user["id"] if user else None
+
     # 1. Update in-memory room
     if match_id not in TRACKER_ROOMS:
         TRACKER_ROOMS[match_id] = {
@@ -1312,6 +1486,19 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
             "state": {},
             "version": 1
         }
+
+    room = TRACKER_ROOMS[match_id]
+    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
+    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(room.get("state", {}).get("event_id")) or
+        bool(room.get("state", {}).get("game", {}).get("eventId"))
+    )
+    if is_tournament and not (is_p1 or is_p2 or is_ref):
+        raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")
 
     if role == "player1":
         TRACKER_ROOMS[match_id]["p1_army_list"] = army_list
@@ -1385,6 +1572,12 @@ async def api_tracker_update_clock(match_id: str, request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON body")
 
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    user = auth_mgr.get_session(session_token) if session_token else None
+    user_id = user["id"] if user else None
+
     if match_id not in TRACKER_ROOMS:
         TRACKER_ROOMS[match_id] = {
             "match_id": match_id,
@@ -1393,6 +1586,17 @@ async def api_tracker_update_clock(match_id: str, request: Request):
         }
 
     room = TRACKER_ROOMS[match_id]
+    is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
+    is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
+    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+    is_tournament = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        bool(room.get("state", {}).get("event_id")) or
+        bool(room.get("state", {}).get("game", {}).get("eventId"))
+    )
+    if is_tournament and not (is_p1 or is_p2 or is_ref):
+        raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify tournament clock.")
     clock_data = {
         "visible": bool(body.get("visible", True)),
         "running": bool(body.get("running", False)),

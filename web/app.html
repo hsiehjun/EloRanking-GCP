@@ -2075,6 +2075,17 @@
     </div>
   </div>
 
+  <!-- MODAL: Community Event Registration Loading Screen -->
+  <div id="event-reg-loading-modal" class="modal-backdrop" style="display: none; align-items: center; justify-content: center; z-index: 10001;" onclick="if(event.target === this) closeEventRegistrationLoadingModal()">
+    <div class="modal-content" style="max-width: 380px; text-align: center; padding: 2rem 1.5rem; background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+      <div style="margin-bottom: 1rem;">
+        <span class="spinner-mini" style="display: inline-block; width: 36px; height: 36px; border: 3px solid rgba(56, 189, 248, 0.2); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span>
+      </div>
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; font-weight: 700; color: #fff;">Connecting to BCP...</h3>
+      <p id="event-reg-loading-text" style="margin: 0; font-size: 0.82rem; color: var(--text-muted); line-height: 1.4;">Fetching tournament details and your player registration profile...</p>
+    </div>
+  </div>
+
   <!-- MODAL: Community Event Registration -->
   <div id="event-registration-modal" class="modal-backdrop" style="display: none;" onclick="if(event.target === this) closeEventRegistrationModal()">
     <div class="modal-content event-reg-modal-content">

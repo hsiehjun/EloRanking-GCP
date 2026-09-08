@@ -1007,6 +1007,167 @@ def test_tournaments_js_unplaced_competitors_rendering():
 
     print("✅ test_tournaments_js_unplaced_competitors_rendering passed!")
 
+def test_tournament_tracker_table_pairing_role_enforcement():
+    """
+    Verify that in a tournament match (e.g. 3-player event with Player 2 and Player 3 paired on Table 1,
+    and Player 4 on a bye), only Player 2 and Player 3 can claim competitor slots.
+    Player 4 (or any non-table user) entering the room gets 'spectator' role and cannot modify state or finalize.
+    """
+    from routers.tracker import (
+        api_tracker_create_room,
+        api_tracker_join_room,
+        api_tracker_save_state,
+        api_tracker_finalize_game,
+        TrackerCreatePayload,
+        TrackerJoinPayload,
+        TrackerStatePayload,
+        TrackerActionPayload,
+        TRACKER_ROOMS
+    )
+    from core import HTTPException
+
+    mock_db = MagicMock()
+    mock_db.get_tracker_game.return_value = None
+    mock_fs = MagicMock()
+    mock_fs.get_room.return_value = None
+    mock_fs.is_connected = False
+
+    match_id = "BCP-3PLAYEREV-R1-T1"
+    if match_id in TRACKER_ROOMS:
+        del TRACKER_ROOMS[match_id]
+
+    # User sessions
+    user_p2 = {"id": "usr_p2", "display_name": "Player 2"}
+    user_p3 = {"id": "usr_p3", "display_name": "Player 3"}
+    user_p4 = {"id": "usr_p4", "display_name": "Player 4"} # Player with Bye
+
+    mock_auth = MagicMock()
+
+    # Step 1: Room is initialized for Table 1: Player 2 vs Player 3
+    # Either created by TO/Staff or by tournament system
+    mock_auth.get_session.return_value = user_p2
+    create_payload = TrackerCreatePayload(
+        match_id=match_id,
+        event_id="3PLAYEREV",
+        round_num=1,
+        table_num=1,
+        p1_name="Player 2",
+        p2_name="Player 3",
+        p1_id="usr_p2",
+        p2_id="usr_p3"
+    )
+
+    mock_req_p2 = MagicMock()
+    mock_req_p2.headers = {"Authorization": "Bearer tok_p2"}
+    mock_req_p2.cookies = {}
+
+    with patch("routers.tracker.get_database", return_value=mock_db), \
+         patch("routers.tracker.get_firestore_engine", return_value=mock_fs), \
+         patch("routers.tracker.get_auth_manager", return_value=mock_auth):
+
+        res_create = asyncio.run(api_tracker_create_room(mock_req_p2, create_payload))
+        assert res_create["success"] is True
+        assert res_create["role"] == "player1"
+        assert res_create["user_id_p1"] == "usr_p2"
+        assert res_create["user_id_p2"] is None # P2 slot still unclaimed!
+
+        # Step 2: Player 4 (on a bye) enters Table 1's room
+        mock_auth.get_session.return_value = user_p4
+        mock_req_p4 = MagicMock()
+        mock_req_p4.headers = {"Authorization": "Bearer tok_p4"}
+        mock_req_p4.cookies = {}
+
+        join_payload_p4 = TrackerJoinPayload(
+            player_name="Player 4",
+            player_id="usr_p4"
+        )
+        res_join_p4 = asyncio.run(api_tracker_join_room(match_id, mock_req_p4, join_payload_p4))
+        
+        # Player 4 MUST enter strictly as spectator!
+        assert res_join_p4["role"] == "spectator", f"Expected spectator, got {res_join_p4['role']}"
+        # Player 4 MUST NOT have claimed either player slot!
+        assert res_join_p4["user_id_p1"] == "usr_p2"
+        assert res_join_p4["user_id_p2"] is None, f"P2 slot must remain unclaimed, got {res_join_p4['user_id_p2']}"
+        # Player 2 and Player 3 names must remain intact in state
+        st = res_join_p4["state"]
+        assert st["game"]["p1Name"] == "Player 2"
+        assert st["game"]["p2Name"] == "Player 3"
+
+        # Step 3: Player 4 attempts to modify game state - MUST receive HTTP 403 Forbidden!
+        state_payload = TrackerStatePayload(
+            match_id=match_id,
+            role="spectator",
+            version=2,
+            state={"game": {"p1Name": "Hijacked", "p2Name": "Hijacked"}}
+        )
+        try:
+            asyncio.run(api_tracker_save_state(match_id, state_payload, mock_req_p4))
+            assert False, "Player 4 should be rejected with 403 Forbidden when trying to save state"
+        except HTTPException as e:
+            assert e.status_code == 403
+            assert "Only matched competitors or tournament organizers can edit" in str(e.detail)
+
+        # Step 4: Player 4 attempts to finalize game - MUST receive HTTP 403 Forbidden!
+        finalize_payload = TrackerActionPayload(
+            match_id=match_id
+        )
+        try:
+            asyncio.run(api_tracker_finalize_game(match_id, mock_req_p4, finalize_payload))
+            assert False, "Player 4 should be rejected with 403 Forbidden when trying to finalize game"
+        except HTTPException as e:
+            assert e.status_code == 403
+            assert "Only matched competitors or tournament organizers can finalize" in str(e.detail)
+
+        # Step 5: The actual assigned opponent (Player 3) enters Table 1's room
+        mock_auth.get_session.return_value = user_p3
+        mock_req_p3 = MagicMock()
+        mock_req_p3.headers = {"Authorization": "Bearer tok_p3"}
+        mock_req_p3.cookies = {}
+
+        join_payload_p3 = TrackerJoinPayload(
+            player_name="Player 3",
+            player_id="usr_p3"
+        )
+        res_join_p3 = asyncio.run(api_tracker_join_room(match_id, mock_req_p3, join_payload_p3))
+
+        # Player 3 MUST successfully claim player2!
+        assert res_join_p3["role"] == "player2", f"Expected player2, got {res_join_p3['role']}"
+        assert res_join_p3["user_id_p2"] == "usr_p3"
+        assert TRACKER_ROOMS[match_id]["user_id_p2"] == "usr_p3"
+
+        # Clean up
+        if match_id in TRACKER_ROOMS:
+            del TRACKER_ROOMS[match_id]
+
+    print("✅ test_tournament_tracker_table_pairing_role_enforcement passed!")
+
+def test_registration_popup_loading_screen_and_flow():
+    """Verify loading screen markup in app.html, synchronous modal handling in community.js and bundle."""
+    app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    comm_js = (root_dir / "web" / "js" / "community.js").read_text(encoding="utf-8")
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+
+    # 1. Loading modal must exist in app.html
+    assert 'id="event-reg-loading-modal"' in app_html, "event-reg-loading-modal missing in app.html"
+    assert 'id="event-reg-loading-text"' in app_html, "event-reg-loading-text missing in app.html"
+    assert 'Connecting to BCP...' in app_html, "Connecting to BCP... missing in app.html"
+
+    # 2. Loading modal handling in community.js
+    assert "closeEventRegistrationLoadingModal" in comm_js, "closeEventRegistrationLoadingModal missing in community.js"
+    assert "event-reg-loading-modal" in comm_js, "event-reg-loading-modal reference missing in community.js"
+    
+    # Verify openEventRegistrationModal sets loadingModal to flex before fetching
+    open_func = comm_js.split("async function openEventRegistrationModal")[1].split("function closeEventRegistrationModal")[0]
+    assert "loadingModal.style.display = 'flex'" in open_func, "loading modal must be shown before BCP API call"
+    assert "await window.api.getCommunityEventRegistration" in open_func, "API call missing"
+    assert "loadingModal.style.display = 'none'" in open_func, "loading modal must be hidden after API call returns"
+
+    # Verify bundle
+    assert "event-reg-loading-modal" in bundle_js, "event-reg-loading-modal missing in bundle"
+    assert "closeEventRegistrationLoadingModal" in bundle_js, "closeEventRegistrationLoadingModal missing in bundle"
+
+    print("✅ test_registration_popup_loading_screen_and_flow passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1033,6 +1194,8 @@ if __name__ == "__main__":
     test_predictor_head_to_head_event_modal_link()
     test_format_bcp_roster_unplaced_competitors_and_bcp_name_priority()
     test_tournaments_js_unplaced_competitors_rendering()
+    test_tournament_tracker_table_pairing_role_enforcement()
+    test_registration_popup_loading_screen_and_flow()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 
 

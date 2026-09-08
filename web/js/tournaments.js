@@ -1606,6 +1606,8 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
       pairing_id: pairingId || null,
       p1_name: p1Name,
       p2_name: p2Name,
+      p1_id: p1Id || null,
+      p2_id: p2Id || null,
       p1_faction: p1Fac,
       p2_faction: p2Fac,
       p1_detachment: p1Det,
