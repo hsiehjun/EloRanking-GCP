@@ -425,6 +425,7 @@ class DropPlayerPayload(BaseModel):
 async def api_community_event_registration(
     event_id: str,
     request: Request,
+    force_sync: bool = Query(False),
     token: Optional[str] = Query(None)
 ):
     """
@@ -647,7 +648,7 @@ async def api_community_event_registration(
             except Exception as bcp_fetch_err:
                 logger.debug(f"Notice querying live user registered events: {bcp_fetch_err}")
 
-        # Fallback check against live event players if not in cached tournaments
+        # Fallback check against live event players from BCP with resilient matching
         if not is_registered and not clean_eid.startswith("ES-"):
             try:
                 from scraper import BestCoastPairingsScraper
@@ -655,15 +656,39 @@ async def api_community_event_registration(
                 bcp_players = scraper.fetch_event_players(clean_eid)
                 target_uids = {str(bcp_user_id), str(user.get("id"))} if bcp_user_id else {str(user.get("id"))}
                 user_em = str(user_email or "").strip().lower()
+                user_fn = str(fn or "").strip().lower()
+                user_ln = str(ln or "").strip().lower()
+                user_display_clean = str(user_display or "").strip().lower()
+                user_pid = str(user.get("player_id") or "").strip()
+
                 for p in (bcp_players or []):
                     p_uid = str(p.get("userId") or p.get("user_id") or "")
+                    p_id = str(p.get("id") or p.get("_id") or p.get("playerId") or "").strip()
                     p_em = str((p.get("user") or {}).get("email") or p.get("email") or "").strip().lower()
-                    if (p_uid and p_uid in target_uids) or (user_em and p_em and p_em == user_em):
+
+                    p_user = p.get("user") if isinstance(p.get("user"), dict) else {}
+                    p_fn = str(p_user.get("firstName") or p.get("firstName") or "").strip().lower()
+                    p_ln = str(p_user.get("lastName") or p.get("lastName") or "").strip().lower()
+                    p_full = str(f"{p_fn} {p_ln}".strip() or p.get("name") or p.get("fullName") or "").strip().lower()
+
+                    matched = False
+                    if p_uid and p_uid in target_uids:
+                        matched = True
+                    elif user_em and p_em and p_em == user_em:
+                        matched = True
+                    elif user_pid and p_id and (p_id == user_pid or p_id == str(bcp_user_id)):
+                        matched = True
+                    elif user_fn and user_ln and p_fn == user_fn and p_ln == user_ln:
+                        matched = True
+                    elif user_display_clean and p_full and user_display_clean == p_full and len(user_display_clean) > 3:
+                        matched = True
+
+                    if matched:
                         is_registered = True
                         matched_reg = {
-                            "player_id": str(p.get("id") or p.get("_id") or ""),
-                            "first_name": (p.get("user") or {}).get("firstName") or p.get("firstName") or fn,
-                            "last_name": (p.get("user") or {}).get("lastName") or p.get("lastName") or ln,
+                            "player_id": p_id,
+                            "first_name": p_user.get("firstName") or p.get("firstName") or fn,
+                            "last_name": p_user.get("lastName") or p.get("lastName") or ln,
                             "team_name": (p.get("team") or {}).get("name") or p.get("teamName") or "",
                             "faction": p.get("army") or p.get("faction") or "",
                             "army_id": p.get("armyId") or "",
@@ -684,17 +709,6 @@ async def api_community_event_registration(
             cand_pid = str(matched_reg.get("bcp_player_id") or matched_reg.get("player_id") or "").strip()
             # If candidate_pid is invalid, identical to event_id, or starts with user_, resolve the real one
             resolved_pid = bcp_adapter.resolve_event_player_id(clean_eid, user["id"], candidate_pid=cand_pid, explicit_token=x_bcp_token)
-            if resolved_pid and resolved_pid != cand_pid:
-                try:
-                    db.add_user_registered_tournament(user["id"], {
-                        "id": clean_eid,
-                        "bcp_event_id": clean_eid,
-                        "player_id": resolved_pid,
-                        "bcp_player_id": resolved_pid
-                    })
-                except Exception as ex_db:
-                    logger.debug(f"Failed to auto-heal player_id in DB: {ex_db}")
-
             actual_pid = resolved_pid or (cand_pid if (cand_pid and cand_pid != clean_eid and not cand_pid.startswith("user_")) else "")
 
             fn_val = matched_reg.get("first_name") or fn
@@ -1108,46 +1122,47 @@ async def api_community_update_player(
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to update player details on BCP")
 
-    # Update local DB cached registration in event_participants so UI updates immediately
-    try:
-        db = get_database()
-        fn = payload.first_name or ""
-        ln = payload.last_name or ""
-        full_name = f"{fn} {ln}".strip() or session.get("display_name") or "Competitor"
-        fac_name = payload.faction_name or ""
-        det_name = payload.detachment_name or ""
-        if (not fac_name or not det_name) and (payload.army_id or payload.sub_faction_id):
-            try:
-                _, _, flist = bcp_adapter.fetch_gamesystem_factions("WGMSzfKFYA")
-                for f_item in (flist or []):
-                    if str(f_item.get("id")) == str(payload.army_id):
-                        if not fac_name:
-                            fac_name = f_item.get("name") or ""
-                        if payload.sub_faction_id and not det_name:
-                            for sf_item in (f_item.get("subFactions") or []):
-                                if str(sf_item.get("id")) == str(payload.sub_faction_id):
-                                    det_name = sf_item.get("name") or ""
-                                    break
-                        break
-            except Exception:
-                pass
+    # For native Event Studio events, persist in OmniTactica database
+    if clean_eid.startswith("ES-"):
+        try:
+            db = get_database()
+            fn = payload.first_name or ""
+            ln = payload.last_name or ""
+            full_name = f"{fn} {ln}".strip() or session.get("display_name") or "Competitor"
+            fac_name = payload.faction_name or ""
+            det_name = payload.detachment_name or ""
+            if (not fac_name or not det_name) and (payload.army_id or payload.sub_faction_id):
+                try:
+                    _, _, flist = bcp_adapter.fetch_gamesystem_factions("WGMSzfKFYA")
+                    for f_item in (flist or []):
+                        if str(f_item.get("id")) == str(payload.army_id):
+                            if not fac_name:
+                                fac_name = f_item.get("name") or ""
+                            if payload.sub_faction_id and not det_name:
+                                for sf_item in (f_item.get("subFactions") or []):
+                                    if str(sf_item.get("id")) == str(payload.sub_faction_id):
+                                        det_name = sf_item.get("name") or ""
+                                        break
+                            break
+                except Exception:
+                    pass
 
-        db.add_user_registered_tournament(user_id, {
-            "bcp_event_id": clean_eid,
-            "id": clean_eid,
-            "player_id": clean_pid,
-            "bcp_player_id": clean_pid,
-            "first_name": fn,
-            "last_name": ln,
-            "name": full_name,
-            "faction": fac_name or set_fields.get("armyId") or "",
-            "detachment": det_name or set_fields.get("subFactionId") or "",
-            "army_id": payload.army_id or set_fields.get("armyId") or "",
-            "sub_faction_id": payload.sub_faction_id or set_fields.get("subFactionId") or "",
-            "team": payload.team_name or "",
-        })
-    except Exception as dberr:
-        logger.debug(f"Local participant sync notice: {dberr}")
+            db.add_user_registered_tournament(user_id, {
+                "bcp_event_id": clean_eid,
+                "id": clean_eid,
+                "player_id": clean_pid,
+                "bcp_player_id": clean_pid,
+                "first_name": fn,
+                "last_name": ln,
+                "name": full_name,
+                "faction": fac_name or set_fields.get("armyId") or "",
+                "detachment": det_name or set_fields.get("subFactionId") or "",
+                "army_id": payload.army_id or set_fields.get("armyId") or "",
+                "sub_faction_id": payload.sub_faction_id or set_fields.get("subFactionId") or "",
+                "team": payload.team_name or "",
+            })
+        except Exception as dberr:
+            logger.debug(f"Event Studio participant sync notice: {dberr}")
 
     return {
         "success": True,
@@ -1213,24 +1228,25 @@ async def api_community_submit_armylist(
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to submit army list to BCP")
 
-    # Update local DB cached registration in event_participants
-    try:
-        db = get_database()
-        reg_payload = {
-            "bcp_event_id": clean_eid,
-            "id": clean_eid,
-            "player_id": clean_pid,
-            "bcp_player_id": clean_pid,
-            "army_list": list_text,
-            "has_list_submitted": True
-        }
-        if payload.army_id:
-            reg_payload["army_id"] = payload.army_id
-        if payload.sub_faction_id:
-            reg_payload["sub_faction_id"] = payload.sub_faction_id
-        db.add_user_registered_tournament(user_id, reg_payload)
-    except Exception as dberr:
-        logger.debug(f"Local participant list sync notice: {dberr}")
+    # For native Event Studio events, persist in OmniTactica database
+    if clean_eid.startswith("ES-"):
+        try:
+            db = get_database()
+            reg_payload = {
+                "bcp_event_id": clean_eid,
+                "id": clean_eid,
+                "player_id": clean_pid,
+                "bcp_player_id": clean_pid,
+                "army_list": list_text,
+                "has_list_submitted": True
+            }
+            if payload.army_id:
+                reg_payload["army_id"] = payload.army_id
+            if payload.sub_faction_id:
+                reg_payload["sub_faction_id"] = payload.sub_faction_id
+            db.add_user_registered_tournament(user_id, reg_payload)
+        except Exception as dberr:
+            logger.debug(f"Event Studio participant list sync notice: {dberr}")
 
     return {
         "success": True,
@@ -1309,17 +1325,18 @@ async def api_community_checkin_player(
             err_msg = "BCP requires an army list to be submitted before checking in. Please submit your list first."
         raise HTTPException(status_code=400, detail=err_msg)
 
-    # Update local DB cached registration in event_participants
-    try:
-        db.add_user_registered_tournament(user_id, {
-            "bcp_event_id": clean_eid,
-            "id": clean_eid,
-            "player_id": clean_pid,
-            "bcp_player_id": clean_pid,
-            "checked_in": True
-        })
-    except Exception as dberr:
-        logger.debug(f"Local participant checkin sync notice: {dberr}")
+    # For native Event Studio events, persist in OmniTactica database
+    if clean_eid.startswith("ES-"):
+        try:
+            db.add_user_registered_tournament(user_id, {
+                "bcp_event_id": clean_eid,
+                "id": clean_eid,
+                "player_id": clean_pid,
+                "bcp_player_id": clean_pid,
+                "checked_in": True
+            })
+        except Exception as dberr:
+            logger.debug(f"Event Studio participant checkin sync notice: {dberr}")
 
     return {
         "success": True,
@@ -1374,18 +1391,19 @@ async def api_community_drop_player(
     if not ok:
         raise HTTPException(status_code=400, detail=err or "Failed to drop from tournament on BCP")
 
-    # Update local DB cached registration in event_participants
-    try:
-        db = get_database()
-        db.add_user_registered_tournament(user_id, {
-            "bcp_event_id": clean_eid,
-            "id": clean_eid,
-            "player_id": clean_pid,
-            "bcp_player_id": clean_pid,
-            "dropped": True
-        })
-    except Exception as dberr:
-        logger.debug(f"Local participant drop sync notice: {dberr}")
+    # For native Event Studio events, persist in OmniTactica database
+    if clean_eid.startswith("ES-"):
+        try:
+            db = get_database()
+            db.add_user_registered_tournament(user_id, {
+                "bcp_event_id": clean_eid,
+                "id": clean_eid,
+                "player_id": clean_pid,
+                "bcp_player_id": clean_pid,
+                "dropped": True
+            })
+        except Exception as dberr:
+            logger.debug(f"Event Studio participant drop sync notice: {dberr}")
 
     return {
         "success": True,

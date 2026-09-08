@@ -76,7 +76,7 @@ async function loadMyHubDashboard() {
         headers: { 'Authorization': `Bearer ${token}` }
       }).then(r => r.ok ? r.json() : null).catch(() => null),
       (window.api && typeof window.api.getUserRegisteredTournaments === 'function')
-        ? window.api.getUserRegisteredTournaments()
+        ? window.api.getUserRegisteredTournaments(true)
         : Promise.resolve(null)
     ]);
 
@@ -100,7 +100,7 @@ async function loadMyHubDashboard() {
       data.tracker_history = data.completed_history;
     }
 
-    if (regRes.status === 'fulfilled' && regRes.value && Array.isArray(regRes.value.tournaments) && regRes.value.tournaments.length > 0) {
+    if (regRes.status === 'fulfilled' && regRes.value && Array.isArray(regRes.value.tournaments)) {
       data.registered_tournaments = regRes.value.tournaments;
     }
 
@@ -328,7 +328,7 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                 <div class="hub-event-item-card">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
-                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', false, ${isEnded ? "'results'" : "'player'"})">
+                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', true, ${isEnded ? "'results'" : "'player'"})">
                         ${escapeHtml(evName)}
                       </span>
                     </div>
@@ -359,15 +359,15 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                         BCP ↗
                       </a>
                       ${isEnded ? `
-                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'results')">
+                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', true, 'results')">
                           🏆 Results & Placings
                         </button>
                       ` : `
-                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
+                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', true, 'player')">
                           👤 Manage / Check In
                         </button>
                       `}
-                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
+                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', true)">
                         Roster ➔
                       </button>
                     </div>
@@ -434,7 +434,7 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
         ${countdownPill}
       </div>
       <div>
-        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', false)">
+        <b style="color: #fff; font-size: 0.95rem; cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', true)">
           ${escapeHtml(evName)}
         </b>
         <div style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 3px;">
@@ -453,7 +453,7 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
         </div>
       </div>
       <div style="display: flex; gap: 0.5rem; margin-top: 8px;">
-        <button class="hub-card-action-btn" style="flex: 1; font-size: 0.75rem; padding: 0.35rem 0.6rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa; text-align: center;" onclick="openEventModal('${encodeURIComponent(evId)}', false, 'player')">
+        <button class="hub-card-action-btn" style="flex: 1; font-size: 0.75rem; padding: 0.35rem 0.6rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa; text-align: center;" onclick="openEventModal('${encodeURIComponent(evId)}', true, 'player')">
           👤 Manage / Check In
         </button>
         <button class="hub-view-all-btn" style="flex: 1.2; margin-top: 0;" onclick="switchHubMobileTab('events')">
@@ -515,6 +515,12 @@ window.syncBcpRegisteredTournaments = syncBcpRegisteredTournaments;
 
 // Listen for registration/check-in changes from Event Modal or other views to auto-refresh registered tournaments
 window.addEventListener('tournaments-updated', () => {
+  try {
+    localStorage.removeItem('my_hub_cache');
+    if (typeof myHubData !== 'undefined' && myHubData) {
+      myHubData = null;
+    }
+  } catch (e) {}
   if (typeof syncBcpRegisteredTournaments === 'function' && document.getElementById('hub-registered-tournaments-card')) {
     syncBcpRegisteredTournaments();
   }

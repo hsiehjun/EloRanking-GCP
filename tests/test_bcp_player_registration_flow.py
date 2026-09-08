@@ -352,7 +352,7 @@ def test_frontend_player_registration_components():
     assert "Checked In" in hub_js, "Checked In badge missing in my_hub.js"
     assert "Not Checked In" in hub_js, "Not Checked In badge missing in my_hub.js"
     assert "👤 Manage / Check In" in hub_js, "Manage / Check In button missing in my_hub.js"
-    assert "openEventModal('${encodeURIComponent(evId)}', false, 'player')" in hub_js
+    assert "openEventModal('${encodeURIComponent(evId)}', true, 'player')" in hub_js
 
     # 5. Check app.bundle.min.js compilation
     assert "getGamesystemFactions" in bundle_js, "getGamesystemFactions missing in bundle"
@@ -469,13 +469,10 @@ def test_bcp_player_id_resolution():
         reg_res = asyncio.run(api_community_event_registration(event_id, mock_req, token="test_token"))
         assert reg_res["success"] is True
         assert reg_res["player_registration"]["player_id"] == real_player_id
-        # Verify db.add_user_registered_tournament was called to heal the DB
-        assert mock_db.add_user_registered_tournament.called
-        heal_call = mock_db.add_user_registered_tournament.call_args[0][1]
-        assert heal_call["player_id"] == real_player_id
-        assert heal_call["bcp_player_id"] == real_player_id
+        # Verify db.add_user_registered_tournament was NOT called (strictly no DB writes outside scrapers)
+        assert not mock_db.add_user_registered_tournament.called
 
-    print("✅ BCP authentic player ID resolution and self-healing verified!")
+    print("✅ BCP authentic player ID resolution and zero DB writes verified!")
 
 
 def test_player_registration_state_preservation():
@@ -534,14 +531,8 @@ def test_player_registration_state_preservation():
         upd_res = asyncio.run(api_community_update_player(event_id, upd_payload, mock_req, token="test_token"))
         assert upd_res["success"] is True
 
-        # Verify db.add_user_registered_tournament was called with army_id and sub_faction_id
-        assert mock_db.add_user_registered_tournament.called
-        last_saved = mock_db.add_user_registered_tournament.call_args[0][1]
-        assert last_saved["army_id"] == "army_sm_01"
-        assert last_saved["sub_faction_id"] == "sub_gladius_01"
-        assert last_saved["faction"] == "Space Marines"
-        assert last_saved["detachment"] == "Gladius Task Force"
-        assert last_saved["team"] == "Ultramarine Champions"
+        # Verify db.add_user_registered_tournament was NOT called for BCP events (zero DB writes)
+        assert not mock_db.add_user_registered_tournament.called
 
     # 2. Test submit_armylist preserves army_id/sub_faction_id and sets has_list_submitted
     mock_db.reset_mock()
@@ -560,12 +551,8 @@ def test_player_registration_state_preservation():
         army_res = asyncio.run(api_community_submit_armylist(event_id, army_payload, mock_req, token="test_token"))
         assert army_res["success"] is True
 
-        assert mock_db.add_user_registered_tournament.called
-        saved_list = mock_db.add_user_registered_tournament.call_args[0][1]
-        assert saved_list["army_list"] == "++ Army List ++ 2000pts"
-        assert saved_list["has_list_submitted"] is True
-        assert saved_list["army_id"] == "army_sm_01"
-        assert saved_list["sub_faction_id"] == "sub_gladius_01"
+        # Verify db.add_user_registered_tournament was NOT called for BCP events (zero DB writes)
+        assert not mock_db.add_user_registered_tournament.called
 
     # 3. Test checkin_player marks checked_in True
     mock_db.reset_mock()
@@ -579,9 +566,8 @@ def test_player_registration_state_preservation():
         chk_res = asyncio.run(api_community_checkin_player(event_id, chk_payload, mock_req, token="test_token"))
         assert chk_res["success"] is True
 
-        assert mock_db.add_user_registered_tournament.called
-        saved_chk = mock_db.add_user_registered_tournament.call_args[0][1]
-        assert saved_chk["checked_in"] is True
+        # Verify db.add_user_registered_tournament was NOT called for BCP events (zero DB writes)
+        assert not mock_db.add_user_registered_tournament.called
 
     # 4. Test api_community_event_registration returns all preserved fields
     mock_db.reset_mock()
@@ -804,9 +790,10 @@ def test_hub_registered_tournaments_refresh_and_live_sync():
         assert t["faction"] == "Blood Angels"
         assert t["detachment"] == "Disruption"
         assert t["army_list"] == "BLOOOOD"
-        assert mock_db.add_user_registered_tournament.called
+        # Verify db.add_user_registered_tournament was NOT called (strictly no DB writes outside scrapers)
+        assert not mock_db.add_user_registered_tournament.called
 
-    print("✅ Registered Tournaments card Refresh and /currentPlayer live sync verified!")
+    print("✅ Registered Tournaments card Refresh and /currentPlayer live sync with zero DB writes verified!")
 
 
 if __name__ == "__main__":

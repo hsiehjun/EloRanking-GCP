@@ -341,9 +341,18 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
 
     user_id = session["id"]
     user_info = auth_mgr.get_user_by_id(user_id) or session
-    bcp_connected = bool(user_info.get("bcp_connected") or user_info.get("bcp_user_id"))
+    x_bcp_token = request.headers.get("X-BCP-Token")
+    bcp_connected = bool(user_info.get("bcp_connected") or user_info.get("bcp_user_id") or x_bcp_token)
 
-    if not bcp_connected:
+    db = get_database()
+    native_tournaments = []
+    try:
+        user_regs = db.get_user_registered_tournaments(user_id)
+        native_tournaments = [t for t in (user_regs or []) if str(t.get("id") or t.get("bcp_event_id") or "").startswith("ES-")]
+    except Exception as e:
+        logger.debug(f"Error fetching native registered tournaments from DB: {e}")
+
+    if not bcp_connected and not native_tournaments:
         return {
             "success": True,
             "bcp_connected": False,
@@ -352,97 +361,101 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
             "message": "Player is not linked to Best Coast Pairings"
         }
 
-    db = get_database()
-    try:
-        cached = db.get_user_registered_tournaments(user_id)
-    except Exception as e:
-        logger.error(f"Error fetching registered tournaments from DB: {e}")
-        cached = []
+    bcp_tournaments = []
+    bcp_fetch_ok = False
 
-    # If force_sync requested or no cached records, attempt BCP sync
-    if force_sync or not cached:
+    # Fetch live registered events directly from BCP API (zero DB writes)
+    if bcp_connected:
         try:
             from bcp_adapter import bcp_adapter
-            x_bcp_token = request.headers.get("X-BCP-Token")
             ok, err, events = bcp_adapter.fetch_user_registered_events(user_id, explicit_token=x_bcp_token)
             if ok and events is not None:
-                cached = db.save_user_registered_tournaments(user_id, events)
+                bcp_tournaments = list(events)
+                bcp_fetch_ok = True
             elif not ok:
                 logger.info(f"BCP registered tournaments fetch returned notice: {err}")
         except Exception as e:
             logger.warning(f"BCP registered tournaments sync notice: {e}")
 
-    # If force_sync is requested and we have tournaments, enrich each one with live currentPlayer endpoint
-    # to guarantee check-in, detachment, list submission, and faction reflect the latest status immediately
-    if force_sync and cached:
+        # Fallback to DB (strictly read-only) only if BCP API request completely failed
+        if not bcp_fetch_ok:
+            try:
+                cached_db = db.get_user_registered_tournaments(user_id)
+                bcp_tournaments = [t for t in (cached_db or []) if not str(t.get("id") or t.get("bcp_event_id") or "").startswith("ES-")]
+            except Exception as e:
+                logger.error(f"Error fetching registered tournaments fallback from DB: {e}")
+                bcp_tournaments = []
+
+    # Combine BCP tournaments with native Event Studio tournaments (ZERO DB WRITES)
+    combined_tournaments = list(bcp_tournaments) + list(native_tournaments)
+
+    # Normalize fields for each tournament
+    for t in combined_tournaments:
+        t_eid = str(t.get("bcp_event_id") or t.get("id") or "").strip()
+        t["id"] = t.get("id") or t_eid
+        t["bcp_event_id"] = t_eid
+        t["event_name"] = t.get("event_name") or t.get("name") or "Tournament"
+
+    # Enrich active BCP tournaments with live currentPlayer endpoint (purely in-memory, ZERO DB WRITES)
+    if combined_tournaments:
         try:
             from bcp_adapter import bcp_adapter
-            x_bcp_token = request.headers.get("X-BCP-Token")
-            any_updated = False
-            for t in cached:
+            for t in combined_tournaments:
                 t_eid = str(t.get("bcp_event_id") or t.get("id") or "").strip()
                 if not t_eid or t_eid.startswith("ES-"):
                     continue
-                succ_cp, _, cp = bcp_adapter.fetch_event_current_player(t_eid, user_id=user_id, explicit_token=x_bcp_token)
-                if succ_cp and cp and cp.get("id"):
-                    fac_name = ""
-                    if isinstance(cp.get("faction"), dict):
-                        fac_name = cp["faction"].get("name") or ""
-                    elif isinstance(cp.get("faction"), str):
-                        fac_name = cp["faction"]
-                    if not fac_name:
-                        fac_name = cp.get("army") or cp.get("armyName") or ""
+                # If force_sync or missing essential details, fetch live /currentPlayer
+                if force_sync or not t.get("faction") or not t.get("army_list") or not t.get("player_id"):
+                    succ_cp, _, cp = bcp_adapter.fetch_event_current_player(t_eid, user_id=user_id, explicit_token=x_bcp_token)
+                    if succ_cp and cp and cp.get("id"):
+                        fac_name = ""
+                        if isinstance(cp.get("faction"), dict):
+                            fac_name = cp["faction"].get("name") or ""
+                        elif isinstance(cp.get("faction"), str):
+                            fac_name = cp["faction"]
+                        if not fac_name:
+                            fac_name = cp.get("army") or cp.get("armyName") or ""
 
-                    fac_id = cp.get("factionId") or cp.get("armyId") or ""
-                    if not fac_id and isinstance(cp.get("faction"), dict):
-                        fac_id = cp["faction"].get("id") or ""
+                        fac_id = cp.get("factionId") or cp.get("armyId") or ""
+                        if not fac_id and isinstance(cp.get("faction"), dict):
+                            fac_id = cp["faction"].get("id") or ""
 
-                    det_name = ""
-                    if isinstance(cp.get("subFaction"), dict):
-                        det_name = cp["subFaction"].get("name") or ""
-                    elif isinstance(cp.get("subFaction"), str):
-                        det_name = cp["subFaction"]
-                    if not det_name:
-                        det_name = cp.get("detachment") or ""
+                        det_name = ""
+                        if isinstance(cp.get("subFaction"), dict):
+                            det_name = cp["subFaction"].get("name") or ""
+                        elif isinstance(cp.get("subFaction"), str):
+                            det_name = cp["subFaction"]
+                        if not det_name:
+                            det_name = cp.get("detachment") or ""
 
-                    sub_id = cp.get("subFactionId") or cp.get("sub_faction_id") or ""
-                    if not sub_id and isinstance(cp.get("subFaction"), dict):
-                        sub_id = cp["subFaction"].get("id") or ""
+                        sub_id = cp.get("subFactionId") or cp.get("sub_faction_id") or ""
+                        if not sub_id and isinstance(cp.get("subFaction"), dict):
+                            sub_id = cp["subFaction"].get("id") or ""
 
-                    cp_list_text = cp.get("armyListText") or cp.get("listText") or cp.get("armyList") or ""
+                        cp_list_text = cp.get("armyListText") or cp.get("listText") or cp.get("armyList") or ""
 
-                    t["player_id"] = str(cp.get("id"))
-                    t["bcp_player_id"] = str(cp.get("id"))
-                    t["checked_in"] = bool(cp.get("checkedIn") or False)
-                    t["dropped"] = bool(cp.get("dropped") or False)
-                    t["has_list_submitted"] = bool(cp.get("listId") or cp_list_text)
-                    t["army_list"] = cp_list_text
-                    if fac_name:
-                        t["faction"] = fac_name
-                    if fac_id:
-                        t["army_id"] = fac_id
-                    if det_name:
-                        t["detachment"] = det_name
-                    if sub_id:
-                        t["sub_faction_id"] = sub_id
-
-                    updated_reg = {
-                        "id": t_eid,
-                        "bcp_event_id": t_eid,
-                        **t
-                    }
-                    try:
-                        db.add_user_registered_tournament(user_id, updated_reg)
-                    except Exception as db_save_err:
-                        logger.debug(f"Notice saving enriched tournament {t_eid} to DB: {db_save_err}")
+                        t["player_id"] = str(cp.get("id"))
+                        t["bcp_player_id"] = str(cp.get("id"))
+                        t["checked_in"] = bool(cp.get("checkedIn") or False)
+                        t["dropped"] = bool(cp.get("dropped") or False)
+                        t["has_list_submitted"] = bool(cp.get("listId") or cp_list_text)
+                        t["army_list"] = cp_list_text
+                        if fac_name:
+                            t["faction"] = fac_name
+                        if fac_id:
+                            t["army_id"] = fac_id
+                        if det_name:
+                            t["detachment"] = det_name
+                        if sub_id:
+                            t["sub_faction_id"] = sub_id
         except Exception as enrich_err:
-            logger.debug(f"Notice during force_sync tournament enrichment: {enrich_err}")
+            logger.debug(f"Notice during in-memory tournament enrichment: {enrich_err}")
 
     return {
         "success": True,
-        "bcp_connected": True,
-        "count": len(cached or []),
-        "tournaments": cached or []
+        "bcp_connected": bool(bcp_connected),
+        "count": len(combined_tournaments),
+        "tournaments": combined_tournaments
     }
 
 

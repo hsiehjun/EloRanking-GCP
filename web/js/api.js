@@ -1154,13 +1154,14 @@ window.api = {
   },
 
   // Community Hub: Event Registration Metadata & Status
-  async getCommunityEventRegistration(eventId) {
+  async getCommunityEventRegistration(eventId, forceSync = false) {
     const token = this.getAuthToken();
     const bcpToken = this.getBcpToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     if (bcpToken) headers['X-BCP-Token'] = bcpToken;
-    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/registration`, { headers });
+    const qs = forceSync ? '?force_sync=true' : '';
+    return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/registration${qs}`, { headers });
   },
 
   // Community Hub: Submit Free In-App Event Registration

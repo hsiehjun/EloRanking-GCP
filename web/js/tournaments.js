@@ -245,7 +245,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const subtabPlayerInit = document.getElementById('event-subtab-player');
   const subtabTeamsInit = document.getElementById('event-subtab-teams');
   const subtabEloInit = document.getElementById('event-subtab-elo');
-  if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', 'none', 'important');
+  if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', (initialTab === 'player') ? 'inline-flex' : 'none', 'important');
   if (subtabTeamsInit) {
     if (guessedIsTeam) {
       subtabTeamsInit.style.setProperty('display', 'inline-flex', 'important');
@@ -353,7 +353,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     let userRegData = null;
     try {
       if (typeof window.api?.getCommunityEventRegistration === 'function') {
-        userRegData = await window.api.getCommunityEventRegistration(eventId);
+        userRegData = await window.api.getCommunityEventRegistration(eventId, forceSync);
       }
     } catch (e) {
       console.debug("Notice checking user registration:", e);
