@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/styles.css?v=01e09c18ba">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=01e09c18ba">
+  <link rel="stylesheet" href="/css/styles.css?v=7123c5b700">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=7123c5b700">
 
   <!-- Synchronous iOS & Standalone PWA Safe-Area Detector -->
   <script>
@@ -397,11 +397,14 @@
             <button id="btn-refresh-tournament-workspace" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="refreshTournamentWorkspace(this)" title="Refresh live pairings, scores, and roster from BCP"><span class="refresh-icon" style="display:inline-block;">🔄</span> Refresh Live</button>
             <span id="studio-live-sync-indicator" style="display:inline-flex; align-items:center; gap:6px; font-size:0.75rem; color:#10b981; padding:0.25rem 0.6rem; background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); border-radius:6px; font-weight:600;" title="Automatic background live sync active"><span id="studio-live-sync-dot" style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block; box-shadow:0 0 6px #10b981; transition:transform 0.3s ease, background 0.3s ease;"></span> Live Sync</span>
             <button id="manage-event-start-btn" class="btn btn-primary" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #059669, #10b981); border-color: #10b981; color: #fff; font-weight: 700;" onclick="startTournamentEvent()">▶️ Start Event</button>
-            <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.85rem; display: flex; align-items: center; gap: 0.6rem;">
-              <span style="font-size: 0.75rem; color: var(--text-muted);">ROUND TIMER</span>
+            <div id="manage-round-timer-box" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); border-radius: 8px; padding: 0.35rem 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+              <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">MASTER CLOCK</span>
               <span id="manage-round-clock" style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #38bdf8;">02:30:00</span>
-              <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()">▶️</button>
+              <button id="btn-timer-toggle" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.45rem;" onclick="toggleRoundTimer()" title="Start / Pause Master Round Clock">▶️</button>
+              <button id="btn-timer-add5" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: #38bdf8;" onclick="adjustRoundTimer(5)" title="Add 5 Minutes to Master Clock">+5m</button>
+              <button id="btn-timer-reset" class="btn btn-outline" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: var(--text-muted);" onclick="resetRoundTimer()" title="Reset Clock to Round Duration">↺</button>
             </div>
+            <button id="btn-open-broadcast" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
             <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="switchManageSubtab('settings')">⚙️ Settings</button>
             <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Open on BCP</a>
           </div>
@@ -413,6 +416,9 @@
           <button class="es-subtab-btn" id="btn-subtab-pairings" onclick="switchManageSubtab('pairings')">⚔️ Pairings & Scores</button>
           <button class="es-subtab-btn" id="btn-subtab-standings" onclick="switchManageSubtab('standings')">🏆 Live Standings</button>
           <button class="es-subtab-btn" id="btn-subtab-meta" onclick="switchManageSubtab('meta')">📊 Metagame Stats</button>
+          <button class="es-subtab-btn" id="btn-subtab-judges" onclick="switchManageSubtab('judges')" style="position: relative;">
+            🚨 Floor Radar <span id="studio-judge-radar-badge" style="display:none; background:#ef4444; color:#fff; font-size:0.68rem; padding:0.1rem 0.42rem; border-radius:999px; margin-left:4px; font-weight:800; animation:gt-pulse 1.5s infinite;">0</span>
+          </button>
           <button class="es-subtab-btn" id="btn-subtab-settings" onclick="switchManageSubtab('settings')">⚙️ Registration & Settings</button>
         </div>
       </div>
@@ -705,6 +711,91 @@
           </div>
         </div>
       </div>
+
+      <!-- SUBTAB 6: Live Floor Judge Radar Desk -->
+      <div id="manage-subtab-judges" class="manage-subview" style="display: none;">
+        <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.5rem; max-width: 1080px; margin: 0 auto;">
+          <!-- Radar Header & Fast Controls -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h3 style="margin: 0; color: #fff; font-size: 1.25rem; font-family: var(--font-heading); display: flex; align-items: center; gap: 0.5rem;">
+                  <span>🚨 Live Floor Judge Radar</span>
+                </h3>
+                <span id="studio-judge-radar-connection-badge" class="badge badge-online" style="font-size: 0.72rem;">🔥 FIRESTORE LIVE</span>
+              </div>
+              <p style="margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.82rem;">
+                Real-time competitor dispatch queue from live Game Tracker scorecards. Sub-50ms floor alerts.
+              </p>
+            </div>
+            
+            <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; background: rgba(0,0,0,0.25); border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.6rem;">
+                <label for="studio-judge-responder-name" style="font-size: 0.75rem; color: var(--text-muted); font-weight: 600;">YOUR JUDGE NAME:</label>
+                <input type="text" id="studio-judge-responder-name" class="form-input" style="width: 140px; font-size: 0.8rem; padding: 0.25rem 0.5rem;" placeholder="Judge Name" value="Head Judge">
+              </div>
+              <button id="btn-toggle-judge-audio" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="toggleJudgeAudioAlerts()" title="Toggle audible chime on new judge dispatch calls">
+                🔔 Sound: ON
+              </button>
+              <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="refreshJudgeCalls()" title="Force refresh judge calls">
+                🔄 Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- Radar Operational Metric Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.85rem; margin-bottom: 1.25rem;">
+            <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #ef4444; text-transform: uppercase; letter-spacing: 0.05em;">Awaiting Dispatch</div>
+              <div id="stat-pending-judge-calls" style="font-size: 1.8rem; font-weight: 800; font-family: var(--font-mono); color: #fff; line-height: 1.2; margin-top: 0.2rem;">0</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">Tables waiting for judge</div>
+            </div>
+
+            <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">Judges En Route</div>
+              <div id="stat-enroute-judge-calls" style="font-size: 1.8rem; font-weight: 800; font-family: var(--font-mono); color: #fff; line-height: 1.2; margin-top: 0.2rem;">0</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">Active table adjudications</div>
+            </div>
+
+            <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-md); padding: 0.85rem 1rem;">
+              <div style="font-size: 0.74rem; font-weight: 700; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">Resolved Today</div>
+              <div id="stat-resolved-judge-calls" style="font-size: 1.8rem; font-weight: 800; font-family: var(--font-mono); color: #fff; line-height: 1.2; margin-top: 0.2rem;">0</div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">Rulings finalized</div>
+            </div>
+          </div>
+
+          <!-- Active Dispatch Queue -->
+          <div style="margin-bottom: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+              <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+                <span>📋 Active Dispatch Queue</span>
+              </h4>
+              <span style="font-size: 0.74rem; color: var(--text-muted);">Real-time auto updates</span>
+            </div>
+
+            <div id="studio-judge-calls-container" style="display: flex; flex-direction: column; gap: 0.85rem;">
+              <!-- Dynamic Cards rendered by renderJudgesSubtab() -->
+              <div style="text-align: center; padding: 3rem 1.5rem; color: var(--text-muted); background: rgba(0,0,0,0.2); border: 1px dashed var(--border); border-radius: var(--radius-lg);">
+                <span style="font-size: 2rem; display: block; margin-bottom: 0.5rem;">🎉</span>
+                <strong style="color: #fff; font-size: 0.95rem;">Floor is clear!</strong>
+                <div style="font-size: 0.82rem; margin-top: 0.25rem;">No active player judge calls or rules dispute requests.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- History / Resolved Log (Collapsible) -->
+          <div style="border-top: 1px solid var(--border); padding-top: 1.25rem;">
+            <details style="cursor: pointer;">
+              <summary style="font-weight: 700; font-size: 0.88rem; color: var(--text-muted); user-select: none;">
+                📜 Resolved Ruling History (<span id="studio-judge-history-count">0</span>)
+              </summary>
+              <div id="studio-judge-history-container" style="margin-top: 0.85rem; display: flex; flex-direction: column; gap: 0.6rem;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); font-style: italic; padding: 0.5rem 0;">No resolved rulings recorded for this session yet.</div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- MODAL: Add Player to Roster -->
@@ -924,12 +1015,63 @@
           </div>
         </form>
       </div>
+    <!-- MODAL: Broadcast Announcement to All Table Rooms -->
+    <div id="modal-studio-broadcast" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 9999; align-items: center; justify-content: center; backdrop-filter: blur(4px);">
+      <div style="background: #0f172a; border: 1px solid rgba(245,158,11,0.4); border-radius: var(--radius-lg); width: 90%; max-width: 520px; padding: 1.5rem; box-shadow: 0 25px 60px rgba(0,0,0,0.85); color: #f8fafc; font-family: 'Inter', system-ui, sans-serif;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.85rem; margin-bottom: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <span style="font-size: 1.5rem;">📢</span>
+            <div>
+              <h3 style="margin: 0; color: #fff; font-size: 1.15rem; font-weight: 800;">Tournament Broadcast</h3>
+              <div style="font-size: 0.76rem; color: #f59e0b;">Send live alert to all connected Game Tracker table scorecards</div>
+            </div>
+          </div>
+          <button onclick="closeBroadcastModal()" style="background: transparent; border: none; color: #94a3b8; font-size: 1.3rem; cursor: pointer;">✕</button>
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+          <label style="display: block; font-size: 0.78rem; font-weight: 700; color: #94a3b8; margin-bottom: 0.4rem; text-transform: uppercase;">Quick Round Announcements</label>
+          <div style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+            <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" onclick="setBroadcastPreset('⚠️ 30 Minutes Remaining! Check round progression.', 'warning')">⏳ 30 Min Remaining</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" onclick="setBroadcastPreset('⚠️ 15 Minutes Remaining! Complete your current battle round.', 'warning')">⚠️ 15 Min Remaining</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.65rem; color: #f87171; border-color: rgba(248,113,113,0.3);" onclick="setBroadcastPreset('🚨 5 Minutes Remaining! Do not start a new battle round.', 'urgent')">🚨 5 Min Remaining</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.65rem; color: #ef4444; border-color: #ef4444; font-weight: 800;" onclick="setBroadcastPreset('🛑 DICE DOWN! Stop play immediately and verify final scores.', 'final')">🛑 Dice Down</button>
+            <button type="button" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;" onclick="setBroadcastPreset('📢 Round pairings are live! Report to your assigned tables.', 'info')">⚔️ Pairings Posted</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+          <label for="studio-broadcast-message" style="display: block; font-size: 0.78rem; font-weight: 700; color: #94a3b8; margin-bottom: 0.4rem; text-transform: uppercase;">Custom Message</label>
+          <textarea id="studio-broadcast-message" class="form-input" style="width: 100%; height: 75px; resize: none; font-size: 0.88rem; box-sizing: border-box;" placeholder="Type broadcast message for players..."></textarea>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+          <div>
+            <label style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; margin-right: 0.5rem;">URGENCY:</label>
+            <select id="studio-broadcast-type" class="form-input" style="width: auto; font-size: 0.8rem; padding: 0.25rem 0.6rem;">
+              <option value="info">ℹ️ Info (Blue)</option>
+              <option value="warning" selected>⚠️ Warning (Amber)</option>
+              <option value="urgent">🚨 Urgent (Red)</option>
+              <option value="final">🛑 Final / Dice Down</option>
+            </select>
+          </div>
+          <div style="font-size: 0.72rem; color: #64748b;">Triggers audio chime on all tables</div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.6rem;">
+          <button type="button" onclick="closeBroadcastModal()" class="btn btn-outline" style="padding: 0.5rem 1rem; font-size: 0.85rem;">Cancel</button>
+          <button type="button" id="btn-submit-studio-broadcast" onclick="handleSendBroadcast()" class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b, #d97706); border: none; font-weight: 800; font-size: 0.88rem; padding: 0.5rem 1.25rem; box-shadow: 0 4px 12px rgba(245,158,11,0.35);">🚀 Send Broadcast</button>
+        </div>
+      </div>
     </div>
 
   </div>
 
-  <script src="/js/api.js?v=01e09c18ba"></script>
-  <script src="/js/auth.js?v=01e09c18ba"></script>
-  <script src="/js/eventstudio.js?v=01e09c18ba"></script>
+  <!-- Cloud Firestore SDK for Tournament Operations & Real-Time Desk -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+  <script src="/js/api.js?v=7123c5b700"></script>
+  <script src="/js/auth.js?v=7123c5b700"></script>
+  <script src="/js/eventstudio.js?v=7123c5b700"></script>
 </body>
 </html>

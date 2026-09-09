@@ -2930,15 +2930,33 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
 
 class JudgeCallCreatePayload(BaseModel):
     event_id: str
+    call_id: Optional[str] = None
     table_num: Optional[Union[int, str]] = None
     match_id: Optional[str] = None
     player_name: Optional[str] = "Competitor"
     category: Optional[str] = "Rules Dispute"
     note: Optional[str] = ""
+    caller: Optional[Dict[str, Any]] = None
+    opponent: Optional[Dict[str, Any]] = None
 
 class JudgeCallResolvePayload(BaseModel):
     call_id: str
+    event_id: Optional[str] = None
+    match_id: Optional[str] = None
     status: Optional[str] = "resolved"
+    assigned_judge: Optional[Union[str, Dict[str, Any]]] = None
+
+class StudioMasterClockPayload(BaseModel):
+    status: Optional[str] = "running"
+    round: Optional[int] = 1
+    duration_minutes: Optional[int] = 150
+    target_end_time: Optional[float] = None
+    remaining_seconds: Optional[int] = None
+
+class StudioBroadcastPayload(BaseModel):
+    message: str
+    type: Optional[str] = "info"
+    round: Optional[int] = None
 
 @router.post("/api/eventstudio/judge_call", summary="Submit judge / TO floor assistance call from game room")
 async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
@@ -2948,52 +2966,135 @@ async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
             t_num = int(payload.table_num)
         except Exception:
             t_num = 1
-    res = None
-    try:
-        db = get_database()
-        res = db.create_judge_call(
-            event_id=payload.event_id,
-            table_num=t_num,
-            match_id=payload.match_id,
-            player_name=payload.player_name or "Competitor",
-            category=payload.category or "Rules Dispute",
-            note=payload.note or ""
-        )
-    except Exception as e:
-        logger.warning(f"Notice creating judge call: {e}")
-        import uuid as _uuid
-        call_id = f"JC-{_uuid.uuid4().hex[:8].upper()}"
-        res = {
-            "id": call_id,
-            "event_id": payload.event_id,
-            "table_num": t_num,
-            "match_id": payload.match_id,
-            "player_name": payload.player_name or "Competitor",
-            "category": payload.category or "Rules Dispute",
-            "note": payload.note or "",
-            "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-
-    # Broadcast to in-memory tracker room if match_id is present
+            
+    import uuid as _uuid
+    call_id = payload.call_id or f"JC-{_uuid.uuid4().hex[:8].upper()}"
+    fs_engine = get_firestore_engine()
+    
+    call_record = {
+        "id": call_id,
+        "call_id": call_id,
+        "eventId": payload.event_id,
+        "event_id": payload.event_id,
+        "tableNum": t_num,
+        "table_num": t_num,
+        "matchId": payload.match_id,
+        "match_id": payload.match_id,
+        "caller": payload.caller or {"playerName": payload.player_name or "Competitor"},
+        "player_name": payload.player_name or (payload.caller.get("playerName") if isinstance(payload.caller, dict) else "Competitor"),
+        "opponent": payload.opponent,
+        "category": payload.category or "Rules Dispute",
+        "note": payload.note or "",
+        "status": "pending",
+        "assignedJudge": None,
+        "assigned_judge": None,
+        "createdAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Primary: Save to Firestore
+    res = fs_engine.save_judge_call(payload.event_id, call_record)
+    
+    # Broadcast to in-memory & Firestore tracker room if match_id is present
     if payload.match_id:
         mid = normalize_tracker_match_id(payload.match_id)
         if mid in TRACKER_ROOMS:
             TRACKER_ROOMS[mid]["active_judge_call"] = res
+        try:
+            fs_engine.update_room(mid, {"active_judge_call": res})
+        except Exception:
+            pass
 
     return {"success": True, "call": res}
 
 @router.get("/api/eventstudio/judge_calls", summary="List active judge calls for a tournament")
 async def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = False):
-    db = get_database()
-    calls = db.get_judge_calls(event_id=event_id, active_only=active_only)
+    fs_engine = get_firestore_engine()
+    calls = fs_engine.list_judge_calls(event_id=event_id, active_only=active_only)
     return {"success": True, "event_id": event_id, "calls": calls}
 
-@router.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved)")
+@router.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved, cancelled)")
 async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
-    db = get_database()
-    ok = db.resolve_judge_call(call_id=payload.call_id, status=payload.status or "resolved")
-    return {"success": ok, "call_id": payload.call_id, "status": payload.status}
+    fs_engine = get_firestore_engine()
+    event_id = payload.event_id or ""
+    
+    # Look up call if event_id not provided
+    if not event_id:
+        for eid, calls in fs_engine._fallback_judge_calls.items():
+            if payload.call_id in calls:
+                event_id = eid
+                break
+                
+    status = payload.status or "resolved"
+    assigned = payload.assigned_judge
+    if isinstance(assigned, str):
+        assigned = {"name": assigned}
+        
+    ok = fs_engine.update_judge_call_status(
+        event_id=event_id,
+        call_id=payload.call_id,
+        status=status,
+        assigned_judge=assigned
+    )
+    
+    # Also update match room if match_id is known
+    match_id = payload.match_id
+    if not match_id and event_id and event_id in fs_engine._fallback_judge_calls:
+        match_id = fs_engine._fallback_judge_calls[event_id].get(payload.call_id, {}).get("matchId")
+        
+    if match_id:
+        mid = normalize_tracker_match_id(match_id)
+        room_judge_state = {
+            "id": payload.call_id,
+            "call_id": payload.call_id,
+            "status": status,
+            "assignedJudge": assigned,
+            "assigned_judge": payload.assigned_judge if isinstance(payload.assigned_judge, str) else (assigned.get("name") if isinstance(assigned, dict) else None)
+        }
+        if mid in TRACKER_ROOMS:
+            TRACKER_ROOMS[mid]["active_judge_call"] = room_judge_state
+        try:
+            fs_engine.update_room(mid, {"active_judge_call": room_judge_state})
+        except Exception:
+            pass
+
+    return {"success": True, "call_id": payload.call_id, "status": status, "assigned_judge": assigned}
+
+@router.post("/api/eventstudio/event/{event_id}/clock", summary="Update tournament round master clock")
+async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload):
+    fs_engine = get_firestore_engine()
+    clock_data = {
+        "status": payload.status or "running",
+        "round": payload.round or 1,
+        "durationMinutes": payload.duration_minutes or 150,
+        "targetEndTime": payload.target_end_time,
+        "remainingSeconds": payload.remaining_seconds
+    }
+    updated = fs_engine.update_tournament_master_clock(event_id, clock_data)
+    return {"success": True, "event_id": event_id, "masterClock": updated, "clock": updated}
+
+@router.get("/api/eventstudio/event/{event_id}/clock", summary="Get tournament round master clock")
+async def api_eventstudio_get_clock(event_id: str):
+    fs_engine = get_firestore_engine()
+    clock = fs_engine.get_tournament_master_clock(event_id) or {"status": "stopped", "round": 1, "remainingSeconds": 9000}
+    return {"success": True, "event_id": event_id, "masterClock": clock, "clock": clock}
+
+@router.post("/api/eventstudio/event/{event_id}/broadcast", summary="Publish tournament live broadcast announcement")
+async def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadcastPayload):
+    fs_engine = get_firestore_engine()
+    broadcast_data = {
+        "message": payload.message,
+        "type": payload.type or "info",
+        "round": payload.round
+    }
+    res = fs_engine.publish_tournament_broadcast(event_id, broadcast_data)
+    return {"success": True, "event_id": event_id, "broadcast": res}
+
+@router.get("/api/eventstudio/event/{event_id}/broadcast", summary="Get tournament live broadcast announcement")
+async def api_eventstudio_get_broadcast(event_id: str):
+    fs_engine = get_firestore_engine()
+    b = fs_engine.get_tournament_broadcast(event_id)
+    return {"success": True, "event_id": event_id, "broadcast": b}
 
 class PodGeneratePayload(BaseModel):
     pod_size: Optional[int] = 4

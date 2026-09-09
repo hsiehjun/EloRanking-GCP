@@ -851,13 +851,46 @@ window.api = {
     return this._fetchJson(`/api/eventstudio/judge_calls?event_id=${encodeURIComponent(eventId)}&active_only=${activeOnly}`);
   },
 
-  // EventStudio: Resolve Judge Call
-  async resolveJudgeCall(callId, status = 'resolved') {
+  // EventStudio: Resolve / Update Judge Call Status
+  async resolveJudgeCall(callIdOrPayload, status = 'resolved', assignedJudge = null, eventId = null, matchId = null) {
+    const body = typeof callIdOrPayload === 'object' ? callIdOrPayload : {
+      call_id: callIdOrPayload,
+      status: status,
+      assigned_judge: assignedJudge,
+      event_id: eventId,
+      match_id: matchId
+    };
     return this._fetchJson('/api/eventstudio/judge_call/resolve', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ call_id: callId, status })
+      body: JSON.stringify(body)
     });
+  },
+
+  // EventStudio: Master Round Clock
+  async getStudioMasterClock(eventId) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/clock`);
+  },
+
+  async updateStudioMasterClock(eventId, clockPayload) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/clock`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(clockPayload)
+    });
+  },
+
+  // EventStudio: Broadcast Announcement
+  async sendStudioBroadcast(eventId, message, type = 'info') {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/broadcast`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, type })
+    });
+  },
+
+  async getStudioBroadcast(eventId) {
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/broadcast`);
   },
 
   // EventStudio: Match Predictor

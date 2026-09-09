@@ -12,8 +12,29 @@ let studioState = {
   currentRoundView: 1,
   timerSeconds: 9000,
   timerInterval: null,
-  isTimerRunning: false
+  isTimerRunning: false,
+  masterClockTargetEnd: null,
+  masterClockStatus: 'stopped',
+  tournamentUnsub: null,
+  judgeCallsUnsub: null,
+  judgeCalls: [],
+  resolvedJudgeCalls: [],
+  judgeAudioEnabled: (typeof localStorage !== 'undefined' ? localStorage.getItem('studio_judge_audio') : 'true') !== 'false'
 };
+
+function getStudioFirestoreDb() {
+  if (typeof firebase !== 'undefined' && firebase.firestore) {
+    try {
+      if (!firebase.apps || !firebase.apps.length) {
+        firebase.initializeApp({ projectId: "eloranking-506820" });
+      }
+      return firebase.firestore();
+    } catch (e) {
+      console.warn("Notice initializing Firestore for Event Studio:", e);
+    }
+  }
+  return null;
+}
 
 document.addEventListener("DOMContentLoaded", () => {
   setDefaultEventDates();
@@ -996,6 +1017,10 @@ async function loadTournamentWorkspace(eventId) {
     studioState.timerSeconds = ev.defaultRoundLength || 9000;
     updateTimerDisplay();
 
+    // Attach real-time Firestore listeners for Master Clock, Broadcasts & Floor Judge Radar
+    subscribeStudioTournament(ev.id);
+    subscribeStudioJudgeCalls(ev.id);
+
     switchManageSubtab(studioState.activeSubtab || "roster");
   } catch (err) {
     console.error("Error loading tournament workspace:", err);
@@ -1005,7 +1030,7 @@ async function loadTournamentWorkspace(eventId) {
 
 function switchManageSubtab(subtabName) {
   studioState.activeSubtab = subtabName;
-  const subtabs = ["roster", "pairings", "standings", "meta", "settings"];
+  const subtabs = ["roster", "pairings", "standings", "meta", "settings", "judges"];
 
   subtabs.forEach(tab => {
     const viewEl = document.getElementById(`manage-subtab-${tab}`);
@@ -1025,6 +1050,7 @@ function switchManageSubtab(subtabName) {
   else if (subtabName === "standings") renderStandingsSubtab();
   else if (subtabName === "meta") renderMetaSubtab();
   else if (subtabName === "settings") renderSettingsSubtab();
+  else if (subtabName === "judges") renderJudgesSubtab();
 }
 
 function renderRosterSubtab() {
@@ -2424,29 +2450,233 @@ function filterRosterTable() {
 }
 
 /* ==========================================================================
-   ROUND TIMER WIDGET
+   TOURNAMENT MASTER CLOCK & REAL-TIME OPERATIONS SUITE
    ========================================================================== */
 
-function toggleRoundTimer() {
+function subscribeStudioTournament(eventId) {
+  if (studioState.tournamentUnsub) {
+    try { studioState.tournamentUnsub(); } catch(e) {}
+    studioState.tournamentUnsub = null;
+  }
+  const db = getStudioFirestoreDb();
+  if (!db || !eventId) return;
+
+  try {
+    studioState.tournamentUnsub = db.collection('tournaments').doc(eventId).onSnapshot(doc => {
+      if (!doc || !doc.exists) return;
+      const data = doc.data() || {};
+      if (data.masterClock) {
+        applyRemoteStudioMasterClock(data.masterClock);
+      }
+    }, err => {
+      console.warn("Notice on tournament listener:", err);
+    });
+  } catch (e) {
+    console.warn("Notice initializing tournament listener:", e);
+  }
+}
+
+function applyRemoteStudioMasterClock(clock) {
+  if (!clock) return;
+  studioState.masterClockStatus = clock.status || 'stopped';
   const btn = document.getElementById("btn-timer-toggle");
-  if (studioState.isTimerRunning) {
-    clearInterval(studioState.timerInterval);
+
+  if (clock.status === 'running' && clock.targetEndTime) {
+    studioState.masterClockTargetEnd = clock.targetEndTime;
+    studioState.isTimerRunning = true;
+    studioState.timerSeconds = Math.max(0, Math.round((clock.targetEndTime - Date.now()) / 1000));
+    if (btn) btn.textContent = "⏸️";
+    ensureStudioClockTicker();
+  } else if (clock.status === 'paused') {
     studioState.isTimerRunning = false;
+    studioState.masterClockTargetEnd = null;
+    if (typeof clock.remainingSeconds === 'number') {
+      studioState.timerSeconds = clock.remainingSeconds;
+    }
     if (btn) btn.textContent = "▶️";
   } else {
-    studioState.isTimerRunning = true;
-    if (btn) btn.textContent = "⏸️";
-    studioState.timerInterval = setInterval(() => {
-      if (studioState.timerSeconds > 0) {
-        studioState.timerSeconds--;
-        updateTimerDisplay();
-      } else {
-        clearInterval(studioState.timerInterval);
+    studioState.isTimerRunning = false;
+    studioState.masterClockTargetEnd = null;
+    if (typeof clock.remainingSeconds === 'number') {
+      studioState.timerSeconds = clock.remainingSeconds;
+    }
+    if (btn) btn.textContent = "▶️";
+  }
+  updateTimerDisplay();
+}
+
+let studioClockInterval = null;
+function ensureStudioClockTicker() {
+  if (studioClockInterval) return;
+  studioClockInterval = setInterval(() => {
+    if (studioState.masterClockStatus === 'running' && studioState.masterClockTargetEnd) {
+      const rem = Math.max(0, Math.round((studioState.masterClockTargetEnd - Date.now()) / 1000));
+      studioState.timerSeconds = rem;
+      updateTimerDisplay();
+      if (rem <= 0) {
+        studioState.masterClockStatus = 'stopped';
         studioState.isTimerRunning = false;
+        const btn = document.getElementById("btn-timer-toggle");
         if (btn) btn.textContent = "▶️";
-        alert("⏰ ROUND TIMER EXPIRED!");
       }
-    }, 1000);
+    }
+  }, 1000);
+}
+
+async function toggleRoundTimer() {
+  const ev = studioState.activeTournament;
+  const eventId = ev ? ev.id : null;
+  const btn = document.getElementById("btn-timer-toggle");
+
+  if (studioState.isTimerRunning || studioState.masterClockStatus === 'running') {
+    // Pause clock
+    const rem = studioState.masterClockTargetEnd 
+      ? Math.max(0, Math.round((studioState.masterClockTargetEnd - Date.now()) / 1000))
+      : studioState.timerSeconds;
+    studioState.isTimerRunning = false;
+    studioState.masterClockStatus = 'paused';
+    studioState.masterClockTargetEnd = null;
+    studioState.timerSeconds = rem;
+    if (btn) btn.textContent = "▶️";
+    updateTimerDisplay();
+
+    const clockPayload = {
+      status: 'paused',
+      round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
+      durationMinutes: Math.round(rem / 60) || 150,
+      targetEndTime: null,
+      remainingSeconds: rem,
+      updatedAt: Date.now()
+    };
+
+    const db = getStudioFirestoreDb();
+    if (db && eventId) {
+      try {
+        db.collection('tournaments').doc(eventId).set({
+          eventId: eventId,
+          masterClock: clockPayload,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch (e) {
+        console.warn("Notice saving clock to Firestore:", e);
+      }
+    }
+    if (eventId && window.api && typeof window.api.updateStudioMasterClock === 'function') {
+      window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
+    }
+  } else {
+    // Start / Resume clock
+    if (studioState.timerSeconds <= 0) {
+      studioState.timerSeconds = (ev && ev.defaultRoundLength) ? ev.defaultRoundLength : 9000;
+    }
+    const targetEndTime = Date.now() + (studioState.timerSeconds * 1000);
+    studioState.isTimerRunning = true;
+    studioState.masterClockStatus = 'running';
+    studioState.masterClockTargetEnd = targetEndTime;
+    if (btn) btn.textContent = "⏸️";
+    ensureStudioClockTicker();
+    updateTimerDisplay();
+
+    const clockPayload = {
+      status: 'running',
+      round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
+      durationMinutes: Math.round(studioState.timerSeconds / 60) || 150,
+      targetEndTime: targetEndTime,
+      remainingSeconds: studioState.timerSeconds,
+      updatedAt: Date.now()
+    };
+
+    const db = getStudioFirestoreDb();
+    if (db && eventId) {
+      try {
+        db.collection('tournaments').doc(eventId).set({
+          eventId: eventId,
+          masterClock: clockPayload,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch (e) {
+        console.warn("Notice saving clock to Firestore:", e);
+      }
+    }
+    if (eventId && window.api && typeof window.api.updateStudioMasterClock === 'function') {
+      window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
+    }
+  }
+}
+
+async function adjustRoundTimer(deltaMinutes) {
+  const ev = studioState.activeTournament;
+  const eventId = ev ? ev.id : null;
+  const deltaSec = deltaMinutes * 60;
+
+  if (studioState.masterClockStatus === 'running' && studioState.masterClockTargetEnd) {
+    studioState.masterClockTargetEnd += (deltaSec * 1000);
+    studioState.timerSeconds = Math.max(0, Math.round((studioState.masterClockTargetEnd - Date.now()) / 1000));
+  } else {
+    studioState.timerSeconds = Math.max(0, studioState.timerSeconds + deltaSec);
+  }
+  updateTimerDisplay();
+
+  if (eventId) {
+    const clockPayload = {
+      status: studioState.masterClockStatus,
+      round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
+      durationMinutes: Math.round(studioState.timerSeconds / 60) || 150,
+      targetEndTime: studioState.masterClockStatus === 'running' ? studioState.masterClockTargetEnd : null,
+      remainingSeconds: studioState.timerSeconds,
+      updatedAt: Date.now()
+    };
+    const db = getStudioFirestoreDb();
+    if (db) {
+      try {
+        db.collection('tournaments').doc(eventId).set({
+          eventId: eventId,
+          masterClock: clockPayload,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch (e) {}
+    }
+    if (window.api && typeof window.api.updateStudioMasterClock === 'function') {
+      window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
+    }
+  }
+}
+
+async function resetRoundTimer() {
+  const ev = studioState.activeTournament;
+  const eventId = ev ? ev.id : null;
+  const defSec = (ev && ev.defaultRoundLength) ? ev.defaultRoundLength : 9000;
+
+  studioState.isTimerRunning = false;
+  studioState.masterClockStatus = 'stopped';
+  studioState.masterClockTargetEnd = null;
+  studioState.timerSeconds = defSec;
+  const btn = document.getElementById("btn-timer-toggle");
+  if (btn) btn.textContent = "▶️";
+  updateTimerDisplay();
+
+  if (eventId) {
+    const clockPayload = {
+      status: 'stopped',
+      round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
+      durationMinutes: Math.round(defSec / 60) || 150,
+      targetEndTime: null,
+      remainingSeconds: defSec,
+      updatedAt: Date.now()
+    };
+    const db = getStudioFirestoreDb();
+    if (db) {
+      try {
+        db.collection('tournaments').doc(eventId).set({
+          eventId: eventId,
+          masterClock: clockPayload,
+          updatedAt: Date.now()
+        }, { merge: true });
+      } catch (e) {}
+    }
+    if (window.api && typeof window.api.updateStudioMasterClock === 'function') {
+      window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
+    }
   }
 }
 
@@ -2459,7 +2689,522 @@ function updateTimerDisplay() {
   const secs = studioState.timerSeconds % 60;
 
   clockEl.textContent = `${String(hrs).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  if (studioState.timerSeconds <= 300 && studioState.masterClockStatus === 'running') {
+    clockEl.style.color = '#ef4444';
+  } else if (studioState.timerSeconds <= 900 && studioState.masterClockStatus === 'running') {
+    clockEl.style.color = '#f59e0b';
+  } else {
+    clockEl.style.color = '#38bdf8';
+  }
 }
+
+/* ==========================================================================
+   BROADCAST ANNOUNCEMENT DISPATCHER
+   ========================================================================== */
+
+function openBroadcastModal() {
+  const modal = document.getElementById("modal-studio-broadcast");
+  if (modal) {
+    modal.style.display = "flex";
+    const msgEl = document.getElementById("studio-broadcast-message");
+    if (msgEl) {
+      msgEl.focus();
+    }
+  }
+}
+
+function closeBroadcastModal() {
+  const modal = document.getElementById("modal-studio-broadcast");
+  if (modal) {
+    modal.style.display = "none";
+  }
+}
+
+function setBroadcastPreset(msg, type) {
+  const msgEl = document.getElementById("studio-broadcast-message");
+  const typeEl = document.getElementById("studio-broadcast-type");
+  if (msgEl) msgEl.value = msg;
+  if (typeEl) typeEl.value = type;
+}
+
+async function handleSendBroadcast() {
+  const ev = studioState.activeTournament;
+  if (!ev) {
+    alert("Please open a tournament first.");
+    return;
+  }
+  const msgEl = document.getElementById("studio-broadcast-message");
+  const typeEl = document.getElementById("studio-broadcast-type");
+  const btn = document.getElementById("btn-submit-studio-broadcast");
+
+  const message = (msgEl ? msgEl.value : "").trim();
+  const type = typeEl ? typeEl.value : "info";
+
+  if (!message) {
+    alert("Please enter a broadcast message.");
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "🚀 Broadcasting...";
+  }
+
+  const broadcastData = {
+    id: "msg_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+    message: message,
+    type: type,
+    timestamp: Date.now(),
+    author: "Tournament Organizer"
+  };
+
+  const db = getStudioFirestoreDb();
+  if (db) {
+    try {
+      await db.collection("tournaments").doc(ev.id).set({
+        eventId: ev.id,
+        broadcast: broadcastData,
+        updatedAt: Date.now()
+      }, { merge: true });
+    } catch (e) {
+      console.warn("Notice writing broadcast to Firestore:", e);
+    }
+  }
+
+  if (window.api && typeof window.api.sendStudioBroadcast === "function") {
+    try {
+      await window.api.sendStudioBroadcast(ev.id, message, type);
+    } catch (e) {
+      console.warn("Notice calling broadcast REST API:", e);
+    }
+  }
+
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = "🚀 Send Broadcast";
+  }
+  closeBroadcastModal();
+  if (msgEl) msgEl.value = "";
+  alert("📢 Broadcast sent to all active table rooms!");
+}
+
+/* ==========================================================================
+   LIVE FLOOR JUDGE RADAR DESK
+   ========================================================================== */
+
+function toggleJudgeAudioAlerts() {
+  studioState.judgeAudioEnabled = !studioState.judgeAudioEnabled;
+  try {
+    localStorage.setItem("studio_judge_audio", studioState.judgeAudioEnabled ? "true" : "false");
+  } catch(e) {}
+  const btn = document.getElementById("btn-toggle-judge-audio");
+  if (btn) {
+    btn.textContent = studioState.judgeAudioEnabled ? "🔔 Sound: ON" : "🔕 Sound: OFF";
+    btn.style.color = studioState.judgeAudioEnabled ? "#38bdf8" : "var(--text-muted)";
+  }
+}
+
+function playStudioJudgeChime() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "triangle";
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(440, ctx.currentTime);
+    osc.frequency.setValueAtTime(659.25, ctx.currentTime + 0.12);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.45);
+  } catch (e) {}
+}
+
+let lastPendingCallIds = new Set();
+
+function subscribeStudioJudgeCalls(eventId) {
+  if (studioState.judgeCallsUnsub) {
+    try { studioState.judgeCallsUnsub(); } catch (e) {}
+    studioState.judgeCallsUnsub = null;
+  }
+  const db = getStudioFirestoreDb();
+  if (!db || !eventId) return;
+
+  try {
+    studioState.judgeCallsUnsub = db.collection("tournaments").doc(eventId).collection("judge_calls")
+      .onSnapshot(snap => {
+        const calls = [];
+        snap.forEach(doc => {
+          const d = doc.data() || {};
+          if (!d.id) d.id = doc.id;
+          calls.push(d);
+        });
+        handleStudioJudgeCallsUpdate(calls);
+      }, err => {
+        console.warn("Notice on judge calls listener:", err);
+      });
+  } catch (e) {
+    console.warn("Notice initializing judge calls listener:", e);
+  }
+}
+
+function handleStudioJudgeCallsUpdate(calls) {
+  const active = [];
+  const resolved = [];
+  let hasNewPending = false;
+  const currentPending = new Set();
+
+  calls.forEach(c => {
+    if (c.status === "pending" || c.status === "en_route") {
+      active.push(c);
+      if (c.status === "pending") {
+        currentPending.add(c.id);
+        if (!lastPendingCallIds.has(c.id)) {
+          hasNewPending = true;
+        }
+      }
+    } else {
+      resolved.push(c);
+    }
+  });
+
+  lastPendingCallIds = currentPending;
+
+  if (hasNewPending && studioState.judgeAudioEnabled) {
+    playStudioJudgeChime();
+  }
+
+  // Sort active: pending first, then by createdAt ascending (oldest first)
+  active.sort((a, b) => {
+    if (a.status === "pending" && b.status !== "pending") return -1;
+    if (a.status !== "pending" && b.status === "pending") return 1;
+    return (a.createdAt || 0) - (b.createdAt || 0);
+  });
+
+  resolved.sort((a, b) => (b.resolvedAt || b.createdAt || 0) - (a.resolvedAt || a.createdAt || 0));
+
+  studioState.judgeCalls = active;
+  studioState.resolvedJudgeCalls = resolved;
+
+  // Update badge
+  const badge = document.getElementById("studio-judge-radar-badge");
+  if (badge) {
+    if (active.length > 0) {
+      badge.textContent = active.length;
+      badge.style.display = "inline-block";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  // Update metric counters
+  const pendingCount = active.filter(c => c.status === "pending").length;
+  const enRouteCount = active.filter(c => c.status === "en_route").length;
+
+  const statPending = document.getElementById("stat-pending-judge-calls");
+  const statEnRoute = document.getElementById("stat-enroute-judge-calls");
+  const statResolved = document.getElementById("stat-resolved-judge-calls");
+
+  if (statPending) statPending.textContent = pendingCount;
+  if (statEnRoute) statEnRoute.textContent = enRouteCount;
+  if (statResolved) statResolved.textContent = resolved.length;
+
+  renderJudgesSubtab();
+}
+
+function renderJudgesSubtab() {
+  const container = document.getElementById("studio-judge-calls-container");
+  if (!container) return;
+
+  const active = studioState.judgeCalls || [];
+  if (active.length === 0) {
+    container.innerHTML = `
+      <div style="text-align: center; padding: 3rem 1.5rem; color: var(--text-muted); background: rgba(0,0,0,0.2); border: 1px dashed var(--border); border-radius: var(--radius-lg);">
+        <span style="font-size: 2rem; display: block; margin-bottom: 0.5rem;">🎉</span>
+        <strong style="color: #fff; font-size: 0.95rem;">Floor is clear!</strong>
+        <div style="font-size: 0.82rem; margin-top: 0.25rem;">No active player judge calls or rules dispute requests.</div>
+      </div>
+    `;
+  } else {
+    container.innerHTML = active.map(c => {
+      const waitSec = Math.max(0, Math.floor((Date.now() - (c.createdAt || Date.now())) / 1000));
+      const waitMins = Math.floor(waitSec / 60);
+      const waitRemSec = waitSec % 60;
+      const waitStr = `${waitMins}m ${String(waitRemSec).padStart(2, '0')}s`;
+      const isUrgentWait = waitSec > 180;
+
+      const isPending = c.status === "pending";
+      const statusColor = isPending ? "#ef4444" : "#38bdf8";
+      const statusBg = isPending ? "rgba(239, 68, 68, 0.12)" : "rgba(56, 189, 248, 0.12)";
+      const borderCol = isPending ? "rgba(239, 68, 68, 0.4)" : "rgba(56, 189, 248, 0.4)";
+
+      const callerName = (c.caller && c.caller.playerName) || c.playerName || "Competitor";
+      const callerFaction = (c.caller && c.caller.faction) || "";
+      const oppName = (c.opponent && c.opponent.playerName) || "Opponent";
+      const oppFaction = (c.opponent && c.opponent.faction) || "";
+
+      const matchId = c.matchId || c.match_id || "";
+      const spectateUrl = matchId ? `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&role=spectator` : "#";
+
+      return `
+        <div class="es-judge-call-card" style="background: var(--bg-card); border: 1px solid ${borderCol}; border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; box-shadow: 0 4px 20px rgba(0,0,0,0.35);">
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 0.6rem; flex-wrap: wrap; gap: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span style="font-family: var(--font-heading); font-size: 1.15rem; font-weight: 800; color: #fff; background: #0f172a; border: 1px solid ${statusColor}; padding: 0.2rem 0.6rem; border-radius: 6px;">
+                TABLE ${c.tableNum || c.table_num || 1}
+              </span>
+              <span class="badge" style="background: ${statusBg}; color: ${statusColor}; border: 1px solid ${statusColor}; font-weight: 700; font-size: 0.75rem;">
+                ${isPending ? '🚨 AWAITING DISPATCH' : `🏃‍♂️ EN ROUTE (${c.assignedJudge ? c.assignedJudge.name : 'Judge'})`}
+              </span>
+              <span style="font-size: 0.76rem; color: ${isUrgentWait ? '#ef4444' : 'var(--text-muted)'}; font-weight: ${isUrgentWait ? '700' : '500'}; font-family: var(--font-mono);">
+                ⏱️ Waiting ${waitStr}
+              </span>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              ${matchId ? `
+                <a href="${spectateUrl}" target="_blank" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.65rem; color: #38bdf8; text-decoration: none;">
+                  👀 Open Table Tracker
+                </a>
+              ` : ''}
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem;">
+            <div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Issue Category</div>
+              <div style="font-weight: 700; color: #fff; font-size: 0.9rem; margin-top: 0.15rem;">
+                ${escapeHtml(c.category || 'Rules Dispute')}
+              </div>
+            </div>
+
+            <div>
+              <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700;">Matchup</div>
+              <div style="font-size: 0.85rem; margin-top: 0.15rem;">
+                <span style="color: #38bdf8; font-weight: 600;">${escapeHtml(callerName)}</span> ${callerFaction ? `<span style="color: var(--text-muted); font-size: 0.75rem;">(${escapeHtml(callerFaction)})</span>` : ''}
+                <span style="color: var(--text-muted); font-size: 0.75rem;"> vs </span>
+                <span style="color: #cbd5e1; font-weight: 600;">${escapeHtml(oppName)}</span> ${oppFaction ? `<span style="color: var(--text-muted); font-size: 0.75rem;">(${escapeHtml(oppFaction)})</span>` : ''}
+              </div>
+            </div>
+          </div>
+
+          ${c.note ? `
+            <div style="background: rgba(0,0,0,0.25); border-left: 3px solid #38bdf8; padding: 0.5rem 0.85rem; border-radius: 0 6px 6px 0; font-size: 0.82rem; color: #cbd5e1;">
+              <em>"${escapeHtml(c.note)}"</em>
+            </div>
+          ` : ''}
+
+          <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.6rem; border-top: 1px solid var(--border); padding-top: 0.65rem; margin-top: 0.2rem;">
+            ${isPending ? `
+              <button class="btn btn-primary" onclick="markJudgeCallEnRoute('${c.id}')" style="background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #38bdf8; font-size: 0.8rem; padding: 0.4rem 0.9rem;">
+                🏃‍♂️ En Route
+              </button>
+              <button class="btn btn-outline" onclick="markJudgeCallResolved('${c.id}')" style="color: #10b981; border-color: #10b981; font-size: 0.8rem; padding: 0.4rem 0.9rem;">
+                ✅ Mark Resolved
+              </button>
+              <button class="btn btn-outline" onclick="dismissJudgeCall('${c.id}')" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35); font-size: 0.8rem; padding: 0.4rem 0.75rem;">
+                ✕ Dismiss
+              </button>
+            ` : `
+              <button class="btn btn-primary" onclick="markJudgeCallResolved('${c.id}')" style="background: linear-gradient(135deg, #059669, #10b981); border: none; font-size: 0.8rem; padding: 0.4rem 1.1rem; font-weight: 700;">
+                ✅ Complete & Resolve Ruling
+              </button>
+              <button class="btn btn-outline" onclick="dismissJudgeCall('${c.id}')" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35); font-size: 0.8rem; padding: 0.4rem 0.75rem;">
+                ✕ Cancel Call
+              </button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  // Render History
+  const historyContainer = document.getElementById("studio-judge-history-container");
+  const historyCountEl = document.getElementById("studio-judge-history-count");
+  const resolved = studioState.resolvedJudgeCalls || [];
+
+  if (historyCountEl) historyCountEl.textContent = resolved.length;
+  if (historyContainer) {
+    if (resolved.length === 0) {
+      historyContainer.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-muted); font-style: italic; padding: 0.5rem 0;">No resolved rulings recorded for this session yet.</div>';
+    } else {
+      historyContainer.innerHTML = resolved.map(c => {
+        const timeStr = c.resolvedAt ? new Date(c.resolvedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Earlier';
+        const judgeName = (c.assignedJudge && c.assignedJudge.name) ? c.assignedJudge.name : 'Judge Staff';
+        return `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.85rem; font-size: 0.8rem;">
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span style="color: #10b981; font-weight: 700;">✅ Table ${c.tableNum || 1}</span>
+              <span style="color: #fff; font-weight: 600;">${escapeHtml(c.category || 'Ruling')}</span>
+              <span style="color: var(--text-muted);">(${escapeHtml((c.caller && c.caller.playerName) || 'Competitor')})</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span style="color: #38bdf8;">Resolved by ${escapeHtml(judgeName)}</span>
+              <span style="color: var(--text-muted); font-family: var(--font-mono); font-size: 0.72rem;">${timeStr}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+  }
+}
+
+async function markJudgeCallEnRoute(callId) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+  const nameInput = document.getElementById("studio-judge-responder-name");
+  let judgeName = (nameInput ? nameInput.value : "").trim() || "Floor Judge";
+
+  const call = (studioState.judgeCalls || []).find(c => c.id === callId);
+  const matchId = call ? (call.matchId || call.match_id) : null;
+
+  const db = getStudioFirestoreDb();
+  if (db) {
+    try {
+      await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
+        status: "en_route",
+        assignedJudge: { name: judgeName },
+        enRouteAt: Date.now(),
+        updatedAt: Date.now()
+      }, { merge: true });
+
+      if (matchId) {
+        await db.collection("rooms").doc(matchId).set({
+          active_judge_call: {
+            id: callId,
+            status: "en_route",
+            assignedJudge: { name: judgeName },
+            tableNum: call ? call.tableNum : 1,
+            category: call ? call.category : "Rules Dispute"
+          }
+        }, { merge: true });
+      }
+    } catch (e) {
+      console.warn("Notice updating Firestore judge call:", e);
+    }
+  }
+
+  if (window.api && typeof window.api.resolveJudgeCall === "function") {
+    try {
+      await window.api.resolveJudgeCall({
+        call_id: callId,
+        status: "en_route",
+        assigned_judge: judgeName,
+        event_id: ev.id,
+        match_id: matchId
+      });
+    } catch (e) {}
+  }
+}
+
+async function markJudgeCallResolved(callId) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const call = (studioState.judgeCalls || []).find(c => c.id === callId);
+  const matchId = call ? (call.matchId || call.match_id) : null;
+
+  const db = getStudioFirestoreDb();
+  if (db) {
+    try {
+      await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
+        status: "resolved",
+        resolvedAt: Date.now(),
+        updatedAt: Date.now()
+      }, { merge: true });
+
+      if (matchId) {
+        await db.collection("rooms").doc(matchId).set({
+          active_judge_call: {
+            id: callId,
+            status: "resolved",
+            resolvedAt: Date.now()
+          }
+        }, { merge: true });
+      }
+    } catch (e) {
+      console.warn("Notice resolving Firestore judge call:", e);
+    }
+  }
+
+  if (window.api && typeof window.api.resolveJudgeCall === "function") {
+    try {
+      await window.api.resolveJudgeCall({
+        call_id: callId,
+        status: "resolved",
+        event_id: ev.id,
+        match_id: matchId
+      });
+    } catch (e) {}
+  }
+}
+
+async function dismissJudgeCall(callId) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const call = (studioState.judgeCalls || []).find(c => c.id === callId);
+  const matchId = call ? (call.matchId || call.match_id) : null;
+
+  const db = getStudioFirestoreDb();
+  if (db) {
+    try {
+      await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
+        status: "cancelled",
+        resolvedAt: Date.now(),
+        updatedAt: Date.now()
+      }, { merge: true });
+
+      if (matchId) {
+        await db.collection("rooms").doc(matchId).set({
+          active_judge_call: null
+        }, { merge: true });
+      }
+    } catch (e) {}
+  }
+
+  if (window.api && typeof window.api.resolveJudgeCall === "function") {
+    try {
+      await window.api.resolveJudgeCall({
+        call_id: callId,
+        status: "cancelled",
+        event_id: ev.id,
+        match_id: matchId
+      });
+    } catch (e) {}
+  }
+}
+
+async function refreshJudgeCalls() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+  if (window.api && typeof window.api.getJudgeCalls === "function") {
+    try {
+      const res = await window.api.getJudgeCalls(ev.id, false);
+      if (res && res.calls) {
+        handleStudioJudgeCallsUpdate(res.calls);
+      }
+    } catch (e) {}
+  }
+}
+
+window.toggleRoundTimer = toggleRoundTimer;
+window.adjustRoundTimer = adjustRoundTimer;
+window.resetRoundTimer = resetRoundTimer;
+window.openBroadcastModal = openBroadcastModal;
+window.closeBroadcastModal = closeBroadcastModal;
+window.setBroadcastPreset = setBroadcastPreset;
+window.handleSendBroadcast = handleSendBroadcast;
+window.toggleJudgeAudioAlerts = toggleJudgeAudioAlerts;
+window.refreshJudgeCalls = refreshJudgeCalls;
+window.markJudgeCallEnRoute = markJudgeCallEnRoute;
+window.markJudgeCallResolved = markJudgeCallResolved;
+window.dismissJudgeCall = dismissJudgeCall;
+window.renderJudgesSubtab = renderJudgesSubtab;
 
 function exportStandingsCsv() {
   const ev = studioState.activeTournament;
