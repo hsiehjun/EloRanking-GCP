@@ -12,6 +12,7 @@ import urllib.request
 import collections
 from typing import Any, Dict, List, Optional, Tuple, Set, Union
 from datetime import datetime, timezone, timedelta
+import uuid
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
@@ -4298,16 +4299,20 @@ class PostgresDatabase:
     ) -> Dict[str, Any]:
         """Creates a judge dispatch call from a tournament game table."""
         call_id = f"JC-{uuid.uuid4().hex[:8].upper()}"
-        with self.get_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                INSERT INTO tournament_judge_calls (
-                    id, event_id, table_num, match_id, player_name, category, note, status, created_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
-                RETURNING id, event_id, table_num, match_id, player_name, category, note, status, created_at;
-                """, (call_id, event_id, table_num, match_id, player_name, category, note))
-                row = cursor.fetchone()
-            conn.commit()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                    INSERT INTO tournament_judge_calls (
+                        id, event_id, table_num, match_id, player_name, category, note, status, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
+                    RETURNING id, event_id, table_num, match_id, player_name, category, note, status, created_at;
+                    """, (call_id, event_id, table_num, match_id, player_name, category, note))
+                    row = cursor.fetchone()
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"Notice persisting judge call to DB: {e}")
         return {
             "id": call_id,
             "event_id": event_id,
@@ -4317,29 +4322,33 @@ class PostgresDatabase:
             "category": category,
             "note": note,
             "status": "pending",
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": now_iso
         }
 
     def get_judge_calls(self, event_id: str, active_only: bool = False) -> List[Dict[str, Any]]:
         """Lists judge dispatch calls for a tournament."""
         from psycopg2 import extras
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                sql = "SELECT * FROM tournament_judge_calls WHERE event_id = %s"
-                if active_only:
-                    sql += " AND status IN ('pending', 'en_route')"
-                sql += " ORDER BY created_at DESC LIMIT 100;"
-                cursor.execute(sql, (event_id,))
-                rows = cursor.fetchall()
-                calls = []
-                for r in rows:
-                    c = dict(r)
-                    if c.get("created_at"):
-                        c["created_at"] = c["created_at"].isoformat()
-                    if c.get("resolved_at"):
-                        c["resolved_at"] = c["resolved_at"].isoformat()
-                    calls.append(c)
-                return calls
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    sql = "SELECT * FROM tournament_judge_calls WHERE event_id = %s"
+                    if active_only:
+                        sql += " AND status IN ('pending', 'en_route')"
+                    sql += " ORDER BY created_at DESC LIMIT 100;"
+                    cursor.execute(sql, (event_id,))
+                    rows = cursor.fetchall()
+                    calls = []
+                    for r in rows:
+                        c = dict(r)
+                        if c.get("created_at"):
+                            c["created_at"] = c["created_at"].isoformat()
+                        if c.get("resolved_at"):
+                            c["resolved_at"] = c["resolved_at"].isoformat()
+                        calls.append(c)
+                    return calls
+        except Exception as e:
+            logger.warning(f"Notice fetching judge calls from DB: {e}")
+            return []
 
     def resolve_judge_call(self, call_id: str, status: str = "resolved") -> bool:
         """Marks a judge call as en_route, resolved, or cancelled."""

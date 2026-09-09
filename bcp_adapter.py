@@ -809,6 +809,22 @@ class BcpAdapter:
         if not resolved_winner and game_data and isinstance(game_data, dict):
             resolved_winner = game_data.get("winner_id") or game_data.get("winnerId")
 
+        p1_first = None
+        p2_first = None
+        first_turn_raw = None
+        if game_data and isinstance(game_data, dict):
+            first_turn_raw = game_data.get("first_turn") or game_data.get("firstTurn") or game_data.get("who_went_first")
+            if first_turn_raw in ("player1", "p1", 1, "1"):
+                p1_first = True
+                p2_first = False
+            elif first_turn_raw in ("player2", "p2", 2, "2"):
+                p1_first = False
+                p2_first = True
+
+        layout_val = None
+        if game_data and isinstance(game_data, dict):
+            layout_val = game_data.get("layout") or game_data.get("terrain_layout") or game_data.get("terrainLayout")
+
         meta = {
             "p1-gamePoints": str(p1_score),
             "p2-gamePoints": str(p2_score),
@@ -817,47 +833,89 @@ class BcpAdapter:
             "p1-marginOfVictory": int(p1_score - p2_score),
             "p2-marginOfVictory": int(p2_score - p1_score)
         }
+        if p1_first is not None:
+            meta["p1-firstTurn"] = "true" if p1_first else "false"
+            meta["p2-firstTurn"] = "true" if p2_first else "false"
+            meta["firstTurn"] = "player1" if p1_first else "player2"
+            meta["whoWentFirst"] = "player1" if p1_first else "player2"
+
+        if layout_val:
+            meta["layout"] = str(layout_val)
+            meta["terrainLayout"] = str(layout_val)
+            meta["p1-terrainLayout"] = str(layout_val)
+            meta["p2-terrainLayout"] = str(layout_val)
+            meta["terrain"] = str(layout_val)
+
         if isinstance(game_data, dict) and isinstance(game_data.get("metaData"), dict):
             meta.update(game_data["metaData"])
+
+        p1_game_payload: Dict[str, Any] = {
+            "points": int(p1_score),
+            "result": p1_res
+        }
+        p2_game_payload: Dict[str, Any] = {
+            "points": int(p2_score),
+            "result": p2_res
+        }
+        if p1_first is not None:
+            p1_game_payload["firstTurn"] = p1_first
+            p1_game_payload["wentFirst"] = p1_first
+            p2_game_payload["firstTurn"] = p2_first
+            p2_game_payload["wentFirst"] = p2_first
+
+        if layout_val:
+            p1_game_payload["layout"] = str(layout_val)
+            p1_game_payload["terrainLayout"] = str(layout_val)
+            p2_game_payload["layout"] = str(layout_val)
+            p2_game_payload["terrainLayout"] = str(layout_val)
 
         payload: Dict[str, Any] = {
             "pairingType": "Pairing",
             "isDone": True,
+            "verified": True,
+            "isVerified": True,
+            "status": "completed",
+            "pairingStatus": "Completed",
             "player1Score": int(p1_score),
             "player2Score": int(p2_score),
             "player1Points": int(p1_score),
             "player2Points": int(p2_score),
             "player1Result": p1_res,
             "player2Result": p2_res,
-            "player1Game": {
-                "points": int(p1_score),
-                "result": p1_res
-            },
-            "player2Game": {
-                "points": int(p2_score),
-                "result": p2_res
-            },
+            "player1Game": dict(p1_game_payload),
+            "player2Game": dict(p2_game_payload),
             "metaData": meta,
             "gameData": {
                 "isDone": True,
+                "verified": True,
+                "isVerified": True,
+                "status": "completed",
+                "pairingStatus": "Completed",
                 "player1Score": int(p1_score),
                 "player2Score": int(p2_score),
                 "player1Points": int(p1_score),
                 "player2Points": int(p2_score),
                 "player1Result": p1_res,
                 "player2Result": p2_res,
-                "player1Game": {
-                    "points": int(p1_score),
-                    "result": p1_res
-                },
-                "player2Game": {
-                    "points": int(p2_score),
-                    "result": p2_res
-                },
+                "player1Game": dict(p1_game_payload),
+                "player2Game": dict(p2_game_payload),
                 "metaData": meta,
                 "metrics": []
             }
         }
+        if p1_first is not None:
+            payload["firstTurn"] = 1 if p1_first else 2
+            payload["player1FirstTurn"] = p1_first
+            payload["player2FirstTurn"] = p2_first
+            payload["gameData"]["firstTurn"] = 1 if p1_first else 2
+            payload["gameData"]["player1FirstTurn"] = p1_first
+            payload["gameData"]["player2FirstTurn"] = p2_first
+
+        if layout_val:
+            payload["layout"] = str(layout_val)
+            payload["terrainLayout"] = str(layout_val)
+            payload["gameData"]["layout"] = str(layout_val)
+            payload["gameData"]["terrainLayout"] = str(layout_val)
 
         p1_gid = game_data.get("p1_game_id") or game_data.get("player1GameId") if isinstance(game_data, dict) else None
         p2_gid = game_data.get("p2_game_id") or game_data.get("player2GameId") if isinstance(game_data, dict) else None
@@ -876,9 +934,17 @@ class BcpAdapter:
         if p1_id:
             payload["player1Id"] = str(p1_id)
             payload["gameData"]["player1Id"] = str(p1_id)
+            if p1_first:
+                payload["firstTurnPlayerId"] = str(p1_id)
+                payload["gameData"]["firstTurnPlayerId"] = str(p1_id)
+                meta["firstTurnPlayerId"] = str(p1_id)
         if p2_id:
             payload["player2Id"] = str(p2_id)
             payload["gameData"]["player2Id"] = str(p2_id)
+            if p2_first:
+                payload["firstTurnPlayerId"] = str(p2_id)
+                payload["gameData"]["firstTurnPlayerId"] = str(p2_id)
+                meta["firstTurnPlayerId"] = str(p2_id)
 
         if resolved_winner:
             payload["winnerId"] = str(resolved_winner)

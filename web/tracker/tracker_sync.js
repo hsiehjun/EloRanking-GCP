@@ -380,6 +380,8 @@
     if (existingModal) existingModal.remove();
 
     const isBcpTournament = !!eventId && eventId !== 'Casual' && eventId !== 'casual';
+    const defaultFirstTurn = (game.firstTurn === 'player2' || game.rollOffWinner === 'player2' || st.who_went_first === 'player2') ? 'player2' : 'player1';
+    let currentLayout = game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout 1');
 
     const modal = document.createElement('div');
     modal.id = 'gt-complete-modal';
@@ -421,20 +423,35 @@
           </div>
 
           <!-- Who Went First Selection -->
-          <div style="background:#090f1e; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:16px; text-align:left;">
+          <div style="background:#090f1e; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:12px; text-align:left;">
             <label style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; display:block; margin-bottom:6px;">
               🎲 Who Took First Turn?
             </label>
             <div style="display:flex; gap:16px;">
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#f8fafc; cursor:pointer;">
-                <input type="radio" name="gt-who-went-first" value="player1" checked />
+                <input type="radio" name="gt-who-went-first" value="player1" ${defaultFirstTurn === 'player1' ? 'checked' : ''} />
                 <span>${escapeHtml(p1Name)} (Turn 1)</span>
               </label>
               <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#f8fafc; cursor:pointer;">
-                <input type="radio" name="gt-who-went-first" value="player2" />
+                <input type="radio" name="gt-who-went-first" value="player2" ${defaultFirstTurn === 'player2' ? 'checked' : ''} />
                 <span>${escapeHtml(p2Name)} (Turn 1)</span>
               </label>
             </div>
+          </div>
+
+          <!-- Terrain Layout Selection -->
+          <div style="background:#090f1e; border:1px solid #1e293b; border-radius:10px; padding:10px 14px; margin-bottom:16px; text-align:left;">
+            <label style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; display:block; margin-bottom:6px;">
+              🗺️ Terrain Layout
+            </label>
+            <select id="gt-match-layout" style="width:100%; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; font-family:inherit;">
+              ${[
+                'Layout 1', 'Layout 2', 'Layout 3', 'Layout 4', 'Layout 5', 'Layout 6', 'Layout 7', 'Layout 8',
+                'GW Layout 1', 'GW Layout 2', 'GW Layout 3', 'GW Layout 4',
+                'WTC Layout 1', 'WTC Layout 2', 'WTC Layout 3', 'WTC Layout 4', 'WTC Layout 5',
+                'Custom / Other'
+              ].map(opt => `<option value="${opt}" ${currentLayout === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+            </select>
           </div>
 
           <div id="gt-complete-submit-status" style="margin-bottom:12px; font-size:12px; font-family:'JetBrains Mono',monospace; display:none;"></div>
@@ -531,6 +548,12 @@
     const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
     if (firstTurnRadio) {
       st.who_went_first = firstTurnRadio.value;
+      if (st.game) st.game.firstTurn = firstTurnRadio.value;
+    }
+    const layoutEl = document.getElementById('gt-match-layout');
+    if (layoutEl && layoutEl.value) {
+      st.terrain_layout = layoutEl.value;
+      if (st.game) st.game.terrainLayout = layoutEl.value;
     }
 
     saveLocalState(st);
@@ -599,7 +622,9 @@
     const game = st.game || {};
 
     const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
-    const firstTurnVal = firstTurnRadio ? firstTurnRadio.value : 'player1';
+    const firstTurnVal = firstTurnRadio ? firstTurnRadio.value : (st.who_went_first || game.firstTurn || 'player1');
+    const layoutEl = document.getElementById('gt-match-layout');
+    const layoutVal = (layoutEl ? layoutEl.value : '') || (game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout 1'));
 
     function getVp(obj) {
       if (obj.score !== undefined && obj.score > 0) return obj.score;
@@ -630,6 +655,7 @@
     const p2Id = game.p2Id || st.p2_id || game.p2_id || st.player2Id || null;
     const p1GameId = game.p1GameId || st.p1_game_id || game.p1_game_id || st.player1GameId || null;
     const p2GameId = game.p2GameId || st.p2_game_id || game.p2_game_id || st.player2GameId || null;
+    const resolvedWinnerId = p1Score > p2Score ? p1Id : (p2Score > p1Score ? p2Id : null);
 
     const bcpTok = (typeof window.getBcpToken === 'function' ? window.getBcpToken() : '') || (window.api && typeof window.api.getBcpToken === 'function' ? window.api.getBcpToken() : '') || localStorage.getItem('bcp_jwt') || localStorage.getItem('bcp_token') || null;
 
@@ -653,11 +679,19 @@
           p2_id: p2Id,
           p1_name: game.p1Name || st.p1_name || 'Player 1',
           p2_name: game.p2Name || st.p2_name || 'Player 2',
+          winner_id: resolvedWinnerId,
           source_app: 'GameTracker-OmniTactica',
           bcp_token: bcpTok,
+          first_turn: firstTurnVal,
+          layout: layoutVal,
+          terrain_layout: layoutVal,
           game_details: {
             match_id: matchId,
             first_turn: firstTurnVal,
+            firstTurn: firstTurnVal,
+            layout: layoutVal,
+            terrain_layout: layoutVal,
+            terrainLayout: layoutVal,
             p1_id: p1Id,
             p2_id: p2Id,
             p1_game_id: p1GameId,
@@ -665,7 +699,8 @@
             player1GameId: p1GameId,
             player2GameId: p2GameId,
             p1_faction: game.p1Faction || st.p1_faction,
-            p2_faction: game.p2Faction || st.p2_faction
+            p2_faction: game.p2Faction || st.p2_faction,
+            winner_id: resolvedWinnerId
           }
         })
       });
@@ -782,6 +817,11 @@
       st.is_finished = true;
       st.bcp_submitted = Boolean(resData.bcp_synced);
       st.who_went_first = firstTurnVal;
+      st.terrain_layout = layoutVal;
+      if (st.game) {
+        st.game.terrainLayout = layoutVal;
+        st.game.firstTurn = firstTurnVal;
+      }
       saveLocalState(st);
       notifyStateChanged();
 
@@ -2334,7 +2374,8 @@
     const tableNum = urlParams.get('table') || urlParams.get('table_num') || game.table_num || game.table || '';
 
     // Signature memoization to prevent clobbering DOM on active user clicks
-    const sig = `${clientState.matchId}_${clientState.role}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${clientState.activeJudgeCall}`;
+    const judgeCallSig = clientState.activeJudgeCall ? (clientState.activeJudgeCall.id || clientState.activeJudgeCall.status || 'pending') : 'none';
+    const sig = `${clientState.matchId}_${clientState.role}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${judgeCallSig}`;
     if (hud.dataset.sig === sig) {
       return;
     }
@@ -2376,8 +2417,8 @@
           🎲 Dice
         </button>
         ${tournamentId && !isSpectator ? `
-          <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Call Tournament Judge">
-            🙋‍♂️ Call Judge ${clientState.activeJudgeCall ? '🟡' : ''}
+          <button onclick="window.gtOpenJudgeModal()" style="background:${clientState.activeJudgeCall ? '#e11d48' : '#881337'}; color:#fff; border:1px solid #f43f5e; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px; ${clientState.activeJudgeCall ? 'box-shadow:0 0 12px rgba(225,29,72,0.6);' : ''}" title="Call Tournament Judge">
+            ${clientState.activeJudgeCall ? '🚨 Judge Pending' : '🙋‍♂️ Call Judge'}
           </button>
         ` : ''}
         <button onclick="window.gtOpenArmyListModal('opponent')" style="background:${hasOppList ? '#4f46e5' : '#1e293b'}; color:#fff; border:1px solid ${hasOppList ? '#6366f1' : '#334155'}; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="View Opponent's Army List">
@@ -4162,7 +4203,7 @@ Space Marines - Gladius Task Force (2000 pts)
             <button onclick="window.gtCloseJudgeModal()" style="background:#1e293b; color:#94a3b8; border:1px solid #334155; padding:8px 16px; border-radius:8px; font-weight:700; font-size:12px; cursor:pointer;">
               Cancel
             </button>
-            <button onclick="window.gtSubmitJudgeCall('${tournamentId}')" style="background:linear-gradient(135deg, #e11d48, #be123c); color:#fff; border:none; padding:8px 20px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(225,29,72,0.4);">
+            <button id="gt-btn-dispatch-judge" onclick="window.gtSubmitJudgeCall('${tournamentId}')" style="background:linear-gradient(135deg, #e11d48, #be123c); color:#fff; border:none; padding:8px 20px; border-radius:8px; font-weight:800; font-size:12px; cursor:pointer; box-shadow:0 4px 14px rgba(225,29,72,0.4);">
               🚨 Dispatch Judge to Table
             </button>
           </div>
@@ -4182,10 +4223,16 @@ Space Marines - Gladius Task Force (2000 pts)
     const tableEl = document.getElementById('gt-judge-table');
     const nameEl = document.getElementById('gt-judge-name');
     const noteEl = document.getElementById('gt-judge-note');
+    const btn = document.getElementById('gt-btn-dispatch-judge');
 
     const tableNum = parseInt(tableEl ? tableEl.value : '1') || 1;
     const playerName = nameEl ? nameEl.value : 'Competitor';
     const note = noteEl ? noteEl.value : '';
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '🚨 Dispatching...';
+    }
 
     try {
       const resp = await fetch('/api/eventstudio/judge_call', {
@@ -4203,12 +4250,14 @@ Space Marines - Gladius Task Force (2000 pts)
       if (resp.ok) {
         const data = await resp.json();
         clientState.activeJudgeCall = data.call || { status: 'pending', table_num: tableNum, category: selectedCategory };
-        injectMultiplayerHUD();
-        renderJudgeModal();
+      } else {
+        console.warn('Judge dispatch returned non-200, alerting locally');
+        clientState.activeJudgeCall = { status: 'pending', table_num: tableNum, category: selectedCategory };
       }
     } catch(err) {
-      alert('Judge call dispatched locally! Floor judges alerted.');
+      console.warn('Judge dispatch network error, alerting locally:', err);
       clientState.activeJudgeCall = { status: 'pending', table_num: tableNum, category: selectedCategory };
+    } finally {
       injectMultiplayerHUD();
       renderJudgeModal();
     }

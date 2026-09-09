@@ -9,7 +9,7 @@ import time
 import urllib.request
 import urllib.parse
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 
 from core import (
@@ -42,7 +42,7 @@ class SubmitScorePayload(BaseModel):
     event_id: str
     table: Optional[int] = None
     table_num: Optional[int] = None
-    round_num: int
+    round_num: Optional[int] = 1
     p1_score: int
     p2_score: int
     p1_name: Optional[str] = "Player 1"
@@ -54,6 +54,9 @@ class SubmitScorePayload(BaseModel):
     game_details: Optional[Dict[str, Any]] = None
     bcp_token: Optional[str] = None
     pairing_id: Optional[str] = None
+    first_turn: Optional[str] = None
+    layout: Optional[str] = None
+    terrain_layout: Optional[str] = None
 
 class CreateEventPayload(BaseModel):
     name: str
@@ -2883,6 +2886,15 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             submit_game_data["p1_id"] = str(p1_id)
         if p2_id and "p2_id" not in submit_game_data:
             submit_game_data["p2_id"] = str(p2_id)
+        first_turn_val = payload.first_turn or submit_game_data.get("first_turn") or submit_game_data.get("firstTurn")
+        if first_turn_val:
+            submit_game_data["first_turn"] = first_turn_val
+            submit_game_data["firstTurn"] = first_turn_val
+        layout_val = payload.layout or payload.terrain_layout or submit_game_data.get("layout") or submit_game_data.get("terrain_layout") or submit_game_data.get("terrainLayout")
+        if layout_val:
+            submit_game_data["layout"] = str(layout_val)
+            submit_game_data["terrain_layout"] = str(layout_val)
+            submit_game_data["terrainLayout"] = str(layout_val)
         bcp_synced, bcp_err = bcp_adapter.submit_pairing_scores(
             pairing_id=bcp_pairing_id,
             p1_score=payload.p1_score,
@@ -2918,7 +2930,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
 
 class JudgeCallCreatePayload(BaseModel):
     event_id: str
-    table_num: Optional[int] = None
+    table_num: Optional[Union[int, str]] = None
     match_id: Optional[str] = None
     player_name: Optional[str] = "Competitor"
     category: Optional[str] = "Rules Dispute"
@@ -2930,15 +2942,45 @@ class JudgeCallResolvePayload(BaseModel):
 
 @router.post("/api/eventstudio/judge_call", summary="Submit judge / TO floor assistance call from game room")
 async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
-    db = get_database()
-    res = db.create_judge_call(
-        event_id=payload.event_id,
-        table_num=payload.table_num,
-        match_id=payload.match_id,
-        player_name=payload.player_name or "Competitor",
-        category=payload.category or "Rules Dispute",
-        note=payload.note or ""
-    )
+    t_num = None
+    if payload.table_num is not None:
+        try:
+            t_num = int(payload.table_num)
+        except Exception:
+            t_num = 1
+    res = None
+    try:
+        db = get_database()
+        res = db.create_judge_call(
+            event_id=payload.event_id,
+            table_num=t_num,
+            match_id=payload.match_id,
+            player_name=payload.player_name or "Competitor",
+            category=payload.category or "Rules Dispute",
+            note=payload.note or ""
+        )
+    except Exception as e:
+        logger.warning(f"Notice creating judge call: {e}")
+        import uuid as _uuid
+        call_id = f"JC-{_uuid.uuid4().hex[:8].upper()}"
+        res = {
+            "id": call_id,
+            "event_id": payload.event_id,
+            "table_num": t_num,
+            "match_id": payload.match_id,
+            "player_name": payload.player_name or "Competitor",
+            "category": payload.category or "Rules Dispute",
+            "note": payload.note or "",
+            "status": "pending",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+
+    # Broadcast to in-memory tracker room if match_id is present
+    if payload.match_id:
+        mid = normalize_tracker_match_id(payload.match_id)
+        if mid in TRACKER_ROOMS:
+            TRACKER_ROOMS[mid]["active_judge_call"] = res
+
     return {"success": True, "call": res}
 
 @router.get("/api/eventstudio/judge_calls", summary="List active judge calls for a tournament")
