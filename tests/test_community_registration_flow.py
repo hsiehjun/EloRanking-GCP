@@ -437,6 +437,14 @@ def test_frontend_card_and_modal_integrity():
     assert "In-Store / TO Only" in comm_js, "In-Store / TO Only tier missing in community.js"
     assert "Sold Out" in comm_js, "Sold Out tier missing in community.js"
     assert "Registered" in comm_js, "Registered state missing in community.js"
+    # Verify prioritization: usingOnlineReg checked before externalUrl
+    online_reg_pos = comm_js.find("else if (usingOnlineReg)")
+    external_url_pos = comm_js.find("else if (externalUrl)")
+    assert online_reg_pos > 0 and external_url_pos > 0, "Registration and externalUrl branches must exist"
+    assert online_reg_pos < external_url_pos, "usingOnlineReg must take precedence over externalUrl"
+    # Verify secondary Web button when externalUrl is present alongside online reg
+    assert "Organizer Website / Tickets" in comm_js, "Secondary Web button for externalUrl missing in community.js"
+    assert "🌐 Web" in comm_js, "🌐 Web button label missing in community.js"
 
     # 4. Verify API methods in api.js
     assert "getCommunityEventRegistration" in api_js, "getCommunityEventRegistration missing in api.js"

@@ -987,6 +987,16 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
     }
   }
 
+  const isRegistered = Boolean(ev.is_registered);
+  const numTickets = Number(ev.num_tickets || 0);
+  const totalPlayers = Number(ev.total_players || 0);
+  const isSoldOut = numTickets > 0 && totalPlayers >= numTickets;
+  let ticketPrice = Number(ev.ticket_price || 0);
+  if (ticketPrice >= 100) ticketPrice = ticketPrice / 100;
+  const usingOnlineReg = ev.using_online_reg !== false;
+  const externalUrl = ev.external_url || null;
+  const hasPrimaryGetTickets = isUpcoming && !isRegistered && !isSoldOut && !usingOnlineReg && Boolean(externalUrl);
+
   return `
     <div class="comm-event-card">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.6rem;">
@@ -1037,15 +1047,6 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
       <!-- Actions -->
       <div style="margin-top: auto; display: flex; flex-direction: column;">
         ${isUpcoming ? (() => {
-          const isRegistered = Boolean(ev.is_registered);
-          const numTickets = Number(ev.num_tickets || 0);
-          const totalPlayers = Number(ev.total_players || 0);
-          const isSoldOut = numTickets > 0 && totalPlayers >= numTickets;
-          let ticketPrice = Number(ev.ticket_price || 0);
-          if (ticketPrice >= 100) ticketPrice = ticketPrice / 100;
-          const usingOnlineReg = ev.using_online_reg !== false;
-          const externalUrl = ev.external_url || null;
-
           if (isRegistered) {
             return `
               <button class="btn" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); cursor: default; margin-bottom: 0.45rem;">
@@ -1058,28 +1059,30 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
                 🚫 Sold Out (${totalPlayers}/${numTickets})
               </button>
             `;
+          } else if (usingOnlineReg) {
+            if (ticketPrice > 0) {
+              return `
+                <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}?checkout=true" target="_blank" rel="noopener" class="btn btn-warning" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; text-decoration: none; border: none; margin-bottom: 0.45rem; box-sizing: border-box;" title="Purchase ticket directly via Best Coast Pairings Checkout">
+                  💳 $${ticketPrice.toFixed(2)} • Buy Ticket ↗
+                </a>
+              `;
+            } else {
+              return `
+                <button class="btn btn-success" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; margin-bottom: 0.45rem;" onclick="openEventRegistrationModal('${escapeHtml(ev.id)}')">
+                  🎟️ Register (Free)
+                </button>
+              `;
+            }
           } else if (externalUrl) {
             return `
               <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-primary" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; text-decoration: none; margin-bottom: 0.45rem; box-sizing: border-box;">
                 🎟️ Get Tickets ↗
               </a>
             `;
-          } else if (!usingOnlineReg) {
+          } else {
             return `
               <button class="btn btn-secondary" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 600; opacity: 0.65; cursor: default; margin-bottom: 0.45rem;" title="Organizer handles registration manually in-store">
                 🔒 In-Store / TO Only
-              </button>
-            `;
-          } else if (ticketPrice > 0) {
-            return `
-              <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}?checkout=true" target="_blank" rel="noopener" class="btn btn-warning" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 800; background: linear-gradient(135deg, #f59e0b, #d97706); color: #0f172a; text-decoration: none; border: none; margin-bottom: 0.45rem; box-sizing: border-box;" title="Purchase ticket directly via Best Coast Pairings Checkout">
-                💳 $${ticketPrice.toFixed(2)} • Buy Ticket ↗
-              </a>
-            `;
-          } else {
-            return `
-              <button class="btn btn-success" style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: linear-gradient(135deg, #10b981, #059669); color: #fff; border: none; margin-bottom: 0.45rem;" onclick="openEventRegistrationModal('${escapeHtml(ev.id)}')">
-                🎟️ Register (Free)
               </button>
             `;
           }
@@ -1091,6 +1094,11 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
           <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
             🔗 BCP
           </a>
+          ${(externalUrl && !hasPrimaryGetTickets) ? `
+            <a href="${escapeHtml(externalUrl)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="Organizer Website / Tickets">
+              🌐 Web
+            </a>
+          ` : ''}
         </div>
       </div>
     </div>
