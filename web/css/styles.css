@@ -6185,7 +6185,8 @@ body.is-authenticated #floating-chat-widget {
     min-height: 42px;
     touch-action: manipulation;
   }
-  .event-reg-loading-modal-content {
+  .event-reg-loading-modal-content,
+  .event-details-loading-modal-content {
     width: 90% !important;
     max-width: 360px !important;
     margin: 0 auto !important;

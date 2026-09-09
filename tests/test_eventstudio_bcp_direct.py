@@ -1168,6 +1168,41 @@ def test_registration_popup_loading_screen_and_flow():
 
     print("✅ test_registration_popup_loading_screen_and_flow passed!")
 
+def test_tournament_details_popup_loading_screen_and_flow():
+    """Verify tournament details loading screen markup in app.html, parallelized fetching, and modal lifecycle in tournaments.js and bundle."""
+    app_html = (root_dir / "web" / "app.html").read_text(encoding="utf-8")
+    tournaments_js = (root_dir / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+    styles_css = (root_dir / "web" / "css" / "styles.css").read_text(encoding="utf-8")
+    bundle_js = (root_dir / "web" / "js" / "app.bundle.min.js").read_text(encoding="utf-8")
+
+    # 1. Loading modal DOM must exist in app.html
+    assert 'id="event-details-loading-modal"' in app_html, "event-details-loading-modal missing in app.html"
+    assert 'id="event-details-loading-title"' in app_html, "event-details-loading-title missing in app.html"
+    assert 'id="event-details-loading-text"' in app_html, "event-details-loading-text missing in app.html"
+    assert 'Connecting to BCP...' in app_html, "Connecting to BCP... title missing in app.html"
+
+    # 2. Responsive styling in styles.css
+    assert ".event-details-loading-modal-content" in styles_css, "event-details-loading-modal-content missing in styles.css"
+
+    # 3. Loading modal helper and parallelized fetching in tournaments.js
+    assert "closeEventDetailsLoadingModal" in tournaments_js, "closeEventDetailsLoadingModal missing in tournaments.js"
+    assert "window.closeEventDetailsLoadingModal = closeEventDetailsLoadingModal" in tournaments_js, "window binding missing in tournaments.js"
+    assert "Promise.allSettled" in tournaments_js, "Parallelized Promise.allSettled missing in tournaments.js"
+    assert "event-details-loading-modal" in tournaments_js, "event-details-loading-modal reference missing in tournaments.js"
+
+    # 4. Verify openEventModal shows loadingModal before fetching and hides before revealing modal
+    open_func = tournaments_js.split("async function openEventModal(eventId, forceSync = false, initialTab = null)")[1].split("function updateEventModalTabCountsForSearch")[0]
+    assert "loadingModal.style.display = 'flex'" in open_func, "Loading modal must be displayed before fetching data"
+    assert "Promise.allSettled" in open_func, "Promise.allSettled must be used in openEventModal"
+    assert "loadingModal.style.display = 'none'" in open_func, "Loading modal must be hidden when data arrives"
+    assert "bringModalToFront(modal)" in open_func, "event-modal must be brought to front after data is populated"
+
+    # 5. Verify bundle has minified references
+    assert "event-details-loading-modal" in bundle_js, "event-details-loading-modal missing in bundle"
+    assert "closeEventDetailsLoadingModal" in bundle_js, "closeEventDetailsLoadingModal missing in bundle"
+
+    print("✅ test_tournament_details_popup_loading_screen_and_flow passed!")
+
 def test_bcp_adapter_submit_pairing_scores_root_and_game_payload():
     """Verify submit_pairing_scores includes isDone, winnerId, and points at both root and gameData levels."""
     from bcp_adapter import BcpAdapter
@@ -1592,6 +1627,7 @@ if __name__ == "__main__":
     test_tournaments_js_unplaced_competitors_rendering()
     test_tournament_tracker_table_pairing_role_enforcement()
     test_registration_popup_loading_screen_and_flow()
+    test_tournament_details_popup_loading_screen_and_flow()
     test_bcp_adapter_submit_pairing_scores_root_and_game_payload()
     test_eventstudio_submit_score_saves_to_db_and_tracker_game()
     test_spectate_tournament_tracker_and_pairings_button()

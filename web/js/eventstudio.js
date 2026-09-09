@@ -1434,69 +1434,12 @@ async function saveTableScore(tableNum) {
         pollTournamentWorkspaceQuietly(ev.id);
       }
       if (res && res.bcp_synced) {
+        // Table scores pushed to BCP via backend submitScores endpoint
         alert(`Table ${tableNum} score successfully submitted to Best Coast Pairings!`);
+      } else if (res && res.bcp_notice) {
+        alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
       } else {
-        // Direct browser submission fallback to BCP newapi /pairings/{pairingId}/submitScores
-        const bcpTok = window.api.getBcpToken();
-        const targetPid = (res && res.pairing_id) || cleanPid;
-        let directSuccess = false;
-        if (bcpTok && targetPid && !String(targetPid).startsWith("bcp-pairing-")) {
-          try {
-            const p1Res = p1Score > p2Score ? 2 : (p1Score === p2Score ? 1 : 0);
-            const p2Res = p2Score > p1Score ? 2 : (p1Score === p2Score ? 1 : 0);
-            const cleanTargetPid = String(targetPid).trim();
-            const directResp = await fetch(`https://newprod-api.bestcoastpairings.com/v1/pairings/${encodeURIComponent(cleanTargetPid)}/submitScores`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${bcpTok.replace(/^Bearer\s+/i, '').trim()}`,
-                'client-id': 'web-app',
-                'env': 'bcp'
-              },
-              body: JSON.stringify({
-                pairingType: "Pairing",
-                isDone: true,
-                player1Score: p1Score,
-                player2Score: p2Score,
-                player1Points: p1Score,
-                player2Points: p2Score,
-                player1Result: p1Res,
-                player2Result: p2Res,
-                player1Game: {
-                  points: p1Score,
-                  result: p1Res,
-                  ...(match && (match.player1GameId || match.p1_game_id) ? { id: match.player1GameId || match.p1_game_id } : {})
-                },
-                player2Game: {
-                  points: p2Score,
-                  result: p2Res,
-                  ...(match && (match.player2GameId || match.p2_game_id) ? { id: match.player2GameId || match.p2_game_id } : {})
-                },
-                metaData: {
-                  "p1-gamePoints": String(p1Score),
-                  "p2-gamePoints": String(p2Score),
-                  "p1-gameResult": String(p1Res),
-                  "p2-gameResult": String(p2Res),
-                  "p1-marginOfVictory": p1Score - p2Score,
-                  "p2-marginOfVictory": p2Score - p1Score
-                }
-              })
-            });
-            if (directResp.ok) {
-              directSuccess = true;
-              alert(`Table ${tableNum} score successfully submitted directly to Best Coast Pairings (Direct 200 OK)!`);
-            }
-          } catch (de) {
-            console.warn("Direct BCP submit error:", de);
-          }
-        }
-        if (!directSuccess) {
-          if (res && res.bcp_notice) {
-            alert(`BCP notice for Table ${tableNum}: ${res.bcp_notice}`);
-          } else {
-            alert(`Table ${tableNum} score submitted!`);
-          }
-        }
+        alert(`Table ${tableNum} score submitted!`);
       }
     } else {
       await window.api.saveStudioPairings(ev.id, {

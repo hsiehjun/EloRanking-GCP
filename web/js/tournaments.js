@@ -218,9 +218,27 @@ function scheduleEventSyncPoll(eventId, attempt = 1) {
   }, attempt === 1 ? 2000 : 3000);
 }
 
+let eventDetailsLoadingCancelledId = null;
+
+function closeEventDetailsLoadingModal() {
+  const loadingModal = document.getElementById('event-details-loading-modal');
+  if (loadingModal) {
+    loadingModal.style.display = 'none';
+    loadingModal.classList.remove('active');
+  }
+  if (typeof modalStack !== 'undefined') {
+    modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+  }
+  if (currentOpenEventId) {
+    eventDetailsLoadingCancelledId = currentOpenEventId;
+  }
+}
+window.closeEventDetailsLoadingModal = closeEventDetailsLoadingModal;
+
 async function openEventModal(eventId, forceSync = false, initialTab = null) {
   stopEventSyncPoll();
   currentOpenEventId = eventId;
+  eventDetailsLoadingCancelledId = null;
   eventModalSearchQuery = '';
   selectedEventRound = 'all';
   const searchInput = document.getElementById('event-modal-search');
@@ -232,11 +250,6 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
   const modal = document.getElementById('event-modal');
   if (!modal) return;
-  if (typeof bringModalToFront === 'function') {
-    bringModalToFront(modal);
-  } else {
-    modal.classList.add('active');
-  }
 
   // Set active tab immediately to prevent visual flashing (default to teams for team tournaments, results otherwise)
   const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
@@ -255,6 +268,46 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
   if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
 
+  const isAlreadyOpen = modal.classList.contains('active') && modal.style.display !== 'none';
+  const loadingModal = document.getElementById('event-details-loading-modal');
+
+  // If the event modal is not already open, display the dedicated BCP loading screen first
+  if (!isAlreadyOpen && loadingModal) {
+    let previewName = '';
+    if (currentEventData && String(currentEventData.id) === String(eventId)) {
+      previewName = currentEventData.name || currentEventData.event_name || '';
+    } else if (typeof communityState !== 'undefined' && communityState?.overview) {
+      const allEvents = [
+        ...(communityState.overview.events_upcoming || []),
+        ...(communityState.overview.events_recent || []),
+        ...(communityState.overview.upcoming_events || []),
+        ...(communityState.overview.recent_events || [])
+      ];
+      const found = allEvents.find(e => String(e.id) === String(eventId));
+      if (found) previewName = found.name || '';
+    } else if (typeof eventsData !== 'undefined' && Array.isArray(eventsData)) {
+      const found = eventsData.find(e => String(e.id) === String(eventId));
+      if (found) previewName = found.name || '';
+    }
+
+    const titleEl = document.getElementById('event-details-loading-title');
+    if (titleEl) titleEl.innerText = 'Connecting to BCP...';
+
+    const textEl = document.getElementById('event-details-loading-text');
+    if (textEl) {
+      textEl.innerText = previewName
+        ? `Fetching tournament details, rosters & live pairings for ${previewName}...`
+        : 'Fetching tournament details, rosters & live pairings from BCP...';
+    }
+
+    loadingModal.style.display = 'flex';
+    if (typeof bringModalToFront === 'function') {
+      bringModalToFront(loadingModal);
+    } else {
+      loadingModal.classList.add('active');
+    }
+  }
+
   const bcpLink = document.getElementById('modal-event-bcp-link');
   if (bcpLink) {
     bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}`;
@@ -265,27 +318,53 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const pbody = document.getElementById('event-pairings-body');
   const hasCachedRows = (currentEventData && String(currentEventData.id) === String(eventId));
 
-  if (hasCachedRows) {
+  if (hasCachedRows && isAlreadyOpen) {
     if (rbody) rbody.style.opacity = '0.6';
     if (ebody) ebody.style.opacity = '0.6';
     if (pbody) pbody.style.opacity = '0.6';
-  } else {
+  } else if (!hasCachedRows) {
     if (rbody) rbody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading placings & results...</div></td></tr>';
     if (ebody) ebody.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading participant ratings...</div></td></tr>';
     if (pbody) pbody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Syncing live round pairings from BCP...</div></td></tr>';
   }
 
+  // Parallel network fetch: tournament details + community registration
+  const detailsPromise = window.api.getTournamentDetails(eventId, forceSync);
+  const regPromise = (typeof window.api?.getCommunityEventRegistration === 'function')
+    ? window.api.getCommunityEventRegistration(eventId, forceSync).catch(e => {
+        console.debug('Notice checking user registration:', e);
+        return null;
+      })
+    : Promise.resolve(null);
+
   try {
-    const ev = await window.api.getTournamentDetails(eventId, forceSync);
-    if (!ev || ev.error) {
-      throw new Error((ev && ev.error) || 'Failed to load tournament data');
+    const [detailsResult, regResult] = await Promise.allSettled([detailsPromise, regPromise]);
+
+    // Check if user dismissed the loading screen while waiting
+    if (eventDetailsLoadingCancelledId === eventId) {
+      if (loadingModal) {
+        loadingModal.style.display = 'none';
+        loadingModal.classList.remove('active');
+      }
+      return;
     }
+
+    if (detailsResult.status === 'rejected' || !detailsResult.value || detailsResult.value.error) {
+      const errMsg = (detailsResult.value && detailsResult.value.error) || detailsResult.reason?.message || 'Failed to load tournament data';
+      throw new Error(errMsg);
+    }
+
+    const ev = detailsResult.value;
+    const userRegData = (regResult.status === 'fulfilled' && regResult.value && !regResult.value.error) ? regResult.value : null;
+
     currentEventData = ev;
     let eventName = ev.name;
     if (!eventName || eventName === 'Tournament' || eventName === 'Tournament Details' || eventName === 'Unnamed Tournament') {
       eventName = ev.raw_json?.name || ev.event_name || 'Tournament Details';
     }
-    document.getElementById('modal-event-name').innerText = eventName;
+    const nameEl = document.getElementById('modal-event-name');
+    if (nameEl) nameEl.innerText = eventName;
+
     const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
     const dStr = (ev.event_date || '').slice(0, 10);
     eventMatchesCache = ev.matches || [];
@@ -293,7 +372,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
 
     const numRounds = ev.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
     const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
-    document.getElementById('modal-event-meta').innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
+    const metaEl = document.getElementById('modal-event-meta');
+    if (metaEl) metaEl.innerText = `📅 ${dStr} • 📍 ${loc}${roundsPart}`;
 
     const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
     const isDoublesEvent = Boolean(ev.is_doubles_event);
@@ -346,18 +426,8 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       resultsSpan.innerText = isTeamEvent ? (placementsCount > 0 ? '👤 Player Placings' : '👤 Competitors') : (placementsCount > 0 ? '🏆 Results & Placings' : '👥 Registered Competitors');
     }
 
-    const hasStandings = teamsList.length > 0;
-    const hasPlacings = placementsCount > 0 || eventMatchesCache.length > 0;
-
-    // Check registration status for current authenticated user
-    let userRegData = null;
-    try {
-      if (typeof window.api?.getCommunityEventRegistration === 'function') {
-        userRegData = await window.api.getCommunityEventRegistration(eventId, forceSync);
-      }
-    } catch (e) {
-      console.debug("Notice checking user registration:", e);
-    }
+    const subtabEloInit = document.getElementById('event-subtab-elo');
+    if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
 
     // Check if event is concluded based on BCP's status.ended
     const isEnded = Boolean(
@@ -431,14 +501,14 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       }
     }
 
+    // Determine target tab now that all event + registration state is known
     if (initialTab && initialTab !== 'elo' && (initialTab !== 'player' || shouldShowPlayerTab)) {
       switchEventModalTab(initialTab);
     } else if (shouldShowPlayerTab) {
-      // Competitor is registered for this active event! Default to Player Details tab so submitted details & status are displayed immediately
       switchEventModalTab('player');
     } else if (isTeamEvent || teamsList.length > 0) {
       switchEventModalTab('teams');
-    } else if (!hasCachedRows || currentEventModalTab === 'teams' || currentEventModalTab === 'player') {
+    } else {
       switchEventModalTab('results');
     }
 
@@ -450,6 +520,22 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (rbody) rbody.style.opacity = '1';
     if (ebody) ebody.style.opacity = '1';
     if (pbody) pbody.style.opacity = '1';
+
+    // Dismiss loading modal if it was open
+    if (loadingModal) {
+      loadingModal.style.display = 'none';
+      loadingModal.classList.remove('active');
+      if (typeof modalStack !== 'undefined') {
+        modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+      }
+    }
+
+    // Now reveal event-modal in its final, non-shifting state!
+    if (typeof bringModalToFront === 'function') {
+      bringModalToFront(modal);
+    } else {
+      modal.classList.add('active');
+    }
 
     // Handle background BCP sync status pill
     const statusEl = document.getElementById('modal-event-sync-status');
@@ -500,6 +586,18 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
 
   } catch (err) {
+    if (loadingModal) {
+      loadingModal.style.display = 'none';
+      loadingModal.classList.remove('active');
+      if (typeof modalStack !== 'undefined') {
+        modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+      }
+    }
+    if (typeof bringModalToFront === 'function') {
+      bringModalToFront(modal);
+    } else {
+      modal.classList.add('active');
+    }
     if (rbody) {
       rbody.style.opacity = '1';
       rbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="color:var(--loss);">Error loading tournament: ${err.message}</td></tr>`;

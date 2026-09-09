@@ -26,6 +26,9 @@ function closeModal(modalId) {
   if (modalId === 'event-modal' && typeof stopEventSyncPoll === 'function') {
     stopEventSyncPoll();
   }
+  if (modalId === 'event-details-loading-modal' && typeof closeEventDetailsLoadingModal === 'function') {
+    closeEventDetailsLoadingModal();
+  }
   const modal = document.getElementById(modalId);
   if (modal) {
     modal.classList.remove('active');
@@ -40,6 +43,9 @@ function closeModalOnBackdrop(e) {
   if (e.target && e.target.classList.contains('modal-backdrop')) {
     if (e.target.id === 'event-modal' && typeof stopEventSyncPoll === 'function') {
       stopEventSyncPoll();
+    }
+    if (e.target.id === 'event-details-loading-modal' && typeof closeEventDetailsLoadingModal === 'function') {
+      closeEventDetailsLoadingModal();
     }
     e.target.classList.remove('active');
     modalStack = modalStack.filter(id => id !== e.target.id);
