@@ -1970,6 +1970,23 @@ class PostgresDatabase:
 
                 where_sql = "WHERE " + " AND ".join(where_clauses)
                 
+                sql = f"""
+                SELECT r.player_id, r.player_name, r.current_elo, r.peak_elo,
+                       r.matches_played, r.wins, r.losses, r.draws, r.win_rate,
+                       r.top_faction, r.team, r.last_active_date,
+                       CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account,
+                       u.id as account_user_id
+                FROM player_ratings r
+                LEFT JOIN users u ON (
+                    (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = r.player_id)
+                    OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = r.player_id)
+                    OR u.id = r.player_id
+                )
+                {where_sql}
+                ORDER BY r.{col} {dir_str} NULLS LAST
+                LIMIT %s OFFSET %s;
+                """
+
                 try:
                     cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
                     total_count = cursor.fetchone()["total_count"] or 0
@@ -2771,6 +2788,37 @@ class PostgresDatabase:
 
                 where_sql = " AND ".join(where_clauses)
                 dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
+
+                allowed_cols = {
+                    "name": "e.name",
+                    "event_date": "e.event_date",
+                    "location": "e.city",
+                    "total_players": "e.total_players",
+                    "num_rounds": "e.num_rounds",
+                    "match_count": "e.total_players"
+                }
+                col = allowed_cols.get(sort_by, "e.event_date")
+                pe_col = col.replace("e.", "pe.")
+
+                sql = f"""
+                WITH page_events AS (
+                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                           e.total_players, e.num_rounds, e.current_round, e.is_ended
+                    FROM events e
+                    WHERE {where_sql}
+                    ORDER BY {col} {dir_str} NULLS LAST
+                    LIMIT %s OFFSET %s
+                )
+                SELECT pe.*, COALESCE(mc.cnt, 0) as match_count
+                FROM page_events pe
+                LEFT JOIN (
+                    SELECT event_id, COUNT(*) as cnt
+                    FROM matches
+                    WHERE event_id IN (SELECT id FROM page_events)
+                    GROUP BY event_id
+                ) mc ON pe.id = mc.event_id
+                ORDER BY {pe_col} {dir_str} NULLS LAST;
+                """
 
                 try:
                     cursor.execute(f"SELECT COUNT(*) as total_count FROM events e WHERE {where_sql};", params)
