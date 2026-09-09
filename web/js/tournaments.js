@@ -291,13 +291,13 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
 
     const titleEl = document.getElementById('event-details-loading-title');
-    if (titleEl) titleEl.innerText = 'Connecting to BCP...';
+    if (titleEl) titleEl.innerText = 'Loading tournament data...';
 
     const textEl = document.getElementById('event-details-loading-text');
     if (textEl) {
       textEl.innerText = previewName
         ? `Fetching tournament details, rosters & live pairings for ${previewName}...`
-        : 'Fetching tournament details, rosters & live pairings from BCP...';
+        : 'Fetching tournament details, rosters & live pairings...';
     }
 
     loadingModal.style.display = 'flex';

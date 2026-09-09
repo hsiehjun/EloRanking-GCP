@@ -1150,7 +1150,7 @@ def test_registration_popup_loading_screen_and_flow():
     # 1. Loading modal must exist in app.html
     assert 'id="event-reg-loading-modal"' in app_html, "event-reg-loading-modal missing in app.html"
     assert 'id="event-reg-loading-text"' in app_html, "event-reg-loading-text missing in app.html"
-    assert 'Connecting to BCP...' in app_html, "Connecting to BCP... missing in app.html"
+    assert 'Loading tournament data...' in app_html, "Loading tournament data... missing in app.html"
 
     # 2. Loading modal handling in community.js
     assert "closeEventRegistrationLoadingModal" in comm_js, "closeEventRegistrationLoadingModal missing in community.js"
@@ -1179,7 +1179,7 @@ def test_tournament_details_popup_loading_screen_and_flow():
     assert 'id="event-details-loading-modal"' in app_html, "event-details-loading-modal missing in app.html"
     assert 'id="event-details-loading-title"' in app_html, "event-details-loading-title missing in app.html"
     assert 'id="event-details-loading-text"' in app_html, "event-details-loading-text missing in app.html"
-    assert 'Connecting to BCP...' in app_html, "Connecting to BCP... title missing in app.html"
+    assert 'Loading tournament data...' in app_html, "Loading tournament data... title missing in app.html"
 
     # 2. Responsive styling in styles.css
     assert ".event-details-loading-modal-content" in styles_css, "event-details-loading-modal-content missing in styles.css"

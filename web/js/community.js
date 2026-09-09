@@ -3277,7 +3277,7 @@ async function openEventRegistrationModal(eventId) {
   const loadingModal = document.getElementById('event-reg-loading-modal');
   const loadingText = document.getElementById('event-reg-loading-text');
   if (loadingText) {
-    loadingText.textContent = localEv ? `Fetching registration details for ${localEv.name || 'Tournament'}...` : 'Fetching tournament details and your player registration profile from BCP...';
+    loadingText.textContent = localEv ? `Fetching registration details for ${localEv.name || 'Tournament'}...` : 'Fetching tournament details and your player registration profile...';
   }
   if (loadingModal) {
     loadingModal.style.display = 'flex';
