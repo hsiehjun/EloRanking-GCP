@@ -440,7 +440,68 @@ class FirestoreRoomEngine:
             self._fallback_tournaments[event_id] = {}
         self._fallback_tournaments[event_id]["masterClock"] = clock_data
         self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+
+        # Propagate master clock directly to all table rooms for this tournament
+        self.propagate_master_clock_to_rooms(event_id, clock_data)
         return clock_data
+
+    def propagate_master_clock_to_rooms(self, event_id: str, clock_data: Dict[str, Any]) -> int:
+        """Propagates tournament master clock to all associated table game rooms in Firestore and memory."""
+        if not event_id:
+            return 0
+        event_id = str(event_id).strip()
+        clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+        count = 0
+        seen_mids = set()
+
+        prefixes = (
+            f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
+            f"BCP-{clean_id}-", f"ES-{clean_id}-", f"WH40K-BCP-{clean_id}-", f"WH40K-ES-{clean_id}-",
+            f"{event_id}-R", f"{clean_id}-R",
+        )
+
+        if self._client:
+            try:
+                col = self._client.collection("rooms")
+                for field in ("eventId", "event_id", "tournament_id"):
+                    for val in (event_id, clean_id):
+                        if not val:
+                            continue
+                        try:
+                            for doc in col.where(field, "==", val).stream():
+                                mid = doc.id
+                                if mid not in seen_mids:
+                                    seen_mids.add(mid)
+                                    doc.reference.set({"masterClock": clock_data}, merge=True)
+                                    count += 1
+                        except Exception:
+                            pass
+
+                for doc in col.stream():
+                    mid = doc.id
+                    if mid in seen_mids:
+                        continue
+                    mid_upper = mid.upper()
+                    if any(mid_upper.startswith(p.upper()) for p in prefixes):
+                        seen_mids.add(mid)
+                        doc.reference.set({"masterClock": clock_data}, merge=True)
+                        count += 1
+            except Exception as e:
+                logger.warning(f"Notice propagating master clock to Firestore rooms: {e}")
+
+        # In-memory fallback rooms
+        for mid, rdata in self._fallback_rooms.items():
+            mid_upper = str(mid).upper()
+            if (
+                mid in seen_mids or
+                any(mid_upper.startswith(p.upper()) for p in prefixes) or
+                rdata.get("eventId") in (event_id, clean_id) or
+                rdata.get("event_id") in (event_id, clean_id) or
+                rdata.get("tournament_id") in (event_id, clean_id)
+            ):
+                rdata["masterClock"] = clock_data
+                count += 1
+        return count
 
     def get_tournament_broadcast(self, event_id: str) -> Optional[Dict[str, Any]]:
         """Fetches active broadcast announcement for tournament."""
@@ -608,41 +669,40 @@ class FirestoreRoomEngine:
         if not event_id:
             return 0
         event_id = str(event_id).strip()
+        clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
         deleted_count = 0
         seen_mids = set()
 
-        prefix1 = f"BCP-{event_id}-"
-        prefix2 = f"ES-{event_id}-"
-        prefix3 = f"WH40K-BCP-{event_id}-"
-        exact1 = f"BCP-{event_id}"
-        exact2 = f"ES-{event_id}"
+        prefixes = (
+            f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
+            f"BCP-{clean_id}-", f"ES-{clean_id}-", f"WH40K-BCP-{clean_id}-", f"WH40K-ES-{clean_id}-",
+            f"{event_id}-R", f"{clean_id}-R",
+        )
+        exacts = (f"BCP-{event_id}", f"ES-{event_id}", f"BCP-{clean_id}", f"ES-{clean_id}")
 
         if self._client:
             try:
                 col = self._client.collection("rooms")
                 for field in ("eventId", "event_id", "tournament_id"):
-                    try:
-                        for doc in col.where(field, "==", event_id).stream():
-                            mid = doc.id
-                            if mid not in seen_mids:
-                                seen_mids.add(mid)
-                                doc.reference.delete()
-                                deleted_count += 1
-                    except Exception:
-                        pass
+                    for val in (event_id, clean_id):
+                        if not val:
+                            continue
+                        try:
+                            for doc in col.where(field, "==", val).stream():
+                                mid = doc.id
+                                if mid not in seen_mids:
+                                    seen_mids.add(mid)
+                                    doc.reference.delete()
+                                    deleted_count += 1
+                        except Exception:
+                            pass
 
                 for doc in col.stream():
                     mid = doc.id
                     if mid in seen_mids:
                         continue
                     mid_upper = mid.upper()
-                    if (
-                        mid_upper.startswith(prefix1.upper()) or
-                        mid_upper.startswith(prefix2.upper()) or
-                        mid_upper.startswith(prefix3.upper()) or
-                        mid_upper == exact1.upper() or
-                        mid_upper == exact2.upper()
-                    ):
+                    if any(mid_upper.startswith(p.upper()) for p in prefixes) or any(mid_upper == x.upper() for x in exacts):
                         seen_mids.add(mid)
                         doc.reference.delete()
                         deleted_count += 1
@@ -655,18 +715,15 @@ class FirestoreRoomEngine:
             mid_upper = str(mid).upper()
             if (
                 mid in seen_mids or
-                mid_upper.startswith(prefix1.upper()) or
-                mid_upper.startswith(prefix2.upper()) or
-                mid_upper.startswith(prefix3.upper()) or
-                mid_upper == exact1.upper() or
-                mid_upper == exact2.upper() or
-                rdata.get("eventId") == event_id or
-                rdata.get("event_id") == event_id or
-                rdata.get("tournament_id") == event_id or
+                any(mid_upper.startswith(p.upper()) for p in prefixes) or
+                any(mid_upper == x.upper() for x in exacts) or
+                rdata.get("eventId") in (event_id, clean_id) or
+                rdata.get("event_id") in (event_id, clean_id) or
+                rdata.get("tournament_id") in (event_id, clean_id) or
                 (isinstance(rdata.get("state"), dict) and (
-                    rdata["state"].get("event_id") == event_id or
-                    rdata["state"].get("tournament_id") == event_id or
-                    (isinstance(rdata["state"].get("game"), dict) and rdata["state"]["game"].get("eventId") == event_id)
+                    rdata["state"].get("event_id") in (event_id, clean_id) or
+                    rdata["state"].get("tournament_id") in (event_id, clean_id) or
+                    (isinstance(rdata["state"].get("game"), dict) and rdata["state"]["game"].get("eventId") in (event_id, clean_id))
                 ))
             ):
                 fallback_to_delete.append(mid)
@@ -682,19 +739,26 @@ class FirestoreRoomEngine:
         if not event_id:
             return False
         event_id = str(event_id).strip()
+        clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+
         if self._client:
-            try:
-                doc_ref = self.get_tournament_doc_ref(event_id)
-                if doc_ref:
-                    # Delete judge_calls subcollection
-                    for j_doc in doc_ref.collection("judge_calls").stream():
-                        j_doc.reference.delete()
-                    doc_ref.delete()
-            except Exception as e:
-                logger.warning(f"Notice deleting tournament doc {event_id} from Firestore: {e}")
+            for eid in set([event_id, clean_id]):
+                if not eid:
+                    continue
+                try:
+                    doc_ref = self.get_tournament_doc_ref(eid)
+                    if doc_ref:
+                        # Delete judge_calls subcollection
+                        for j_doc in doc_ref.collection("judge_calls").stream():
+                            j_doc.reference.delete()
+                        doc_ref.delete()
+                except Exception as e:
+                    logger.warning(f"Notice deleting tournament doc {eid} from Firestore: {e}")
 
         self._fallback_tournaments.pop(event_id, None)
+        self._fallback_tournaments.pop(clean_id, None)
         self._fallback_judge_calls.pop(event_id, None)
+        self._fallback_judge_calls.pop(clean_id, None)
         return True
 
     def delete_tournament_and_rooms(self, event_id: str) -> Dict[str, Any]:

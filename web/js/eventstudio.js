@@ -465,6 +465,18 @@ async function pollTournamentWorkspaceQuietly(eventId) {
         renderMetaSubtab();
       }
     }
+
+    // Continuously check active judge calls via REST as fallback to Firestore snapshot
+    try {
+      if (window.api && typeof window.api.getJudgeCalls === "function") {
+        const jRes = await window.api.getJudgeCalls(eventId, false);
+        if (jRes && Array.isArray(jRes.calls)) {
+          handleStudioJudgeCallsUpdate(jRes.calls);
+        }
+      }
+    } catch (jErr) {
+      // Quiet fallback
+    }
   } catch (err) {
     console.debug("Notice during quiet workspace poll:", err);
   } finally {
@@ -1286,10 +1298,39 @@ function renderPairingsSubtab() {
     const pid = match.id || match.bcp_pairing_id || '';
     const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : '';
     const pairingParam = cleanPid ? `&pairing_id=${encodeURIComponent(cleanPid)}` : '';
-    const trackerSpectateUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&role=spectator${pairingParam}`;
+    const trackerSpectateUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(ev.id)}&table=${table}&role=spectator${pairingParam}`;
+
+    const activeJudgeCall = (studioState.judgeCalls || []).find(c => {
+      const cTable = Number(c.tableNumber || c.table_num || c.table || 0);
+      const cRound = Number(c.roundNumber || c.round_num || c.round || 0);
+      const cMid = String(c.matchId || c.match_id || '').toUpperCase();
+      return (cTable === table && (!cRound || cRound === currentRound)) || (cMid && cMid === matchId);
+    });
+
+    const cardBorderStyle = activeJudgeCall ? 'border: 2px solid #ef4444; box-shadow: 0 0 16px rgba(239, 68, 68, 0.45);' : 'border: 1px solid var(--border);';
 
     return `
-      <div class="es-match-card" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative;">
+      <div class="es-match-card" style="background: var(--bg-card); ${cardBorderStyle} border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative;">
+        ${activeJudgeCall ? `
+          <div style="background: rgba(239, 68, 68, 0.18); border: 1.5px solid #ef4444; border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; animation: gt-pulse 1.5s infinite;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #fca5a5; font-weight: 700;">
+              <span style="font-size: 1.1rem;">🚨</span>
+              <div>
+                <div>JUDGE CALLED: <span style="color: #fff;">${escapeHtml(activeJudgeCall.category || 'Rules Dispute')}</span></div>
+                <div style="font-size: 0.72rem; color: #f87171; font-weight: 500;">
+                  By ${escapeHtml(activeJudgeCall.callerName || activeJudgeCall.called_by || 'Competitor')}
+                  ${activeJudgeCall.status === 'en_route' ? ` • <span style="color: #38bdf8; font-weight: 700;">En Route: ${escapeHtml((activeJudgeCall.assignedJudge && activeJudgeCall.assignedJudge.name) || activeJudgeCall.assignedJudge || 'Judge')}</span>` : ''}
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.35rem; align-items: center;">
+              ${activeJudgeCall.status === 'pending' ? `
+                <button class="btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: #0284c7; color: #fff; border: 1px solid #38bdf8; font-weight: 700;" onclick="markJudgeCallEnRoute('${escapeHtml(activeJudgeCall.id)}')">🏃 En Route</button>
+              ` : ''}
+              <button class="btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: #059669; color: #fff; border: 1px solid #10b981; font-weight: 700;" onclick="markJudgeCallResolved('${escapeHtml(activeJudgeCall.id)}')">✅ Resolve</button>
+            </div>
+          </div>
+        ` : ''}
         <!-- Card Header -->
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -2523,6 +2564,31 @@ function ensureStudioClockTicker() {
   }, 1000);
 }
 
+function propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload) {
+  const db = getStudioFirestoreDb();
+  const ev = studioState.activeTournament;
+  if (!db || !eventId) return;
+  try {
+    const currentRound = studioState.currentRoundView || (ev ? ev.current_round : 1) || 1;
+    const pairingsMap = (ev && ev.pairings) || {};
+    const roundPairings = pairingsMap[String(currentRound)] || [];
+    const cleanEid = eventId.replace(/^bcp_/i, '').replace(/^es-/i, '').trim().toUpperCase();
+    roundPairings.forEach(match => {
+      const table = match.table || 1;
+      const bcpMid = `BCP-${eventId}-R${currentRound}-T${table}`.toUpperCase();
+      const esMid = `ES-${eventId}-R${currentRound}-T${table}`.toUpperCase();
+      db.collection('rooms').doc(bcpMid).set({ masterClock: clockPayload, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      db.collection('rooms').doc(esMid).set({ masterClock: clockPayload, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      if (cleanEid) {
+        db.collection('rooms').doc(`BCP-${cleanEid}-R${currentRound}-T${table}`).set({ masterClock: clockPayload, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        db.collection('rooms').doc(`ES-${cleanEid}-R${currentRound}-T${table}`).set({ masterClock: clockPayload, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+      }
+    });
+  } catch (e) {
+    console.debug("Notice updating room docs with masterClock directly:", e);
+  }
+}
+
 async function toggleRoundTimer() {
   const ev = studioState.activeTournament;
   const eventId = ev ? ev.id : null;
@@ -2561,6 +2627,7 @@ async function toggleRoundTimer() {
         console.warn("Notice saving clock to Firestore:", e);
       }
     }
+    propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
     if (eventId && window.api && typeof window.api.updateStudioMasterClock === 'function') {
       window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
     }
@@ -2598,6 +2665,7 @@ async function toggleRoundTimer() {
         console.warn("Notice saving clock to Firestore:", e);
       }
     }
+    propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
     if (eventId && window.api && typeof window.api.updateStudioMasterClock === 'function') {
       window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
     }
@@ -2636,6 +2704,7 @@ async function adjustRoundTimer(deltaMinutes) {
         }, { merge: true });
       } catch (e) {}
     }
+    propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
     if (window.api && typeof window.api.updateStudioMasterClock === 'function') {
       window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
     }
@@ -2674,6 +2743,7 @@ async function resetRoundTimer() {
         }, { merge: true });
       } catch (e) {}
     }
+    propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
     if (window.api && typeof window.api.updateStudioMasterClock === 'function') {
       window.api.updateStudioMasterClock(eventId, clockPayload).catch(() => {});
     }
@@ -2911,6 +2981,53 @@ function handleStudioJudgeCallsUpdate(calls) {
   if (statPending) statPending.textContent = pendingCount;
   if (statEnRoute) statEnRoute.textContent = enRouteCount;
   if (statResolved) statResolved.textContent = resolved.length;
+
+  // Render urgent top alert banner (visible across all subtabs when any judge call is active)
+  const topBanners = document.querySelectorAll("#studio-active-judge-banner");
+  topBanners.forEach(topBanner => {
+    if (active.length > 0) {
+      const topCall = active[0];
+      const elapsedMins = topCall.createdAt ? Math.max(0, Math.floor((Date.now() - (typeof topCall.createdAt === 'number' ? topCall.createdAt : new Date(topCall.createdAt).getTime())) / 60000)) : 0;
+      topBanner.style.display = "block";
+      topBanner.innerHTML = `
+        <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(185, 28, 28, 0.35)); border: 2px solid #ef4444; border-radius: var(--radius-lg); padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; box-shadow: 0 4px 20px rgba(239,68,68,0.3); animation: gt-pulse 2s infinite;">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div style="font-size: 1.6rem; animation: bounce 1s infinite;">🚨</div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <span style="font-weight: 800; font-size: 1rem; color: #fff; letter-spacing: 0.02em;">FLOOR JUDGE CALL: TABLE #${topCall.tableNumber || topCall.table || '?'}</span>
+                <span class="badge" style="background: #ef4444; color: #fff; font-weight: 800; font-size: 0.72rem; padding: 0.2rem 0.5rem;">${escapeHtml(topCall.category || 'Rules Dispute')}</span>
+                ${active.length > 1 ? `<span class="badge" style="background: rgba(255,255,255,0.2); color: #fff; font-size: 0.7rem;">+${active.length - 1} more awaiting</span>` : ''}
+              </div>
+              <div style="font-size: 0.8rem; color: #fca5a5; margin-top: 0.15rem;">
+                Called by <strong>${escapeHtml(topCall.callerName || topCall.called_by || 'Competitor')}</strong> • Waiting <strong>${elapsedMins}m</strong> • ${topCall.notes ? `<em>"${escapeHtml(topCall.notes)}"` : (topCall.status === 'en_route' ? `Judge ${escapeHtml((topCall.assignedJudge && topCall.assignedJudge.name) || topCall.assignedJudge || '')} is en route` : 'Awaiting floor judge response')}
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            ${topCall.status === 'pending' ? `
+              <button class="btn" style="background: #0284c7; color: #fff; border: 1px solid #38bdf8; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem;" onclick="markJudgeCallEnRoute('${escapeHtml(topCall.id)}')">🏃 En Route</button>
+            ` : ''}
+            <button class="btn" style="background: #059669; color: #fff; border: 1px solid #10b981; font-weight: 700; font-size: 0.78rem; padding: 0.4rem 0.85rem;" onclick="markJudgeCallResolved('${escapeHtml(topCall.id)}')">✅ Resolve</button>
+            <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.4rem 0.85rem; color: #fff; border-color: rgba(255,255,255,0.4);" onclick="switchManageSubtab('judges')">📋 Floor Radar (${active.length})</button>
+          </div>
+        </div>
+      `;
+    } else {
+      topBanner.style.display = "none";
+      topBanner.innerHTML = "";
+    }
+  });
+
+  // Re-render pairings subtab if open so table cards reflect the updated judge status immediately
+  const pairingsContainer = document.getElementById("manage-pairings-list");
+  if (pairingsContainer && (studioState.activeSubtab === "pairings" || pairingsContainer.children.length > 0)) {
+    const activeEl = document.activeElement;
+    const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+    if (!isInputFocused) {
+      renderPairingsSubtab();
+    }
+  }
 
   renderJudgesSubtab();
 }
@@ -3203,6 +3320,8 @@ window.toggleJudgeAudioAlerts = toggleJudgeAudioAlerts;
 window.refreshJudgeCalls = refreshJudgeCalls;
 window.markJudgeCallEnRoute = markJudgeCallEnRoute;
 window.markJudgeCallResolved = markJudgeCallResolved;
+window.dispatchJudgeEnRoute = markJudgeCallEnRoute;
+window.resolveJudgeCall = markJudgeCallResolved;
 window.dismissJudgeCall = dismissJudgeCall;
 window.renderJudgesSubtab = renderJudgesSubtab;
 
@@ -3252,6 +3371,33 @@ async function deleteStudioTournament(eventId) {
     try { loadEvents(); } catch(e) {}
   }
   window.dispatchEvent(new CustomEvent('tournaments-updated', { detail: { eventId, action: 'delete' } }));
+
+  // Direct client-side Firestore cleanup if active
+  const db = getStudioFirestoreDb();
+  if (db && eventId) {
+    try {
+      db.collection('tournaments').doc(eventId).delete().catch(() => {});
+      const cleanEid = eventId.replace(/^bcp_/i, '').replace(/^es-/i, '').trim().toUpperCase();
+      const ev = studioState.activeTournament;
+      if (ev && (ev.id === eventId || cleanEid)) {
+        const totalRounds = ev.num_rounds || ev.rounds || 5;
+        for (let r = 1; r <= totalRounds; r++) {
+          const roundPairings = (ev.pairings || {})[String(r)] || [];
+          roundPairings.forEach(match => {
+            const table = match.table || 1;
+            db.collection('rooms').doc(`BCP-${eventId}-R${r}-T${table}`.toUpperCase()).delete().catch(() => {});
+            db.collection('rooms').doc(`ES-${eventId}-R${r}-T${table}`.toUpperCase()).delete().catch(() => {});
+            if (cleanEid) {
+              db.collection('rooms').doc(`BCP-${cleanEid}-R${r}-T${table}`).delete().catch(() => {});
+              db.collection('rooms').doc(`ES-${cleanEid}-R${r}-T${table}`).delete().catch(() => {});
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.debug("Notice during client Firestore delete cleanup:", e);
+    }
+  }
 
   try {
     const res = await window.api.deleteStudioEvent(eventId);

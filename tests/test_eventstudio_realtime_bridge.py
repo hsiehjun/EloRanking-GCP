@@ -249,7 +249,19 @@ def test_frontend_files_integrity():
     assert 'id="modal-studio-broadcast"' in html_content
     assert 'id="studio-judge-radar-badge"' in html_content
     assert 'id="studio-judge-calls-container"' in html_content
+    assert 'id="studio-active-judge-banner"' in html_content
     assert "firebase-firestore-compat.js" in html_content
+
+    app_html = root_dir / "web" / "app.html"
+    assert app_html.exists()
+    app_content = app_html.read_text(encoding="utf-8")
+    assert 'id="studio-active-judge-banner"' in app_content
+    assert 'id="btn-timer-reset"' in app_content
+    assert 'id="btn-open-broadcast"' in app_content
+    assert 'id="btn-subtab-judges"' in app_content
+    assert 'id="studio-judge-radar-badge"' in app_content
+    assert 'id="manage-subtab-judges"' in app_content
+    assert 'id="modal-studio-broadcast"' in app_content
 
     studio_js = root_dir / "web" / "js" / "eventstudio.js"
     assert studio_js.exists()
@@ -260,11 +272,16 @@ def test_frontend_files_integrity():
     assert "function markJudgeCallResolved" in studio_content
     assert "function handleSendBroadcast" in studio_content
     assert "function playStudioJudgeChime" in studio_content
+    assert "studio-active-judge-banner" in studio_content
+    assert "propagateMasterClockToFirestoreRoomsDirectly" in studio_content
+    assert "window.dispatchJudgeEnRoute" in studio_content
+    assert "window.resolveJudgeCall" in studio_content
 
     tracker_js = root_dir / "web" / "tracker" / "tracker_sync.js"
     assert tracker_js.exists()
     tracker_content = tracker_js.read_text(encoding="utf-8")
     assert "function initTournamentDirectSync" in tracker_content
+    assert "function startTournamentClockFallbackPoll" in tracker_content
     assert "function applyRemoteMasterClock" in tracker_content
     assert "function applyRemoteBroadcast" in tracker_content
     assert "function showBroadcastBanner" in tracker_content
@@ -272,6 +289,9 @@ def test_frontend_files_integrity():
     assert "window.gtSubmitJudgeCall" in tracker_content
     assert "window.gtCancelJudgeCall" in tracker_content
     assert 'id="gt-master-clock-pill"' in tracker_content
+    assert "master_clock_update" in tracker_content
+    assert "broadcast_update" in tracker_content
+    assert "judge_call_update" in tracker_content
 
 
 def test_player_cannot_delete_event_room():

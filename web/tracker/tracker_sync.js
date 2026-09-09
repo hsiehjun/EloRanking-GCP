@@ -78,9 +78,12 @@
       const urlParams = new URLSearchParams(window.location.search);
       let eid = urlParams.get('event_id') || urlParams.get('tournament_id') || '';
       if (!eid && clientState.matchId) {
-        const m = clientState.matchId.match(/^(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+/i);
+        const m = clientState.matchId.match(/^(?:WH40K-)?(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+/i);
         if (m && m[1]) eid = m[1];
       }
+      if (!eid && clientState.eventId) eid = clientState.eventId;
+      if (!eid && clientState.state && clientState.state.event_id) eid = clientState.state.event_id;
+      if (!eid && clientState.state && clientState.state.game && clientState.state.game.eventId) eid = clientState.state.game.eventId;
       if (eid) {
         clientState.tournamentId = eid;
         return eid;
@@ -2010,8 +2013,20 @@
             if (data.chess_clock || data.clock) {
               applyRemoteChessClock(data.chess_clock || data.clock);
             }
+            if (data.masterClock) {
+              applyRemoteMasterClock(data.masterClock);
+            }
+            if (data.broadcast) {
+              applyRemoteBroadcast(data.broadcast);
+            }
             if (data.active_judge_call !== undefined) {
               applyRemoteJudgeCall(data.active_judge_call);
+            }
+            const docTournId = data.eventId || data.event_id || data.tournament_id;
+            if (docTournId && !clientState.tournamentId) {
+              clientState.tournamentId = docTournId;
+              initTournamentDirectSync(docTournId);
+              startTournamentClockFallbackPoll(docTournId);
             }
             const remoteHist = data.dice_history || (data.state && data.state.dice_history) || [];
             applyRemoteDiceTray(
@@ -2038,6 +2053,7 @@
         const tournamentId = getTrackerTournamentId();
         if (tournamentId) {
           initTournamentDirectSync(tournamentId);
+          startTournamentClockFallbackPoll(tournamentId);
         }
       } catch(e) {
         console.debug('[Firestore Init] Notice:', e);
@@ -2058,8 +2074,29 @@
   };
 
   let fsTournUnsub = null;
+  let tournClockPollTimer = null;
+  function startTournamentClockFallbackPoll(tournamentId) {
+    if (tournClockPollTimer || !tournamentId) return;
+    const fetchClock = async () => {
+      if (!tournamentId || document.hidden) return;
+      try {
+        const resp = await fetch(`/api/eventstudio/event/${encodeURIComponent(tournamentId)}/clock`);
+        if (resp.ok) {
+          const cData = await resp.json();
+          if (cData && cData.clock) {
+            applyRemoteMasterClock(cData.clock);
+          }
+        }
+      } catch (e) {}
+    };
+    fetchClock();
+    tournClockPollTimer = setInterval(fetchClock, 3000);
+  }
+
   function initTournamentDirectSync(tournamentId) {
-    if (!tournamentId || fsTournUnsub) return;
+    if (!tournamentId) return;
+    startTournamentClockFallbackPoll(tournamentId);
+    if (fsTournUnsub) return;
     const db = getTrackerFirestoreDb();
     if (!db) return;
 
@@ -2431,6 +2468,10 @@
   function startHybridSync() {
     initFirestoreDirectSync();
     startRealtimeStream();
+    const tournamentId = getTrackerTournamentId();
+    if (tournamentId) {
+      startTournamentClockFallbackPoll(tournamentId);
+    }
     
     // 1. Local DOM wizard state scraper (0 network overhead)
     if (wizardScrapeTimer) clearInterval(wizardScrapeTimer);
@@ -2471,6 +2512,21 @@
           }
           if (data.chess_clock) {
             applyRemoteChessClock(data.chess_clock);
+          }
+          if (data.masterClock) {
+            applyRemoteMasterClock(data.masterClock);
+          }
+          if (data.broadcast) {
+            applyRemoteBroadcast(data.broadcast);
+          }
+          if (data.active_judge_call !== undefined) {
+            applyRemoteJudgeCall(data.active_judge_call);
+          }
+          const docTournId = data.eventId || data.event_id || data.tournament_id;
+          if (docTournId && !clientState.tournamentId) {
+            clientState.tournamentId = docTournId;
+            initTournamentDirectSync(docTournId);
+            startTournamentClockFallbackPoll(docTournId);
           }
           if (data.version && data.version > clientState.version && data.state) {
             clientState.version = data.version;
@@ -2513,6 +2569,18 @@
           } else if (msg.type === 'clock_update') {
             if (msg.sender !== clientState.clientId && msg.chess_clock) {
               applyRemoteChessClock(msg.chess_clock);
+            }
+          } else if (msg.type === 'master_clock_update') {
+            if (msg.master_clock) {
+              applyRemoteMasterClock(msg.master_clock);
+            }
+          } else if (msg.type === 'broadcast_update') {
+            if (msg.broadcast) {
+              applyRemoteBroadcast(msg.broadcast);
+            }
+          } else if (msg.type === 'judge_call_update') {
+            if (msg.judge_call !== undefined) {
+              applyRemoteJudgeCall(msg.judge_call);
             }
           } else if (msg.type === 'dice_roll') {
             if (msg.roll) {

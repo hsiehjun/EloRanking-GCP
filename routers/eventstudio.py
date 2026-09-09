@@ -1438,24 +1438,37 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
     fs_engine = get_firestore_engine()
     cascaded = fs_engine.delete_tournament_and_rooms(event_id)
 
-    # 2. Clean up in-memory TRACKER_ROOMS
-    prefix1 = f"BCP-{event_id}-"
-    prefix2 = f"ES-{event_id}-"
-    prefix3 = f"WH40K-BCP-{event_id}-"
-    exact1 = f"BCP-{event_id}"
-    exact2 = f"ES-{event_id}"
+    # 2. Clean up in-memory TRACKER_ROOMS and broadcast termination to connected table clients
+    clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+    match_prefixes = (
+        f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
+        f"BCP-{clean_id}-", f"ES-{clean_id}-", f"WH40K-BCP-{clean_id}-", f"WH40K-ES-{clean_id}-",
+        f"{event_id}-R", f"{clean_id}-R",
+    )
+    match_exacts = (f"BCP-{event_id}", f"ES-{event_id}", f"BCP-{clean_id}", f"ES-{clean_id}")
+
+    try:
+        from routers.tracker import TRACKER_LISTENERS
+    except Exception:
+        TRACKER_LISTENERS = {}
+
     for mid in list(TRACKER_ROOMS.keys()):
         mid_u = str(mid).upper()
         if (
-            mid_u.startswith(prefix1.upper()) or
-            mid_u.startswith(prefix2.upper()) or
-            mid_u.startswith(prefix3.upper()) or
-            mid_u == exact1.upper() or
-            mid_u == exact2.upper() or
-            TRACKER_ROOMS[mid].get("eventId") == event_id or
-            TRACKER_ROOMS[mid].get("event_id") == event_id or
-            TRACKER_ROOMS[mid].get("tournament_id") == event_id
+            any(mid_u.startswith(p.upper()) for p in match_prefixes) or
+            any(mid_u == x.upper() for x in match_exacts) or
+            TRACKER_ROOMS[mid].get("eventId") in (event_id, clean_id) or
+            TRACKER_ROOMS[mid].get("event_id") in (event_id, clean_id) or
+            TRACKER_ROOMS[mid].get("tournament_id") in (event_id, clean_id)
         ):
+            # Notify any active listeners that the room has been closed / deleted
+            listeners = TRACKER_LISTENERS.get(mid, [])
+            term_msg = {"type": "match_finalized", "is_finished": True, "event_deleted": True}
+            for q in list(listeners):
+                try:
+                    q.put_nowait(term_msg)
+                except Exception:
+                    pass
             TRACKER_ROOMS.pop(mid, None)
 
     # Delete on BCP if authenticated
@@ -3057,6 +3070,17 @@ async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
             fs_engine.update_room(mid, {"active_judge_call": res})
         except Exception:
             pass
+        try:
+            from routers.tracker import TRACKER_LISTENERS
+            listeners = TRACKER_LISTENERS.get(mid, [])
+            j_msg = {"type": "judge_call_update", "active_judge_call": res}
+            for q in list(listeners):
+                try:
+                    q.put_nowait(j_msg)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     return {"success": True, "call": res}
 
@@ -3110,6 +3134,17 @@ async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
             fs_engine.update_room(mid, {"active_judge_call": room_judge_state})
         except Exception:
             pass
+        try:
+            from routers.tracker import TRACKER_LISTENERS
+            listeners = TRACKER_LISTENERS.get(mid, [])
+            j_msg = {"type": "judge_call_update", "active_judge_call": room_judge_state}
+            for q in list(listeners):
+                try:
+                    q.put_nowait(j_msg)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     return {"success": True, "call_id": payload.call_id, "status": status, "assigned_judge": assigned}
 
@@ -3124,6 +3159,30 @@ async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClock
         "remainingSeconds": payload.remaining_seconds
     }
     updated = fs_engine.update_tournament_master_clock(event_id, clock_data)
+
+    # Propagate to in-memory table rooms and notify active SSE listeners
+    try:
+        from routers.tracker import TRACKER_ROOMS, TRACKER_LISTENERS
+        clean_eid = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
+        for mid, rdata in list(TRACKER_ROOMS.items()):
+            mid_u = str(mid).upper()
+            if (
+                rdata.get("eventId") == event_id or
+                rdata.get("event_id") == event_id or
+                rdata.get("tournament_id") == event_id or
+                clean_eid in mid_u
+            ):
+                rdata["masterClock"] = updated
+                listeners = TRACKER_LISTENERS.get(mid, [])
+                clock_msg = {"type": "master_clock_update", "masterClock": updated}
+                for q in list(listeners):
+                    try:
+                        q.put_nowait(clock_msg)
+                    except Exception:
+                        pass
+    except Exception as e:
+        logger.debug(f"Notice broadcasting clock to room listeners: {e}")
+
     return {"success": True, "event_id": event_id, "masterClock": updated, "clock": updated}
 
 @router.get("/api/eventstudio/event/{event_id}/clock", summary="Get tournament round master clock")
@@ -3141,6 +3200,30 @@ async def api_eventstudio_publish_broadcast(event_id: str, payload: StudioBroadc
         "round": payload.round
     }
     res = fs_engine.publish_tournament_broadcast(event_id, broadcast_data)
+
+    # Propagate broadcast to active table rooms and SSE listeners
+    try:
+        from routers.tracker import TRACKER_ROOMS, TRACKER_LISTENERS
+        clean_eid = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip().upper()
+        for mid, rdata in list(TRACKER_ROOMS.items()):
+            mid_u = str(mid).upper()
+            if (
+                rdata.get("eventId") == event_id or
+                rdata.get("event_id") == event_id or
+                rdata.get("tournament_id") == event_id or
+                clean_eid in mid_u
+            ):
+                rdata["broadcast"] = res
+                listeners = TRACKER_LISTENERS.get(mid, [])
+                b_msg = {"type": "broadcast_update", "broadcast": res}
+                for q in list(listeners):
+                    try:
+                        q.put_nowait(b_msg)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
     return {"success": True, "event_id": event_id, "broadcast": res}
 
 @router.get("/api/eventstudio/event/{event_id}/broadcast", summary="Get tournament live broadcast announcement")

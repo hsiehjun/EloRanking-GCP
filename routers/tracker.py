@@ -747,14 +747,34 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000)
     }
 
+    # Seed tournament master clock if available
+    ev_id = (payload.event_id if payload else None)
+    if not ev_id and match_id:
+        m_ev = re.match(r'^(?:WH40K-)?(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+', match_id, re.IGNORECASE)
+        if m_ev and m_ev.group(1):
+            ev_id = m_ev.group(1)
+
+    master_clock = None
+    if ev_id:
+        try:
+            fs_engine = get_firestore_engine()
+            master_clock = fs_engine.get_tournament_master_clock(ev_id)
+        except Exception:
+            pass
+
     TRACKER_ROOMS[match_id] = {
         "match_id": match_id,
+        "eventId": ev_id,
+        "event_id": ev_id,
+        "tournament_id": ev_id,
+        "table_num": payload.table_num if payload else None,
         "user_id_p1": user_id_p1,
         "user_id_p2": user_id_p2,
         "referee_ids": [],
         "version": 1,
         "state": initial_state,
         "chess_clock": initial_clock,
+        "masterClock": master_clock,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat()
     }
@@ -763,6 +783,10 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     try:
         fs_engine = get_firestore_engine()
         fs_engine.create_room(match_id, {
+            "eventId": ev_id,
+            "event_id": ev_id,
+            "tournament_id": ev_id,
+            "table_num": payload.table_num if payload else None,
             "user_id_p1": user_id_p1,
             "user_id_p2": user_id_p2,
             "referee_ids": [],
@@ -770,7 +794,8 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
             "p1_name": p1_name,
             "p2_name": p2_name,
             "state": initial_state,
-            "chess_clock": initial_clock
+            "chess_clock": initial_clock,
+            "masterClock": master_clock
         })
         logger.info(f"🔥 [CREATE ROOM] Created Firestore document rooms/{match_id}")
     except Exception as err:
@@ -784,7 +809,8 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "user_id_p2": user_id_p2,
         "p1_name": p1_name,
         "p2_name": p2_name,
-        "state": initial_state
+        "state": initial_state,
+        "masterClock": master_clock
     }
 
 @router.get("/api/tracker/firestore/rooms/{match_id}", summary="Diagnostics: Verify and inspect raw document from Cloud Firestore")
@@ -1169,30 +1195,82 @@ async def api_tracker_get_state(match_id: str):
         pass
 
     online_count = max(1, len(TRACKER_LISTENERS.get(match_id, [])))
+    # Resolve event_id to dynamically attach live tournament master clock and judge calls
+    ev_id = None
+    if match_id in TRACKER_ROOMS:
+        ev_id = TRACKER_ROOMS[match_id].get("eventId") or TRACKER_ROOMS[match_id].get("event_id") or TRACKER_ROOMS[match_id].get("tournament_id")
+        if not ev_id and isinstance(TRACKER_ROOMS[match_id].get("state"), dict):
+            ev_id = TRACKER_ROOMS[match_id]["state"].get("event_id") or (TRACKER_ROOMS[match_id]["state"].get("game", {}).get("eventId") if isinstance(TRACKER_ROOMS[match_id]["state"].get("game"), dict) else None)
+    if not ev_id and fs_doc:
+        ev_id = fs_doc.get("eventId") or fs_doc.get("event_id") or fs_doc.get("tournament_id")
+    if not ev_id:
+        m_ev = re.match(r'^(?:WH40K-)?(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+', match_id, re.IGNORECASE)
+        if m_ev and m_ev.group(1):
+            ev_id = m_ev.group(1)
+
+    master_clock = None
+    active_judge_call = None
+    if ev_id:
+        try:
+            master_clock = fs_engine.get_tournament_master_clock(ev_id)
+        except Exception:
+            pass
+        try:
+            active_calls = fs_engine.list_judge_calls(ev_id, active_only=True)
+            for c in active_calls:
+                c_mid = c.get("matchId") or c.get("match_id")
+                if c_mid and normalize_tracker_match_id(c_mid) == match_id:
+                    active_judge_call = c
+                    break
+        except Exception:
+            pass
+
     if saved and saved.get("state"):
         if match_id not in TRACKER_ROOMS or (saved.get("version", 1) >= TRACKER_ROOMS[match_id].get("version", 0)):
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
+                "eventId": ev_id,
+                "event_id": ev_id,
                 "user_id_p1": saved.get("user_id_p1"),
                 "user_id_p2": saved.get("user_id_p2"),
                 "referee_ids": saved.get("referee_ids", []),
                 "version": saved.get("version", 1),
                 "state": saved["state"],
                 "chess_clock": saved.get("chess_clock"),
+                "masterClock": master_clock or saved.get("masterClock"),
+                "active_judge_call": active_judge_call or saved.get("active_judge_call"),
                 "updated_at": saved.get("updated_at")
             }
         res = dict(TRACKER_ROOMS[match_id])
         res["online_count"] = online_count
         res["chess_clock"] = TRACKER_ROOMS[match_id].get("chess_clock")
+        res["masterClock"] = master_clock or TRACKER_ROOMS[match_id].get("masterClock")
+        res["active_judge_call"] = active_judge_call or TRACKER_ROOMS[match_id].get("active_judge_call")
+        res["eventId"] = ev_id
+        res["event_id"] = ev_id
         return res
 
     if match_id in TRACKER_ROOMS and TRACKER_ROOMS[match_id].get("state"):
         res = dict(TRACKER_ROOMS[match_id])
         res["online_count"] = online_count
         res["chess_clock"] = TRACKER_ROOMS[match_id].get("chess_clock")
+        res["masterClock"] = master_clock or TRACKER_ROOMS[match_id].get("masterClock")
+        res["active_judge_call"] = active_judge_call or TRACKER_ROOMS[match_id].get("active_judge_call")
+        res["eventId"] = ev_id
+        res["event_id"] = ev_id
         return res
 
-    return {"match_id": match_id, "version": 0, "online_count": online_count, "state": {}, "chess_clock": None}
+    return {
+        "match_id": match_id,
+        "version": 0,
+        "online_count": online_count,
+        "state": {},
+        "chess_clock": None,
+        "masterClock": master_clock,
+        "active_judge_call": active_judge_call,
+        "eventId": ev_id,
+        "event_id": ev_id
+    }
 
 def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     st = doc.get("state", {}) if isinstance(doc.get("state"), dict) else {}
@@ -1998,6 +2076,26 @@ async def api_tracker_stream(match_id: str, client_id: str = "anon"):
                     yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': r.get('version', 1), 'state': r['state']})}\n\n"
                 if r.get("chess_clock"):
                     yield f"data: {json.dumps({'type': 'clock_update', 'sender': 'server', 'chess_clock': r['chess_clock']})}\n\n"
+                if r.get("masterClock"):
+                    yield f"data: {json.dumps({'type': 'master_clock_update', 'master_clock': r['masterClock']})}\n\n"
+                if r.get("broadcast"):
+                    yield f"data: {json.dumps({'type': 'broadcast_update', 'broadcast': r['broadcast']})}\n\n"
+                if r.get("active_judge_call"):
+                    yield f"data: {json.dumps({'type': 'judge_call_update', 'judge_call': r['active_judge_call']})}\n\n"
+            else:
+                # Attempt to load from Firestore if room exists
+                try:
+                    fs_engine = get_firestore_engine()
+                    fs_doc = fs_engine.get_room(match_id)
+                    if fs_doc:
+                        if fs_doc.get("state"):
+                            yield f"data: {json.dumps({'type': 'state_update', 'sender': 'server', 'version': fs_doc.get('version', 1), 'state': fs_doc['state']})}\n\n"
+                        if fs_doc.get("chess_clock"):
+                            yield f"data: {json.dumps({'type': 'clock_update', 'sender': 'server', 'chess_clock': fs_doc['chess_clock']})}\n\n"
+                        if fs_doc.get("masterClock"):
+                            yield f"data: {json.dumps({'type': 'master_clock_update', 'master_clock': fs_doc['masterClock']})}\n\n"
+                except Exception:
+                    pass
 
             while True:
                 msg = await q.get()
