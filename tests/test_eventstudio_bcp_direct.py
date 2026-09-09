@@ -1230,8 +1230,14 @@ def test_bcp_adapter_submit_pairing_scores_root_and_game_payload():
         assert payload["player1Result"] == 2
         assert payload["player2Result"] == 0
         assert payload["winnerId"] == "player_alpha"
-        assert payload["player1Game"] == {"points": 95, "result": 2}
-        assert payload["player2Game"] == {"points": 60, "result": 0}
+        assert payload["player1Game"]["points"] == 95
+        assert payload["player1Game"]["gamePoints"] == 95
+        assert payload["player1Game"]["result"] == 2
+        assert payload["player1Game"]["gameResult"] == 2
+        assert payload["player2Game"]["points"] == 60
+        assert payload["player2Game"]["gamePoints"] == 60
+        assert payload["player2Game"]["result"] == 0
+        assert payload["player2Game"]["gameResult"] == 0
 
         # gameData nested payload
         gd = payload["gameData"]
@@ -1242,8 +1248,14 @@ def test_bcp_adapter_submit_pairing_scores_root_and_game_payload():
         assert gd["player1Result"] == 2
         assert gd["player2Result"] == 0
         assert gd["winnerId"] == "player_alpha"
-        assert gd["player1Game"] == {"points": 95, "result": 2}
-        assert gd["player2Game"] == {"points": 60, "result": 0}
+        assert gd["player1Game"]["points"] == 95
+        assert gd["player1Game"]["gamePoints"] == 95
+        assert gd["player1Game"]["result"] == 2
+        assert gd["player1Game"]["gameResult"] == 2
+        assert gd["player2Game"]["points"] == 60
+        assert gd["player2Game"]["gamePoints"] == 60
+        assert gd["player2Game"]["result"] == 0
+        assert gd["player2Game"]["gameResult"] == 0
 
     print("✅ test_bcp_adapter_submit_pairing_scores_root_and_game_payload passed!")
 

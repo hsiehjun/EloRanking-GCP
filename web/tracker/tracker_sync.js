@@ -381,7 +381,12 @@
 
     const isBcpTournament = !!eventId && eventId !== 'Casual' && eventId !== 'casual';
     const defaultFirstTurn = (game.firstTurn === 'player2' || game.rollOffWinner === 'player2' || st.who_went_first === 'player2') ? 'player2' : 'player1';
-    let currentLayout = game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout 1');
+    let currentLayout = game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout A');
+    if (currentLayout === 'Layout 1') currentLayout = 'Layout A';
+    else if (currentLayout === 'Layout 2') currentLayout = 'Layout B';
+    else if (currentLayout === 'Layout 3') currentLayout = 'Layout C';
+    else if (currentLayout === 'Layout 4') currentLayout = 'Layout D';
+    else if (currentLayout === 'Layout 5') currentLayout = 'Layout E';
 
     const modal = document.createElement('div');
     modal.id = 'gt-complete-modal';
@@ -446,6 +451,7 @@
             </label>
             <select id="gt-match-layout" style="width:100%; background:#070b14; border:1px solid #334155; color:#fff; padding:8px 12px; border-radius:8px; font-size:12px; font-family:inherit;">
               ${[
+                'Layout A', 'Layout B', 'Layout C', 'Layout D', 'Layout E',
                 'Layout 1', 'Layout 2', 'Layout 3', 'Layout 4', 'Layout 5', 'Layout 6', 'Layout 7', 'Layout 8',
                 'GW Layout 1', 'GW Layout 2', 'GW Layout 3', 'GW Layout 4',
                 'WTC Layout 1', 'WTC Layout 2', 'WTC Layout 3', 'WTC Layout 4', 'WTC Layout 5',
@@ -511,6 +517,17 @@
     }
     const isBcpTournament = !!eventId && eventId !== 'Casual' && eventId !== 'casual';
 
+    const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
+    if (firstTurnRadio) {
+      st.who_went_first = firstTurnRadio.value;
+      if (st.game) st.game.firstTurn = firstTurnRadio.value;
+    }
+    const layoutEl = document.getElementById('gt-match-layout');
+    if (layoutEl && layoutEl.value) {
+      st.terrain_layout = layoutEl.value;
+      if (st.game) st.game.terrainLayout = layoutEl.value;
+    }
+
     if (btn) {
       btn.disabled = true;
       btn.textContent = (isBcpTournament && !skipBcp) ? 'SUBMITTING TO BCP & SAVING...' : 'SAVING MATCH...';
@@ -544,17 +561,6 @@
     st.is_finished = true;
     st.started = true;
     st.round = 5;
-
-    const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
-    if (firstTurnRadio) {
-      st.who_went_first = firstTurnRadio.value;
-      if (st.game) st.game.firstTurn = firstTurnRadio.value;
-    }
-    const layoutEl = document.getElementById('gt-match-layout');
-    if (layoutEl && layoutEl.value) {
-      st.terrain_layout = layoutEl.value;
-      if (st.game) st.game.terrainLayout = layoutEl.value;
-    }
 
     saveLocalState(st);
 
@@ -624,7 +630,7 @@
     const firstTurnRadio = document.querySelector('input[name="gt-who-went-first"]:checked');
     const firstTurnVal = firstTurnRadio ? firstTurnRadio.value : (st.who_went_first || game.firstTurn || 'player1');
     const layoutEl = document.getElementById('gt-match-layout');
-    const layoutVal = (layoutEl ? layoutEl.value : '') || (game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout 1'));
+    const layoutVal = (layoutEl ? layoutEl.value : '') || (game.terrainLayout ? (typeof game.terrainLayout === 'number' ? `Layout ${game.terrainLayout}` : String(game.terrainLayout)) : (st.terrain_layout || 'Layout A'));
 
     function getVp(obj) {
       if (obj.score !== undefined && obj.score > 0) return obj.score;

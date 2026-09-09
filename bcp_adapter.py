@@ -784,6 +784,71 @@ class BcpAdapter:
         return None
 
     @classmethod
+    def normalize_bcp_terrain_layout(cls, raw_layout: Any) -> str:
+        """
+        Normalizes terrain layout string to match BCP's scorecard template options:
+        'Layout A', 'Layout B', 'Layout C', 'Layout D', 'Layout E', etc.
+        """
+        if not raw_layout:
+            return "Layout A"
+        s = str(raw_layout).strip()
+        s_lower = s.lower()
+
+        mapping = {
+            "1": "Layout A",
+            "layout 1": "Layout A",
+            "gw layout 1": "Layout A",
+            "wtc layout 1": "Layout A",
+            "layout a": "Layout A",
+            "layout 1 (layout a)": "Layout A",
+            "2": "Layout B",
+            "layout 2": "Layout B",
+            "gw layout 2": "Layout B",
+            "wtc layout 2": "Layout B",
+            "layout b": "Layout B",
+            "layout 2 (layout b)": "Layout B",
+            "3": "Layout C",
+            "layout 3": "Layout C",
+            "gw layout 3": "Layout C",
+            "wtc layout 3": "Layout C",
+            "layout c": "Layout C",
+            "layout 3 (layout c)": "Layout C",
+            "4": "Layout D",
+            "layout 4": "Layout D",
+            "gw layout 4": "Layout D",
+            "wtc layout 4": "Layout D",
+            "layout d": "Layout D",
+            "layout 4 (layout d)": "Layout D",
+            "5": "Layout E",
+            "layout 5": "Layout E",
+            "gw layout 5": "Layout E",
+            "wtc layout 5": "Layout E",
+            "layout e": "Layout E",
+            "layout 5 (layout e)": "Layout E",
+            "6": "Layout F",
+            "layout 6": "Layout F",
+            "layout f": "Layout F",
+            "7": "Layout G",
+            "layout 7": "Layout G",
+            "layout g": "Layout G",
+            "8": "Layout H",
+            "layout 8": "Layout H",
+            "layout h": "Layout H",
+        }
+        if s_lower in mapping:
+            return mapping[s_lower]
+
+        for letter in ["A", "B", "C", "D", "E", "F", "G", "H"]:
+            if f"layout {letter.lower()}" in s_lower or f"layout_{letter.lower()}" in s_lower or f"({letter.lower()})" in s_lower:
+                return f"Layout {letter}"
+
+        for num, letter in [("1", "A"), ("2", "B"), ("3", "C"), ("4", "D"), ("5", "E"), ("6", "F"), ("7", "G"), ("8", "H")]:
+            if f"layout {num}" in s_lower or f"layout_{num}" in s_lower:
+                return f"Layout {letter}"
+
+        return s
+
+    @classmethod
     def submit_pairing_scores(
         cls,
         pairing_id: str,
@@ -821,9 +886,10 @@ class BcpAdapter:
                 p1_first = False
                 p2_first = True
 
-        layout_val = None
+        raw_layout = None
         if game_data and isinstance(game_data, dict):
-            layout_val = game_data.get("layout") or game_data.get("terrain_layout") or game_data.get("terrainLayout")
+            raw_layout = game_data.get("layout") or game_data.get("terrain_layout") or game_data.get("terrainLayout")
+        bcp_layout = cls.normalize_bcp_terrain_layout(raw_layout)
 
         meta = {
             "p1-gamePoints": str(p1_score),
@@ -831,46 +897,103 @@ class BcpAdapter:
             "p1-gameResult": str(p1_res),
             "p2-gameResult": str(p2_res),
             "p1-marginOfVictory": int(p1_score - p2_score),
-            "p2-marginOfVictory": int(p2_score - p1_score)
+            "p2-marginOfVictory": int(p2_score - p1_score),
+            "layout": bcp_layout,
+            "terrainLayout": bcp_layout,
+            "p1-terrainLayout": bcp_layout,
+            "p2-terrainLayout": bcp_layout,
+            "terrain": bcp_layout
         }
         if p1_first is not None:
-            meta["p1-firstTurn"] = "true" if p1_first else "false"
-            meta["p2-firstTurn"] = "true" if p2_first else "false"
+            # CRITICAL: BCP scorecard radio uses strict equality against JSON.parse("true") === true.
+            # Must be boolean True / False, NEVER string "true" / "false".
+            meta["p1-firstTurn"] = True if p1_first else False
+            meta["p2-firstTurn"] = True if p2_first else False
             meta["firstTurn"] = "player1" if p1_first else "player2"
             meta["whoWentFirst"] = "player1" if p1_first else "player2"
 
-        if layout_val:
-            meta["layout"] = str(layout_val)
-            meta["terrainLayout"] = str(layout_val)
-            meta["p1-terrainLayout"] = str(layout_val)
-            meta["p2-terrainLayout"] = str(layout_val)
-            meta["terrain"] = str(layout_val)
+        p1_gid = game_data.get("p1_game_id") or game_data.get("player1GameId") if isinstance(game_data, dict) else None
+        p2_gid = game_data.get("p2_game_id") or game_data.get("player2GameId") if isinstance(game_data, dict) else None
+        p1_id = game_data.get("p1_id") or game_data.get("player1Id") if isinstance(game_data, dict) else None
+        p2_id = game_data.get("p2_id") or game_data.get("player2Id") if isinstance(game_data, dict) else None
+        p1_name = game_data.get("p1_name") or game_data.get("player1Name") if isinstance(game_data, dict) else None
+        p2_name = game_data.get("p2_name") or game_data.get("player2Name") if isinstance(game_data, dict) else None
+
+        if p1_name:
+            meta["lbl-player1"] = str(p1_name)
+            p1_parts = str(p1_name).split(" ", 1)
+            meta["p1-firstName"] = p1_parts[0]
+            if len(p1_parts) > 1:
+                meta["p1-lastName"] = p1_parts[1]
+        if p2_name:
+            meta["lbl-player2"] = str(p2_name)
+            p2_parts = str(p2_name).split(" ", 1)
+            meta["p2-firstName"] = p2_parts[0]
+            if len(p2_parts) > 1:
+                meta["p2-lastName"] = p2_parts[1]
+
+        if p1_id and p1_first:
+            meta["firstTurnPlayerId"] = str(p1_id)
+        elif p2_id and p2_first:
+            meta["firstTurnPlayerId"] = str(p2_id)
 
         if isinstance(game_data, dict) and isinstance(game_data.get("metaData"), dict):
             meta.update(game_data["metaData"])
+            # Ensure boolean types for radio buttons and standardized layout
+            if p1_first is not None:
+                meta["p1-firstTurn"] = True if p1_first else False
+                meta["p2-firstTurn"] = True if p2_first else False
+            if bcp_layout:
+                meta["terrainLayout"] = bcp_layout
+                meta["layout"] = bcp_layout
 
         p1_game_payload: Dict[str, Any] = {
             "points": int(p1_score),
-            "result": p1_res
+            "gamePoints": int(p1_score),
+            "result": p1_res,
+            "gameResult": p1_res,
+            "marginOfVictory": int(p1_score - p2_score),
+            "layout": bcp_layout,
+            "terrainLayout": bcp_layout
         }
         p2_game_payload: Dict[str, Any] = {
             "points": int(p2_score),
-            "result": p2_res
+            "gamePoints": int(p2_score),
+            "result": p2_res,
+            "gameResult": p2_res,
+            "marginOfVictory": int(p2_score - p1_score),
+            "layout": bcp_layout,
+            "terrainLayout": bcp_layout
         }
         if p1_first is not None:
-            p1_game_payload["firstTurn"] = p1_first
-            p1_game_payload["wentFirst"] = p1_first
-            p2_game_payload["firstTurn"] = p2_first
-            p2_game_payload["wentFirst"] = p2_first
+            p1_game_payload["firstTurn"] = bool(p1_first)
+            p1_game_payload["wentFirst"] = bool(p1_first)
+            p2_game_payload["firstTurn"] = bool(p2_first)
+            p2_game_payload["wentFirst"] = bool(p2_first)
 
-        if layout_val:
-            p1_game_payload["layout"] = str(layout_val)
-            p1_game_payload["terrainLayout"] = str(layout_val)
-            p2_game_payload["layout"] = str(layout_val)
-            p2_game_payload["terrainLayout"] = str(layout_val)
+        if p1_gid:
+            p1_game_payload["id"] = str(p1_gid)
+            p1_game_payload["gameId"] = str(p1_gid)
+        if p2_gid:
+            p2_game_payload["id"] = str(p2_gid)
+            p2_game_payload["gameId"] = str(p2_gid)
+        if p1_id:
+            p1_game_payload["playerId"] = str(p1_id)
+        if p2_id:
+            p2_game_payload["playerId"] = str(p2_id)
+
+        scorecard_id = (
+            game_data.get("scorecardUsedId")
+            or game_data.get("scorecard_used_id")
+            or game_data.get("scorecardId")
+            or game_data.get("scorecard_id")
+            or "6a33e48c84eb2fad86d6eac7"
+        ) if isinstance(game_data, dict) else "6a33e48c84eb2fad86d6eac7"
 
         payload: Dict[str, Any] = {
             "pairingType": "Pairing",
+            "scorecardUsedId": str(scorecard_id),
+            "scorecardType": "Pairing",
             "isDone": True,
             "verified": True,
             "isVerified": True,
@@ -882,25 +1005,36 @@ class BcpAdapter:
             "player2Points": int(p2_score),
             "player1Result": p1_res,
             "player2Result": p2_res,
+            "player1": dict(p1_game_payload),
+            "player2": dict(p2_game_payload),
             "player1Game": dict(p1_game_payload),
             "player2Game": dict(p2_game_payload),
             "metaData": meta,
+            "layout": bcp_layout,
+            "terrainLayout": bcp_layout,
+            "metrics": ["gamePoints", "marginOfVictory", "gameResult"],
             "gameData": {
                 "isDone": True,
                 "verified": True,
                 "isVerified": True,
                 "status": "completed",
                 "pairingStatus": "Completed",
+                "scorecardUsedId": str(scorecard_id),
+                "scorecardType": "Pairing",
                 "player1Score": int(p1_score),
                 "player2Score": int(p2_score),
                 "player1Points": int(p1_score),
                 "player2Points": int(p2_score),
                 "player1Result": p1_res,
                 "player2Result": p2_res,
+                "player1": dict(p1_game_payload),
+                "player2": dict(p2_game_payload),
                 "player1Game": dict(p1_game_payload),
                 "player2Game": dict(p2_game_payload),
                 "metaData": meta,
-                "metrics": []
+                "layout": bcp_layout,
+                "terrainLayout": bcp_layout,
+                "metrics": ["gamePoints", "marginOfVictory", "gameResult"]
             }
         }
         if p1_first is not None:
@@ -911,25 +1045,12 @@ class BcpAdapter:
             payload["gameData"]["player1FirstTurn"] = p1_first
             payload["gameData"]["player2FirstTurn"] = p2_first
 
-        if layout_val:
-            payload["layout"] = str(layout_val)
-            payload["terrainLayout"] = str(layout_val)
-            payload["gameData"]["layout"] = str(layout_val)
-            payload["gameData"]["terrainLayout"] = str(layout_val)
-
-        p1_gid = game_data.get("p1_game_id") or game_data.get("player1GameId") if isinstance(game_data, dict) else None
-        p2_gid = game_data.get("p2_game_id") or game_data.get("player2GameId") if isinstance(game_data, dict) else None
-        p1_id = game_data.get("p1_id") or game_data.get("player1Id") if isinstance(game_data, dict) else None
-        p2_id = game_data.get("p2_id") or game_data.get("player2Id") if isinstance(game_data, dict) else None
-
         if p1_gid:
             payload["player1GameId"] = str(p1_gid)
-            payload["player1Game"]["id"] = str(p1_gid)
-            payload["gameData"]["player1Game"]["id"] = str(p1_gid)
+            payload["gameData"]["player1GameId"] = str(p1_gid)
         if p2_gid:
             payload["player2GameId"] = str(p2_gid)
-            payload["player2Game"]["id"] = str(p2_gid)
-            payload["gameData"]["player2Game"]["id"] = str(p2_gid)
+            payload["gameData"]["player2GameId"] = str(p2_gid)
 
         if p1_id:
             payload["player1Id"] = str(p1_id)
@@ -937,14 +1058,12 @@ class BcpAdapter:
             if p1_first:
                 payload["firstTurnPlayerId"] = str(p1_id)
                 payload["gameData"]["firstTurnPlayerId"] = str(p1_id)
-                meta["firstTurnPlayerId"] = str(p1_id)
         if p2_id:
             payload["player2Id"] = str(p2_id)
             payload["gameData"]["player2Id"] = str(p2_id)
             if p2_first:
                 payload["firstTurnPlayerId"] = str(p2_id)
                 payload["gameData"]["firstTurnPlayerId"] = str(p2_id)
-                meta["firstTurnPlayerId"] = str(p2_id)
 
         if resolved_winner:
             payload["winnerId"] = str(resolved_winner)

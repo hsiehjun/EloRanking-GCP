@@ -119,35 +119,40 @@ def test_bcp_adapter_submit_pairing_scores_player1_first_and_layout():
         assert captured_payload["player1FirstTurn"] is True
         assert captured_payload["player2FirstTurn"] is False
         assert captured_payload["firstTurnPlayerId"] == "p1_id_111"
-        assert captured_payload["layout"] == "Layout 4"
-        assert captured_payload["terrainLayout"] == "Layout 4"
+        assert captured_payload["layout"] == "Layout D"
+        assert captured_payload["terrainLayout"] == "Layout D"
         assert captured_payload["winnerId"] == "p1_id_111"
         assert captured_payload["verified"] is True
         assert captured_payload["isVerified"] is True
         assert captured_payload["status"] == "completed"
         assert captured_payload["pairingStatus"] == "Completed"
+        assert captured_payload["scorecardUsedId"] == "6a33e48c84eb2fad86d6eac7"
 
         # Game payloads
         p1_game = captured_payload["player1Game"]
         p2_game = captured_payload["player2Game"]
         assert p1_game["firstTurn"] is True
         assert p1_game["wentFirst"] is True
-        assert p1_game["layout"] == "Layout 4"
-        assert p1_game["terrainLayout"] == "Layout 4"
+        assert p1_game["layout"] == "Layout D"
+        assert p1_game["terrainLayout"] == "Layout D"
+        assert p1_game["gamePoints"] == 85
+        assert p1_game["marginOfVictory"] == 25
         assert p2_game["firstTurn"] is False
         assert p2_game["wentFirst"] is False
-        assert p2_game["layout"] == "Layout 4"
-        assert p2_game["terrainLayout"] == "Layout 4"
+        assert p2_game["layout"] == "Layout D"
+        assert p2_game["terrainLayout"] == "Layout D"
+        assert p2_game["gamePoints"] == 60
+        assert p2_game["marginOfVictory"] == -25
 
-        # MetaData
+        # MetaData (boolean firstTurn for BCP React === check)
         meta = captured_payload["metaData"]
-        assert meta["p1-firstTurn"] == "true"
-        assert meta["p2-firstTurn"] == "false"
+        assert meta["p1-firstTurn"] is True
+        assert meta["p2-firstTurn"] is False
         assert meta["whoWentFirst"] == "player1"
         assert meta["firstTurn"] == "player1"
         assert meta["firstTurnPlayerId"] == "p1_id_111"
-        assert meta["layout"] == "Layout 4"
-        assert meta["terrainLayout"] == "Layout 4"
+        assert meta["layout"] == "Layout D"
+        assert meta["terrainLayout"] == "Layout D"
 
         # gameData sync
         g_data = captured_payload["gameData"]
@@ -157,9 +162,12 @@ def test_bcp_adapter_submit_pairing_scores_player1_first_and_layout():
         assert g_data["pairingStatus"] == "Completed"
         assert g_data["firstTurn"] == 1
         assert g_data["firstTurnPlayerId"] == "p1_id_111"
-        assert g_data["layout"] == "Layout 4"
+        assert g_data["layout"] == "Layout D"
         assert g_data["player1Game"]["firstTurn"] is True
         assert g_data["player2Game"]["firstTurn"] is False
+        assert "gamePoints" in g_data["metrics"]
+        assert "marginOfVictory" in g_data["metrics"]
+        assert "gameResult" in g_data["metrics"]
 
 def test_bcp_adapter_submit_pairing_scores_player2_first():
     """BCP submit_pairing_scores must properly set player 2 first turn when p2 went first."""
@@ -193,10 +201,10 @@ def test_bcp_adapter_submit_pairing_scores_player2_first():
         assert captured_payload["player1Game"]["firstTurn"] is False
         assert captured_payload["player2Game"]["firstTurn"] is True
         assert captured_payload["metaData"]["whoWentFirst"] == "player2"
-        assert captured_payload["metaData"]["p1-firstTurn"] == "false"
-        assert captured_payload["metaData"]["p2-firstTurn"] == "true"
-        assert captured_payload["layout"] == "GW Layout 1"
-        assert captured_payload["terrainLayout"] == "GW Layout 1"
+        assert captured_payload["metaData"]["p1-firstTurn"] is False
+        assert captured_payload["metaData"]["p2-firstTurn"] is True
+        assert captured_payload["layout"] == "Layout A"
+        assert captured_payload["terrainLayout"] == "Layout A"
         assert captured_payload["winnerId"] == "p2_id_222"
 
 def test_api_eventstudio_submit_score_forwards_first_turn_and_layout():
@@ -252,6 +260,7 @@ def test_tracker_sync_js_elements():
 
     # Terrain layout selector in conclude modal
     assert 'id="gt-match-layout"' in content
+    assert 'Layout A' in content
     assert 'Layout 1' in content
     assert 'GW Layout 1' in content
     assert 'WTC Layout 1' in content
