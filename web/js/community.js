@@ -3083,6 +3083,26 @@ function closeEventRegistrationLoadingModal() {
 }
 window.closeEventRegistrationLoadingModal = closeEventRegistrationLoadingModal;
 
+function toggleRegistrationAccessCode(forceShow) {
+  const block = document.getElementById('event-reg-access-code-block');
+  const toggleWrapper = document.getElementById('event-reg-access-code-toggle-wrapper');
+  const input = document.getElementById('event-reg-access-code');
+  if (!block) return;
+
+  const willShow = forceShow !== undefined ? Boolean(forceShow) : (block.style.display === 'none' || !block.style.display);
+  if (willShow) {
+    block.style.display = 'block';
+    if (toggleWrapper) toggleWrapper.style.display = 'none';
+    if (input) {
+      setTimeout(() => input.focus(), 50);
+    }
+  } else {
+    block.style.display = 'none';
+    if (toggleWrapper) toggleWrapper.style.display = 'block';
+  }
+}
+window.toggleRegistrationAccessCode = toggleRegistrationAccessCode;
+
 async function openEventRegistrationModal(eventId) {
   if (!eventId) return;
   const modal = document.getElementById('event-registration-modal');
@@ -3105,6 +3125,19 @@ async function openEventRegistrationModal(eventId) {
   const accountPill = document.getElementById('event-reg-account-pill');
   const accountStatus = document.getElementById('event-reg-account-status');
   const regBadge = document.getElementById('event-reg-badge');
+  const accessCodeBlock = document.getElementById('event-reg-access-code-block');
+  const accessCodeInput = document.getElementById('event-reg-access-code');
+  const accessCodeToggleWrapper = document.getElementById('event-reg-access-code-toggle-wrapper');
+  const accessCodeRequiredInd = document.getElementById('event-reg-access-code-required-indicator');
+  const accessCodeBadge = document.getElementById('event-reg-access-code-badge');
+  const accessCodeHint = document.getElementById('event-reg-access-code-hint');
+
+  if (accessCodeInput) {
+    accessCodeInput.value = '';
+    accessCodeInput.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+  }
+  if (accessCodeBlock) accessCodeBlock.style.display = 'none';
+  if (accessCodeToggleWrapper) accessCodeToggleWrapper.style.display = 'block';
 
   if (statusEl) statusEl.style.display = 'none';
   if (submitBtn) {
@@ -3181,6 +3214,49 @@ async function openEventRegistrationModal(eventId) {
         accountPill.style.color = '#94a3b8';
         accountStatus.textContent = 'Registering as Public Competitor';
         regBadge.textContent = 'FREE ENTRY';
+      }
+    }
+
+    // Access Code UI display configuration
+    const requiresAccessCode = Boolean(data.requires_access_code || data.private_event || data.has_access_code);
+    if (requiresAccessCode) {
+      if (accessCodeBlock) accessCodeBlock.style.display = 'block';
+      if (accessCodeToggleWrapper) accessCodeToggleWrapper.style.display = 'none';
+      if (accessCodeRequiredInd) accessCodeRequiredInd.style.display = 'inline';
+      if (accessCodeBadge) {
+        accessCodeBadge.textContent = 'ACCESS CODE REQUIRED';
+        accessCodeBadge.style.display = 'inline-block';
+        accessCodeBadge.style.background = 'rgba(245, 158, 11, 0.2)';
+        accessCodeBadge.style.color = '#f59e0b';
+        accessCodeBadge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+      }
+      if (accessCodeHint) {
+        accessCodeHint.textContent = 'This event is private or restricted and requires an access code provided by the Tournament Organizer to register.';
+      }
+      if (accessCodeInput) {
+        accessCodeInput.required = true;
+      }
+      if (regBadge && !prof.bcp_linked) {
+        regBadge.textContent = 'ACCESS CODE REQUIRED';
+        regBadge.style.background = 'rgba(245, 158, 11, 0.2)';
+        regBadge.style.color = '#f59e0b';
+      }
+    } else {
+      if (accessCodeBlock) accessCodeBlock.style.display = 'none';
+      if (accessCodeToggleWrapper) accessCodeToggleWrapper.style.display = 'block';
+      if (accessCodeRequiredInd) accessCodeRequiredInd.style.display = 'none';
+      if (accessCodeBadge) {
+        accessCodeBadge.textContent = 'ORGANIZER CODE';
+        accessCodeBadge.style.display = 'inline-block';
+        accessCodeBadge.style.background = 'rgba(56, 189, 248, 0.15)';
+        accessCodeBadge.style.color = '#38bdf8';
+        accessCodeBadge.style.borderColor = 'rgba(56, 189, 248, 0.3)';
+      }
+      if (accessCodeHint) {
+        accessCodeHint.textContent = 'If the organizer provided a private access code or password, enter it here.';
+      }
+      if (accessCodeInput) {
+        accessCodeInput.required = false;
       }
     }
 
@@ -3385,6 +3461,29 @@ async function submitEventRegistration() {
     return;
   }
 
+  const accessCodeInput = document.getElementById('event-reg-access-code');
+  const accessCode = accessCodeInput ? accessCodeInput.value.trim() : '';
+  const requiresAccessCode = Boolean(activeRegistrationEvent?.requires_access_code || activeRegistrationEvent?.private_event || activeRegistrationEvent?.has_access_code);
+
+  if (requiresAccessCode && !accessCode) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = 'This tournament requires an Access Code. Please enter the access code provided by your Tournament Organizer.';
+    }
+    toggleRegistrationAccessCode(true);
+    if (accessCodeInput) {
+      accessCodeInput.style.borderColor = '#ef4444';
+      accessCodeInput.focus();
+    }
+    return;
+  }
+
+  if (accessCodeInput) {
+    accessCodeInput.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+  }
+
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="spinner-mini" style="display:inline-block; width:12px; height:12px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin 0.8s linear infinite; margin-right:6px; vertical-align:middle;"></span> Processing Registration...';
@@ -3408,6 +3507,8 @@ async function submitEventRegistration() {
     army_list: armyList || null,
     army_list_id: savedListId || null,
     system_id: systemId || null,
+    access_code: accessCode || null,
+    accessCode: accessCode || null,
     bcp_token: bcpToken || null
   };
 
@@ -3443,10 +3544,18 @@ async function submitEventRegistration() {
         closeEventRegistrationModal();
       }, 1400);
     } else {
+      const errMsg = res?.detail || res?.message || 'Registration failed. Please try again.';
       if (statusEl) {
         statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
         statusEl.style.color = '#ef4444';
-        statusEl.textContent = res?.detail || res?.message || 'Registration failed. Please try again.';
+        statusEl.textContent = errMsg;
+      }
+      if (/access\s*code|private|password/i.test(errMsg)) {
+        toggleRegistrationAccessCode(true);
+        if (accessCodeInput) {
+          accessCodeInput.style.borderColor = '#ef4444';
+          accessCodeInput.focus();
+        }
       }
       if (submitBtn) {
         submitBtn.disabled = false;
@@ -3455,10 +3564,18 @@ async function submitEventRegistration() {
     }
   } catch (err) {
     console.error('Registration error:', err);
+    const errMsg = err.message || String(err);
     if (statusEl) {
       statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
       statusEl.style.color = '#ef4444';
-      statusEl.textContent = `Error: ${err.message || err}`;
+      statusEl.textContent = `Error: ${errMsg}`;
+    }
+    if (/access\s*code|private|password/i.test(errMsg)) {
+      toggleRegistrationAccessCode(true);
+      if (accessCodeInput) {
+        accessCodeInput.style.borderColor = '#ef4444';
+        accessCodeInput.focus();
+      }
     }
     if (submitBtn) {
       submitBtn.disabled = false;

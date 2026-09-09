@@ -326,6 +326,14 @@ class BcpAdapter:
             bcp_payload["systemId"] = str(system_id).strip()
             bcp_payload["itcId"] = str(system_id).strip()
 
+        access_code = player_data.get("access_code") or player_data.get("accessCode")
+        if access_code:
+            code_str = str(access_code).strip()
+            if code_str:
+                bcp_payload["accessCode"] = code_str
+                if "user" in bcp_payload and isinstance(bcp_payload["user"], dict):
+                    bcp_payload["user"]["accessCode"] = code_str
+
         # Check if competitor is already on BCP event roster before calling API
         def _check_already_registered():
             try:

@@ -567,6 +567,129 @@ def test_streamlined_registration_fields_and_unauth_fallback():
     print("✅ Streamlined registration fields and BCP unauthenticated fallback verified!")
 
 
+def test_access_code_registration_support():
+    """Verify Access Code handling across BcpAdapter, Community endpoints, and Frontend elements."""
+    import asyncio
+    import json
+    from core import HTTPException
+    from routers.community import (
+        CommunityEventRegisterPayload,
+        api_community_event_registration,
+        api_community_event_register
+    )
+    from bcp_adapter import BcpAdapter
+
+    # 1. Payload accepts access_code
+    payload = CommunityEventRegisterPayload(
+        first_name="Jane",
+        last_name="Doe",
+        email="jane.doe@example.com",
+        access_code="VIP-CHAMPION-2026"
+    )
+    assert payload.access_code == "VIP-CHAMPION-2026"
+
+    # 2. BcpAdapter register_player includes accessCode in root and user payload
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.read.return_value = b'{"success": true, "playerId": "p_vip_123"}'
+        mock_resp.__enter__.return_value = mock_resp
+        mock_urlopen.return_value = mock_resp
+
+        player_data = {
+            "first_name": "Jane",
+            "last_name": "Doe",
+            "email": "jane.doe@example.com",
+            "access_code": "SECRET40K"
+        }
+        success, err, data = BcpAdapter.register_player(
+            event_id="EV_ACCESS_TEST",
+            player_data=player_data
+        )
+        assert success is True
+        assert mock_urlopen.called
+        req = mock_urlopen.call_args[0][0]
+        sent_body = json.loads(req.data.decode("utf-8"))
+        assert sent_body.get("accessCode") == "SECRET40K", f"Expected accessCode in sent_body, got {sent_body}"
+        assert sent_body.get("user", {}).get("accessCode") == "SECRET40K", f"Expected user.accessCode in sent_body, got {sent_body}"
+
+    # 3. api_community_event_registration returns requires_access_code: True for private events
+    mock_db = MagicMock()
+    mock_db.get_event_details.return_value = {
+        "id": "ev_private_1",
+        "name": "Secret Invitational",
+        "using_online_reg": True,
+        "ticket_price": 0.0,
+        "private_event": True,
+        "raw_json": {"ticketing": {"privateEvent": True}}
+    }
+    mock_db.get_user_registered_tournaments.return_value = []
+    mock_db.get_user_army_lists.return_value = []
+
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager") as mock_am:
+        mock_am.return_value.get_session.return_value = None
+        mock_req = MagicMock()
+        mock_req.headers = {}
+        mock_req.cookies = {}
+
+        res = asyncio.run(api_community_event_registration("ev_private_1", mock_req))
+        assert res["success"] is True
+        assert res["requires_access_code"] is True
+        assert res["private_event"] is True
+
+    # 4. api_community_event_register raises 400 when access_code is missing for restricted event
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager") as mock_am:
+        mock_am.return_value.get_session.return_value = None
+        mock_req = MagicMock()
+        mock_req.headers = {}
+        mock_req.cookies = {}
+
+        # Missing access code
+        no_code_payload = CommunityEventRegisterPayload(
+            first_name="Jane",
+            last_name="Doe",
+            email="jane.doe@example.com"
+        )
+        try:
+            asyncio.run(api_community_event_register("ev_private_1", no_code_payload, mock_req))
+            assert False, "Expected 400 HTTPException for missing access code on private event"
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "Access Code" in exc.detail
+
+        # Providing access code succeeds
+        with patch("bcp_adapter.BcpAdapter.register_player", return_value=(True, None, {"id": "reg_p1"})) as mock_bcp_reg:
+            with_code_payload = CommunityEventRegisterPayload(
+                first_name="Jane",
+                last_name="Doe",
+                email="jane.doe@example.com",
+                access_code="INVITE-2026"
+            )
+            reg_res = asyncio.run(api_community_event_register("ev_private_1", with_code_payload, mock_req))
+            assert reg_res["success"] is True
+            assert mock_bcp_reg.called
+            passed_player_data = mock_bcp_reg.call_args[0][1]
+            assert passed_player_data.get("access_code") == "INVITE-2026"
+
+    # 5. Verify UI Elements in web/app.html and web/js/community.js
+    with open("web/app.html", "r", encoding="utf-8") as f:
+        app_html = f.read()
+    assert 'id="event-reg-access-code-block"' in app_html
+    assert 'id="event-reg-access-code"' in app_html
+    assert 'id="event-reg-access-code-toggle-btn"' in app_html
+    assert 'id="reg-player-access-code"' in app_html
+
+    with open("web/js/community.js", "r", encoding="utf-8") as f:
+        comm_js = f.read()
+    assert 'toggleRegistrationAccessCode' in comm_js
+    assert 'requires_access_code' in comm_js
+    assert 'access_code' in comm_js
+
+    print("✅ Access code registration support verified across backend, adapter, and frontend!")
+
+
 if __name__ == "__main__":
     print("🚀 Running Community Registration Automated Test Suite...")
     test_database_upcoming_events_normalization()
@@ -576,4 +699,5 @@ if __name__ == "__main__":
     test_frontend_card_and_modal_integrity()
     test_community_sql_cte_column_integrity_and_error_handling()
     test_streamlined_registration_fields_and_unauth_fallback()
+    test_access_code_registration_support()
     print("\n🎉 ALL COMMUNITY REGISTRATION FLOW TESTS PASSED SUCCESSFULLY!")

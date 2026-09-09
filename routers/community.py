@@ -390,6 +390,7 @@ class CommunityEventRegisterPayload(BaseModel):
     army_list: Optional[str] = None
     army_list_id: Optional[str] = None
     system_id: Optional[str] = None
+    access_code: Optional[str] = None
     bcp_token: Optional[str] = None
 
 
@@ -510,7 +511,9 @@ async def api_community_event_registration(
         total_players = 0
 
     external_url = ev.get("external_url") or ev.get("externalUrl") or rj.get("externalUrl") or rj.get("external_url") or None
-    private_event = bool(ev.get("private_event") or ev.get("privateEvent") or rj.get("privateEvent") or False)
+    private_event = bool(ev.get("private_event") or ev.get("privateEvent") or rj.get("privateEvent") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("privateEvent")) or False)
+    has_access_code = bool(ev.get("has_access_code") or ev.get("hasAccessCode") or rj.get("hasAccessCode") or rj.get("accessCode") or False)
+    requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
 
     is_sold_out = bool(num_tickets > 0 and total_players >= num_tickets)
     can_register_free = bool(using_online_reg and ticket_price == 0.0 and not is_sold_out)
@@ -768,6 +771,8 @@ async def api_community_event_registration(
         "total_players": total_players,
         "external_url": external_url,
         "private_event": private_event,
+        "has_access_code": has_access_code,
+        "requires_access_code": requires_access_code,
         "is_sold_out": is_sold_out,
         "can_register_free": can_register_free,
         "can_buy_ticket": can_buy_ticket,
@@ -876,6 +881,17 @@ async def api_community_event_register(
             detail=f"This tournament requires a paid ticket (${ticket_price:.2f}). Please purchase your ticket via Best Coast Pairings checkout."
         )
 
+    private_event = bool(ev.get("private_event") or ev.get("privateEvent") or rj.get("privateEvent") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("privateEvent")) or False)
+    has_access_code = bool(ev.get("has_access_code") or ev.get("hasAccessCode") or rj.get("hasAccessCode") or rj.get("accessCode") or False)
+    requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
+
+    access_code = (payload.access_code or "").strip()
+    if requires_access_code and not access_code:
+        raise HTTPException(
+            status_code=400,
+            detail="This tournament requires an Access Code. Please enter the access code provided by your Tournament Organizer."
+        )
+
     # Competitor name & email resolution
     full_name = (payload.name or "").strip()
     fn = (payload.first_name or "").strip()
@@ -934,6 +950,8 @@ async def api_community_event_register(
         "detachment": detachment or None,
         "army_list": army_list or None,
         "system_id": system_id or None,
+        "access_code": access_code or None,
+        "accessCode": access_code or None,
         "bcp_user_id": bcp_user_id,
         "checked_in": False
     }

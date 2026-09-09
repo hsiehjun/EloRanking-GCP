@@ -1861,6 +1861,7 @@ async function submitTournamentRegistration(e) {
   const detachment = document.getElementById('reg-player-detachment')?.value.trim() || '';
   const team = document.getElementById('reg-player-team')?.value.trim() || '';
   const email = document.getElementById('reg-player-email')?.value.trim() || '';
+  const accessCode = document.getElementById('reg-player-access-code')?.value.trim() || '';
   const armyList = document.getElementById('reg-player-armylist')?.value.trim() || '';
   const btn = document.getElementById('btn-submit-registration');
   const msg = document.getElementById('reg-status-message');
@@ -1887,6 +1888,8 @@ async function submitTournamentRegistration(e) {
       detachment,
       team,
       email,
+      access_code: accessCode || undefined,
+      accessCode: accessCode || undefined,
       army_list: armyList,
       checked_in: true
     });

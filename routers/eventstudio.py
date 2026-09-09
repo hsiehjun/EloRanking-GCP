@@ -123,6 +123,8 @@ class RegisterPlayerPayload(BaseModel):
     bcp_token: Optional[str] = None
     bcp_user_id: Optional[str] = None
     player_id: Optional[str] = None
+    access_code: Optional[str] = None
+    accessCode: Optional[str] = None
 
 class SwapPairingPayload(BaseModel):
     round: int = 1
@@ -1729,7 +1731,9 @@ async def api_eventstudio_register_player(event_id: str, payload: RegisterPlayer
             "armyList": army_list,
             "army_list": army_list,
             "userId": (user.get("bcp_user_id") if user else None) or payload.bcp_user_id,
-            "bcp_user_id": (user.get("bcp_user_id") if user else None) or payload.bcp_user_id
+            "bcp_user_id": (user.get("bcp_user_id") if user else None) or payload.bcp_user_id,
+            "access_code": payload.access_code or payload.accessCode,
+            "accessCode": payload.access_code or payload.accessCode
         }
 
         if to_bcp_token:

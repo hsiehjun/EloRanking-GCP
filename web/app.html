@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=4e63c7bf75">
-  <link rel="stylesheet" href="/css/styles.css?v=4e63c7bf75">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=4e63c7bf75">
+  <link rel="stylesheet" href="/css/theme.css?v=478c54f6d6">
+  <link rel="stylesheet" href="/css/styles.css?v=478c54f6d6">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=478c54f6d6">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -2122,6 +2122,29 @@
           </div>
         </div>
 
+        <!-- Access Code Field (Required for Private Events / Discretionary Access) -->
+        <div id="event-reg-access-code-block" style="display: none; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 0.75rem 0.85rem; margin: 0.15rem 0 0.5rem 0;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label id="event-reg-access-code-label" class="form-label" style="font-size: 0.78rem; font-weight: 700; color: #f59e0b; margin: 0;">
+              🔑 Access Code <span id="event-reg-access-code-required-indicator" style="color: #ef4444;">*</span>
+            </label>
+            <span id="event-reg-access-code-badge" style="font-size: 0.68rem; font-weight: 700; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.4); padding: 0.15rem 0.45rem; border-radius: 4px;">
+              ACCESS CODE REQUIRED
+            </span>
+          </div>
+          <input type="text" id="event-reg-access-code" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px; border-color: rgba(245, 158, 11, 0.5); background: rgba(15, 23, 42, 0.7);" placeholder="Enter event access code from organizer" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <div id="event-reg-access-code-hint" style="font-size: 0.72rem; color: #fcd34d; line-height: 1.35; margin-top: 0.35rem;">
+            This event requires an access code provided by the Tournament Organizer to register.
+          </div>
+        </div>
+
+        <!-- Optional Access Code Toggle (When not explicitly flagged as required) -->
+        <div id="event-reg-access-code-toggle-wrapper" style="font-size: 0.75rem; margin-top: -0.15rem; margin-bottom: 0.4rem;">
+          <button type="button" id="event-reg-access-code-toggle-btn" class="btn-link" style="background: none; border: none; padding: 0; color: #38bdf8; font-size: 0.75rem; cursor: pointer; text-decoration: underline;" onclick="toggleRegistrationAccessCode()">
+            🔑 Have an Access Code from the organizer?
+          </button>
+        </div>
+
         <div style="font-size: 0.73rem; color: var(--text-muted); line-height: 1.4; padding: 0.15rem 0;">
           🔒 Your name is shared publicly on event rosters and pairings. Your email is kept private and used as your unique identifier.
         </div>
@@ -2275,6 +2298,10 @@
               <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Email (for Confirmation)</label>
               <input type="email" id="reg-player-email" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="competitor@example.com">
             </div>
+          </div>
+          <div>
+            <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Access Code <span style="color: var(--text-muted); font-weight: 400;">(Optional / If required by TO)</span></label>
+            <input type="text" id="reg-player-access-code" class="form-input" style="width: 100%; box-sizing: border-box; font-size: 16px;" placeholder="e.g. Access code from organizer">
           </div>
           <div>
             <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Army List (Text / Waha / Battlescribe / NewRecruit)</label>
@@ -2512,8 +2539,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "4e63c7bf75";</script>
-  <script src="/js/app.bundle.min.js?v=4e63c7bf75"></script>
+  <script>window.APP_VERSION = "478c54f6d6";</script>
+  <script src="/js/app.bundle.min.js?v=478c54f6d6"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
