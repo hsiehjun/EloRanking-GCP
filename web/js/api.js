@@ -436,20 +436,26 @@ window.api = {
   },
 
   // Leaderboard (Players)
-  async getLeaderboard(faction = 'All', page = 1, pageSize = 25, sortBy = 'current_elo', order = 'DESC') {
+  async getLeaderboard(faction = 'All', page = 1, pageSize = 25, sortBy = 'current_elo', order = 'DESC', gameSystem = '') {
     const params = new URLSearchParams({ faction, page, page_size: pageSize, sort_by: sortBy, order });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
     return this._fetchJson(`/api/leaderboard?${params}`);
   },
 
   // Leaderboard (Teams)
-  async getLeaderboardTeams(minRoster = 1, page = 1, pageSize = 25, sortBy = 'power_rating', order = 'DESC') {
+  async getLeaderboardTeams(minRoster = 1, page = 1, pageSize = 25, sortBy = 'power_rating', order = 'DESC', gameSystem = '') {
     const params = new URLSearchParams({ min_roster: minRoster, page, page_size: pageSize, sort_by: sortBy, order });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
     return this._fetchJson(`/api/teams?${params}`);
   },
 
   // Teams Directory
-  async getTeamsDirectory(query = '', minRoster = 1, sortBy = 'power_rating', order = 'DESC', page = 1, pageSize = 25) {
+  async getTeamsDirectory(query = '', minRoster = 1, sortBy = 'power_rating', order = 'DESC', page = 1, pageSize = 25, gameSystem = '') {
     const params = new URLSearchParams({ query, min_roster: minRoster, sort_by: sortBy, order, page, page_size: pageSize });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
     return this._fetchJson(`/api/teams?${params}`);
   },
 

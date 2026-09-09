@@ -7,57 +7,86 @@ let currentPlayerMatches = [];
 let playerModalSearchQuery = '';
 let isChartExpanded = false;
 
-let modalZIndexCounter = 1000;
+let modalZIndexCounter = 10000;
 let modalStack = [];
+window.modalStack = modalStack;
 
 function bringModalToFront(modal) {
   if (!modal) return;
   if (typeof modal === 'string') modal = document.getElementById(modal);
   if (!modal) return;
-  modalZIndexCounter += 10;
+
+  // Dynamically inspect any currently active modal backdrops
+  let maxZ = 10000;
+  const activeBackdrops = document.querySelectorAll('.modal-backdrop.active');
+  activeBackdrops.forEach(el => {
+    if (el !== modal) {
+      const z = parseInt(window.getComputedStyle(el).zIndex, 10);
+      if (!isNaN(z) && z > maxZ && z < 100000) {
+        maxZ = z;
+      }
+    }
+  });
+
+  modalZIndexCounter = Math.max(modalZIndexCounter + 10, maxZ + 10);
   modal.style.setProperty('z-index', String(modalZIndexCounter), 'important');
+  modal.style.display = 'flex';
   modal.classList.add('active');
+
   modalStack = modalStack.filter(id => id !== modal.id);
   modalStack.push(modal.id);
+  window.modalStack = modalStack;
 }
 window.bringModalToFront = bringModalToFront;
 
 function closeModal(modalId) {
+  if (!modalId) return;
+  if (typeof modalId === 'object' && modalId.id) modalId = modalId.id;
+
   if (modalId === 'event-modal' && typeof stopEventSyncPoll === 'function') {
     stopEventSyncPoll();
   }
   if (modalId === 'event-details-loading-modal' && typeof closeEventDetailsLoadingModal === 'function') {
     closeEventDetailsLoadingModal();
   }
+  if (modalId === 'event-reg-loading-modal' && typeof closeEventRegistrationLoadingModal === 'function') {
+    closeEventRegistrationLoadingModal();
+  }
+
   const modal = document.getElementById(modalId);
   if (modal) {
     modal.classList.remove('active');
-    modalStack = modalStack.filter(id => id !== modalId);
-    if (modalStack.length === 0) {
-      modalZIndexCounter = 1000;
+    modal.style.display = 'none';
+    modal.style.removeProperty('z-index');
+  }
+
+  modalStack = modalStack.filter(id => id !== modalId);
+  window.modalStack = modalStack;
+
+  if (modalStack.length === 0) {
+    modalZIndexCounter = 10000;
+  } else {
+    // If there is an underlying modal on the stack, ensure it remains active and displayed
+    const topModalId = modalStack[modalStack.length - 1];
+    const topModal = document.getElementById(topModalId);
+    if (topModal) {
+      topModal.style.display = 'flex';
+      topModal.classList.add('active');
     }
   }
 }
+window.closeModal = closeModal;
 
 function closeModalOnBackdrop(e) {
-  if (e.target && e.target.classList.contains('modal-backdrop')) {
-    if (e.target.id === 'event-modal' && typeof stopEventSyncPoll === 'function') {
-      stopEventSyncPoll();
-    }
-    if (e.target.id === 'event-details-loading-modal' && typeof closeEventDetailsLoadingModal === 'function') {
-      closeEventDetailsLoadingModal();
-    }
-    e.target.classList.remove('active');
-    modalStack = modalStack.filter(id => id !== e.target.id);
-    if (modalStack.length === 0) {
-      modalZIndexCounter = 1000;
-    }
+  if (e && e.target && e.target.classList && e.target.classList.contains('modal-backdrop')) {
+    closeModal(e.target.id);
   }
 }
+window.closeModalOnBackdrop = closeModalOnBackdrop;
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && modalStack.length > 0) {
-    const topModalId = modalStack.pop();
+    const topModalId = modalStack[modalStack.length - 1];
     closeModal(topModalId);
   }
 });
@@ -603,7 +632,7 @@ function renderTeamRosterRows(roster) {
 
   roster.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openPlayerModal(p.player_id);
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
 
     const rank = idx + 1;
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
@@ -718,13 +747,13 @@ function renderFactionMatchesRows(matches) {
     tr.innerHTML = `
       <td style="font-family:var(--font-mono); font-size:0.8rem; color:var(--text-secondary);">${dateStr || '#'}</td>
       <td>
-        <span class="player-link" style="font-weight:600;" onclick="closeModal('faction-modal'); openEventModal('${m.event_id}')">
+        <span class="player-link" style="font-weight:600;" onclick="event.stopPropagation(); openEventModal('${m.event_id}')">
           ${escapeHtml(m.event_name || 'Tournament')}
         </span>
         <span style="font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">R${m.round || 1}</span>
       </td>
       <td>
-        <span class="player-link" style="font-weight:600;" onclick="openPlayerModal('${m.player_id}')">
+        <span class="player-link" style="font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player_id}')">
           ${escapeHtml(m.player_name || 'Player')}
         </span>
       </td>
@@ -733,7 +762,7 @@ function renderFactionMatchesRows(matches) {
       </td>
       <td>
         <div style="font-weight:600;">
-          <span class="player-link" onclick="openPlayerModal('${m.opponent_id}')">${escapeHtml(m.opponent_name || 'Opponent')}</span>
+          <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${m.opponent_id}')">${escapeHtml(m.opponent_name || 'Opponent')}</span>
         </div>
         <div style="font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(m.opponent_faction || 'Various')}</div>
       </td>
@@ -755,7 +784,7 @@ function renderFactionPlayersRows(players) {
 
   players.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openPlayerModal(p.player_id);
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
 
     const rank = idx + 1;
     const eloBadgeClass = getEloBadgeClass(p.current_elo);

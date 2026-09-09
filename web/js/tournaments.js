@@ -225,9 +225,13 @@ function closeEventDetailsLoadingModal() {
   if (loadingModal) {
     loadingModal.style.display = 'none';
     loadingModal.classList.remove('active');
+    loadingModal.style.removeProperty('z-index');
   }
   if (typeof modalStack !== 'undefined') {
     modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+  }
+  if (typeof window !== 'undefined' && window.modalStack) {
+    window.modalStack = window.modalStack.filter(id => id !== 'event-details-loading-modal');
   }
   if (currentOpenEventId) {
     eventDetailsLoadingCancelledId = currentOpenEventId;
@@ -268,11 +272,15 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   }
   if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
 
-  const isAlreadyOpen = modal.classList.contains('active') && modal.style.display !== 'none';
+  const isTopEventModal = modal.classList.contains('active') &&
+                          modal.style.display !== 'none' &&
+                          ((typeof modalStack !== 'undefined' && modalStack.length > 0 && modalStack[modalStack.length - 1] === 'event-modal') ||
+                           (typeof window !== 'undefined' && window.modalStack && window.modalStack.length > 0 && window.modalStack[window.modalStack.length - 1] === 'event-modal')) &&
+                          currentEventData && String(currentEventData.id) === String(eventId);
   const loadingModal = document.getElementById('event-details-loading-modal');
 
-  // If the event modal is not already open, display the dedicated BCP loading screen first
-  if (!isAlreadyOpen && loadingModal) {
+  // If the event modal is not already the top active modal showing this event, display the dedicated BCP loading screen immediately
+  if (!isTopEventModal && loadingModal) {
     let previewName = '';
     if (currentEventData && String(currentEventData.id) === String(eventId)) {
       previewName = currentEventData.name || currentEventData.event_name || '';
@@ -318,7 +326,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const pbody = document.getElementById('event-pairings-body');
   const hasCachedRows = (currentEventData && String(currentEventData.id) === String(eventId));
 
-  if (hasCachedRows && isAlreadyOpen) {
+  if (hasCachedRows && isTopEventModal) {
     if (rbody) rbody.style.opacity = '0.6';
     if (ebody) ebody.style.opacity = '0.6';
     if (pbody) pbody.style.opacity = '0.6';
@@ -345,6 +353,13 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
       if (loadingModal) {
         loadingModal.style.display = 'none';
         loadingModal.classList.remove('active');
+        loadingModal.style.removeProperty('z-index');
+        if (typeof modalStack !== 'undefined') {
+          modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+        }
+        if (typeof window !== 'undefined' && window.modalStack) {
+          window.modalStack = window.modalStack.filter(id => id !== 'event-details-loading-modal');
+        }
       }
       return;
     }
@@ -525,8 +540,12 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (loadingModal) {
       loadingModal.style.display = 'none';
       loadingModal.classList.remove('active');
+      loadingModal.style.removeProperty('z-index');
       if (typeof modalStack !== 'undefined') {
         modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+      }
+      if (typeof window !== 'undefined' && window.modalStack) {
+        window.modalStack = window.modalStack.filter(id => id !== 'event-details-loading-modal');
       }
     }
 
@@ -589,8 +608,12 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     if (loadingModal) {
       loadingModal.style.display = 'none';
       loadingModal.classList.remove('active');
+      loadingModal.style.removeProperty('z-index');
       if (typeof modalStack !== 'undefined') {
         modalStack = modalStack.filter(id => id !== 'event-details-loading-modal');
+      }
+      if (typeof window !== 'undefined' && window.modalStack) {
+        window.modalStack = window.modalStack.filter(id => id !== 'event-details-loading-modal');
       }
     }
     if (typeof bringModalToFront === 'function') {
@@ -1060,7 +1083,7 @@ function renderEventTeamsRows() {
               <div class="team-member-col-name" style="display:flex; align-items:center; gap:0.45rem; min-width:0;">
                 <span style="font-size:0.85rem; width:16px; text-align:center; flex-shrink:0;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
                 ${memberPlacingTag}
-                <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                <a href="javascript:void(0)" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
                   ${mName}
                 </a>
                 ${capTag}
@@ -1138,7 +1161,7 @@ function renderEventTeamsRows() {
             <div class="team-member-grid" style="border-bottom:${mIdx < unassigned.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none'};">
               <div style="display:flex; align-items:center; gap:0.5rem;">
                 <span style="color:var(--text-muted);">•</span>
-                <a href="javascript:void(0)" onclick="openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; color:#38bdf8; text-decoration:none;">${mName}</a>
+                <a href="javascript:void(0)" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; color:#38bdf8; text-decoration:none;">${mName}</a>
               </div>
               <div><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.72rem;">${mFac}</span></div>
               <div style="text-align:right;"><span class="elo-badge ${getEloBadgeClass(mElo)}" style="font-size:0.78rem;">${mElo}</span></div>
@@ -1323,7 +1346,7 @@ function renderEventResultsRows() {
   tbody.innerHTML = '';
   playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openPlayerModal(p.player_id);
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
@@ -1428,7 +1451,7 @@ function renderEventEloRows() {
   tbody.innerHTML = '';
   playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openPlayerModal(p.player_id);
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';

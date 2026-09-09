@@ -3079,7 +3079,17 @@ let userRegistrationArmyLists = [];
 
 function closeEventRegistrationLoadingModal() {
   const loadingModal = document.getElementById('event-reg-loading-modal');
-  if (loadingModal) loadingModal.style.display = 'none';
+  if (loadingModal) {
+    loadingModal.style.display = 'none';
+    loadingModal.classList.remove('active');
+    loadingModal.style.removeProperty('z-index');
+  }
+  if (typeof modalStack !== 'undefined') {
+    modalStack = modalStack.filter(id => id !== 'event-reg-loading-modal');
+  }
+  if (typeof window !== 'undefined' && window.modalStack) {
+    window.modalStack = window.modalStack.filter(id => id !== 'event-reg-loading-modal');
+  }
 }
 window.closeEventRegistrationLoadingModal = closeEventRegistrationLoadingModal;
 
@@ -3286,7 +3296,7 @@ async function openEventRegistrationModal(eventId) {
 
   try {
     const data = await window.api.getCommunityEventRegistration(eventId);
-    if (loadingModal) loadingModal.style.display = 'none';
+    if (loadingModal) closeEventRegistrationLoadingModal();
 
     if (!data || !data.success) {
       modal.style.display = 'flex';
@@ -3453,7 +3463,7 @@ window.syncRegistrationFullName = syncRegistrationFullName;
     modal.style.display = 'flex';
     if (typeof bringModalToFront === 'function') bringModalToFront(modal);
   } catch (err) {
-    if (loadingModal) loadingModal.style.display = 'none';
+    if (loadingModal) closeEventRegistrationLoadingModal();
     modal.style.display = 'flex';
     if (typeof bringModalToFront === 'function') bringModalToFront(modal);
     console.error('Error opening event registration modal:', err);
@@ -3468,8 +3478,12 @@ window.syncRegistrationFullName = syncRegistrationFullName;
 
 function closeEventRegistrationModal() {
   closeEventRegistrationLoadingModal();
-  const modal = document.getElementById('event-registration-modal');
-  if (modal) modal.style.display = 'none';
+  if (typeof closeModal === 'function') {
+    closeModal('event-registration-modal');
+  } else {
+    const modal = document.getElementById('event-registration-modal');
+    if (modal) modal.style.display = 'none';
+  }
   activeRegistrationEvent = null;
 }
 

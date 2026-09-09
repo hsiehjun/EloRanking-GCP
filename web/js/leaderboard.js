@@ -82,7 +82,8 @@ window.setLeaderboardTeamsPageSize = setLeaderboardTeamsPageSize;
 
 function prefetchNextLeaderboardPage(faction, nextPage, pageSize, sortState) {
   if (leaderboardPrefetchTimer) clearTimeout(leaderboardPrefetchTimer);
-  const cacheKey = `lb_${faction}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}`;
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cacheKey = `lb_${gs}_${faction}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}`;
   if (leaderboardCache.has(cacheKey)) return;
 
   leaderboardPrefetchTimer = setTimeout(async () => {
@@ -102,7 +103,8 @@ function prefetchNextLeaderboardPage(faction, nextPage, pageSize, sortState) {
 
 function prefetchNextLeaderboardTeamsPage(minRoster, nextPage, pageSize, sortState) {
   if (leaderboardTeamsPrefetchTimer) clearTimeout(leaderboardTeamsPrefetchTimer);
-  const cacheKey = `lb_teams_${minRoster}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}`;
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cacheKey = `lb_teams_${gs}_${minRoster}_${nextPage}_${pageSize}_${sortState.field}_${sortState.asc ? 'ASC' : 'DESC'}`;
   if (leaderboardTeamsCache.has(cacheKey)) return;
 
   leaderboardTeamsPrefetchTimer = setTimeout(async () => {
@@ -123,7 +125,8 @@ function prefetchNextLeaderboardTeamsPage(minRoster, nextPage, pageSize, sortSta
 async function loadLeaderboard(isPrefetch = false) {
   const faction = 'All';
   const tbody = document.getElementById('leaderboard-body');
-  const cacheKey = `lb_${faction}_${leaderboardPagination.page}_${leaderboardPagination.pageSize}_${leaderboardSortState.field}_${leaderboardSortState.asc ? 'ASC' : 'DESC'}`;
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cacheKey = `lb_${gs}_${faction}_${leaderboardPagination.page}_${leaderboardPagination.pageSize}_${leaderboardSortState.field}_${leaderboardSortState.asc ? 'ASC' : 'DESC'}`;
 
   // 1. Stale-While-Revalidate: Instant cache hit rendering
   const cached = leaderboardCache.get(cacheKey);
@@ -152,6 +155,9 @@ async function loadLeaderboard(isPrefetch = false) {
       faction, leaderboardPagination.page, leaderboardPagination.pageSize,
       leaderboardSortState.field, leaderboardSortState.asc ? 'ASC' : 'DESC'
     );
+    if (res && res.error) {
+      throw new Error(res.error);
+    }
     if (res && res.items) {
       leaderboardCache.set(cacheKey, res);
 
@@ -187,7 +193,7 @@ async function loadLeaderboard(isPrefetch = false) {
     if (tbody && !cached) {
       tbody.style.opacity = '1';
       tbody.style.pointerEvents = '';
-      tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);">Error loading leaderboard: ${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="empty-state" style="color:var(--loss);"><p>Error loading leaderboard: ${escapeHtml(err.message)}</p><button class="btn btn-outline" style="margin-top:0.5rem;" onclick="loadLeaderboard()">🔄 Retry</button></td></tr>`;
     }
   }
 }
@@ -211,7 +217,7 @@ function renderLeaderboardRows() {
   const list = Array.isArray(leaderboardData) ? leaderboardData : (leaderboardData && Array.isArray(leaderboardData.items) ? leaderboardData.items : []);
   list.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openPlayerModal(p.player_id);
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
 
     const rank = offset + idx + 1;
     let rankClass = '';
@@ -266,7 +272,8 @@ function renderLeaderboardRows() {
 async function loadLeaderboardTeams(isPrefetch = false) {
   const minRoster = 1;
   const tbody = document.getElementById('lead-teams-body');
-  const cacheKey = `lb_teams_${minRoster}_${leaderboardTeamsPagination.page}_${leaderboardTeamsPagination.pageSize}_${leaderboardTeamsSortState.field}_${leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'}`;
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cacheKey = `lb_teams_${gs}_${minRoster}_${leaderboardTeamsPagination.page}_${leaderboardTeamsPagination.pageSize}_${leaderboardTeamsSortState.field}_${leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'}`;
 
   // 1. Stale-While-Revalidate: Instant cache hit rendering
   const cached = leaderboardTeamsCache.get(cacheKey);
@@ -298,6 +305,9 @@ async function loadLeaderboardTeams(isPrefetch = false) {
       leaderboardTeamsSortState.field,
       leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'
     );
+    if (res && res.error) {
+      throw new Error(res.error);
+    }
     if (res && res.items) {
       leaderboardTeamsCache.set(cacheKey, res);
 
@@ -360,7 +370,7 @@ function renderLeaderboardTeamsRows() {
 
   list.forEach((t, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openTeamModal(t.team);
+    tr.onclick = (e) => { e.stopPropagation(); openTeamModal(t.team); };
 
     const rank = offset + idx + 1;
     let rankClass = '';
