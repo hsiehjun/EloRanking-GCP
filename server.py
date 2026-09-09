@@ -58,8 +58,8 @@ app = FastAPI(
 async def add_cache_headers(request, call_next):
     response = await call_next(request)
     path = request.url.path
-    if path.startswith("/api/auth") or path.startswith("/api/user") or path.startswith("/api/connect") or path.startswith("/api/tracker") or path.startswith("/api/chat") or path.startswith("/api/version"):
-        # Never cache authentication, session, user, connect, chat, live tracker, or version endpoints
+    if path.startswith("/api/auth") or path.startswith("/api/user") or path.startswith("/api/connect") or path.startswith("/api/tracker") or path.startswith("/api/chat") or path.startswith("/api/version") or path == "/health" or path == "/api/health":
+        # Never cache authentication, session, user, connect, chat, live tracker, health, or version endpoints
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
     elif path.startswith("/css") or path.startswith("/js"):
@@ -77,6 +77,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ultra-fast Uptime / Health Checks (<1ms) for Cloud Monitoring and Cloud Run Probes
+@app.get("/health", summary="Fast uptime health check")
+@app.get("/api/health", summary="Fast uptime health check")
+async def root_health_check():
+    return {"status": "ok"}
 
 # Static Assets Mount
 if (web_dir / "assets").exists():
@@ -107,6 +113,16 @@ async def on_server_startup():
         get_database().sync_player_latest_teams(force=False)
     except Exception as e:
         logger.warning(f"Notice during startup team sync: {e}")
+
+    async def _prewarm_stats_cache():
+        try:
+            db = get_database()
+            await asyncio.to_thread(db.get_summary_stats, "40k")
+            logger.info("🔥 Global summary stats 40k cache pre-warmed")
+        except Exception as se:
+            logger.warning(f"Notice during stats cache pre-warming: {se}")
+
+    asyncio.create_task(_prewarm_stats_cache())
 
     async def _prewarm_meta_intel_cache():
         try:

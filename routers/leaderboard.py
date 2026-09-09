@@ -29,10 +29,18 @@ router = APIRouter(tags=["Leaderboard & Analytics"])
 
 _active_event_syncs: set = set()
 
+# Ultra-fast Uptime / Health Checks (<1ms)
+@router.get("/health", include_in_schema=False)
+@router.get("/api/health", summary="Fast uptime health check")
+async def health_check():
+    return {"status": "ok"}
+
 # API: Summary Stats Ribbon
 @router.get("/api/stats", summary="Get global summary statistics")
 async def api_stats(game_system: Optional[str] = Query("40k")):
-    return get_database().get_summary_stats(game_system=game_system)
+    def _run_stats():
+        return get_database().get_summary_stats(game_system=game_system)
+    return await asyncio.to_thread(_run_stats)
 
 # API: Individual Leaderboard Standings
 @router.get("/api/leaderboard", summary="Get top ranked players (paginated)")
@@ -1474,8 +1482,10 @@ async def api_head_to_head(p1: str = Query(...), p2: str = Query(...), game_syst
 # API: Unique Factions
 @router.get("/api/factions", summary="List all active Warhammer factions")
 async def api_factions(game_system: Optional[str] = Query("40k")):
-    stats = get_database().get_summary_stats(game_system=game_system)
-    return stats.get("factions", [])
+    def _run_factions():
+        stats = get_database().get_summary_stats(game_system=game_system)
+        return stats.get("factions", [])
+    return await asyncio.to_thread(_run_factions)
 
 # API: Faction Meta & Balance Analytics
 @router.get("/api/factions/meta", summary="Get global faction win rates and balance tier ratings")

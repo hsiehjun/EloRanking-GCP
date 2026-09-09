@@ -243,7 +243,8 @@ function filterByTeam(team) {
 
 async function loadGlobalStats() {
   try {
-    const stats = await window.api.getStats();
+    const currentSys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const stats = await window.api.getStats(currentSys);
     const elP = document.getElementById('stat-total-players');
     if (elP) elP.innerText = formatNumber(stats.total_players || 0);
     const elM = document.getElementById('stat-total-matches');

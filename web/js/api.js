@@ -431,8 +431,9 @@ window.api = {
   },
 
   // Global Summary Stats
-  async getStats() {
-    return this._fetchJson('/api/stats');
+  async getStats(gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    return this._fetchJson(`/api/stats?game_system=${encodeURIComponent(currentSys || '40k')}`);
   },
 
   // Leaderboard (Players)
