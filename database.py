@@ -157,7 +157,6 @@ class PostgresDatabase:
         try:
             self._ensure_pool()
             if not PostgresDatabase._db_initialized:
-                self._ensure_multigame_columns()
                 self.init_db()
                 self.ensure_tracker_table()
                 self._ensure_event_participant_columns()
@@ -268,6 +267,8 @@ class PostgresDatabase:
                     if not acquired:
                         logger.info("Another process is currently initializing DB schema; skipping.")
                         return
+
+            self._ensure_multigame_columns()
 
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
@@ -1749,16 +1750,19 @@ class PostgresDatabase:
                     if game_system and game_system != "all":
                         fac_where += " AND (game_system = %s OR game_system IS NULL)"
                     cursor.execute(f"""
-                    SELECT DISTINCT TRIM(fac) as f 
-                    FROM (
-                        SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
-                        FROM player_ratings
-                        {fac_where}
-                    ) sub
-                    WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
-                    ORDER BY f ASC;
+                    SELECT DISTINCT top_faction 
+                    FROM player_ratings
+                    {fac_where}
+                    LIMIT 2000;
                     """, tuple(params_sys))
-                    factions = [r["f"] for r in cursor.fetchall() if r["f"]]
+                    raw_facs = [r["top_faction"] for r in cursor.fetchall() if r.get("top_faction")]
+                    flat_facs = set()
+                    for rf in raw_facs:
+                        for part in str(rf).split(","):
+                            clean = part.strip()
+                            if clean and clean not in ("Unknown", "Unknown Faction"):
+                                flat_facs.add(clean)
+                    factions = sorted(list(flat_facs))
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Fallback get_summary_stats notice: {e}")
@@ -1780,16 +1784,19 @@ class PostgresDatabase:
                         cur_safe.execute("SELECT player_name, current_elo FROM player_ratings WHERE matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;")
                         top_p = cur_safe.fetchone() or {"player_name": "None", "current_elo": 1500.0}
                         cur_safe.execute("""
-                        SELECT DISTINCT TRIM(fac) as f 
-                        FROM (
-                            SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
-                            FROM player_ratings
-                            WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
-                        ) sub
-                        WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
-                        ORDER BY f ASC;
+                        SELECT DISTINCT top_faction 
+                        FROM player_ratings
+                        WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
+                        LIMIT 2000;
                         """)
-                        factions = [r["f"] for r in cur_safe.fetchall() if r["f"]]
+                        raw_facs = [r["top_faction"] for r in cur_safe.fetchall() if r.get("top_faction")]
+                        flat_facs = set()
+                        for rf in raw_facs:
+                            for part in str(rf).split(","):
+                                clean = part.strip()
+                                if clean and clean not in ("Unknown", "Unknown Faction"):
+                                    flat_facs.add(clean)
+                        factions = sorted(list(flat_facs))
 
                 res = {
                     "total_players": total_players,
