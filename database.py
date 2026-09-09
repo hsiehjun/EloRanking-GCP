@@ -157,6 +157,7 @@ class PostgresDatabase:
         try:
             self._ensure_pool()
             if not PostgresDatabase._db_initialized:
+                self._ensure_multigame_columns()
                 self.init_db()
                 self.ensure_tracker_table()
                 self._ensure_event_participant_columns()
@@ -254,7 +255,7 @@ class PostgresDatabase:
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v15_unified_events':
+                        if setting and setting[0] == 'v16_multigame_isolation':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -980,7 +981,7 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v15_unified_events')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v16_multigame_isolation')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     """)
                 conn.commit()
@@ -1166,6 +1167,36 @@ class PostgresDatabase:
                 conn.commit()
         except Exception as err:
             logger.debug(f"_ensure_event_participant_columns notice: {err}")
+
+    def _ensure_multigame_columns(self):
+        """Guarantees game_system columns exist across events, matches, rating_history, tracker_games, and player_ratings."""
+        statements = [
+            "ALTER TABLE events ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE rating_history ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE user_army_lists ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_systems TEXT[] DEFAULT '{\"40k\"}';",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_elo ON player_ratings(game_system, current_elo DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_system_chrono ON matches(game_system, match_date ASC NULLS FIRST, round ASC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_events_system_date ON events(game_system, event_date DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_tracker_games_system ON tracker_games(game_system);",
+        ]
+        try:
+            with self.get_connection() as conn:
+                for stmt in statements:
+                    try:
+                        with conn.cursor() as cursor:
+                            cursor.execute("SET lock_timeout = '5s';")
+                            cursor.execute(stmt)
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        logger.debug(f"_ensure_multigame_columns statement notice: {e}")
+        except Exception as err:
+            logger.warning(f"_ensure_multigame_columns notice: {err}")
 
     def ensure_registered_tournaments_table(self, force: bool = False):
         """Deprecated compatibility alias: ensures event_participants columns exist."""
@@ -1517,15 +1548,26 @@ class PostgresDatabase:
                 if game_system and game_system != "all":
                     where_extra = " AND COALESCE(game_system, '40k') = %s"
                     params.append(game_system)
-                cursor.execute(f"""
-                SELECT COUNT(*) FROM matches
-                WHERE is_done = TRUE
-                  AND player1_id IS NOT NULL AND player1_id != ''
-                  AND player2_id IS NOT NULL AND player2_id != ''
-                  {where_extra};
-                """, tuple(params))
-                row = cursor.fetchone()
-                return row[0] if row else 0
+                try:
+                    cursor.execute(f"""
+                    SELECT COUNT(*) FROM matches
+                    WHERE is_done = TRUE
+                      AND player1_id IS NOT NULL AND player1_id != ''
+                      AND player2_id IS NOT NULL AND player2_id != ''
+                      {where_extra};
+                    """, tuple(params))
+                    row = cursor.fetchone()
+                    return row[0] if row else 0
+                except Exception:
+                    conn.rollback()
+                    cursor.execute("""
+                    SELECT COUNT(*) FROM matches
+                    WHERE is_done = TRUE
+                      AND player1_id IS NOT NULL AND player1_id != ''
+                      AND player2_id IS NOT NULL AND player2_id != '';
+                    """)
+                    row = cursor.fetchone()
+                    return row[0] if row else 0
 
     def get_matches_chunk(self, offset: int, limit: int = 50000, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Fetches a chunk of matches ordered chronologically (low memory footprint)."""
@@ -1536,22 +1578,41 @@ class PostgresDatabase:
                 if game_system and game_system != "all":
                     where_extra = " AND COALESCE(m.game_system, '40k') = %s"
                     params.append(game_system)
-                cursor.execute(f"""
-                SELECT 
-                    m.id, m.event_id, m.round, m.table_number, m.match_date,
-                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                    m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                    m.winner_id, m.is_draw, m.is_bye,
-                    COALESCE(m.game_system, '40k') as game_system
-                FROM matches m
-                WHERE m.is_done = TRUE
-                  AND m.player1_id IS NOT NULL AND m.player1_id != ''
-                  AND m.player2_id IS NOT NULL AND m.player2_id != ''
-                  {where_extra}
-                ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
-                LIMIT %s OFFSET %s;
-                """, (*params, limit, offset))
-                return [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"""
+                    SELECT 
+                        m.id, m.event_id, m.round, m.table_number, m.match_date,
+                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                        m.winner_id, m.is_draw, m.is_bye,
+                        COALESCE(m.game_system, '40k') as game_system
+                    FROM matches m
+                    WHERE m.is_done = TRUE
+                      AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                      AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      {where_extra}
+                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                    LIMIT %s OFFSET %s;
+                    """, (*params, limit, offset))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception:
+                    conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT 
+                            m.id, m.event_id, m.round, m.table_number, m.match_date,
+                            m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                            m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                            m.winner_id, m.is_draw, m.is_bye,
+                            '40k' as game_system
+                        FROM matches m
+                        WHERE m.is_done = TRUE
+                          AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                          AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                        ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                        LIMIT %s OFFSET %s;
+                        """, (limit, offset))
+                        return [dict(r) for r in cur_safe.fetchall()]
 
     def get_unranked_matches(self, limit: int = 50000, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns new matches that do not yet have a record in rating_history."""
@@ -1562,28 +1623,50 @@ class PostgresDatabase:
                 if game_system and game_system != "all":
                     where_extra = " AND COALESCE(m.game_system, '40k') = %s"
                     params.append(game_system)
-                cursor.execute(f"""
-                SELECT 
-                    m.id, m.event_id, m.round, m.table_number, m.match_date,
-                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                    m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                    m.winner_id, m.is_draw, m.is_bye,
-                    COALESCE(m.game_system, '40k') as game_system
-                FROM matches m
-                WHERE m.is_done = TRUE
-                  AND m.player1_id IS NOT NULL AND m.player1_id != ''
-                  AND m.player2_id IS NOT NULL AND m.player2_id != ''
-                  AND NOT EXISTS (
-                      SELECT 1 FROM rating_history rh 
-                      WHERE rh.match_id = m.id 
-                        AND COALESCE(rh.game_system, '40k') = COALESCE(m.game_system, '40k')
-                      LIMIT 1
-                  )
-                  {where_extra}
-                ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
-                LIMIT %s;
-                """, (*params, limit))
-                return [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"""
+                    SELECT 
+                        m.id, m.event_id, m.round, m.table_number, m.match_date,
+                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                        m.winner_id, m.is_draw, m.is_bye,
+                        COALESCE(m.game_system, '40k') as game_system
+                    FROM matches m
+                    WHERE m.is_done = TRUE
+                      AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                      AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND NOT EXISTS (
+                          SELECT 1 FROM rating_history rh 
+                          WHERE rh.match_id = m.id 
+                            AND COALESCE(rh.game_system, '40k') = COALESCE(m.game_system, '40k')
+                          LIMIT 1
+                      )
+                      {where_extra}
+                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                    LIMIT %s;
+                    """, (*params, limit))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception:
+                    conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT 
+                            m.id, m.event_id, m.round, m.table_number, m.match_date,
+                            m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                            m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                            m.winner_id, m.is_draw, m.is_bye,
+                            '40k' as game_system
+                        FROM matches m
+                        WHERE m.is_done = TRUE
+                          AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                          AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                          AND NOT EXISTS (
+                              SELECT 1 FROM rating_history rh WHERE rh.match_id = m.id LIMIT 1
+                          )
+                        ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
+                        LIMIT %s;
+                        """, (limit,))
+                        return [dict(r) for r in cur_safe.fetchall()]
 
     def get_all_matches_chronological(self, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns all completed matches ordered chronologically (optimized for low-memory GCP VMs)."""
@@ -1594,18 +1677,36 @@ class PostgresDatabase:
                 if game_system and game_system != "all":
                     where_clause += " AND COALESCE(m.game_system, '40k') = %s"
                     params.append(game_system)
-                cursor.execute(f"""
-                SELECT 
-                    m.id, m.event_id, m.round, m.table_number, m.match_date,
-                    m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                    m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                    m.winner_id, m.is_draw, m.is_bye,
-                    COALESCE(m.game_system, '40k') as game_system
-                FROM matches m
-                {where_clause}
-                ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
-                """, tuple(params))
-                return cursor.fetchall()
+                try:
+                    cursor.execute(f"""
+                    SELECT 
+                        m.id, m.event_id, m.round, m.table_number, m.match_date,
+                        m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                        m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                        m.winner_id, m.is_draw, m.is_bye,
+                        COALESCE(m.game_system, '40k') as game_system
+                    FROM matches m
+                    {where_clause}
+                    ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
+                    """, tuple(params))
+                    return cursor.fetchall()
+                except Exception:
+                    conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT 
+                            m.id, m.event_id, m.round, m.table_number, m.match_date,
+                            m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                            m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                            m.winner_id, m.is_draw, m.is_bye,
+                            '40k' as game_system
+                        FROM matches m
+                        WHERE m.is_done = TRUE
+                          AND m.player1_id IS NOT NULL AND m.player1_id != ''
+                          AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                        ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
+                        """)
+                        return cur_safe.fetchall()
 
 
     def get_summary_stats(self, game_system: Optional[str] = "40k") -> Dict[str, Any]:
@@ -1630,33 +1731,65 @@ class PostgresDatabase:
                     where_e += " AND (game_system = %s OR game_system IS NULL)"
                     params_sys = [game_system]
 
-                cursor.execute(f"SELECT COUNT(*) as cnt FROM player_ratings {where_pr};", tuple(params_sys))
-                total_players = cursor.fetchone()["cnt"]
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as cnt FROM player_ratings {where_pr};", tuple(params_sys))
+                    total_players = cursor.fetchone()["cnt"]
 
-                cursor.execute(f"SELECT COUNT(*) as cnt FROM matches {where_m};", tuple(params_sys))
-                total_matches = cursor.fetchone()["cnt"]
+                    cursor.execute(f"SELECT COUNT(*) as cnt FROM matches {where_m};", tuple(params_sys))
+                    total_matches = cursor.fetchone()["cnt"]
 
-                cursor.execute(f"SELECT COUNT(*) as cnt FROM events {where_e};", tuple(params_sys))
-                total_events = cursor.fetchone()["cnt"]
+                    cursor.execute(f"SELECT COUNT(*) as cnt FROM events {where_e};", tuple(params_sys))
+                    total_events = cursor.fetchone()["cnt"]
 
-                top_query = f"SELECT player_name, current_elo FROM player_ratings {where_pr} AND matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;"
-                cursor.execute(top_query, tuple(params_sys))
-                top_p = cursor.fetchone() or {"player_name": "None", "current_elo": 1500.0}
+                    top_query = f"SELECT player_name, current_elo FROM player_ratings {where_pr} AND matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;"
+                    cursor.execute(top_query, tuple(params_sys))
+                    top_p = cursor.fetchone() or {"player_name": "None", "current_elo": 1500.0}
 
-                fac_where = f"WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'"
-                if game_system and game_system != "all":
-                    fac_where += " AND (game_system = %s OR game_system IS NULL)"
-                cursor.execute(f"""
-                SELECT DISTINCT TRIM(fac) as f 
-                FROM (
-                    SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
-                    FROM player_ratings
-                    {fac_where}
-                ) sub
-                WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
-                ORDER BY f ASC;
-                """, tuple(params_sys))
-                factions = [r["f"] for r in cursor.fetchall() if r["f"]]
+                    fac_where = f"WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'"
+                    if game_system and game_system != "all":
+                        fac_where += " AND (game_system = %s OR game_system IS NULL)"
+                    cursor.execute(f"""
+                    SELECT DISTINCT TRIM(fac) as f 
+                    FROM (
+                        SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
+                        FROM player_ratings
+                        {fac_where}
+                    ) sub
+                    WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
+                    ORDER BY f ASC;
+                    """, tuple(params_sys))
+                    factions = [r["f"] for r in cursor.fetchall() if r["f"]]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_summary_stats notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                            cur_heal.execute("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                            cur_heal.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("SELECT COUNT(*) as cnt FROM player_ratings WHERE matches_played > 0;")
+                        total_players = cur_safe.fetchone()["cnt"]
+                        cur_safe.execute("SELECT COUNT(*) as cnt FROM matches WHERE is_done = TRUE;")
+                        total_matches = cur_safe.fetchone()["cnt"]
+                        cur_safe.execute("SELECT COUNT(*) as cnt FROM events;")
+                        total_events = cur_safe.fetchone()["cnt"]
+                        cur_safe.execute("SELECT player_name, current_elo FROM player_ratings WHERE matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;")
+                        top_p = cur_safe.fetchone() or {"player_name": "None", "current_elo": 1500.0}
+                        cur_safe.execute("""
+                        SELECT DISTINCT TRIM(fac) as f 
+                        FROM (
+                            SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
+                            FROM player_ratings
+                            WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
+                        ) sub
+                        WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
+                        ORDER BY f ASC;
+                        """)
+                        factions = [r["f"] for r in cur_safe.fetchall() if r["f"]]
 
                 res = {
                     "total_players": total_players,
@@ -1837,28 +1970,47 @@ class PostgresDatabase:
 
                 where_sql = "WHERE " + " AND ".join(where_clauses)
                 
-                cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
-                total_count = cursor.fetchone()["total_count"] or 0
-
-                sql = f"""
-                SELECT r.player_id, r.player_name, r.current_elo, r.peak_elo,
-                       r.matches_played, r.wins, r.losses, r.draws, r.win_rate,
-                       r.top_faction, r.team, r.last_active_date,
-                       CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account,
-                       u.id as account_user_id
-                FROM player_ratings r
-                LEFT JOIN users u ON (
-                    (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = r.player_id)
-                    OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = r.player_id)
-                    OR u.id = r.player_id
-                )
-                {where_sql}
-                ORDER BY r.{col} {dir_str} NULLS LAST
-                LIMIT %s OFFSET %s;
-                """
-                params.extend([page_size, offset])
-                cursor.execute(sql, params)
-                rows = [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {where_sql};", params)
+                    total_count = cursor.fetchone()["total_count"] or 0
+                    cursor.execute(sql, params + [page_size, offset])
+                    rows = [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_players_directory notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    safe_where = ["r.matches_played >= %s"]
+                    safe_params = [min_matches]
+                    if query:
+                        q_str = str(query).strip()
+                        safe_where.append("(r.player_name ILIKE %s OR r.player_id = %s)")
+                        safe_params.extend([f"%{q_str}%", q_str])
+                    s_sql = "WHERE " + " AND ".join(safe_where)
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute(f"SELECT COUNT(*) as total_count FROM player_ratings r {s_sql};", safe_params)
+                        total_count = cur_safe.fetchone()["total_count"] or 0
+                        cur_safe.execute(f"""
+                        SELECT r.player_id, r.player_name, r.current_elo, r.peak_elo,
+                               r.matches_played, r.wins, r.losses, r.draws, r.win_rate,
+                               r.top_faction, r.team, r.last_active_date,
+                               CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account,
+                               u.id as account_user_id
+                        FROM player_ratings r
+                        LEFT JOIN users u ON (
+                            (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = r.player_id)
+                            OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = r.player_id)
+                            OR u.id = r.player_id
+                        )
+                        {s_sql}
+                        ORDER BY r.{col} {dir_str} NULLS LAST
+                        LIMIT %s OFFSET %s;
+                        """, safe_params + [page_size, offset])
+                        rows = [dict(r) for r in cur_safe.fetchall()]
 
                 res = {
                     "items": rows,
@@ -2620,44 +2772,50 @@ class PostgresDatabase:
                 where_sql = " AND ".join(where_clauses)
                 dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
 
-                # Count total
-                cursor.execute(f"SELECT COUNT(*) as total_count FROM events e WHERE {where_sql};", params)
-                total_count = cursor.fetchone()["total_count"] or 0
-
-                allowed_cols = {
-                    "name": "e.name",
-                    "event_date": "e.event_date",
-                    "location": "e.city",
-                    "total_players": "e.total_players",
-                    "num_rounds": "e.num_rounds",
-                    "match_count": "e.total_players"
-                }
-                col = allowed_cols.get(sort_by, "e.event_date")
-                pe_col = col.replace("e.", "pe.")
-
-                sql = f"""
-                WITH page_events AS (
-                    SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
-                           e.total_players, e.num_rounds, e.current_round, e.is_ended
-                    FROM events e
-                    WHERE {where_sql}
-                    ORDER BY {col} {dir_str} NULLS LAST
-                    LIMIT %s OFFSET %s
-                )
-                SELECT pe.*, COALESCE(mc.cnt, 0) as match_count
-                FROM page_events pe
-                LEFT JOIN (
-                    SELECT event_id, COUNT(*) as cnt
-                    FROM matches
-                    WHERE event_id IN (SELECT id FROM page_events)
-                    GROUP BY event_id
-                ) mc ON pe.id = mc.event_id
-                ORDER BY {pe_col} {dir_str} NULLS LAST;
-                """
-                params.extend([page_size, offset])
-
-                cursor.execute(sql, params)
-                rows = [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"SELECT COUNT(*) as total_count FROM events e WHERE {where_sql};", params)
+                    total_count = cursor.fetchone()["total_count"] or 0
+                    cursor.execute(sql, params + [page_size, offset])
+                    rows = [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_events_list notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    safe_where = ["1=1"]
+                    safe_params: List[Any] = []
+                    if query:
+                        safe_where.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
+                        safe_params.extend([f"%{query}%", f"%{query}%", f"%{query}%", f"%{query}%"])
+                    s_sql = " AND ".join(safe_where)
+                    s_full_sql = f"""
+                    WITH page_events AS (
+                        SELECT e.id, e.name, e.event_date, e.end_date, e.city, e.state, e.country,
+                               e.total_players, e.num_rounds, e.current_round, e.is_ended
+                        FROM events e
+                        WHERE {s_sql}
+                        ORDER BY {col} {dir_str} NULLS LAST
+                        LIMIT %s OFFSET %s
+                    )
+                    SELECT pe.*, COALESCE(mc.cnt, 0) as match_count
+                    FROM page_events pe
+                    LEFT JOIN (
+                        SELECT event_id, COUNT(*) as cnt
+                        FROM matches
+                        WHERE event_id IN (SELECT id FROM page_events)
+                        GROUP BY event_id
+                    ) mc ON pe.id = mc.event_id
+                    ORDER BY {pe_col} {dir_str} NULLS LAST;
+                    """
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute(f"SELECT COUNT(*) as total_count FROM events e WHERE {s_sql};", safe_params)
+                        total_count = cur_safe.fetchone()["total_count"] or 0
+                        cur_safe.execute(s_full_sql, safe_params + [page_size, offset])
+                        rows = [dict(r) for r in cur_safe.fetchall()]
 
                 return {
                     "items": rows,
@@ -2734,8 +2892,61 @@ class PostgresDatabase:
                 HAVING COUNT(DISTINCT tm.player_id) >= 1
                 ORDER BY power_rating DESC;
                 """
-                cursor.execute(sql, tuple(sys_params))
-                rows = [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(sql, tuple(sys_params))
+                    rows = [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback _get_all_teams_list notice: {e}")
+                    safe_sql = """
+                    WITH team_members AS (
+                        SELECT 
+                            TRIM(team) as team_name,
+                            player_id,
+                            COALESCE(player_name, 'Player') as player_name,
+                            COALESCE(current_elo, 1500.0) as current_elo,
+                            COALESCE(wins, 0) as wins,
+                            COALESCE(losses, 0) as losses,
+                            COALESCE(draws, 0) as draws,
+                            COALESCE(matches_played, 0) as matches_played
+                        FROM player_ratings
+                        WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                    )
+                    SELECT 
+                        tm.team_name as team,
+                        COUNT(DISTINCT tm.player_id) as roster_count,
+                        ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
+                        ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
+                        (ARRAY_AGG(tm.player_name ORDER BY tm.current_elo DESC))[1] as top_player_name,
+                        (ARRAY_AGG(tm.player_id ORDER BY tm.current_elo DESC))[1] as top_player_id,
+                        SUM(tm.wins) as total_wins,
+                        SUM(tm.losses) as total_losses,
+                        SUM(tm.draws) as total_draws,
+                        SUM(tm.matches_played) as total_matches,
+                        ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
+                        ROUND((
+                            (0.65 * AVG(tm.current_elo) + 0.35 * MAX(tm.current_elo))
+                            *
+                            (
+                                0.65 + 0.70 * (
+                                    (SUM(tm.wins)::numeric + (0.5 * SUM(tm.draws)::numeric) + 15.0)
+                                    /
+                                    (GREATEST(1.0, SUM(tm.matches_played)::numeric) + 30.0)
+                                )
+                            )
+                            +
+                            (40.0 * LOG( (GREATEST(0.0, SUM(tm.matches_played)::numeric) / 25.0) + 1.0 ))
+                        )::numeric, 1) as power_rating,
+                        CASE WHEN COUNT(DISTINCT tm.player_id) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
+                    FROM team_members tm
+                    GROUP BY tm.team_name
+                    HAVING COUNT(DISTINCT tm.player_id) >= 1
+                    ORDER BY power_rating DESC;
+                    """
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute(safe_sql)
+                        rows = [dict(r) for r in cur_safe.fetchall()]
+
                 PostgresDatabase._all_teams_cache_map[cache_key] = (rows, now)
                 if cache_key == "40k":
                     PostgresDatabase._all_teams_cache = rows
@@ -2794,24 +3005,47 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
-                SELECT 
-                    player_id, 
-                    COALESCE(player_name, 'Player') as player_name,
-                    COALESCE(current_elo, 1500.0) as current_elo,
-                    COALESCE(peak_elo, 1500.0) as peak_elo,
-                    COALESCE(top_faction, 'Unknown') as top_faction,
-                    COALESCE(matches_played, 0) as matches_played,
-                    COALESCE(wins, 0) as wins,
-                    COALESCE(losses, 0) as losses,
-                    COALESCE(draws, 0) as draws,
-                    COALESCE(win_rate, 0.0) as win_rate,
-                    COALESCE(last_active_date, CURRENT_DATE) as last_active_date
-                FROM player_ratings
-                WHERE TRIM(team) ILIKE %s AND game_system = %s
-                ORDER BY current_elo DESC NULLS LAST;
-                """, (team_name, system))
-                roster = [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute("""
+                    SELECT 
+                        player_id, 
+                        COALESCE(player_name, 'Player') as player_name,
+                        COALESCE(current_elo, 1500.0) as current_elo,
+                        COALESCE(peak_elo, 1500.0) as peak_elo,
+                        COALESCE(top_faction, 'Unknown') as top_faction,
+                        COALESCE(matches_played, 0) as matches_played,
+                        COALESCE(wins, 0) as wins,
+                        COALESCE(losses, 0) as losses,
+                        COALESCE(draws, 0) as draws,
+                        COALESCE(win_rate, 0.0) as win_rate,
+                        COALESCE(last_active_date, CURRENT_DATE) as last_active_date
+                    FROM player_ratings
+                    WHERE TRIM(team) ILIKE %s AND (game_system = %s OR game_system IS NULL)
+                    ORDER BY current_elo DESC NULLS LAST;
+                    """, (team_name, system))
+                    roster = [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_team_roster notice: {e}")
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT 
+                            player_id, 
+                            COALESCE(player_name, 'Player') as player_name,
+                            COALESCE(current_elo, 1500.0) as current_elo,
+                            COALESCE(peak_elo, 1500.0) as peak_elo,
+                            COALESCE(top_faction, 'Unknown') as top_faction,
+                            COALESCE(matches_played, 0) as matches_played,
+                            COALESCE(wins, 0) as wins,
+                            COALESCE(losses, 0) as losses,
+                            COALESCE(draws, 0) as draws,
+                            COALESCE(win_rate, 0.0) as win_rate,
+                            COALESCE(last_active_date, CURRENT_DATE) as last_active_date
+                        FROM player_ratings
+                        WHERE TRIM(team) ILIKE %s
+                        ORDER BY current_elo DESC NULLS LAST;
+                        """, (team_name,))
+                        roster = [dict(r) for r in cur_safe.fetchall()]
                 if not roster:
                     res = {"team": team_name, "roster": [], "stats": {}, "game_system": system}
                     PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
@@ -2875,36 +3109,86 @@ class PostgresDatabase:
                 
                 date_filter_sql = " AND ".join(where_clauses)
 
-                cursor.execute(f"""
-                WITH match_sides AS (
-                    SELECT id, match_date, player1_faction as faction, player1_score as score,
-                           CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
-                           CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
-                    FROM matches
-                    WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction' AND {date_filter_sql}
-                    UNION ALL
-                    SELECT id, match_date, player2_faction as faction, player2_score as score,
-                           CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                           CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
-                           CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
-                    FROM matches
-                    WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL AND {date_filter_sql}
-                )
-                SELECT 
-                    faction,
-                    COUNT(*) as total_matches,
-                    SUM(is_win) as wins,
-                    SUM(is_loss) as losses,
-                    SUM(is_draw) as draws,
-                    COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
-                    COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
-                FROM match_sides
-                GROUP BY faction
-                HAVING COUNT(*) >= 1
-                ORDER BY win_rate DESC, total_matches DESC;
-                """, params + params)
-                overall = [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"""
+                    WITH match_sides AS (
+                        SELECT id, match_date, player1_faction as faction, player1_score as score,
+                               CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                               CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                               CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
+                        FROM matches
+                        WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction' AND {date_filter_sql}
+                        UNION ALL
+                        SELECT id, match_date, player2_faction as faction, player2_score as score,
+                               CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                               CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                               CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
+                        FROM matches
+                        WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL AND {date_filter_sql}
+                    )
+                    SELECT 
+                        faction,
+                        COUNT(*) as total_matches,
+                        SUM(is_win) as wins,
+                        SUM(is_loss) as losses,
+                        SUM(is_draw) as draws,
+                        COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
+                        COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
+                    FROM match_sides
+                    GROUP BY faction
+                    HAVING COUNT(*) >= 1
+                    ORDER BY win_rate DESC, total_matches DESC;
+                    """, params + params)
+                    overall = [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_faction_meta_stats notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    safe_clauses = ["is_done = TRUE"]
+                    safe_params: List[Any] = []
+                    if start_date:
+                        safe_clauses.append("match_date >= %s")
+                        safe_params.append(start_date)
+                    if end_date:
+                        safe_clauses.append("match_date <= %s")
+                        safe_params.append(end_date)
+                    s_filter = " AND ".join(safe_clauses)
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute(f"""
+                        WITH match_sides AS (
+                            SELECT id, match_date, player1_faction as faction, player1_score as score,
+                                   CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                                   CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                                   CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss
+                            FROM matches
+                            WHERE player1_faction IS NOT NULL AND TRIM(player1_faction) != '' AND player1_faction != 'Unknown Faction' AND {s_filter}
+                            UNION ALL
+                            SELECT id, match_date, player2_faction as faction, player2_score as score,
+                                   CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                                   CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw,
+                                   CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss
+                            FROM matches
+                            WHERE player2_faction IS NOT NULL AND TRIM(player2_faction) != '' AND player2_faction != 'Unknown Faction' AND is_bye = FALSE AND player2_id IS NOT NULL AND {s_filter}
+                        )
+                        SELECT 
+                            faction,
+                            COUNT(*) as total_matches,
+                            SUM(is_win) as wins,
+                            SUM(is_loss) as losses,
+                            SUM(is_draw) as draws,
+                            COALESCE(ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1), 0.0) as win_rate,
+                            COALESCE(ROUND(AVG(score)::numeric, 1), 0.0) as avg_score
+                        FROM match_sides
+                        GROUP BY faction
+                        HAVING COUNT(*) >= 1
+                        ORDER BY win_rate DESC, total_matches DESC;
+                        """, safe_params + safe_params)
+                        overall = [dict(r) for r in cur_safe.fetchall()]
 
                 for f in overall:
                     wr = float(f.get("win_rate") or 0.0)
@@ -3003,14 +3287,33 @@ class PostgresDatabase:
                 if game_system and game_system != "all":
                     where_sql += " AND (h.game_system = %s OR h.game_system IS NULL)"
                     params.append(game_system)
-                cursor.execute(f"""
-                SELECT h.*, e.name as event_name
-                FROM rating_history h
-                LEFT JOIN events e ON h.event_id = e.id
-                {where_sql}
-                ORDER BY h.match_date ASC, h.round ASC;
-                """, tuple(params))
-                return [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"""
+                    SELECT h.*, e.name as event_name
+                    FROM rating_history h
+                    LEFT JOIN events e ON h.event_id = e.id
+                    {where_sql}
+                    ORDER BY h.match_date ASC, h.round ASC;
+                    """, tuple(params))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_player_history notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE rating_history ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT h.*, e.name as event_name
+                        FROM rating_history h
+                        LEFT JOIN events e ON h.event_id = e.id
+                        WHERE h.player_id = %s
+                        ORDER BY h.match_date ASC, h.round ASC;
+                        """, (player_id,))
+                        return [dict(r) for r in cur_safe.fetchall()]
 
     def get_player_matches(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns all matches for a specific player."""
@@ -3021,14 +3324,33 @@ class PostgresDatabase:
                 if game_system and game_system != "all":
                     where_sql += " AND (m.game_system = %s OR m.game_system IS NULL)"
                     params.append(game_system)
-                cursor.execute(f"""
-                SELECT m.*, e.name as event_name
-                FROM matches m
-                LEFT JOIN events e ON m.event_id = e.id
-                {where_sql}
-                ORDER BY COALESCE(m.match_date, e.event_date) ASC, m.round ASC;
-                """, tuple(params))
-                return [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"""
+                    SELECT m.*, e.name as event_name
+                    FROM matches m
+                    LEFT JOIN events e ON m.event_id = e.id
+                    {where_sql}
+                    ORDER BY COALESCE(m.match_date, e.event_date) ASC, m.round ASC;
+                    """, tuple(params))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_player_matches notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT m.*, e.name as event_name
+                        FROM matches m
+                        LEFT JOIN events e ON m.event_id = e.id
+                        WHERE (m.player1_id = %s OR m.player2_id = %s)
+                        ORDER BY COALESCE(m.match_date, e.event_date) ASC, m.round ASC;
+                        """, (player_id, player_id))
+                        return [dict(r) for r in cur_safe.fetchall()]
 
     def search_players(self, query: str, limit: int = 25, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Searches players for prediction autocomplete."""
@@ -3042,25 +3364,54 @@ class PostgresDatabase:
                     sys_clause = " AND (game_system = %s OR game_system IS NULL)"
                     sys_params = [game_system]
 
-                if len(tokens) > 1:
-                    sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
-                    params = [f"%{t}%" for t in tokens] + [q_str] + sys_params + [limit]
-                    cursor.execute(f"""
-                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
-                    FROM player_ratings
-                    WHERE (({sub}) OR player_id = %s){sys_clause}
-                    ORDER BY matches_played DESC, current_elo DESC
-                    LIMIT %s;
-                    """, tuple(params))
-                else:
-                    cursor.execute(f"""
-                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
-                    FROM player_ratings
-                    WHERE (player_name ILIKE %s OR player_id = %s){sys_clause}
-                    ORDER BY matches_played DESC, current_elo DESC
-                    LIMIT %s;
-                    """, (f"%{q_str}%", q_str, *sys_params, limit))
-                return [dict(r) for r in cursor.fetchall()]
+                try:
+                    if len(tokens) > 1:
+                        sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
+                        params = [f"%{t}%" for t in tokens] + [q_str] + sys_params + [limit]
+                        cursor.execute(f"""
+                        SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
+                        FROM player_ratings
+                        WHERE (({sub}) OR player_id = %s){sys_clause}
+                        ORDER BY matches_played DESC, current_elo DESC
+                        LIMIT %s;
+                        """, tuple(params))
+                    else:
+                        cursor.execute(f"""
+                        SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
+                        FROM player_ratings
+                        WHERE (player_name ILIKE %s OR player_id = %s){sys_clause}
+                        ORDER BY matches_played DESC, current_elo DESC
+                        LIMIT %s;
+                        """, (f"%{q_str}%", q_str, *sys_params, limit))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback search_players notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        if len(tokens) > 1:
+                            sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
+                            cur_safe.execute(f"""
+                            SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, '40k' as game_system
+                            FROM player_ratings
+                            WHERE (({sub}) OR player_id = %s)
+                            ORDER BY matches_played DESC, current_elo DESC
+                            LIMIT %s;
+                            """, tuple([f"%{t}%" for t in tokens] + [q_str, limit]))
+                        else:
+                            cur_safe.execute("""
+                            SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, '40k' as game_system
+                            FROM player_ratings
+                            WHERE player_name ILIKE %s OR player_id = %s
+                            ORDER BY matches_played DESC, current_elo DESC
+                            LIMIT %s;
+                            """, (f"%{q_str}%", q_str, limit))
+                        return [dict(r) for r in cur_safe.fetchall()]
 
     def get_head_to_head(self, p1_id: str, p2_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns past head-to-head encounters strictly between the two unique player IDs."""
@@ -3082,19 +3433,42 @@ class PostgresDatabase:
                     sys_clause = " AND (m.game_system = %s OR m.game_system IS NULL)"
                     sys_params.append(game_system)
 
-                cursor.execute(f"""
-                SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
-                FROM matches m
-                LEFT JOIN events e ON m.event_id = e.id
-                WHERE (
-                    (m.player1_id = %s AND m.player2_id = %s)
-                    OR (m.player1_id = %s AND m.player2_id = %s)
-                )
-                AND m.is_done = TRUE
-                {sys_clause}
-                ORDER BY COALESCE(m.match_date, e.event_date) DESC;
-                """, tuple(sys_params))
-                return [dict(r) for r in cursor.fetchall()]
+                try:
+                    cursor.execute(f"""
+                    SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
+                    FROM matches m
+                    LEFT JOIN events e ON m.event_id = e.id
+                    WHERE (
+                        (m.player1_id = %s AND m.player2_id = %s)
+                        OR (m.player1_id = %s AND m.player2_id = %s)
+                    )
+                    AND m.is_done = TRUE
+                    {sys_clause}
+                    ORDER BY COALESCE(m.match_date, e.event_date) DESC;
+                    """, tuple(sys_params))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_head_to_head notice: {e}")
+                    try:
+                        with conn.cursor() as cur_heal:
+                            cur_heal.execute("ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
+                        FROM matches m
+                        LEFT JOIN events e ON m.event_id = e.id
+                        WHERE (
+                            (m.player1_id = %s AND m.player2_id = %s)
+                            OR (m.player1_id = %s AND m.player2_id = %s)
+                        )
+                        AND m.is_done = TRUE
+                        ORDER BY COALESCE(m.match_date, e.event_date) DESC;
+                        """, (p1_real_id, p2_real_id, p2_real_id, p1_real_id))
+                        return [dict(r) for r in cur_safe.fetchall()]
 
 
 
@@ -3109,47 +3483,93 @@ class PostgresDatabase:
                     sys_params = [game_system]
 
                 # 1. Pure Match-Level Commander Records strictly for games played WITH this faction
-                cursor.execute(f"""
-                WITH faction_player_games AS (
+                try:
+                    cursor.execute(f"""
+                    WITH faction_player_games AS (
+                        SELECT 
+                            player1_id as p_id,
+                            player1_name as p_name,
+                            player1_score as score,
+                            CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{sys_clause}
+                        UNION ALL
+                        SELECT 
+                            player2_id as p_id,
+                            player2_name as p_name,
+                            player2_score as score,
+                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                        FROM matches
+                        WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{sys_clause}
+                    )
                     SELECT 
-                        player1_id as p_id,
-                        player1_name as p_name,
-                        player1_score as score,
-                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
-                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                    FROM matches
-                    WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{sys_clause}
-                    UNION ALL
-                    SELECT 
-                        player2_id as p_id,
-                        player2_name as p_name,
-                        player2_score as score,
-                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
-                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                    FROM matches
-                    WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{sys_clause}
-                )
-                SELECT 
-                    fpg.p_id as player_id,
-                    COALESCE(MAX(fpg.p_name), 'Player') as player_name,
-                    COALESCE(MAX(r.team), '') as team,
-                    COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
-                    COUNT(*) as matches_played,
-                    SUM(fpg.is_win) as wins,
-                    SUM(fpg.is_loss) as losses,
-                    SUM(fpg.is_draw) as draws,
-                    ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
-                    ROUND(AVG(fpg.score)::numeric, 1) as avg_score
-                FROM faction_player_games fpg
-                LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND (r.game_system = %s OR r.game_system IS NULL))
-                GROUP BY fpg.p_id
-                HAVING COUNT(*) >= 1
-                ORDER BY wins DESC, matches_played DESC, current_elo DESC
-                LIMIT 25;
-                """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, game_system or "40k"))
-                top_players = [dict(r) for r in cursor.fetchall()]
+                        fpg.p_id as player_id,
+                        COALESCE(MAX(fpg.p_name), 'Player') as player_name,
+                        COALESCE(MAX(r.team), '') as team,
+                        COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                        COUNT(*) as matches_played,
+                        SUM(fpg.is_win) as wins,
+                        SUM(fpg.is_loss) as losses,
+                        SUM(fpg.is_draw) as draws,
+                        ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                        ROUND(AVG(fpg.score)::numeric, 1) as avg_score
+                    FROM faction_player_games fpg
+                    LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND (r.game_system = %s OR r.game_system IS NULL))
+                    GROUP BY fpg.p_id
+                    HAVING COUNT(*) >= 1
+                    ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                    LIMIT 25;
+                    """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, game_system or "40k"))
+                    top_players = [dict(r) for r in cursor.fetchall()]
+                except Exception as e:
+                    conn.rollback()
+                    logger.warning(f"Fallback get_faction_details top_players notice: {e}")
+                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                        cur_safe.execute("""
+                        WITH faction_player_games AS (
+                            SELECT 
+                                player1_id as p_id,
+                                player1_name as p_name,
+                                player1_score as score,
+                                CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                                CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                                CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                            FROM matches
+                            WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE
+                            UNION ALL
+                            SELECT 
+                                player2_id as p_id,
+                                player2_name as p_name,
+                                player2_score as score,
+                                CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                                CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                                CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                            FROM matches
+                            WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE
+                        )
+                        SELECT 
+                            fpg.p_id as player_id,
+                            COALESCE(MAX(fpg.p_name), 'Player') as player_name,
+                            COALESCE(MAX(r.team), '') as team,
+                            COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                            COUNT(*) as matches_played,
+                            SUM(fpg.is_win) as wins,
+                            SUM(fpg.is_loss) as losses,
+                            SUM(fpg.is_draw) as draws,
+                            ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                            ROUND(AVG(fpg.score)::numeric, 1) as avg_score
+                        FROM faction_player_games fpg
+                        LEFT JOIN player_ratings r ON fpg.p_id = r.player_id
+                        GROUP BY fpg.p_id
+                        HAVING COUNT(*) >= 1
+                        ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                        LIMIT 25;
+                        """, (f"%{faction_name}%", f"%{faction_name}%"))
+                        top_players = [dict(r) for r in cur_safe.fetchall()]
 
                 # 2. Recent matches involving this faction
                 cursor.execute("""
