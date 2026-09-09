@@ -123,16 +123,16 @@ async def api_get_armylist(list_id: str, request: Request):
 # WAHAPEDIA 11TH EDITION REFERENCE & SYNC ENDPOINTS
 # =========================================================================
 
-@router.get("/api/wahapedia/status", summary="Get Wahapedia 11th Edition sync status & stats")
-async def api_wahapedia_status():
+@router.get("/api/wahapedia/status", summary="Get Wahapedia sync status & stats across 40k and AoS")
+async def api_wahapedia_status(game_system: Optional[str] = Query("all")):
     db = get_database()
-    return db.waha_get_sync_status()
+    return db.waha_get_sync_status(game_system=game_system)
 
-@router.post("/api/wahapedia/sync", summary="Trigger sync of Wahapedia 11th edition datasets into PostgreSQL")
-async def api_wahapedia_sync(force: bool = Query(False)):
+@router.post("/api/wahapedia/sync", summary="Trigger sync of Wahapedia datasets into PostgreSQL")
+async def api_wahapedia_sync(force: bool = Query(False), game_system: Optional[str] = Query("all")):
     from wahapedia_sync import sync_wahapedia_job
     try:
-        res = await asyncio.to_thread(sync_wahapedia_job, force=force)
+        res = await asyncio.to_thread(sync_wahapedia_job, force=force, game_system=game_system)
         return res
     except Exception as e:
         logger.error(f"Error in api_wahapedia_sync: {e}", exc_info=True)
@@ -148,13 +148,21 @@ async def api_wahapedia_enhancements(detachment: str = Query(...)):
     db = get_database()
     return {"detachment": detachment, "enhancements": db.waha_get_enhancements(detachment)}
 
-@router.get("/api/wahapedia/unit", summary="Find unit datasheet and statlines from Wahapedia")
-async def api_wahapedia_unit(name: str = Query(...), faction: Optional[str] = Query(None)):
+@router.get("/api/wahapedia/unit", summary="Find unit datasheet or warscroll from Wahapedia")
+async def api_wahapedia_unit(name: str = Query(...), faction: Optional[str] = Query(None), game_system: Optional[str] = Query("40k")):
     db = get_database()
-    unit = db.waha_find_unit(name, faction_name=faction)
+    unit = db.waha_find_unit(name, faction_name=faction, game_system=game_system)
     if not unit:
-        raise HTTPException(status_code=404, detail=f"Unit '{name}' not found in Wahapedia database")
+        raise HTTPException(status_code=404, detail=f"Unit '{name}' not found in Wahapedia database ({game_system})")
     return unit
+
+@router.get("/api/wahapedia/warscroll", summary="Find Age of Sigmar warscroll by name from Wahapedia")
+async def api_wahapedia_warscroll(name: str = Query(...), faction: Optional[str] = Query(None)):
+    db = get_database()
+    ws = db.waha_aos_find_warscroll(name, faction_name=faction)
+    if not ws:
+        raise HTTPException(status_code=404, detail=f"Warscroll '{name}' not found in Wahapedia AoS database")
+    return ws
 
 @router.delete("/api/armylists/{list_id}", summary="Delete an army list")
 async def api_delete_armylist(list_id: str, request: Request):

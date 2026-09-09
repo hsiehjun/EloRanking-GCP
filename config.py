@@ -46,11 +46,16 @@ DEFAULT_HEADERS = {
 # Game System IDs on BCP
 GAME_SYSTEMS = {
     "warhammer_40k": "WGMSzfKFYA",  # Warhammer 40,000
+    "warhammer_aos": "23qDprPABN",  # Warhammer Age of Sigmar (4th Edition)
     "warhammer_tow": "pd0PejEmWE",  # Warhammer The Old World
     "warhammer_underworlds": "Z8rcM0GCLw",
 }
 
 DEFAULT_GAME_SYSTEM_ID = GAME_SYSTEMS["warhammer_40k"]
+AOS_GAME_SYSTEM_ID = GAME_SYSTEMS["warhammer_aos"]
+DEFAULT_GAME_SYSTEM = "40k"
+SUPPORTED_GAME_SYSTEMS = ["40k", "aos"]
+ENABLE_AOS = True
 
 # Elo Engine Default Parameters
 INITIAL_ELO = 1500.0

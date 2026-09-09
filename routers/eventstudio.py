@@ -19,7 +19,7 @@ from core import (
     _get_user_session_or_401, _get_admin_session_or_403, _get_to_session_or_403,
     NO_CACHE_HEADERS, VERIFIED_TOURNAMENT_CITIES, web_dir, package_dir, logger,
     BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
-    DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
+    DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
     TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
 )
@@ -979,6 +979,8 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "mission_pack": payload.mission_pack,
         "organizer_id": user_id,
         "organizer_bcp_id": bcp_user_id,
+        "game_system_id": game_sys,
+        "game_system": "aos" if game_sys == AOS_GAME_SYSTEM_ID else "40k",
         "using_online_reg": bool(payload.using_online_reg),
         "num_tickets": int(payload.num_tickets or payload.capacity or 32),
         "ticket_price": float(payload.ticket_price or 0.0),

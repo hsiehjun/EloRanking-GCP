@@ -10,14 +10,14 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 
 try:
-    from google3.experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID
+    from google3.experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
     from google3.experimental.users.hsiehjun.EloRanking.database import Database
 except ImportError:
     try:
-        from experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID
+        from experimental.users.hsiehjun.EloRanking.config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
         from experimental.users.hsiehjun.EloRanking.database import Database
     except ImportError:
-        from config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID
+        from config import BCP_API_BASE, DEFAULT_HEADERS, DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
         from database import Database, get_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -556,10 +556,19 @@ class BestCoastPairingsScraper:
         if not event_id:
             return None
 
-        event_date = event_data.get("eventDate")
+        event_date = event_data.get("eventDate") or event_data.get("event_date")
         event_name = event_data.get("name", "Tournament")
         round_num = pairing.get("round", 1)
         table_num = pairing.get("table", 1)
+
+        game_sys_id = event_data.get("gameSystemId") or event_data.get("game_system_id") or pairing.get("gameSystemId")
+        raw_gs = (event_data.get("game_system") or pairing.get("game_system") or "").strip().lower()
+        if raw_gs:
+            game_system = raw_gs
+        elif str(game_sys_id) == str(AOS_GAME_SYSTEM_ID):
+            game_system = "aos"
+        else:
+            game_system = "40k"
 
         p1_obj = pairing.get("player1") or {}
         p2_obj = pairing.get("player2") or {}
@@ -684,6 +693,8 @@ class BestCoastPairingsScraper:
             "is_draw": is_draw,
             "is_bye": is_bye,
             "is_done": pairing.get("isDone", True),
+            "game_system": game_system,
+            "game_system_id": game_sys_id or (AOS_GAME_SYSTEM_ID if game_system == "aos" else DEFAULT_GAME_SYSTEM_ID),
             "raw_json": pairing,
         }
 
@@ -705,6 +716,9 @@ class BestCoastPairingsScraper:
                 return 0
 
         event_data["id"] = event_data.get("id") or event_data.get("objectId") or event_id
+        game_sys_id = event_data.get("gameSystemId") or event_data.get("game_system_id")
+        if "game_system" not in event_data:
+            event_data["game_system"] = "aos" if str(game_sys_id) == str(AOS_GAME_SYSTEM_ID) else "40k"
         self.db.upsert_event(event_data)
 
         # Check team event and fetch team standings
@@ -802,13 +816,14 @@ class BestCoastPairingsScraper:
         self,
         start_date: str,
         end_date: str,
+        game_system_id: str = DEFAULT_GAME_SYSTEM_ID,
         max_events: Optional[int] = None
     ) -> Dict[str, int]:
-        """Scrapes all Warhammer 40k events in a given date range and stores their full match histories."""
+        """Scrapes all events in a given date range for the specified game system and stores their full match histories."""
         events_count = 0
         matches_count = 0
 
-        for event in self.fetch_events(start_date=start_date, end_date=end_date, max_events=max_events):
+        for event in self.fetch_events(start_date=start_date, end_date=end_date, game_system_id=game_system_id, max_events=max_events):
             event_id = event.get("id") or event.get("objectId")
             if not event_id:
                 continue
@@ -820,11 +835,11 @@ class BestCoastPairingsScraper:
             except Exception as e:
                 logger.error(f"Error scraping event {event_id} ({event.get('name')}): {e}")
 
-        logger.info(f"Finished scraping date range [{start_date} to {end_date}]: {events_count} events, {matches_count} matches.")
+        logger.info(f"Finished scraping date range [{start_date} to {end_date}] for gameSystemId={game_system_id}: {events_count} events, {matches_count} matches.")
         return {"events_scraped": events_count, "matches_scraped": matches_count}
 
-    def sync_upcoming_events(self, max_pages_per_month: int = 15) -> int:
-        """Fetches live future upcoming tournaments across multiple monthly windows (next 3-4 months) from Best Coast Pairings API and caches them."""
+    def sync_upcoming_events(self, game_system_id: str = DEFAULT_GAME_SYSTEM_ID, max_pages_per_month: int = 15) -> int:
+        """Fetches live future upcoming tournaments across multiple monthly windows from Best Coast Pairings API and caches them."""
         now_dt = datetime.now(timezone.utc)
         curr_year = now_dt.year
         curr_month = now_dt.month
@@ -857,7 +872,7 @@ class BestCoastPairingsScraper:
             for _ in range(max_pages_per_month):
                 params = {
                     "limit": 50,
-                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                    "gameSystemId": game_system_id,
                     "startDate": start_iso,
                     "endDate": end_iso
                 }
@@ -873,6 +888,8 @@ class BestCoastPairingsScraper:
                     break
 
                 for ev in events:
+                    if "game_system" not in ev:
+                        ev["game_system"] = "aos" if str(game_system_id) == str(AOS_GAME_SYSTEM_ID) else "40k"
                     self.db.upsert_event(ev)
                     total_synced += 1
 
@@ -880,6 +897,6 @@ class BestCoastPairingsScraper:
                 if not next_key:
                     break
 
-        logger.info(f"Successfully synced {total_synced} live upcoming events across next 3 months from BCP API.")
+        logger.info(f"Successfully synced {total_synced} live upcoming events across next 3 months for gameSystemId={game_system_id} from BCP API.")
         return total_synced
 

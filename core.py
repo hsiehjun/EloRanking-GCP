@@ -181,7 +181,8 @@ except ImportError:
             DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
-            GOOGLE_MAPS_API_KEY
+            GOOGLE_MAPS_API_KEY, GAME_SYSTEMS, AOS_GAME_SYSTEM_ID,
+            DEFAULT_GAME_SYSTEM, ENABLE_AOS
         )
         from database import Database, get_db, normalize_ticket_price
         from scraper import BestCoastPairingsScraper

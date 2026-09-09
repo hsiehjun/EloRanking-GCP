@@ -19,6 +19,7 @@ try:
         BCP_API_BASE,
         DEFAULT_HEADERS,
         DEFAULT_GAME_SYSTEM_ID,
+        AOS_GAME_SYSTEM_ID,
     )
 except ImportError:
     try:
@@ -26,6 +27,7 @@ except ImportError:
             BCP_API_BASE,
             DEFAULT_HEADERS,
             DEFAULT_GAME_SYSTEM_ID,
+            AOS_GAME_SYSTEM_ID,
         )
     except ImportError:
         try:
@@ -33,6 +35,7 @@ except ImportError:
                 BCP_API_BASE,
                 DEFAULT_HEADERS,
                 DEFAULT_GAME_SYSTEM_ID,
+                AOS_GAME_SYSTEM_ID,
             )
         except ImportError:
             BCP_API_BASE = "https://newprod-api.bestcoastpairings.com/v1"
@@ -59,6 +62,14 @@ except ImportError:
 
 logger = logging.getLogger("elo.db_postgres")
 
+try:
+    from google3.experimental.users.hsiehjun.EloRanking.services.places_service import PlacesService
+except ImportError:
+    try:
+        from experimental.users.hsiehjun.EloRanking.services.places_service import PlacesService
+    except ImportError:
+        from services.places_service import PlacesService
+
 
 def normalize_ticket_price(val: Any) -> float:
     """Normalizes ticket price to dollars.
@@ -84,6 +95,7 @@ class PostgresDatabase:
     _stats_cache = None
     _db_initialized = False
     _stats_cache_time = 0
+    _stats_cache_map = {}
     _all_teams_cache = None
     _all_teams_cache_time = 0
     _faction_meta_cache_dict = {}
@@ -121,6 +133,8 @@ class PostgresDatabase:
     @classmethod
     def invalidate_all_caches(cls) -> None:
         cls._stats_cache = None
+        cls._stats_cache_time = 0
+        cls._stats_cache_map.clear()
         cls._all_teams_cache = None
         cls._all_teams_cache_time = 0
         cls._faction_meta_cache_dict.clear()
@@ -400,9 +414,38 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_elo ON player_ratings(current_elo DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_name ON player_ratings(player_name);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_team ON player_ratings(team, current_elo DESC);
-                CREATE INDEX IF NOT EXISTS idx_pg_ratings_faction ON player_ratings(top_faction);
                 CREATE INDEX IF NOT EXISTS idx_pg_events_date ON events(event_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);
+
+                -- Additive multi-game partitioning columns (default '40k' preserves 100% backward compatibility)
+                ALTER TABLE events ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
+                ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
+                ALTER TABLE rating_history ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
+                ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
+                ALTER TABLE player_ratings ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
+
+                -- Safely migrate player_ratings primary key to composite (player_id, game_system)
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints 
+                        WHERE table_name = 'player_ratings' AND constraint_type = 'PRIMARY KEY' 
+                        AND constraint_name = 'player_ratings_pk_composite'
+                    ) THEN
+                        ALTER TABLE player_ratings DROP CONSTRAINT IF EXISTS player_ratings_pkey;
+                        ALTER TABLE player_ratings ADD CONSTRAINT player_ratings_pk_composite PRIMARY KEY (player_id, game_system);
+                    END IF;
+                EXCEPTION
+                    WHEN OTHERS THEN NULL;
+                END $$;
+
+                CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_elo ON player_ratings(game_system, current_elo DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_system_chrono ON matches(game_system, match_date ASC NULLS FIRST, round ASC);
+                CREATE INDEX IF NOT EXISTS idx_pg_events_system_date ON events(game_system, event_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_tracker_games_system ON tracker_games(game_system);
+
+                -- Auto-tag AoS events if they were created with AoS BCP Game System ID
+                UPDATE events SET game_system = 'aos' WHERE game_system_id = '23qDprPABN' AND game_system != 'aos';
 
                 CREATE TABLE IF NOT EXISTS tracker_games (
                     match_id VARCHAR(64) PRIMARY KEY,
@@ -489,6 +532,7 @@ class PostgresDatabase:
             );""",
             "CREATE INDEX IF NOT EXISTS idx_user_army_lists_uid ON user_army_lists(user_id);",
             "CREATE INDEX IF NOT EXISTS idx_user_army_lists_faction ON user_army_lists(faction);",
+            "ALTER TABLE user_army_lists ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p2_army_list JSONB;",
             "ALTER TABLE tracker_games ADD COLUMN IF NOT EXISTS p1_army_list_id VARCHAR(64);",
@@ -568,6 +612,8 @@ class PostgresDatabase:
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS play_style VARCHAR(64) DEFAULT 'Competitive';",
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS availability_notes TEXT;",
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS factions TEXT;",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
+            "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_systems TEXT[] DEFAULT '{\"40k\"}';",
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();",
             "CREATE INDEX IF NOT EXISTS idx_lfg_active_geo ON player_lfg_profiles(is_active, latitude, longitude);",
 
@@ -779,6 +825,132 @@ class PostgresDatabase:
                 key VARCHAR(64) PRIMARY KEY,
                 value TEXT,
                 updated_at TIMESTAMPTZ DEFAULT NOW()
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_aos_factions (
+                id TEXT,
+                name TEXT,
+                link TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_factions_name ON waha_aos_factions(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_aos_sources (
+                id TEXT,
+                name TEXT,
+                type TEXT,
+                edition TEXT,
+                version TEXT,
+                errata_date TEXT,
+                errata_link TEXT
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscrolls (
+                id TEXT,
+                name TEXT,
+                faction_id TEXT,
+                source_id TEXT,
+                legend TEXT,
+                regiment_options TEXT,
+                notes TEXT,
+                description TEXT,
+                role TEXT,
+                virtual TEXT,
+                no_reinforced TEXT,
+                link TEXT,
+                move TEXT,
+                save TEXT,
+                control TEXT,
+                health TEXT,
+                ward TEXT,
+                unitsize TEXT,
+                cost TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_name ON waha_aos_warscrolls(LOWER(name));",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_faction ON waha_aos_warscrolls(faction_id);",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscroll_abilities (
+                warscroll_id TEXT,
+                line TEXT,
+                name TEXT,
+                description TEXT,
+                legend TEXT,
+                ability_type TEXT,
+                is_reaction TEXT,
+                condition TEXT,
+                keywords TEXT,
+                ability_phase TEXT,
+                points_type TEXT,
+                points TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_ab_ws ON waha_aos_warscroll_abilities(warscroll_id);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_ab_name ON waha_aos_warscroll_abilities(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscroll_weapons (
+                warscroll_id TEXT,
+                line TEXT,
+                name TEXT,
+                rng TEXT,
+                atk TEXT,
+                hit TEXT,
+                wnd TEXT,
+                rnd TEXT,
+                dmg TEXT,
+                type TEXT,
+                abilities TEXT,
+                has_battle_damage TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_wp_ws ON waha_aos_warscroll_weapons(warscroll_id);",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_wp_name ON waha_aos_warscroll_weapons(LOWER(name));",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscroll_keywords (
+                warscroll_id TEXT,
+                keyword TEXT,
+                is_faction_keyword TEXT,
+                parameter TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_ws_kw_ws ON waha_aos_warscroll_keywords(warscroll_id);",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscroll_bases (
+                warscroll_id TEXT,
+                line TEXT,
+                model TEXT,
+                base TEXT
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscroll_organisation (
+                warscroll_id TEXT,
+                line TEXT,
+                unit TEXT,
+                size TEXT
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_aos_warscroll_ror_factions (
+                warscroll_id TEXT,
+                faction_id TEXT
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_aos_faction_abilities (
+                faction_id TEXT,
+                type_id TEXT,
+                type_name TEXT,
+                subtype_id TEXT,
+                subtype_name TEXT,
+                line TEXT,
+                name TEXT,
+                description TEXT,
+                legend TEXT,
+                ability_type TEXT,
+                is_reaction TEXT,
+                condition TEXT,
+                keywords TEXT,
+                ability_phase TEXT,
+                points_type TEXT,
+                points TEXT
+            );""",
+            "CREATE INDEX IF NOT EXISTS idx_waha_aos_fac_ab_fac ON waha_aos_faction_abilities(faction_id);",
+            """CREATE TABLE IF NOT EXISTS waha_aos_faction_ability_types (
+                faction_id TEXT,
+                id TEXT,
+                name TEXT,
+                description TEXT
+            );""",
+            """CREATE TABLE IF NOT EXISTS waha_aos_faction_ability_subtypes (
+                faction_id TEXT,
+                id TEXT,
+                name TEXT,
+                type_id TEXT,
+                description TEXT,
+                legend TEXT
             );""",
             "CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_player_lower ON player_ratings(LOWER(player_name));",
@@ -1017,14 +1189,24 @@ class PostgresDatabase:
                 lng_val = loc_obj["coordinate"][0]
                 lat_val = loc_obj["coordinate"][1]
 
+            game_sys_id = event_data.get("gameSystemId", event_data.get("game_system_id"))
+            raw_gs = (event_data.get("game_system") or "").strip().lower()
+            if raw_gs:
+                game_sys = raw_gs
+            elif str(game_sys_id) == str(AOS_GAME_SYSTEM_ID):
+                game_sys = "aos"
+            else:
+                game_sys = "40k"
+
             with conn.cursor() as cursor:
                 cursor.execute("""
                 INSERT INTO events (
                     id, name, event_date, end_date, city, state, country,
                     total_players, num_rounds, current_round, is_ended,
                     game_system_id, raw_json, scraped_at,
-                    venue_name, address, postal_code, latitude, longitude, place_id
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    venue_name, address, postal_code, latitude, longitude, place_id,
+                    game_system
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
                     event_date = EXCLUDED.event_date,
@@ -1044,7 +1226,8 @@ class PostgresDatabase:
                     postal_code = COALESCE(EXCLUDED.postal_code, events.postal_code),
                     latitude = COALESCE(EXCLUDED.latitude, events.latitude),
                     longitude = COALESCE(EXCLUDED.longitude, events.longitude),
-                    place_id = COALESCE(EXCLUDED.place_id, events.place_id);
+                    place_id = COALESCE(EXCLUDED.place_id, events.place_id),
+                    game_system = COALESCE(EXCLUDED.game_system, events.game_system);
                 """, (
                     event_id,
                     event_data.get("name") or "Unnamed Tournament",
@@ -1057,7 +1240,7 @@ class PostgresDatabase:
                     event_data.get("numberOfRounds", event_data.get("num_rounds", 0)),
                     event_data.get("currentRound", event_data.get("current_round", 0)),
                     bool((event_data.get("status") or {}).get("ended")) if isinstance(event_data.get("status"), dict) and "ended" in event_data["status"] else bool(event_data.get("isEnded", event_data.get("is_ended", False))),
-                    event_data.get("gameSystemId", event_data.get("game_system_id")),
+                    game_sys_id,
                     json.dumps(event_data.get("raw_json", event_data)),
                     datetime.now(timezone.utc),
                     venue_val,
@@ -1065,7 +1248,8 @@ class PostgresDatabase:
                     zip_val,
                     float(lat_val) if lat_val is not None else None,
                     float(lng_val) if lng_val is not None else None,
-                    place_id_val
+                    place_id_val,
+                    game_sys
                 ))
             conn.commit()
 
@@ -1257,17 +1441,20 @@ class PostgresDatabase:
         if not event_id or not match_data.get("id"):
             return
 
+        game_system = match_data.get("game_system") or "40k"
+
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
-                INSERT INTO events (id, name, event_date, scraped_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO events (id, name, event_date, scraped_at, game_system)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO NOTHING;
                 """, (
                     event_id,
                     match_data.get("event_name") or "Tournament",
                     match_data.get("match_date"),
-                    datetime.now(timezone.utc)
+                    datetime.now(timezone.utc),
+                    game_system
                 ))
 
                 cursor.execute("""
@@ -1275,8 +1462,8 @@ class PostgresDatabase:
                     id, event_id, round, table_number, match_date,
                     player1_id, player1_name, player1_faction, player1_score,
                     player2_id, player2_name, player2_faction, player2_score,
-                    winner_id, loser_id, is_draw, is_bye, is_done, raw_json
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    winner_id, loser_id, is_draw, is_bye, is_done, raw_json, game_system
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
                     event_id = EXCLUDED.event_id,
                     round = EXCLUDED.round,
@@ -1295,7 +1482,8 @@ class PostgresDatabase:
                     is_draw = EXCLUDED.is_draw,
                     is_bye = EXCLUDED.is_bye,
                     is_done = EXCLUDED.is_done,
-                    raw_json = EXCLUDED.raw_json;
+                    raw_json = EXCLUDED.raw_json,
+                    game_system = COALESCE(EXCLUDED.game_system, matches.game_system, '40k');
                 """, (
                     match_data.get("id"),
                     event_id,
@@ -1315,113 +1503,159 @@ class PostgresDatabase:
                     bool(match_data.get("is_draw")),
                     bool(match_data.get("is_bye")),
                     bool(match_data.get("is_done", True)),
-                    json.dumps(match_data.get("raw_json", {}))
+                    json.dumps(match_data.get("raw_json", {})),
+                    game_system
                 ))
             conn.commit()
 
-    def get_total_matches_count(self) -> int:
+    def get_total_matches_count(self, game_system: Optional[str] = "40k") -> int:
         """Returns total count of valid completed matches."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("""
+                where_extra = ""
+                params = []
+                if game_system and game_system != "all":
+                    where_extra = " AND COALESCE(game_system, '40k') = %s"
+                    params.append(game_system)
+                cursor.execute(f"""
                 SELECT COUNT(*) FROM matches
                 WHERE is_done = TRUE
                   AND player1_id IS NOT NULL AND player1_id != ''
-                  AND player2_id IS NOT NULL AND player2_id != '';
-                """)
+                  AND player2_id IS NOT NULL AND player2_id != ''
+                  {where_extra};
+                """, tuple(params))
                 row = cursor.fetchone()
                 return row[0] if row else 0
 
-    def get_matches_chunk(self, offset: int, limit: int = 50000) -> List[Dict[str, Any]]:
+    def get_matches_chunk(self, offset: int, limit: int = 50000, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Fetches a chunk of matches ordered chronologically (low memory footprint)."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                where_extra = ""
+                params = []
+                if game_system and game_system != "all":
+                    where_extra = " AND COALESCE(m.game_system, '40k') = %s"
+                    params.append(game_system)
+                cursor.execute(f"""
                 SELECT 
                     m.id, m.event_id, m.round, m.table_number, m.match_date,
                     m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                     m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                    m.winner_id, m.is_draw, m.is_bye
+                    m.winner_id, m.is_draw, m.is_bye,
+                    COALESCE(m.game_system, '40k') as game_system
                 FROM matches m
                 WHERE m.is_done = TRUE
                   AND m.player1_id IS NOT NULL AND m.player1_id != ''
                   AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                  {where_extra}
                 ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
                 LIMIT %s OFFSET %s;
-                """, (limit, offset))
+                """, (*params, limit, offset))
                 return [dict(r) for r in cursor.fetchall()]
 
-    def get_unranked_matches(self, limit: int = 50000) -> List[Dict[str, Any]]:
+    def get_unranked_matches(self, limit: int = 50000, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Returns new matches that do not yet have a record in rating_history."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                where_extra = ""
+                params = []
+                if game_system and game_system != "all":
+                    where_extra = " AND COALESCE(m.game_system, '40k') = %s"
+                    params.append(game_system)
+                cursor.execute(f"""
                 SELECT 
                     m.id, m.event_id, m.round, m.table_number, m.match_date,
                     m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                     m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                    m.winner_id, m.is_draw, m.is_bye
+                    m.winner_id, m.is_draw, m.is_bye,
+                    COALESCE(m.game_system, '40k') as game_system
                 FROM matches m
                 WHERE m.is_done = TRUE
                   AND m.player1_id IS NOT NULL AND m.player1_id != ''
                   AND m.player2_id IS NOT NULL AND m.player2_id != ''
                   AND NOT EXISTS (
-                      SELECT 1 FROM rating_history rh WHERE rh.match_id = m.id LIMIT 1
+                      SELECT 1 FROM rating_history rh 
+                      WHERE rh.match_id = m.id 
+                        AND COALESCE(rh.game_system, '40k') = COALESCE(m.game_system, '40k')
+                      LIMIT 1
                   )
+                  {where_extra}
                 ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
                 LIMIT %s;
-                """, (limit,))
+                """, (*params, limit))
                 return [dict(r) for r in cursor.fetchall()]
 
-    def get_all_matches_chronological(self) -> List[Dict[str, Any]]:
+    def get_all_matches_chronological(self, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns all completed matches ordered chronologically (optimized for low-memory GCP VMs)."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                where_clause = "WHERE m.is_done = TRUE AND m.player1_id IS NOT NULL AND m.player1_id != '' AND m.player2_id IS NOT NULL AND m.player2_id != ''"
+                params = []
+                if game_system and game_system != "all":
+                    where_clause += " AND COALESCE(m.game_system, '40k') = %s"
+                    params.append(game_system)
+                cursor.execute(f"""
                 SELECT 
                     m.id, m.event_id, m.round, m.table_number, m.match_date,
                     m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
                     m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                    m.winner_id, m.is_draw, m.is_bye
+                    m.winner_id, m.is_draw, m.is_bye,
+                    COALESCE(m.game_system, '40k') as game_system
                 FROM matches m
-                WHERE m.is_done = TRUE
-                  AND m.player1_id IS NOT NULL AND m.player1_id != ''
-                  AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                {where_clause}
                 ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
-                """)
+                """, tuple(params))
                 return cursor.fetchall()
 
 
-    def get_summary_stats(self) -> Dict[str, Any]:
+    def get_summary_stats(self, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns dashboard summary counts (instant cached)."""
         now = time.time()
-        if PostgresDatabase._stats_cache and (now - PostgresDatabase._stats_cache_time) < PostgresDatabase.CACHE_TTL_SECONDS:
-            return PostgresDatabase._stats_cache
+        cache_key = game_system or "40k"
+        if not hasattr(PostgresDatabase, "_stats_cache_map"):
+            PostgresDatabase._stats_cache_map = {}
+        cached_entry = PostgresDatabase._stats_cache_map.get(cache_key)
+        if cached_entry and (now - cached_entry[1]) < PostgresDatabase.CACHE_TTL_SECONDS:
+            return cached_entry[0]
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("SELECT COUNT(*) as cnt FROM player_ratings WHERE matches_played > 0;")
+                where_pr = "WHERE matches_played > 0"
+                where_m = "WHERE is_done = TRUE"
+                where_e = "WHERE 1=1"
+                params_sys = []
+                if game_system and game_system != "all":
+                    where_pr += " AND (game_system = %s OR game_system IS NULL)"
+                    where_m += " AND (game_system = %s OR game_system IS NULL)"
+                    where_e += " AND (game_system = %s OR game_system IS NULL)"
+                    params_sys = [game_system]
+
+                cursor.execute(f"SELECT COUNT(*) as cnt FROM player_ratings {where_pr};", tuple(params_sys))
                 total_players = cursor.fetchone()["cnt"]
 
-                cursor.execute("SELECT COUNT(*) as cnt FROM matches WHERE is_done = TRUE;")
+                cursor.execute(f"SELECT COUNT(*) as cnt FROM matches {where_m};", tuple(params_sys))
                 total_matches = cursor.fetchone()["cnt"]
 
-                cursor.execute("SELECT COUNT(*) as cnt FROM events;")
+                cursor.execute(f"SELECT COUNT(*) as cnt FROM events {where_e};", tuple(params_sys))
                 total_events = cursor.fetchone()["cnt"]
 
-                cursor.execute("SELECT player_name, current_elo FROM player_ratings WHERE matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;")
+                top_query = f"SELECT player_name, current_elo FROM player_ratings {where_pr} AND matches_played >= 3 ORDER BY current_elo DESC LIMIT 1;"
+                cursor.execute(top_query, tuple(params_sys))
                 top_p = cursor.fetchone() or {"player_name": "None", "current_elo": 1500.0}
 
-                cursor.execute("""
+                fac_where = f"WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'"
+                if game_system and game_system != "all":
+                    fac_where += " AND (game_system = %s OR game_system IS NULL)"
+                cursor.execute(f"""
                 SELECT DISTINCT TRIM(fac) as f 
                 FROM (
                     SELECT UNNEST(STRING_TO_ARRAY(top_faction, ',')) as fac
                     FROM player_ratings
-                    WHERE top_faction IS NOT NULL AND TRIM(top_faction) != '' AND top_faction != 'Unknown Faction'
+                    {fac_where}
                 ) sub
                 WHERE TRIM(fac) != '' AND TRIM(fac) != 'Unknown Faction' AND TRIM(fac) != 'Unknown'
                 ORDER BY f ASC;
-                """)
+                """, tuple(params_sys))
                 factions = [r["f"] for r in cursor.fetchall() if r["f"]]
 
                 res = {
@@ -1430,16 +1664,19 @@ class PostgresDatabase:
                     "total_events": total_events,
                     "top_player_name": top_p["player_name"],
                     "top_player_elo": round(top_p["current_elo"], 1),
-                    "factions": factions
+                    "factions": factions,
+                    "game_system": game_system or "40k"
                 }
-                PostgresDatabase._stats_cache = res
-                PostgresDatabase._stats_cache_time = now
+                PostgresDatabase._stats_cache_map[cache_key] = (res, now)
+                if cache_key == "40k":
+                    PostgresDatabase._stats_cache = res
+                    PostgresDatabase._stats_cache_time = now
                 return res
 
-    def get_top_ranked_players(self, page=1, page_size=25, limit=None, min_matches=3, query=None, faction=None, sort_by="current_elo", order="DESC") -> Dict[str, Any]:
-        return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order)
+    def get_top_ranked_players(self, page=1, page_size=25, limit=None, min_matches=3, query=None, faction=None, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
+        return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order, game_system=game_system)
 
-    def get_players_directory(self, page=1, page_size=25, limit=None, query=None, faction=None, min_matches=0, sort_by="current_elo", order="DESC") -> Dict[str, Any]:
+    def get_players_directory(self, page=1, page_size=25, limit=None, query=None, faction=None, min_matches=0, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns paginated directory of players with total count (instant cached)."""
         if limit is not None and limit > 0:
             page_size = limit
@@ -1447,7 +1684,7 @@ class PostgresDatabase:
         page_size = max(1, min(int(page_size or 25), 200))
         offset = (page - 1) * page_size
 
-        cache_key = (page, page_size, limit, query, faction, min_matches, sort_by, order)
+        cache_key = (page, page_size, limit, query, faction, min_matches, sort_by, order, game_system)
         cached = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=90)
         if cached:
             return cached
@@ -1584,6 +1821,9 @@ class PostgresDatabase:
                 # Global player ratings directory
                 where_clauses = ["r.matches_played >= %s"]
                 params = [min_matches]
+                if game_system and game_system != "all":
+                    where_clauses.append("(r.game_system = %s OR r.game_system IS NULL)")
+                    params.append(game_system)
                 if query:
                     q_str = str(query).strip()
                     tokens = [t for t in q_str.split() if t]
@@ -2356,7 +2596,7 @@ class PostgresDatabase:
                 rows = cursor.fetchall()
                 return {r["event_id"]: dict(r) for r in rows}
 
-    def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC") -> Dict[str, Any]:
+    def get_events_list(self, page=1, page_size=25, limit=None, query=None, status=None, sort_by="event_date", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns paginated tournaments list with match counts."""
         if limit is not None and limit > 0:
             page_size = limit
@@ -2368,6 +2608,10 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 where_clauses = ["1=1"]
                 params: List[Any] = []
+
+                if game_system and game_system != "all":
+                    where_clauses.append("(e.game_system = %s OR e.game_system IS NULL)")
+                    params.append(game_system)
 
                 if query:
                     where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
@@ -2423,15 +2667,25 @@ class PostgresDatabase:
                     "total_pages": max(1, (total_count + page_size - 1) // page_size)
                 }
 
-    def _get_all_teams_list(self) -> List[Dict[str, Any]]:
+    def _get_all_teams_list(self, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Precomputes and caches all competitive teams in memory for instant filtering and search."""
         now = time.time()
-        if PostgresDatabase._all_teams_cache is not None and (now - PostgresDatabase._all_teams_cache_time) < 600:
-            return PostgresDatabase._all_teams_cache
+        cache_key = game_system or "40k"
+        if not hasattr(PostgresDatabase, "_all_teams_cache_map"):
+            PostgresDatabase._all_teams_cache_map = {}
+        cached = PostgresDatabase._all_teams_cache_map.get(cache_key)
+        if cached is not None and (now - cached[1]) < 600:
+            return cached[0]
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                sql = """
+                sys_clause = ""
+                sys_params = []
+                if game_system and game_system != "all":
+                    sys_clause = " AND (game_system = %s OR game_system IS NULL)"
+                    sys_params = [game_system]
+
+                sql = f"""
                 WITH team_members AS (
                     SELECT 
                         TRIM(team) as team_name,
@@ -2444,6 +2698,7 @@ class PostgresDatabase:
                         COALESCE(matches_played, 0) as matches_played
                     FROM player_ratings
                     WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                    {sys_clause}
                 )
                 SELECT 
                     tm.team_name as team,
@@ -2479,13 +2734,15 @@ class PostgresDatabase:
                 HAVING COUNT(DISTINCT tm.player_id) >= 1
                 ORDER BY power_rating DESC;
                 """
-                cursor.execute(sql)
+                cursor.execute(sql, tuple(sys_params))
                 rows = [dict(r) for r in cursor.fetchall()]
-                PostgresDatabase._all_teams_cache = rows
-                PostgresDatabase._all_teams_cache_time = now
+                PostgresDatabase._all_teams_cache_map[cache_key] = (rows, now)
+                if cache_key == "40k":
+                    PostgresDatabase._all_teams_cache = rows
+                    PostgresDatabase._all_teams_cache_time = now
                 return rows
 
-    def get_teams_leaderboard(self, page=1, page_size=25, min_members=5, limit=None, query=None, sort_by="power_rating", order="DESC") -> Dict[str, Any]:
+    def get_teams_leaderboard(self, page=1, page_size=25, min_members=5, limit=None, query=None, sort_by="power_rating", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns paginated power rankings of teams & gaming clubs (instant sub-millisecond in-memory)."""
         if limit is not None and limit > 0:
             page_size = limit
@@ -2493,7 +2750,7 @@ class PostgresDatabase:
         page_size = max(1, min(int(page_size or 25), 200))
         offset = (page - 1) * page_size
 
-        all_teams = self._get_all_teams_list()
+        all_teams = self._get_all_teams_list(game_system=game_system)
 
         filtered = list(all_teams)
         min_roster = int(min_members or 1)
@@ -2526,10 +2783,11 @@ class PostgresDatabase:
             "total_pages": max(1, (total_count + page_size - 1) // page_size)
         }
 
-    def get_team_roster(self, team_name: str) -> Dict[str, Any]:
+    def get_team_roster(self, team_name: str, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns full member roster and historical tournament record for a specific team (instant cached)."""
         team_name = team_name.strip()
-        cache_key = team_name.lower()
+        system = (game_system or "40k").strip().lower()
+        cache_key = f"{system}:{team_name.lower()}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._team_roster_cache_dict, cache_key, ttl=180)
         if cached:
             return cached
@@ -2550,12 +2808,12 @@ class PostgresDatabase:
                     COALESCE(win_rate, 0.0) as win_rate,
                     COALESCE(last_active_date, CURRENT_DATE) as last_active_date
                 FROM player_ratings
-                WHERE TRIM(team) ILIKE %s
+                WHERE TRIM(team) ILIKE %s AND game_system = %s
                 ORDER BY current_elo DESC NULLS LAST;
-                """, (team_name,))
+                """, (team_name, system))
                 roster = [dict(r) for r in cursor.fetchall()]
                 if not roster:
-                    res = {"team": team_name, "roster": [], "stats": {}}
+                    res = {"team": team_name, "roster": [], "stats": {}, "game_system": system}
                     PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
                     return res
 
@@ -2594,9 +2852,9 @@ class PostgresDatabase:
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)
                 return res
 
-    def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Dict[str, Any]:
+    def get_faction_meta_stats(self, start_date: Optional[str] = None, end_date: Optional[str] = None, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns overall faction balance metrics, timeline trends, and tier ratings (instant cached)."""
-        cache_key = f"{start_date}_{end_date}"
+        cache_key = f"{start_date}_{end_date}_{game_system}"
         cached = PostgresDatabase.get_cached(PostgresDatabase._faction_meta_cache_dict, cache_key, ttl=3600)
         if cached:
             return cached
@@ -2605,6 +2863,9 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 where_clauses = ["is_done = TRUE"]
                 params: List[Any] = []
+                if game_system and game_system != "all":
+                    where_clauses.append("(game_system = %s OR game_system IS NULL)")
+                    params.append(game_system)
                 if start_date:
                     where_clauses.append("match_date >= %s")
                     params.append(start_date)
@@ -2733,59 +2994,75 @@ class PostgresDatabase:
                 return res
 
 
-    def get_player_history(self, player_id: str) -> List[Dict[str, Any]]:
+    def get_player_history(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns rating progression history for a player."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                where_sql = "WHERE h.player_id = %s"
+                params = [player_id]
+                if game_system and game_system != "all":
+                    where_sql += " AND (h.game_system = %s OR h.game_system IS NULL)"
+                    params.append(game_system)
+                cursor.execute(f"""
                 SELECT h.*, e.name as event_name
                 FROM rating_history h
                 LEFT JOIN events e ON h.event_id = e.id
-                WHERE h.player_id = %s
+                {where_sql}
                 ORDER BY h.match_date ASC, h.round ASC;
-                """, (player_id,))
+                """, tuple(params))
                 return [dict(r) for r in cursor.fetchall()]
 
-    def get_player_matches(self, player_id: str) -> List[Dict[str, Any]]:
+    def get_player_matches(self, player_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns all matches for a specific player."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute("""
+                where_sql = "WHERE (m.player1_id = %s OR m.player2_id = %s)"
+                params = [player_id, player_id]
+                if game_system and game_system != "all":
+                    where_sql += " AND (m.game_system = %s OR m.game_system IS NULL)"
+                    params.append(game_system)
+                cursor.execute(f"""
                 SELECT m.*, e.name as event_name
                 FROM matches m
                 LEFT JOIN events e ON m.event_id = e.id
-                WHERE m.player1_id = %s OR m.player2_id = %s
+                {where_sql}
                 ORDER BY COALESCE(m.match_date, e.event_date) ASC, m.round ASC;
-                """, (player_id, player_id))
+                """, tuple(params))
                 return [dict(r) for r in cursor.fetchall()]
 
-    def search_players(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
+    def search_players(self, query: str, limit: int = 25, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Searches players for prediction autocomplete."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 q_str = (query or "").strip()
                 tokens = [t for t in q_str.split() if t]
+                sys_clause = ""
+                sys_params = []
+                if game_system and game_system != "all":
+                    sys_clause = " AND (game_system = %s OR game_system IS NULL)"
+                    sys_params = [game_system]
+
                 if len(tokens) > 1:
                     sub = " AND ".join(["player_name ILIKE %s" for _ in tokens])
-                    params = [f"%{t}%" for t in tokens] + [q_str, limit]
+                    params = [f"%{t}%" for t in tokens] + [q_str] + sys_params + [limit]
                     cursor.execute(f"""
-                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team
+                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
                     FROM player_ratings
-                    WHERE ({sub}) OR player_id = %s
+                    WHERE (({sub}) OR player_id = %s){sys_clause}
                     ORDER BY matches_played DESC, current_elo DESC
                     LIMIT %s;
                     """, tuple(params))
                 else:
-                    cursor.execute("""
-                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team
+                    cursor.execute(f"""
+                    SELECT player_id, player_name, current_elo, peak_elo, matches_played, wins, losses, draws, win_rate, top_faction, team, COALESCE(game_system, '40k') as game_system
                     FROM player_ratings
-                    WHERE player_name ILIKE %s OR player_id = %s
+                    WHERE (player_name ILIKE %s OR player_id = %s){sys_clause}
                     ORDER BY matches_played DESC, current_elo DESC
                     LIMIT %s;
-                    """, (f"%{q_str}%", q_str, limit))
+                    """, (f"%{q_str}%", q_str, *sys_params, limit))
                 return [dict(r) for r in cursor.fetchall()]
 
-    def get_head_to_head(self, p1_id: str, p2_id: str) -> List[Dict[str, Any]]:
+    def get_head_to_head(self, p1_id: str, p2_id: str, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Returns past head-to-head encounters strictly between the two unique player IDs."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
@@ -2799,7 +3076,13 @@ class PostgresDatabase:
                 p2_real_id = p2_row["player_id"] if p2_row else p2_id
 
                 # 2. Strict ID-based match query
-                cursor.execute("""
+                sys_clause = ""
+                sys_params = [p1_real_id, p2_real_id, p2_real_id, p1_real_id]
+                if game_system and game_system != "all":
+                    sys_clause = " AND (m.game_system = %s OR m.game_system IS NULL)"
+                    sys_params.append(game_system)
+
+                cursor.execute(f"""
                 SELECT m.*, COALESCE(e.name, 'Tournament') as event_name, COALESCE(m.match_date, e.event_date) as match_date
                 FROM matches m
                 LEFT JOIN events e ON m.event_id = e.id
@@ -2808,18 +3091,25 @@ class PostgresDatabase:
                     OR (m.player1_id = %s AND m.player2_id = %s)
                 )
                 AND m.is_done = TRUE
+                {sys_clause}
                 ORDER BY COALESCE(m.match_date, e.event_date) DESC;
-                """, (p1_real_id, p2_real_id, p2_real_id, p1_real_id))
+                """, tuple(sys_params))
                 return [dict(r) for r in cursor.fetchall()]
 
 
 
-    def get_faction_details(self, faction_name: str, limit: int = 100) -> Dict[str, Any]:
+    def get_faction_details(self, faction_name: str, limit: int = 100, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                sys_clause = ""
+                sys_params = []
+                if game_system and game_system != "all":
+                    sys_clause = " AND (matches.game_system = %s OR matches.game_system IS NULL)"
+                    sys_params = [game_system]
+
                 # 1. Pure Match-Level Commander Records strictly for games played WITH this faction
-                cursor.execute("""
+                cursor.execute(f"""
                 WITH faction_player_games AS (
                     SELECT 
                         player1_id as p_id,
@@ -2829,7 +3119,7 @@ class PostgresDatabase:
                         CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE
+                    WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{sys_clause}
                     UNION ALL
                     SELECT 
                         player2_id as p_id,
@@ -2839,7 +3129,7 @@ class PostgresDatabase:
                         CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE
+                    WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{sys_clause}
                 )
                 SELECT 
                     fpg.p_id as player_id,
@@ -2853,12 +3143,12 @@ class PostgresDatabase:
                     ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
                     ROUND(AVG(fpg.score)::numeric, 1) as avg_score
                 FROM faction_player_games fpg
-                LEFT JOIN player_ratings r ON fpg.p_id = r.player_id
+                LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND (r.game_system = %s OR r.game_system IS NULL))
                 GROUP BY fpg.p_id
                 HAVING COUNT(*) >= 1
                 ORDER BY wins DESC, matches_played DESC, current_elo DESC
                 LIMIT 25;
-                """, (f"%{faction_name}%", f"%{faction_name}%"))
+                """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, game_system or "40k"))
                 top_players = [dict(r) for r in cursor.fetchall()]
 
                 # 2. Recent matches involving this faction
@@ -3602,6 +3892,17 @@ class PostgresDatabase:
         started = bool(event_data.get("started", False))
         pairings_status = str(event_data.get("pairings_status") or "draft")
         
+        game_system_id = event_data.get("game_system_id") or event_data.get("gameSystemId")
+        raw_gs = (event_data.get("game_system") or "").strip().lower()
+        if raw_gs:
+            game_system = raw_gs
+        elif game_system_id == AOS_GAME_SYSTEM_ID:
+            game_system = "aos"
+        else:
+            game_system = "40k"
+        if not game_system_id:
+            game_system_id = AOS_GAME_SYSTEM_ID if game_system == "aos" else "WGMSzfKFYA"
+
         roster_json = json.dumps(event_data.get("roster") or [], default=str)
         pairings_json = json.dumps(event_data.get("pairings") or {}, default=str)
         raw_json = json.dumps(event_data.get("raw_json") or event_data, default=str)
@@ -3615,14 +3916,14 @@ class PostgresDatabase:
                     mission_pack, organizer_id, organizer_bcp_id, roster, pairings,
                     raw_json, scraped_at, event_type, team_size, circuits,
                     venue_name, address, postal_code, latitude, longitude, place_id,
-                    started, pairings_status
+                    started, pairings_status, game_system, game_system_id
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s::jsonb, %s::jsonb,
                     %s::jsonb, NOW(), %s, %s, %s::jsonb,
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s
+                    %s, %s, %s, %s
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -3655,6 +3956,8 @@ class PostgresDatabase:
                     place_id = COALESCE(EXCLUDED.place_id, events.place_id),
                     started = COALESCE(EXCLUDED.started, events.started),
                     pairings_status = COALESCE(EXCLUDED.pairings_status, events.pairings_status),
+                    game_system = COALESCE(EXCLUDED.game_system, events.game_system),
+                    game_system_id = COALESCE(EXCLUDED.game_system_id, events.game_system_id),
                     scraped_at = NOW();
                 """, (
                     event_id, name, event_date, end_date, city, state, country, venue,
@@ -3665,7 +3968,8 @@ class PostgresDatabase:
                     float(latitude) if latitude is not None else None,
                     float(longitude) if longitude is not None else None,
                     place_id,
-                    started, pairings_status
+                    started, pairings_status,
+                    game_system, game_system_id
                 ))
             conn.commit()
 
@@ -4575,34 +4879,178 @@ class PostgresDatabase:
     # WAHAPEDIA 11TH EDITION REFERENCE & AUTO-ENRICHMENT ENGINE
     # =========================================================================
 
-    def waha_get_sync_status(self) -> Dict[str, Any]:
-        """Returns the current Wahapedia 11th edition sync state and statistics."""
+    def waha_get_sync_status(self, game_system: Optional[str] = "all") -> Dict[str, Any]:
+        """Returns the current Wahapedia sync state and statistics for 40k and/or AoS."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                cursor.execute("SELECT value, updated_at FROM waha_sync_metadata WHERE key = 'last_update';")
+                def _get_40k_status():
+                    cursor.execute("SELECT value, updated_at FROM waha_sync_metadata WHERE key = 'last_update' OR key = 'last_update_40k' ORDER BY updated_at DESC LIMIT 1;")
+                    row = cursor.fetchone()
+                    last_update = row[0] if row else None
+                    last_sync_time = row[1].isoformat() if row and row[1] else None
+
+                    counts = {}
+                    for tbl in ["waha_datasheets", "waha_datasheet_models", "waha_datasheet_wargear", 
+                                "waha_datasheet_abilities", "waha_stratagems", "waha_enhancements", "waha_detachments"]:
+                        try:
+                            cursor.execute(f"SELECT COUNT(*) FROM {tbl};")
+                            r = cursor.fetchone()
+                            counts[tbl] = r[0] if r else 0
+                        except Exception:
+                            counts[tbl] = 0
+                    return {
+                        "edition": "11th Edition (wh40k11ed)",
+                        "last_update": last_update,
+                        "last_sync_time": last_sync_time,
+                        "counts": counts
+                    }
+
+                def _get_aos_status():
+                    cursor.execute("SELECT value, updated_at FROM waha_sync_metadata WHERE key = 'last_update_aos' LIMIT 1;")
+                    row = cursor.fetchone()
+                    last_update = row[0] if row else None
+                    last_sync_time = row[1].isoformat() if row and row[1] else None
+
+                    counts = {}
+                    for tbl in ["waha_aos_warscrolls", "waha_aos_warscroll_weapons", "waha_aos_warscroll_abilities", 
+                                "waha_aos_faction_abilities", "waha_aos_factions", "waha_aos_sources"]:
+                        try:
+                            cursor.execute(f"SELECT COUNT(*) FROM {tbl};")
+                            r = cursor.fetchone()
+                            counts[tbl] = r[0] if r else 0
+                        except Exception:
+                            counts[tbl] = 0
+                    return {
+                        "edition": "4th Edition (aos4)",
+                        "last_update": last_update,
+                        "last_sync_time": last_sync_time,
+                        "counts": counts
+                    }
+
+                sys_str = (game_system or "all").lower()
+                if sys_str in ("40k", "wh40k"):
+                    return _get_40k_status()
+                elif sys_str in ("aos", "warhammer_aos", "sigmar"):
+                    return _get_aos_status()
+                else:
+                    s_40k = _get_40k_status()
+                    s_aos = _get_aos_status()
+                    combined_counts = {**s_40k.get("counts", {}), **s_aos.get("counts", {})}
+                    return {
+                        "game_systems": ["40k", "aos"],
+                        "40k": s_40k,
+                        "aos": s_aos,
+                        "counts": combined_counts
+                    }
+
+    def waha_aos_find_warscroll(self, warscroll_name: str, faction_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Finds and builds a full enriched warscroll dict for an Age of Sigmar unit by name from PostgreSQL."""
+        clean_name = warscroll_name.strip()
+        from psycopg2 import extras
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                clean_name = warscroll_name.strip()
+                # 1. Exact match (and quote normalization)
+                cursor.execute("SELECT * FROM waha_aos_warscrolls WHERE LOWER(name) = LOWER(%s) OR LOWER(name) = LOWER(%s) OR LOWER(name) = LOWER(%s) LIMIT 1;", (
+                    clean_name,
+                    clean_name.replace("'", "’"),
+                    clean_name.replace("’", "'")
+                ))
                 row = cursor.fetchone()
-                last_update = row[0] if row else None
-                last_sync_time = row[1].isoformat() if row and row[1] else None
 
-                counts = {}
-                for tbl in ["waha_datasheets", "waha_datasheet_models", "waha_datasheet_wargear", 
-                            "waha_datasheet_abilities", "waha_stratagems", "waha_enhancements", "waha_detachments"]:
-                    try:
-                        cursor.execute(f"SELECT COUNT(*) FROM {tbl};")
-                        r = cursor.fetchone()
-                        counts[tbl] = r[0] if r else 0
-                    except Exception:
-                        counts[tbl] = 0
+                # 2. Variants match
+                if not row:
+                    variants = [
+                        clean_name.replace("'", "’"),
+                        clean_name.replace("’", "'"),
+                        clean_name.replace("’", "").replace("'", "")
+                    ]
+                    for var in variants:
+                        if var and var != clean_name:
+                            cursor.execute("SELECT * FROM waha_aos_warscrolls WHERE LOWER(name) = LOWER(%s) OR LOWER(name) = LOWER(%s) LIMIT 1;", (var, var.replace("'", "’")))
+                            row = cursor.fetchone()
+                            if row:
+                                break
 
-                return {
-                    "edition": "11th Edition (wh40k11ed)",
-                    "last_update": last_update,
-                    "last_sync_time": last_sync_time,
-                    "counts": counts
+                # 3. Fuzzy ILIKE match
+                if not row:
+                    search_term = clean_name.replace("'", "%").replace("’", "%")
+                    cursor.execute("SELECT * FROM waha_aos_warscrolls WHERE name ILIKE %s ORDER BY LENGTH(name) ASC LIMIT 1;", (f"%%{search_term}%%",))
+                    row = cursor.fetchone()
+
+                if not row:
+                    return None
+
+                ws_id = row["id"]
+                ws_name = row["name"]
+                faction_id = row["faction_id"]
+                role = row["role"]
+
+                # Statline
+                stats = {
+                    "Move": row.get("move") or "-",
+                    "Save": row.get("save") or "-",
+                    "Control": row.get("control") or "-",
+                    "Health": row.get("health") or "-",
+                    "Ward": row.get("ward") or "-",
+                    "UnitSize": row.get("unitsize") or "-",
+                    "Cost": row.get("cost") or "-"
                 }
 
-    def waha_find_unit(self, unit_name: str, faction_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Finds and builds a full enriched datasheet dict for a unit by name from PostgreSQL."""
+                # Weapons
+                cursor.execute("SELECT * FROM waha_aos_warscroll_weapons WHERE warscroll_id = %s ORDER BY line ASC;", (ws_id,))
+                weapons = [dict(w) for w in cursor.fetchall()]
+
+                # Abilities
+                cursor.execute("SELECT * FROM waha_aos_warscroll_abilities WHERE warscroll_id = %s ORDER BY line ASC;", (ws_id,))
+                abilities = [dict(a) for a in cursor.fetchall()]
+
+                # Keywords
+                cursor.execute("SELECT keyword, is_faction_keyword FROM waha_aos_warscroll_keywords WHERE warscroll_id = %s;", (ws_id,))
+                keywords = [k["keyword"] for k in cursor.fetchall() if k.get("keyword")]
+
+                # Bases
+                cursor.execute("SELECT model, base FROM waha_aos_warscroll_bases WHERE warscroll_id = %s;", (ws_id,))
+                bases = [dict(b) for b in cursor.fetchall()]
+
+                return {
+                    "id": ws_id,
+                    "name": ws_name,
+                    "game_system": "aos",
+                    "faction_id": faction_id,
+                    "role": role,
+                    "stats": stats,
+                    "weapons": weapons,
+                    "abilities": abilities,
+                    "keywords": keywords,
+                    "bases": bases,
+                    "raw": dict(row)
+                }
+
+    def waha_aos_get_factions(self) -> List[Dict[str, Any]]:
+        """Returns all Wahapedia Age of Sigmar factions."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                try:
+                    cursor.execute("SELECT * FROM waha_aos_factions ORDER BY name ASC;")
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception:
+                    return []
+
+    def waha_aos_get_faction_abilities(self, faction_id: str) -> List[Dict[str, Any]]:
+        """Returns all faction abilities, battle traits, battle formations for an AoS faction."""
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                try:
+                    cursor.execute("SELECT * FROM waha_aos_faction_abilities WHERE faction_id ILIKE %s ORDER BY type_name ASC, line ASC;", (faction_id.strip(),))
+                    return [dict(r) for r in cursor.fetchall()]
+                except Exception:
+                    return []
+
+    def waha_find_unit(self, unit_name: str, faction_name: Optional[str] = None, game_system: Optional[str] = "40k") -> Optional[Dict[str, Any]]:
+        """Finds and builds a full enriched datasheet/warscroll dict for a unit by name from PostgreSQL."""
+        if game_system and str(game_system).lower() in ("aos", "warhammer_aos", "sigmar"):
+            return self.waha_aos_find_warscroll(unit_name, faction_name=faction_name)
         clean_name = unit_name.strip()
         from psycopg2 import extras
         with self.get_connection() as conn:
@@ -5782,6 +6230,22 @@ class PostgresDatabase:
         {"id": "uk", "name": "United Kingdom", "badge": "🏰 UK", "description": "London, Manchester, Midlands", "lat": 51.5074, "lng": -0.1278}
     ]
 
+    @classmethod
+    def resolve_community_hub(cls, location_name: Optional[str]) -> Optional[Tuple[float, float, str]]:
+        """Resolves coordinates and canonical hub name from known hubs dictionary."""
+        if not location_name:
+            return None
+        loc_clean = str(location_name).strip().lower()
+        if loc_clean in cls.KNOWN_COMMUNITY_HUBS:
+            return cls.KNOWN_COMMUNITY_HUBS[loc_clean]
+        first_token = loc_clean.split(",")[0].strip()
+        if first_token in cls.KNOWN_COMMUNITY_HUBS:
+            return cls.KNOWN_COMMUNITY_HUBS[first_token]
+        for k, v in cls.KNOWN_COMMUNITY_HUBS.items():
+            if k in loc_clean or loc_clean in k:
+                return v
+        return None
+
     def get_community_regions(self) -> List[Dict[str, Any]]:
         """Returns standard regional hubs for community selection."""
         return self.COMMUNITY_REGIONS
@@ -6256,47 +6720,31 @@ class PostgresDatabase:
 
                 if user_lat is None or user_lng is None:
                     raw_loc = (region or location_name or "san diego").strip().lower()
-                    
-                    # 1. Exact match
-                    if raw_loc in self.KNOWN_COMMUNITY_HUBS:
-                        hub_lat, hub_lng, hub_name = self.KNOWN_COMMUNITY_HUBS[raw_loc]
-                        user_lat, user_lng = hub_lat, hub_lng
+                    matched_hub = self.resolve_community_hub(raw_loc)
+                    if matched_hub:
+                        user_lat, user_lng, hub_name = matched_hub
                         if not location_name:
                             location_name = hub_name
                     else:
-                        # 2. Token or substring match (e.g. "Seattle, WA, USA" -> "seattle")
                         first_token = raw_loc.split(',')[0].strip()
-                        matched_hub = None
-                        if first_token in self.KNOWN_COMMUNITY_HUBS:
-                            matched_hub = self.KNOWN_COMMUNITY_HUBS[first_token]
-                        else:
-                            for k, v in self.KNOWN_COMMUNITY_HUBS.items():
-                                if k in raw_loc or raw_loc in k:
-                                    matched_hub = v
-                                    break
-                        if matched_hub:
-                            user_lat, user_lng, hub_name = matched_hub
+                        # 3. Query events table for matching tournament city
+                        cursor.execute("""
+                            SELECT latitude, longitude, city, state
+                            FROM events
+                            WHERE (LOWER(city) = %s OR LOWER(city) = %s)
+                              AND latitude IS NOT NULL AND longitude IS NOT NULL
+                              AND NOT (latitude = 0.0 AND longitude = 0.0)
+                            ORDER BY event_date DESC
+                            LIMIT 1;
+                        """, (first_token, raw_loc))
+                        ev_loc = cursor.fetchone()
+                        if ev_loc and ev_loc.get("latitude") and ev_loc.get("longitude"):
+                            user_lat = float(ev_loc["latitude"])
+                            user_lng = float(ev_loc["longitude"])
                             if not location_name:
-                                location_name = hub_name
-                        else:
-                            # 3. Query events table for matching tournament city
-                            cursor.execute("""
-                                SELECT latitude, longitude, city, state
-                                FROM events
-                                WHERE (LOWER(city) = %s OR LOWER(city) = %s)
-                                  AND latitude IS NOT NULL AND longitude IS NOT NULL
-                                  AND NOT (latitude = 0.0 AND longitude = 0.0)
-                                ORDER BY event_date DESC
-                                LIMIT 1;
-                            """, (first_token, raw_loc))
-                            ev_loc = cursor.fetchone()
-                            if ev_loc and ev_loc.get("latitude") and ev_loc.get("longitude"):
-                                user_lat = float(ev_loc["latitude"])
-                                user_lng = float(ev_loc["longitude"])
-                                if not location_name:
-                                    c_name = ev_loc.get("city")
-                                    s_name = ev_loc.get("state")
-                                    location_name = f"{c_name}, {s_name}" if s_name else c_name
+                                c_name = ev_loc.get("city")
+                                s_name = ev_loc.get("state")
+                                location_name = f"{c_name}, {s_name}" if s_name else c_name
                             else:
                                 user_lat = 32.7157
                                 user_lng = -117.1611
@@ -7145,98 +7593,9 @@ class PostgresDatabase:
         """
         Validates whether a venue corresponds to a legitimate local game/hobby store
         rather than a hotel, convention hall, brewery, private residence, tournament title, or junk test event.
+        Delegates to PlacesService.
         """
-        if not name or len(name.strip()) < 3:
-            return False
-
-        name_clean = name.strip()
-        norm = name_clean.lower().replace("'", "").replace('"', '').strip()
-
-        # 1. Obvious junk / test strings / virtual platforms / private residences
-        JUNK_EXACT = {
-            "asdf", "test", "testing", "tbd", "na", "n/a", "none", "null", "undefined",
-            "unknown", "online", "discord", "tabletop simulator", "tts", "vassal",
-            "home", "house", "garage", "basement", "private", "my house", "my home",
-            "somewhere", "anywhere", "tba", "zoom", "google meet", "room"
-        }
-        if norm in JUNK_EXACT:
-            return False
-
-        # Single word without store keywords (e.g. personal names like "Luis", "Dave", "John")
-        words = [w for w in norm.split() if w]
-        if len(words) == 1 and len(norm) <= 7:
-            if not any(k in norm for k in ("game", "hobby", "comic", "cards", "dice", "gunnzo")):
-                return False
-
-        # 2. Google Places specific type check
-        if types:
-            excluded_types = {"lodging", "hotel", "campground", "tourist_attraction", "airport", "movie_theater"}
-            if any(t in excluded_types for t in types):
-                return False
-
-        # 3. Excluded non-store venue categories (Hotels, Fairgrounds, Convention Centers, Breweries, etc.)
-        NON_STORE_PATTERNS = (
-            r"\b("
-            r"hotel|motel|resort|suites|inn\b|lodge|banquet|ballroom|fairground|fairgrounds|"
-            r"convention\s*center|conference\s*center|expo\s*center|civic\s*center|events?\s*center|"
-            r"coliseum|arena|pavilion|hall\b|"
-            r"brewing|brewery|brewhouse|beer|winery|vineyard|saloon|bar\s*&\s*grill|bar\s*and\s*grill|"
-            r"tavern|pub\b|pizzeria|pizza|restaurant|bistro|cantina|"
-            r"park|recreation\s*center|rec\s*center|church|temple|chapel|community\s*center|"
-            r"elementary|high\s*school|middle\s*school|university|college|campus"
-            r")\b"
-        )
-        SPECIFIC_NON_STORES = {
-            "del mar fairgrounds", "town and country san diego", "town and country",
-            "handlery hotel", "handlery hotel: garden space", "crowne plaza", "crowne plaza san diego",
-            "alesmith", "alesmith brewing", "alesmith brewing company", "stone brewing", "ballast point"
-        }
-
-        if any(bad in norm for bad in SPECIFIC_NON_STORES):
-            return False
-
-        if re.search(NON_STORE_PATTERNS, norm, re.IGNORECASE):
-            # Exception only if explicitly marked as a board game / tabletop cafe
-            if not any(good in norm for good in ("board game", "boardgame", "tabletop cafe", "game cafe", "gaming cafe")):
-                return False
-
-        # 4. Tournament / Event title in place of venue name (e.g. "Warhammer League 12", "San Diego GT")
-        EVENT_TITLES_PATTERN = (
-            r"\b("
-            r"tournament|grand\s*tournament|\bgt\b|\brtt\b|championship|invitational|"
-            r"qualifier|\bleague\b|\bcup\b"
-            r")\b"
-        )
-        if re.search(EVENT_TITLES_PATTERN, norm, re.IGNORECASE):
-            if not any(good in norm for good in ("store", "shop", "hobbies", "hobby", "games", "gaming")):
-                return False
-
-        # If from Google Places, we already know it was returned for a game store query
-        if is_from_google_places:
-            return True
-
-        # 5. For database tournament venues: require explicit store/hobby keywords or known store whitelist
-        STORE_KEYWORDS = (
-            r"\b("
-            r"game|games|gaming|hobby|hobbies|tabletop|comic|comics|card|cards|"
-            r"collectible|collectibles|warhammer|games\s*workshop|miniature|miniatures|"
-            r"dice|wargame|wargames|wargaming|boardgame|boardgames|tcg"
-            r")\b"
-        )
-        KNOWN_STORES = {
-            "tc rockets", "tcs rockets", "tc's rockets", "gunnzo", "pair a dice",
-            "off the shelf", "crazy squirrel", "bards & cards", "bards and cards",
-            "at ease", "game empire", "warp rider", "villainous lair", "so cal games",
-            "socal games", "brookhurst"
-        }
-
-        if any(known in norm for known in KNOWN_STORES):
-            return True
-
-        if re.search(STORE_KEYWORDS, norm, re.IGNORECASE):
-            return True
-
-        return False
+        return PlacesService.is_valid_game_store_name(name, types=types, is_from_google_places=is_from_google_places)
 
     def get_local_game_stores(
         self,
@@ -7247,299 +7606,15 @@ class PostgresDatabase:
         location_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Discovers local game stores and clubs for Warhammer 40k within a specified radius:
+        Discovers local game stores and clubs for Warhammer within a specified radius:
         1. Queries Google Places TextSearch API (if Google Maps API key is configured).
-        2. Queries verified Warhammer 40k tournament venues from the PostgreSQL events database.
+        2. Queries verified Warhammer tournament venues from the PostgreSQL events database.
         3. Merges, enriches with tournament hosting history, calculates distances, and sorts by proximity.
+        Delegates to PlacesService.
         """
-        try:
-            radius_miles = float(radius_miles or 50.0)
-        except (ValueError, TypeError):
-            radius_miles = 50.0
-        radius_miles = max(5.0, min(radius_miles, 250.0))
-
-        user_lat = None
-        user_lng = None
-        if lat is not None and lng is not None:
-            try:
-                user_lat = float(lat)
-                user_lng = float(lng)
-            except (ValueError, TypeError):
-                user_lat = None
-                user_lng = None
-
-        # If user_lat and user_lng are provided, NEVER overwrite them.
-        # Only resolve coordinates from location_name if coordinates were not provided.
-        if user_lat is None or user_lng is None:
-            if location_name:
-                loc_lower = location_name.strip().lower()
-                first_tok = loc_lower.split(',')[0].strip()
-                matched_hub = None
-                if loc_lower in self.KNOWN_COMMUNITY_HUBS:
-                    matched_hub = self.KNOWN_COMMUNITY_HUBS[loc_lower]
-                elif first_tok in self.KNOWN_COMMUNITY_HUBS:
-                    matched_hub = self.KNOWN_COMMUNITY_HUBS[first_tok]
-                else:
-                    for k, v in self.KNOWN_COMMUNITY_HUBS.items():
-                        if k in loc_lower or loc_lower in k:
-                            matched_hub = v
-                            break
-                if matched_hub:
-                    user_lat, user_lng, hub_name = matched_hub
-                    if not location_name:
-                        location_name = hub_name
-
-        if user_lat is None or user_lng is None:
-            user_lat = 32.7157
-            user_lng = -117.1611
-            if not location_name:
-                location_name = "San Diego, CA"
-        elif not location_name or location_name.strip().lower() in ["my location", "your location", "current location", "local tabletop"] or location_name.strip().lower().startswith("gps ("):
-            geo = self.reverse_geocode_coordinates(user_lat, user_lng)
-            location_name = geo.get("formatted") or f"{user_lat:.2f}, {user_lng:.2f}"
-
-        clean_query = (query or "").strip()
-        cache_key = (
-            "v3",
-            round(user_lat, 2),
-            round(user_lng, 2),
-            int(round(radius_miles)),
-            clean_query.lower()
+        return PlacesService.get_local_game_stores(
+            self, lat=lat, lng=lng, radius_miles=radius_miles, query=query, location_name=location_name
         )
-        cached = PostgresDatabase.get_cached(PostgresDatabase._stores_cache_dict, cache_key, ttl=1800)
-        if cached is not None:
-            return cached
-
-        stores = []
-        seen_names = set()
-        seen_place_ids = set()
-
-        # 1. Query Google Places API if key is available
-        google_maps_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
-        if not google_maps_key:
-            try:
-                from config import GOOGLE_MAPS_API_KEY
-                google_maps_key = GOOGLE_MAPS_API_KEY
-            except Exception:
-                pass
-
-        if google_maps_key:
-            search_text = f"{clean_query} game store" if clean_query else "Warhammer 40k game store"
-            params = {
-                "query": search_text,
-                "location": f"{user_lat},{user_lng}",
-                "radius": int(min(50000, radius_miles * 1609.34)),
-                "key": google_maps_key
-            }
-            url = f"https://maps.googleapis.com/maps/api/place/textsearch/json?{urllib.parse.urlencode(params)}"
-            try:
-                req = urllib.request.Request(url, headers={"User-Agent": "EloRanking/1.0", "Accept": "application/json"})
-                with urllib.request.urlopen(req, timeout=3.5) as resp:
-                    p_data = json.loads(resp.read().decode("utf-8"))
-                    results = p_data.get("results", [])
-                    for place in results:
-                        status = place.get("business_status", "OPERATIONAL")
-                        if status == "CLOSED_PERMANENTLY":
-                            continue
-                        pid = place.get("place_id") or ""
-                        p_name = place.get("name", "Game Store").strip()
-                        types = place.get("types") or []
-                        if not self.is_valid_game_store_name(p_name, types=types, is_from_google_places=True):
-                            continue
-                        geom = place.get("geometry", {}).get("location", {})
-                        p_lat = geom.get("lat")
-                        p_lng = geom.get("lng")
-                        if p_lat is None or p_lng is None:
-                            continue
-
-                        # Haversine distance
-                        R = 3959.0
-                        dlat = math.radians(p_lat - user_lat)
-                        dlng = math.radians(p_lng - user_lng)
-                        a = math.sin(dlat / 2.0) ** 2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(p_lat)) * math.sin(dlng / 2.0) ** 2
-                        c = 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
-                        dist = round(R * c, 1)
-
-                        if dist > (radius_miles * 1.25):
-                            continue
-
-                        norm_name = p_name.lower().replace("'", "").replace('"', '').strip()
-                        if pid and pid in seen_place_ids:
-                            continue
-                        if norm_name in seen_names:
-                            continue
-
-                        if pid:
-                            seen_place_ids.add(pid)
-                        seen_names.add(norm_name)
-
-                        opening_hours = place.get("opening_hours") or {}
-                        open_now = opening_hours.get("open_now")
-                        photos = place.get("photos") or []
-                        photo_ref = photos[0].get("photo_reference") if photos else None
-
-                        is_gw_official = bool("warhammer" in norm_name or "games workshop" in norm_name)
-
-                        # Check if website was already cached from Place Details
-                        cached_details = PostgresDatabase.get_cached(PostgresDatabase._place_details_cache_dict, pid, ttl=86400 * 7) if pid else None
-                        initial_website = cached_details.get("website") if cached_details else None
-                        if not initial_website and is_gw_official:
-                            initial_website = "https://www.warhammer.com/en-US/store-finder"
-
-                        stores.append({
-                            "id": pid or f"g_{len(stores)}",
-                            "place_id": pid,
-                            "name": p_name,
-                            "address": place.get("formatted_address", ""),
-                            "latitude": float(p_lat),
-                            "longitude": float(p_lng),
-                            "distance_miles": dist,
-                            "rating": float(place.get("rating", 0.0)) if place.get("rating") else None,
-                            "user_ratings_total": int(place.get("user_ratings_total", 0)),
-                            "open_now": open_now,
-                            "photo_reference": photo_ref,
-                            "is_official_warhammer": is_gw_official,
-                            "is_tournament_venue": False,
-                            "tournament_count": 0,
-                            "website": initial_website,
-                            "source": "google_places"
-                        })
-            except Exception as e:
-                logger.warning(f"Google Places TextSearch query notice: {e}")
-
-        # 2. Query verified Warhammer tournament venues from PostgreSQL database (using fast spatial bounding box)
-        try:
-            lat_delta = (radius_miles * 1.25) / 69.0
-            cos_lat = max(0.2, math.cos(math.radians(user_lat)))
-            lng_delta = (radius_miles * 1.25) / (69.0 * cos_lat)
-            min_lat = user_lat - lat_delta
-            max_lat = user_lat + lat_delta
-            min_lng = user_lng - lng_delta
-            max_lng = user_lng + lng_delta
-
-            with self.get_connection() as conn:
-                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                    cursor.execute("""
-                        WITH venues_filtered AS (
-                            SELECT 
-                                COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue_name,
-                                e.city, e.state, e.country,
-                                COALESCE(e.raw_json->>'address', e.raw_json->'location'->>'address', '') as address,
-                                e.latitude as lat,
-                                e.longitude as lng,
-                                COUNT(*) as tournament_count,
-                                MAX(e.event_date) as last_tournament_date,
-                                MAX(COALESCE(
-                                    NULLIF(TRIM(e.raw_json->>'website'), ''),
-                                    NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
-                                    NULLIF(TRIM(e.raw_json->>'url'), ''),
-                                    NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
-                                    NULLIF(TRIM(e.raw_json->>'facebook'), ''),
-                                    NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
-                                )) as website
-                            FROM events e
-                            WHERE e.latitude BETWEEN %s AND %s
-                              AND e.longitude BETWEEN %s AND %s
-                              AND (e.venue IS NOT NULL OR e.venue_name IS NOT NULL OR e.raw_json->>'locationName' IS NOT NULL)
-                            GROUP BY 1, 2, 3, 4, 5, 6, 7
-                        ),
-                        venues_dist AS (
-                            SELECT *,
-                                (3959.0 * acos(
-                                    LEAST(1.0, GREATEST(-1.0,
-                                        cos(radians(%s)) * cos(radians(lat)) * cos(radians(lng) - radians(%s)) +
-                                        sin(radians(%s)) * sin(radians(lat))
-                                    ))
-                                )) AS distance_miles
-                            FROM venues_filtered
-                            WHERE lat IS NOT NULL AND lng IS NOT NULL
-                              AND NOT (lat = 0.0 AND lng = 0.0)
-                        )
-                        SELECT venue_name, city, state, country, address, lat, lng,
-                               tournament_count, last_tournament_date, website,
-                               ROUND(distance_miles::numeric, 1) as distance_miles
-                        FROM venues_dist
-                        WHERE distance_miles <= %s
-                        ORDER BY distance_miles ASC, tournament_count DESC
-                        LIMIT 40;
-                    """, (min_lat, max_lat, min_lng, max_lng, user_lat, user_lng, user_lat, radius_miles))
-                    db_venues = cursor.fetchall()
-                    for v in db_venues:
-                        v_name = (v.get("venue_name") or "").strip()
-                        if not v_name or len(v_name) < 3:
-                            continue
-                        if not self.is_valid_game_store_name(v_name, is_from_google_places=False):
-                            continue
-                        v_norm = v_name.lower().replace("'", "").replace('"', '').strip()
-                        v_dist = float(v.get("distance_miles") or 0.0)
-                        v_lat = float(v.get("lat") or 0.0)
-                        v_lng = float(v.get("lng") or 0.0)
-                        v_website = (v.get("website") or "").strip() or None
-                        t_count = int(v.get("tournament_count") or 0)
-                        last_date = v.get("last_tournament_date")
-                        if hasattr(last_date, "isoformat"):
-                            last_date = last_date.isoformat()
-
-                        matched_existing = None
-                        for s in stores:
-                            s_norm = s["name"].lower().replace("'", "").replace('"', '').strip()
-                            if s_norm in v_norm or v_norm in s_norm or (abs(s["latitude"] - v_lat) < 0.003 and abs(s["longitude"] - v_lng) < 0.003):
-                                matched_existing = s
-                                break
-
-                        if matched_existing:
-                            matched_existing["is_tournament_venue"] = True
-                            matched_existing["tournament_count"] = max(matched_existing["tournament_count"], t_count)
-                            matched_existing["last_tournament_date"] = last_date
-                            if not matched_existing.get("website") and v_website:
-                                matched_existing["website"] = v_website
-                        else:
-                            if v_norm not in seen_names:
-                                seen_names.add(v_norm)
-                                is_gw = bool("warhammer" in v_norm or "games workshop" in v_norm)
-                                city_state = f"{v.get('city') or ''}, {v.get('state') or ''}".strip(', ')
-                                full_addr = v.get("address") or city_state or location_name
-                                venue_web = v_website or ("https://www.warhammer.com/en-US/store-finder" if is_gw else None)
-                                stores.append({
-                                    "id": f"db_{len(stores)}",
-                                    "place_id": None,
-                                    "name": v_name,
-                                    "address": full_addr,
-                                    "city": v.get("city") or "",
-                                    "state": v.get("state") or "",
-                                    "latitude": v_lat,
-                                    "longitude": v_lng,
-                                    "distance_miles": v_dist,
-                                    "rating": None,
-                                    "user_ratings_total": 0,
-                                    "open_now": None,
-                                    "photo_reference": None,
-                                    "is_official_warhammer": is_gw,
-                                    "is_tournament_venue": True,
-                                    "tournament_count": t_count,
-                                    "last_tournament_date": last_date,
-                                    "website": venue_web,
-                                    "source": "database_tournaments"
-                                })
-        except Exception as e:
-            logger.warning(f"Database tournament venues notice: {e}")
-
-        # Sort stores by distance
-        stores.sort(key=lambda s: (s.get("distance_miles") if s.get("distance_miles") is not None else 9999.0))
-
-        result = {
-            "success": True,
-            "stores": stores,
-            "total_found": len(stores),
-            "location": {
-                "lat": user_lat,
-                "lng": user_lng,
-                "radius_miles": radius_miles,
-                "location_name": location_name
-            }
-        }
-        PostgresDatabase.set_cached(PostgresDatabase._stores_cache_dict, cache_key, result)
-        return result
 
     def get_store_tournaments(
         self,
@@ -7549,233 +7624,20 @@ class PostgresDatabase:
         place_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Retrieves all verified Warhammer 40k tournaments hosted by a specific game store or venue.
+        Retrieves all verified Warhammer tournaments hosted by a specific game store or venue.
         Matches by Google Place ID, spatial proximity (~350m), or normalized venue name.
+        Delegates to PlacesService.
         """
-        clean_name = (store_name or "").strip()
-        s_norm = clean_name.lower().replace("'", "").replace('"', '').strip()
-
-        # Extract core name by removing common geographical / corporate suffixes
-        core_name = s_norm
-        for suffix in [" san diego", " llc", " inc", " store", " game store", " hobby shop", " games"]:
-            if core_name.endswith(suffix):
-                core_name = core_name[:-len(suffix)].strip()
-
-        p_lat = None
-        p_lng = None
-        if lat is not None and lng is not None:
-            try:
-                p_lat = float(lat)
-                p_lng = float(lng)
-            except (ValueError, TypeError):
-                p_lat = None
-                p_lng = None
-
-        events = []
-        try:
-            with self.get_connection() as conn:
-                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                    # Spatial bounding box (~0.006 deg is ~600m)
-                    min_lat = p_lat - 0.006 if p_lat is not None else None
-                    max_lat = p_lat + 0.006 if p_lat is not None else None
-                    min_lng = p_lng - 0.006 if p_lng is not None else None
-                    max_lng = p_lng + 0.006 if p_lng is not None else None
-
-                    like_name = f"%{clean_name}%" if clean_name else "%"
-                    like_core = f"%{core_name}%" if core_name and len(core_name) >= 3 else like_name
-
-                    sql = """
-                    SELECT 
-                        e.id,
-                        e.name,
-                        e.event_date,
-                        e.end_date,
-                        e.city,
-                        e.state,
-                        e.country,
-                        COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') as venue,
-                        COALESCE(e.address, e.raw_json->>'address', e.raw_json->'location'->>'address') as address,
-                        COALESCE(
-                            NULLIF(TRIM(e.raw_json->>'website'), ''),
-                            NULLIF(TRIM(e.raw_json->'location'->>'website'), ''),
-                            NULLIF(TRIM(e.raw_json->>'url'), ''),
-                            NULLIF(TRIM(e.raw_json->'location'->>'url'), ''),
-                            NULLIF(TRIM(e.raw_json->>'facebook'), ''),
-                            NULLIF(TRIM(e.raw_json->'location'->>'facebook'), '')
-                        ) as venue_website,
-                        COALESCE(e.total_players, 0) as total_players,
-                        COALESCE(e.num_rounds, 0) as num_rounds,
-                        COALESCE(e.current_round, 0) as current_round,
-                        e.is_ended,
-                        e.event_type,
-                        e.latitude,
-                        e.longitude,
-                        e.place_id,
-                        COALESCE(
-                            w.winner_name,
-                            e.raw_json->>'winnerName',
-                            e.raw_json->'winner'->>'name'
-                        ) as winner_name,
-                        w.winner_faction
-                    FROM events e
-                    LEFT JOIN LATERAL (
-                        SELECT ep.full_name as winner_name, ep.faction as winner_faction
-                        FROM event_participants ep
-                        WHERE ep.event_id = e.id AND ep.placement = 1
-                        ORDER BY ep.placement ASC
-                        LIMIT 1
-                    ) w ON true
-                    WHERE 
-                        (
-                            %s IS NOT NULL AND %s IS NOT NULL
-                            AND e.latitude BETWEEN %s AND %s
-                            AND e.longitude BETWEEN %s AND %s
-                        )
-                        OR (
-                            %s IS NOT NULL AND %s != ''
-                            AND (
-                                e.place_id = %s
-                                OR e.raw_json->>'place_id' = %s
-                                OR e.raw_json->'location'->>'placeId' = %s
-                            )
-                        )
-                        OR (
-                            %s IS NOT NULL AND %s != ''
-                            AND (
-                                COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') ILIKE %s
-                                OR COALESCE(e.venue, e.venue_name, e.raw_json->>'locationName', e.raw_json->>'gameStoreName') ILIKE %s
-                            )
-                        )
-                    ORDER BY e.event_date DESC NULLS LAST;
-                    """
-
-                    params = (
-                        min_lat, min_lng, min_lat, max_lat, min_lng, max_lng,
-                        place_id, place_id, place_id, place_id, place_id,
-                        clean_name, clean_name, like_name, like_core
-                    )
-
-                    cursor.execute(sql, params)
-                    raw_rows = cursor.fetchall()
-
-                    seen_ids = set()
-                    found_website = None
-                    for r in raw_rows:
-                        eid = str(r.get("id"))
-                        if eid in seen_ids:
-                            continue
-
-                        v_name = (r.get("venue") or "").strip()
-                        v_norm = v_name.lower().replace("'", "").replace('"', '').strip()
-                        ev_lat = r.get("latitude")
-                        ev_lng = r.get("longitude")
-                        ev_pid = r.get("place_id")
-
-                        is_match = False
-                        if place_id and ev_pid and ev_pid == place_id:
-                            is_match = True
-                        elif p_lat is not None and p_lng is not None and ev_lat is not None and ev_lng is not None:
-                            if abs(p_lat - float(ev_lat)) < 0.0035 and abs(p_lng - float(ev_lng)) < 0.0035:
-                                is_match = True
-
-                        if not is_match and s_norm and v_norm and len(v_norm) >= 3:
-                            if s_norm in v_norm or v_norm in s_norm:
-                                is_match = True
-                            elif core_name and len(core_name) >= 3 and (core_name in v_norm or v_norm in core_name):
-                                is_match = True
-
-                        if is_match:
-                            seen_ids.add(eid)
-                            if not found_website and r.get("venue_website"):
-                                found_website = (r.get("venue_website") or "").strip() or None
-
-                            ed = r.get("event_date")
-                            if hasattr(ed, "isoformat"):
-                                ed = ed.isoformat()
-                            end_d = r.get("end_date")
-                            if hasattr(end_d, "isoformat"):
-                                end_d = end_d.isoformat()
-
-                            events.append({
-                                "id": eid,
-                                "name": r.get("name") or "Tournament",
-                                "event_date": ed,
-                                "end_date": end_d,
-                                "city": r.get("city") or "",
-                                "state": r.get("state") or "",
-                                "country": r.get("country") or "",
-                                "venue": v_name,
-                                "address": r.get("address") or "",
-                                "total_players": int(r.get("total_players") or 0),
-                                "num_rounds": int(r.get("num_rounds") or 0),
-                                "current_round": int(r.get("current_round") or 0),
-                                "is_ended": bool(r.get("is_ended")),
-                                "event_type": r.get("event_type") or "singles",
-                                "winner_name": r.get("winner_name"),
-                                "winner_faction": r.get("winner_faction")
-                            })
-        except Exception as e:
-            logger.error(f"Error getting store tournaments for {store_name}: {e}")
-
-        if not found_website and place_id:
-            cached_d = PostgresDatabase.get_cached(PostgresDatabase._place_details_cache_dict, place_id, ttl=86400 * 7)
-            if cached_d and cached_d.get("website"):
-                found_website = cached_d.get("website")
-
-        return {
-            "success": True,
-            "store_name": clean_name,
-            "store_website": found_website,
-            "total_tournaments": len(events),
-            "tournaments": events
-        }
+        return PlacesService.get_store_tournaments(
+            self, store_name=store_name, lat=lat, lng=lng, place_id=place_id
+        )
 
     def get_place_details(self, place_id: str) -> Dict[str, Any]:
         """
         Fetches Google Place Details (website, maps url, phone) with in-memory 7-day caching.
+        Delegates to PlacesService.
         """
-        if not place_id or not place_id.strip():
-            return {"success": False, "error": "Missing place_id"}
-
-        clean_pid = place_id.strip()
-        cached = PostgresDatabase.get_cached(PostgresDatabase._place_details_cache_dict, clean_pid, ttl=86400 * 7)
-        if cached is not None:
-            return cached
-
-        google_maps_key = os.environ.get("GOOGLE_MAPS_API_KEY", "")
-        if not google_maps_key:
-            try:
-                from config import GOOGLE_MAPS_API_KEY
-                google_maps_key = GOOGLE_MAPS_API_KEY
-            except Exception:
-                pass
-
-        if not google_maps_key:
-            return {"success": False, "error": "GOOGLE_MAPS_API_KEY not configured"}
-
-        url = f"https://maps.googleapis.com/maps/api/place/details/json?place_id={urllib.parse.quote(clean_pid)}&fields=website,url,formatted_phone_number,name&key={google_maps_key}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "EloRanking/1.0", "Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=4.0) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                result = data.get("result", {})
-                website = (result.get("website") or "").strip() or None
-                maps_url = result.get("url") or None
-                phone = result.get("formatted_phone_number") or None
-                name = result.get("name") or None
-                res = {
-                    "success": True,
-                    "place_id": clean_pid,
-                    "name": name,
-                    "website": website,
-                    "maps_url": maps_url,
-                    "phone": phone
-                }
-                PostgresDatabase.set_cached(PostgresDatabase._place_details_cache_dict, clean_pid, res)
-                return res
-        except Exception as e:
-            logger.warning(f"Error fetching Google Place details for {clean_pid}: {e}")
-            return {"success": False, "error": str(e)}
+        return PlacesService.get_place_details(self, place_id=place_id)
 
     def get_community_chat_messages(self, region: str = "socal", limit: int = 50) -> List[Dict[str, Any]]:
         """Retrieves recent community messages for regional channel."""

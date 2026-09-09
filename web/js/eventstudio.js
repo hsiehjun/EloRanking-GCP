@@ -3565,6 +3565,28 @@ function updateDefaultRounds() {
   else if (val === "League") roundsInput.value = "4";
 }
 
+function onGameSystemChange() {
+  const gs = document.getElementById("create-event-game-system");
+  const nameInput = document.getElementById("create-event-name");
+  const roundLen = document.getElementById("create-event-round-length");
+  if (!gs) return;
+  if (gs.value === "23qDprPABN") {
+    if (nameInput && (!nameInput.value || nameInput.placeholder.includes("40k") || nameInput.placeholder.includes("40K"))) {
+      nameInput.placeholder = "e.g. Adepticon Age of Sigmar Grand Tournament 2026";
+    }
+    if (roundLen && roundLen.value === "9000") {
+      roundLen.value = "9900"; // 165 minutes standard AoS
+    }
+  } else if (gs.value === "WGMSzfKFYA") {
+    if (nameInput && nameInput.placeholder.includes("Sigmar")) {
+      nameInput.placeholder = "e.g. Pacific Northwest 40K Grand Tournament 2026";
+    }
+    if (roundLen && roundLen.value === "9900") {
+      roundLen.value = "9000"; // 150 minutes standard 40k
+    }
+  }
+}
+
 function escapeHtml(str) {
   if (typeof window !== 'undefined' && typeof window.escapeHtml === 'function' && window.escapeHtml !== escapeHtml) {
     return window.escapeHtml(str);
@@ -3588,6 +3610,7 @@ window.renderEventsDirectory = renderEventsDirectory;
 window.submitCreateTournament = submitCreateTournament;
 window.deleteStudioTournament = deleteStudioTournament;
 window.updateDefaultRounds = updateDefaultRounds;
+window.onGameSystemChange = onGameSystemChange;
 window.loadTournamentWorkspace = loadTournamentWorkspace;
 window.switchManageSubtab = switchManageSubtab;
 window.triggerGenerateSwissPairings = triggerGenerateSwissPairings;

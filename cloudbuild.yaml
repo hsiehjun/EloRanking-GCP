@@ -59,6 +59,20 @@ steps:
       - '--region'
       - 'us-central1'
 
+  # 6. Update Cloud Run Job: elo-historical-scrape
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-historical-scrape-job'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'elo-historical-scrape'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+
 images:
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:latest'

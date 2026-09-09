@@ -1,7 +1,6 @@
 """Elo rating engine: reconstructs chronological player win paths and ratings."""
 
 import collections
-import json
 import logging
 import math
 from typing import Any, Dict, List, Optional
@@ -173,29 +172,45 @@ class EloEngine:
             "head_to_head": h2h_matches
         }
 
-    def reconstruct_incremental(self, batch_limit: int = 50000) -> Dict[str, Any]:
+    def reconstruct_incremental(self, batch_limit: int = 50000, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Incrementally processes newly scraped matches without replaying historical data from scratch."""
-        from psycopg2 import extras
+        try:
+            from psycopg2 import extras
+        except ImportError:
+            extras = None
         import time
+
+        sys_target = (game_system or "40k").lower()
+        if sys_target == "all":
+            r_40k = self.reconstruct_incremental(batch_limit=batch_limit, game_system="40k")
+            r_aos = self.reconstruct_incremental(batch_limit=batch_limit, game_system="aos")
+            return {
+                "game_system": "all",
+                "40k": r_40k,
+                "aos": r_aos,
+                "total_new_matches": r_40k.get("total_new_matches", 0) + r_aos.get("total_new_matches", 0),
+                "players_updated": r_40k.get("players_updated", 0) + r_aos.get("players_updated", 0),
+                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0)
+            }
 
         t0 = time.time()
         print("\n" + "=" * 68)
-        print(" ⚡ INCREMENTAL ELO UPDATE ENGINE (FAST-PATH)")
+        print(f" ⚡ INCREMENTAL ELO UPDATE ENGINE [{sys_target.upper()}] (FAST-PATH)")
         print("=" * 68)
 
-        # 1. Fetch unranked matches
-        print("[1/3] 🔍 Checking for new unranked matches in PostgreSQL...")
-        new_matches = self.db.get_unranked_matches(limit=batch_limit)
+        # 1. Fetch unranked matches for this game system
+        print(f"[1/3] 🔍 Checking for new unranked {sys_target.upper()} matches in PostgreSQL...")
+        new_matches = self.db.get_unranked_matches(limit=batch_limit, game_system=sys_target)
         total_new = len(new_matches)
 
         if total_new == 0:
-            print("      ✅ Database is completely up to date! Zero new matches to process.\n")
-            return {"total_new_matches": 0, "status": "UP_TO_DATE"}
+            print(f"      ✅ Database is completely up to date for {sys_target.upper()}! Zero new matches to process.\n")
+            return {"total_new_matches": 0, "status": "UP_TO_DATE", "game_system": sys_target}
 
-        print(f"      📥 Found {total_new:,} new matches to ingest incrementally.")
+        print(f"      📥 Found {total_new:,} new {sys_target.upper()} matches to ingest incrementally.")
 
-        # 2. Load existing player states
-        print("[2/3] 🧠 Loading active player Elo ratings from PostgreSQL...")
+        # 2. Load existing player states for this game system
+        print(f"[2/3] 🧠 Loading active player Elo ratings [{sys_target.upper()}] from PostgreSQL...")
         player_states: Dict[str, Dict[str, Any]] = {}
         player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
         existing_teams: Dict[str, str] = {}
@@ -230,8 +245,9 @@ class EloEngine:
                 cur.execute("""
                 SELECT player_id, player_name, current_elo, peak_elo,
                        matches_played, wins, losses, draws, top_faction, team, last_active_date
-                FROM player_ratings;
-                """)
+                FROM player_ratings
+                WHERE (game_system = %s OR (game_system IS NULL AND %s = '40k'));
+                """, (sys_target, sys_target))
                 for r in cur.fetchall():
                     pid = r["player_id"]
                     player_states[pid] = {
@@ -252,7 +268,7 @@ class EloEngine:
                                 player_factions[pid][fac.strip()] += 1
 
             # 3. Process new matches and append trajectory points
-            print(f"[3/3] ⚡ Computing Elo updates and persisting {total_new:,} matches...")
+            print(f"[3/3] ⚡ Computing Elo updates and persisting {total_new:,} {sys_target.upper()} matches...")
             with conn.cursor() as cursor:
                 cursor.execute("SET LOCAL synchronous_commit = OFF;")
                 insert_history_pg = """
@@ -260,7 +276,7 @@ class EloEngine:
                     player_id, match_id, event_id, round, match_date,
                     old_elo, new_elo, delta_elo, opponent_id, opponent_name,
                     opponent_elo, result, player_faction, opponent_faction,
-                    player_score, opponent_score
+                    player_score, opponent_score, game_system
                 ) VALUES %s;
                 """
 
@@ -300,6 +316,7 @@ class EloEngine:
                     old_elo1 = s1["elo"]
                     old_elo2 = s2["elo"]
                     m_date = m.get("match_date")
+                    match_sys = m.get("game_system") or sys_target
 
                     if m.get("is_bye") or m.get("is_draw"):
                         res1, res2 = ("D", "D") if m.get("is_draw") else ("W", "L")
@@ -343,14 +360,16 @@ class EloEngine:
                         old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
                         p2_id, s2["name"], old_elo2, res1,
                         m.get("player1_faction"), m.get("player2_faction"),
-                        m.get("player1_score"), m.get("player2_score")
+                        m.get("player1_score"), m.get("player2_score"),
+                        match_sys
                     ))
                     history_batch.append((
                         p2_id, m["id"], m.get("event_id"), m.get("round"), m_date,
                         old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
                         p1_id, s1["name"], old_elo1, res2,
                         m.get("player2_faction"), m.get("player1_faction"),
-                        m.get("player2_score"), m.get("player1_score")
+                        m.get("player2_score"), m.get("player1_score"),
+                        match_sys
                     ))
 
                 if history_batch:
@@ -358,15 +377,15 @@ class EloEngine:
                     conn.commit()
                     cursor.execute("SET LOCAL synchronous_commit = OFF;")
 
-                # Upsert updated player ratings for touched players only
+                # Upsert updated player ratings for touched players only into composite PK (player_id, game_system)
                 now_iso = datetime.now(timezone.utc)
                 upsert_ratings_pg = """
                 INSERT INTO player_ratings (
                     player_id, player_name, current_elo, peak_elo,
                     matches_played, wins, losses, draws, win_rate,
-                    top_faction, team, last_active_date, updated_at
+                    top_faction, team, last_active_date, updated_at, game_system
                 ) VALUES %s
-                ON CONFLICT (player_id) DO UPDATE SET
+                ON CONFLICT (player_id, game_system) DO UPDATE SET
                     player_name = EXCLUDED.player_name,
                     current_elo = EXCLUDED.current_elo,
                     peak_elo = EXCLUDED.peak_elo,
@@ -393,7 +412,7 @@ class EloEngine:
                     ratings_data.append((
                         pid, s["name"], s["elo"], s["peak_elo"],
                         total, s["wins"], s["losses"], s["draws"], win_rate,
-                        top_fac, team_name, s["last_active_date"], now_iso
+                        top_fac, team_name, s["last_active_date"], now_iso, sys_target
                     ))
 
                 if ratings_data:
@@ -401,14 +420,14 @@ class EloEngine:
                     conn.commit()
 
                 # Invalidate caches
-                if hasattr(self.db.__class__, "_stats_cache"):
-                    self.db.__class__._stats_cache = None
-                if hasattr(self.db.__class__, "_faction_meta_cache"):
-                    self.db.__class__._faction_meta_cache = None
+                if hasattr(self.db, "invalidate_all_caches"):
+                    self.db.invalidate_all_caches()
+                elif hasattr(self.db.__class__, "invalidate_all_caches"):
+                    self.db.__class__.invalidate_all_caches()
 
         total_time = time.time() - t0
         print("=" * 68)
-        print(f" 🎉 INCREMENTAL UPDATE FINISHED IN {total_time:.2f}s!")
+        print(f" 🎉 INCREMENTAL UPDATE [{sys_target.upper()}] FINISHED IN {total_time:.2f}s!")
         print(f"    • New Matches Processed:   {total_new:,}")
         print(f"    • Active Players Updated:  {len(touched_players):,}")
         print(f"    • History Points Appended: {len(history_batch):,}")
@@ -418,25 +437,42 @@ class EloEngine:
             "total_new_matches": total_new,
             "players_updated": len(touched_players),
             "history_points_saved": len(history_batch),
-            "elapsed_seconds": round(total_time, 2)
+            "elapsed_seconds": round(total_time, 2),
+            "game_system": sys_target
         }
 
-    def reconstruct_all_rankings(self, chunk_size: int = 25000) -> Dict[str, Any]:
+    def reconstruct_all_rankings(self, chunk_size: int = 25000, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Replays all historical matches chronologically using UNLOGGED COPY streaming and instant per-batch commits."""
-        from psycopg2 import extras
+        try:
+            from psycopg2 import extras
+        except ImportError:
+            extras = None
         import io
         import time
 
+        sys_target = (game_system or "40k").lower()
+        if sys_target == "all":
+            r_40k = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system="40k")
+            r_aos = self.reconstruct_all_rankings(chunk_size=chunk_size, game_system="aos")
+            return {
+                "game_system": "all",
+                "40k": r_40k,
+                "aos": r_aos,
+                "total_players_ranked": r_40k.get("total_players_ranked", 0) + r_aos.get("total_players_ranked", 0),
+                "total_matches_processed": r_40k.get("total_matches_processed", 0) + r_aos.get("total_matches_processed", 0),
+                "history_points_saved": r_40k.get("history_points_saved", 0) + r_aos.get("history_points_saved", 0)
+            }
+
         t0 = time.time()
-        total_matches = self.db.get_total_matches_count()
+        total_matches = self.db.get_total_matches_count(game_system=sys_target)
         print("\n" + "=" * 68)
-        print(" 🏆 WARHAMMER 40,000 HIGH-THROUGHPUT ELO RECONSTRUCTION (GCP FREE TIER)")
+        print(f" 🏆 {sys_target.upper()} HIGH-THROUGHPUT ELO RECONSTRUCTION (GCP)")
         print("=" * 68)
-        print(f"[*] Total chronological matches in database: {total_matches:,}")
+        print(f"[*] Total chronological {sys_target.upper()} matches in database: {total_matches:,}")
 
         if total_matches == 0:
-            print("⚠️ No matches found in PostgreSQL database. Run a scrape first!")
-            return {"total_players_ranked": 0, "total_matches_processed": 0, "history_points_saved": 0}
+            print(f"⚠️ No matches found for {sys_target.upper()} in PostgreSQL database.")
+            return {"total_players_ranked": 0, "total_matches_processed": 0, "history_points_saved": 0, "game_system": sys_target}
 
         player_states: Dict[str, Dict[str, Any]] = {}
         player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
@@ -475,8 +511,9 @@ class EloEngine:
                 SELECT player_id, TRIM(team) as team
                 FROM player_ratings
                 WHERE team IS NOT NULL AND TRIM(team) != ''
-                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
-                """)
+                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                  AND COALESCE(game_system, '40k') = %s;
+                """, (sys_target,))
                 for r in cur.fetchall():
                     pid = r.get("player_id")
                     if pid and r.get("team") and pid not in existing_teams:
@@ -496,6 +533,7 @@ class EloEngine:
                             ) as t_name
                         FROM matches
                         WHERE player1_id IS NOT NULL 
+                          AND COALESCE(game_system, '40k') = %s
                           AND (
                             raw_json->'player1'->>'teamName' IS NOT NULL OR
                             raw_json->'player1'->>'team' IS NOT NULL OR
@@ -513,13 +551,14 @@ class EloEngine:
                             ) as t_name
                         FROM matches
                         WHERE player2_id IS NOT NULL 
+                          AND COALESCE(game_system, '40k') = %s
                           AND (
                             raw_json->'player2'->>'teamName' IS NOT NULL OR
                             raw_json->'player2'->>'team' IS NOT NULL OR
                             raw_json->'player2'->'user'->>'teamName' IS NOT NULL OR
                             raw_json->'player2'->'user'->>'team' IS NOT NULL
                           );
-                        """)
+                        """, (sys_target, sys_target))
                         for r in cur.fetchall():
                             t = (r.get("t_name") or "").strip()
                             if r.get("p_id") and t and t != "None" and t != "null":
@@ -530,25 +569,23 @@ class EloEngine:
                     except Exception as e:
                         logger.debug(f"JSON team scan error: {e}")
 
-            # 2. Prepare high-speed UNLOGGED tables for zero WAL overhead during bulk ingestion
+            # 2. Clear old history for target game_system
             with conn.cursor() as cursor:
-                print("[1/3] 💾 Clearing old history and optimizing table buffers...")
+                print(f"[1/3] 💾 Clearing old {sys_target.upper()} history and optimizing table buffers...")
                 cursor.execute("SET LOCAL synchronous_commit = OFF;")
-                cursor.execute("DROP INDEX IF EXISTS idx_pg_history_player;")
-                cursor.execute("ALTER TABLE rating_history SET UNLOGGED;")
-                cursor.execute("ALTER TABLE player_ratings SET UNLOGGED;")
-                cursor.execute("DELETE FROM rating_history; DELETE FROM player_ratings;")
+                cursor.execute("DELETE FROM rating_history WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
+                cursor.execute("DELETE FROM player_ratings WHERE COALESCE(game_system, '40k') = %s;", (sys_target,))
                 conn.commit()
 
         history_cols = (
             "player_id", "match_id", "event_id", "round", "match_date",
             "old_elo", "new_elo", "delta_elo", "opponent_id", "opponent_name",
             "opponent_elo", "result", "player_faction", "opponent_faction",
-            "player_score", "opponent_score"
+            "player_score", "opponent_score", "game_system"
         )
 
         num_chunks = (total_matches + chunk_size - 1) // chunk_size
-        print(f"[2/3] 🧠 Streaming & Replaying {num_chunks} chronological batches via UNLOGGED COPY...")
+        print(f"[2/3] 🧠 Streaming & Replaying {num_chunks} chronological batches via COPY...")
 
         total_history_count = 0
         processed_matches = 0
@@ -567,8 +604,9 @@ class EloEngine:
                 WHERE m.is_done = TRUE
                   AND m.player1_id IS NOT NULL AND m.player1_id != ''
                   AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                  AND COALESCE(m.game_system, '40k') = %s
                 ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
-                """)
+                """, (sys_target,))
 
                 with self.db.get_connection() as write_conn:
                     while True:
@@ -658,7 +696,8 @@ class EloEngine:
                                 old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
                                 p2_id, s2["name"], old_elo2, res1,
                                 m.get("player1_faction"), m.get("player2_faction"),
-                                m.get("player1_score"), m.get("player2_score")
+                                m.get("player1_score"), m.get("player2_score"),
+                                sys_target
                             )
                             tsv_buffer.write("\t".join(_format_tsv_field(v) for v in r1_vals) + "\n")
 
@@ -668,7 +707,8 @@ class EloEngine:
                                 old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
                                 p1_id, s1["name"], old_elo1, res2,
                                 m.get("player2_faction"), m.get("player1_faction"),
-                                m.get("player2_score"), m.get("player1_score")
+                                m.get("player2_score"), m.get("player1_score"),
+                                sys_target
                             )
                             tsv_buffer.write("\t".join(_format_tsv_field(v) for v in r2_vals) + "\n")
                             history_rows_in_chunk += 2
@@ -682,26 +722,20 @@ class EloEngine:
                         total_history_count += history_rows_in_chunk
 
                         t_chunk = time.time() - t_chunk_start
-                        pct = min(100.0, (processed_matches / total_matches) * 100.0)
+                        pct = min(100.0, (processed_matches / total_matches) * 100.0) if total_matches > 0 else 100.0
                         print(f"      📦 [Batch {c_idx}/{num_chunks}] Matches {processed_matches - c_count + 1:,} - {processed_matches:,} ({pct:.1f}%) replayed & committed in {t_chunk:.2f}s.")
 
-                    # Re-enable LOGGED durability and build index
+                    # Rebuild index and insert ratings
                     with write_conn.cursor() as write_cur:
-                        print(f"      🛡️ Restoring full durability (LOGGED) and rebuilding indexes...")
-                        write_cur.execute("ALTER TABLE rating_history SET LOGGED;")
-                        write_cur.execute("ALTER TABLE player_ratings SET LOGGED;")
-                        write_conn.commit()
-
                         t_idx = time.time()
                         write_cur.execute("CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);")
                         write_conn.commit()
-                        print(f"      ✅ Index rebuilt in {time.time() - t_idx:.2f}s.")
 
                         # Step 3: Insert player_ratings via COPY
-                        print(f"[3/3] 👑 Persisting {len(player_states):,} player standings & win rates in PostgreSQL...")
+                        print(f"[3/3] 👑 Persisting {len(player_states):,} {sys_target.upper()} player standings & win rates in PostgreSQL...")
                         now_iso = datetime.now(timezone.utc)
                         ratings_cols = (
-                            "player_id", "player_name", "current_elo", "peak_elo",
+                            "player_id", "game_system", "player_name", "current_elo", "peak_elo",
                             "matches_played", "wins", "losses", "draws", "win_rate",
                             "top_faction", "team", "last_active_date", "updated_at"
                         )
@@ -714,7 +748,7 @@ class EloEngine:
                             team_name = existing_teams.get(pid)
 
                             r_vals = (
-                                pid, s["name"], s["elo"], s["peak_elo"],
+                                pid, sys_target, s["name"], s["elo"], s["peak_elo"],
                                 total, s["wins"], s["losses"], s["draws"], win_rate,
                                 top_fac, team_name, s["last_active_date"], now_iso
                             )
@@ -726,16 +760,16 @@ class EloEngine:
                         write_conn.commit()
 
                         # Invalidate caches
-                        if hasattr(self.db.__class__, "_stats_cache"):
-                            self.db.__class__._stats_cache = None
-                        if hasattr(self.db.__class__, "_faction_meta_cache"):
-                            self.db.__class__._faction_meta_cache = None
+                        if hasattr(self.db, "invalidate_all_caches"):
+                            self.db.invalidate_all_caches()
+                        elif hasattr(self.db.__class__, "invalidate_all_caches"):
+                            self.db.__class__.invalidate_all_caches()
 
         total_time = time.time() - t0
         top_player = max(player_states.values(), key=lambda x: x["elo"]) if player_states else None
 
         print("=" * 68)
-        print(f" 🎉 RECONSTRUCTION FINISHED IN {total_time:.2f}s!")
+        print(f" 🎉 {sys_target.upper()} RECONSTRUCTION FINISHED IN {total_time:.2f}s!")
         print(f"    • Total Matches Replayed:   {processed_matches:,}")
         print(f"    • Total Competitors Ranked: {len(player_states):,}")
         print(f"    • Trajectory Points Saved:  {total_history_count:,}")
@@ -744,6 +778,7 @@ class EloEngine:
         print("=" * 68 + "\n")
 
         return {
+            "game_system": sys_target,
             "total_players_ranked": len(player_states),
             "total_matches_processed": processed_matches,
             "history_points_saved": total_history_count,
@@ -751,15 +786,15 @@ class EloEngine:
         }
 
 
-    def get_player_win_path(self, player_id: str) -> Dict[str, Any]:
+    def get_player_win_path(self, player_id: str, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns structured win path, tournament progression, and Elo timeline for a player."""
-        history = self.db.get_player_history(player_id)
-        player_info = self.db.search_players(player_id)
+        history = self.db.get_player_history(player_id, game_system=game_system)
+        player_info = self.db.search_players(player_id, game_system=game_system)
         player_meta = player_info[0] if player_info else {}
 
         # Fallback to matches table if rating_history is empty
         if not history:
-            raw_matches = self.db.get_player_matches(player_id)
+            raw_matches = self.db.get_player_matches(player_id, game_system=game_system)
             for m in raw_matches:
                 is_p1 = (m.get("player1_id") == player_id)
                 opp_id = m.get("player2_id") if is_p1 else m.get("player1_id")

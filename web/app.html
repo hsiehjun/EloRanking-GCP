@@ -910,13 +910,13 @@
               <p class="es-sec-sub" style="font-size: 0.82rem; color: var(--text-secondary); margin: 0.25rem 0 0;">Create a tournament in Event Studio with full Swiss &amp; scoring controls and circuit export.</p>
             </div>
             <div class="form-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-              <!-- Game System Picker (Locked to Warhammer 40k Only) -->
+              <!-- Game System Picker -->
               <div class="form-group" style="grid-column: 1 / -1;">
                 <label class="form-label" style="display: block; font-size: 0.78rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.35rem;">Game System *</label>
-                <select id="create-event-game-system" class="form-input" style="width: 100%; box-sizing: border-box;">
+                <select id="create-event-game-system" class="form-input" style="width: 100%; box-sizing: border-box;" onchange="typeof onGameSystemChange === 'function' && onGameSystemChange()">
                   <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
+                  <option value="23qDprPABN">Warhammer: Age of Sigmar</option>
                   <option value="dJtT7U0Wv2" disabled>Warhammer: The Old World (Coming Soon)</option>
-                  <option value="23qDprPABN" disabled>Warhammer: Age of Sigmar (Coming Soon)</option>
                   <option value="vyeOD0fcYY" disabled>Kill Team (Coming Soon)</option>
                   <option value="starwars_legion" disabled>Star Wars: Legion (Coming Soon)</option>
                   <option value="marvel_cp" disabled>Marvel: Crisis Protocol (Coming Soon)</option>

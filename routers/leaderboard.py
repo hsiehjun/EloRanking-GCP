@@ -21,7 +21,8 @@ from core import (
     BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
     DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
-    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
+    TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id,
+    GAME_SYSTEMS, AOS_GAME_SYSTEM_ID, DEFAULT_GAME_SYSTEM, ENABLE_AOS
 )
 
 router = APIRouter(tags=["Leaderboard & Analytics"])
@@ -30,8 +31,8 @@ _active_event_syncs: set = set()
 
 # API: Summary Stats Ribbon
 @router.get("/api/stats", summary="Get global summary statistics")
-async def api_stats():
-    return get_database().get_summary_stats()
+async def api_stats(game_system: Optional[str] = Query("40k")):
+    return get_database().get_summary_stats(game_system=game_system)
 
 # API: Individual Leaderboard Standings
 @router.get("/api/leaderboard", summary="Get top ranked players (paginated)")
@@ -43,7 +44,8 @@ async def api_leaderboard(
     query: Optional[str] = Query(None),
     faction: str = Query("All"),
     sort_by: str = Query("current_elo"),
-    order: str = Query("DESC")
+    order: str = Query("DESC"),
+    game_system: Optional[str] = Query("40k")
 ):
     return get_database().get_top_ranked_players(
         page=page,
@@ -53,7 +55,8 @@ async def api_leaderboard(
         query=query.strip() if query else None,
         faction=faction.strip() if faction else "All",
         sort_by=sort_by,
-        order=order
+        order=order,
+        game_system=game_system
     )
 
 # API: Teams Power Rankings
@@ -67,7 +70,8 @@ async def api_teams(
     limit: Optional[int] = Query(None),
     query: Optional[str] = Query(None),
     sort_by: str = Query("power_rating"),
-    order: str = Query("DESC")
+    order: str = Query("DESC"),
+    game_system: Optional[str] = Query("40k")
 ):
     actual_min = min_members if min_members is not None else min_roster
     return get_database().get_teams_leaderboard(
@@ -77,13 +81,14 @@ async def api_teams(
         limit=limit,
         query=query.strip() if query else None,
         sort_by=sort_by,
-        order=order
+        order=order,
+        game_system=game_system
     )
 
 # API: Team Roster
 @router.get("/api/team/{team_name}", summary="Get team member roster and power metrics")
-async def api_team_roster(team_name: str):
-    return get_database().get_team_roster(team_name.strip())
+async def api_team_roster(team_name: str, game_system: Optional[str] = Query("40k")):
+    return get_database().get_team_roster(team_name.strip(), game_system=game_system)
 
 # API: Full Player Directory
 @router.get("/api/players", summary="Search and browse player directory (paginated)")
@@ -95,7 +100,8 @@ async def api_players_directory(
     faction: str = Query("All"),
     min_matches: int = Query(0, ge=0),
     sort_by: str = Query("current_elo"),
-    order: str = Query("DESC")
+    order: str = Query("DESC"),
+    game_system: Optional[str] = Query("40k")
 ):
     return get_database().get_players_directory(
         page=page,
@@ -105,24 +111,25 @@ async def api_players_directory(
         faction=faction.strip() if faction else "All",
         min_matches=min_matches,
         sort_by=sort_by,
-        order=order
+        order=order,
+        game_system=game_system
     )
 
 # API: Autocomplete Search for Match Predictor
 @router.get("/api/players/search", summary="Search players for predictor autocomplete")
-async def api_players_search(q: str = Query("", min_length=1), limit: int = Query(10, ge=1, le=50)):
-    return get_database().search_players(q.strip(), limit=limit)
+async def api_players_search(q: str = Query("", min_length=1), limit: int = Query(10, ge=1, le=50), game_system: Optional[str] = Query("40k")):
+    return get_database().search_players(q.strip(), limit=limit, game_system=game_system)
 
 # API: Player Profile & Historical Win Path
 @router.get("/api/player/{player_id}", summary="Get player profile, win path, and Elo trajectory")
-async def api_player_profile(player_id: str, request: Request):
+async def api_player_profile(player_id: str, request: Request, game_system: Optional[str] = Query("40k")):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     current_user = auth_mgr.get_session(session_token) if session_token else None
 
     pid = player_id.strip()
-    data = get_elo_engine().get_player_win_path(pid)
+    data = get_elo_engine().get_player_win_path(pid, game_system=game_system)
 
     # Check if this player is registered on OmniTactica
     db = get_database()
@@ -155,7 +162,8 @@ async def api_events(
     query: Optional[str] = Query(None),
     status: str = Query("all"),
     sort_by: str = Query("event_date"),
-    order: str = Query("DESC")
+    order: str = Query("DESC"),
+    game_system: Optional[str] = Query("40k")
 ):
     return get_database().get_events_list(
         page=page,
@@ -164,7 +172,8 @@ async def api_events(
         query=query.strip() if query else None,
         status=status,
         sort_by=sort_by,
-        order=order
+        order=order,
+        game_system=game_system
     )
 
 # API: Recommended & Upcoming Events for Competitor Hub (100% Live from BCP)
@@ -181,7 +190,8 @@ async def api_events_recommended(
     radius_miles: Optional[float] = Query(None),
     months_ahead: int = Query(2, ge=1, le=12),
     sort_by: str = Query("date"),
-    limit: int = Query(35, ge=1, le=100)
+    limit: int = Query(35, ge=1, le=100),
+    game_system: Optional[str] = Query("40k")
 ):
     db = get_database()
     now_dt = datetime.now(timezone.utc)
@@ -1408,8 +1418,12 @@ async def api_sync_event_roster_payload(event_id: str, request: Request):
 # API: Cloud Scheduler Cron Sync
 @router.post("/api/cron/sync-tournaments", summary="Cloud Scheduler cron to scrape latest tournaments and update Elo")
 @router.get("/api/cron/sync-tournaments", summary="Manual trigger to scrape latest tournaments and update Elo")
-async def api_cron_sync_tournaments(request: Request, background_tasks: BackgroundTasks):
-    """Scrapes newly concluded BCP tournaments and recalculates Elo ratings."""
+async def api_cron_sync_tournaments(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    game_system: Optional[str] = Query("all", description="Game system to sync: '40k', 'aos', or 'all'")
+):
+    """Scrapes newly concluded BCP tournaments and recalculates Elo ratings for 40k and AoS."""
     def do_sync():
         try:
             db = get_database()
@@ -1419,12 +1433,28 @@ async def api_cron_sync_tournaments(request: Request, background_tasks: Backgrou
             start_str = start_dt.strftime("%Y-%m-%dT00:00:00.000Z")
             end_str = end_dt.strftime("%Y-%m-%dT23:59:59.999Z")
             
-            logger.info(f"⏰ [CRON SYNC] Scraping tournaments from {start_str} to {end_str}...")
-            res = scraper.scrape_date_range(start_date=start_str, end_date=end_str, max_events=50)
-            logger.info(f"⏰ [CRON SYNC] Scraped {res.get('events_scraped', 0)} events, {res.get('matches_scraped', 0)} matches.")
+            target_sys = (game_system or "all").lower()
+
+            if target_sys in ("40k", "all"):
+                logger.info(f"⏰ [CRON SYNC] Scraping Warhammer 40k tournaments from {start_str} to {end_str}...")
+                res_40k = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=DEFAULT_GAME_SYSTEM_ID, max_events=50)
+                logger.info(f"⏰ [CRON SYNC] 40k Scraped {res_40k.get('events_scraped', 0)} events, {res_40k.get('matches_scraped', 0)} matches.")
+                try:
+                    scraper.sync_upcoming_events(game_system_id=DEFAULT_GAME_SYSTEM_ID)
+                except Exception as up_err:
+                    logger.warning(f"40k upcoming sync notice: {up_err}")
+
+            if target_sys in ("aos", "warhammer_aos", "all"):
+                logger.info(f"⏰ [CRON SYNC] Scraping Age of Sigmar tournaments from {start_str} to {end_str}...")
+                res_aos = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=AOS_GAME_SYSTEM_ID, max_events=50)
+                logger.info(f"⏰ [CRON SYNC] AoS Scraped {res_aos.get('events_scraped', 0)} events, {res_aos.get('matches_scraped', 0)} matches.")
+                try:
+                    scraper.sync_upcoming_events(game_system_id=AOS_GAME_SYSTEM_ID)
+                except Exception as up_err:
+                    logger.warning(f"AoS upcoming sync notice: {up_err}")
             
             engine = get_elo_engine()
-            recon_res = engine.reconstruct_incremental()
+            recon_res = engine.reconstruct_incremental(game_system=target_sys)
             logger.info(f"⏰ [CRON SYNC] Elo Reconstruction complete: {recon_res}")
         except Exception as err:
             logger.error(f"❌ [CRON SYNC] Error running scheduled tournament sync: {err}", exc_info=True)
@@ -1432,18 +1462,19 @@ async def api_cron_sync_tournaments(request: Request, background_tasks: Backgrou
     background_tasks.add_task(do_sync)
     return {
         "success": True,
+        "game_system": game_system or "all",
         "message": "Scheduled BCP tournament sync and Elo recalculation task queued successfully."
     }
 
 # API: Past Head-to-Head Encounters
 @router.get("/api/head_to_head", summary="Get head-to-head encounters between two players")
-async def api_head_to_head(p1: str = Query(...), p2: str = Query(...)):
-    return get_database().get_head_to_head(p1.strip(), p2.strip())
+async def api_head_to_head(p1: str = Query(...), p2: str = Query(...), game_system: Optional[str] = Query("40k")):
+    return get_database().get_head_to_head(p1.strip(), p2.strip(), game_system=game_system)
 
 # API: Unique Factions
-@router.get("/api/factions", summary="List all active Warhammer 40k factions")
-async def api_factions():
-    stats = get_database().get_summary_stats()
+@router.get("/api/factions", summary="List all active Warhammer factions")
+async def api_factions(game_system: Optional[str] = Query("40k")):
+    stats = get_database().get_summary_stats(game_system=game_system)
     return stats.get("factions", [])
 
 # API: Faction Meta & Balance Analytics
@@ -1451,7 +1482,8 @@ async def api_factions():
 async def api_faction_meta(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', 'ytd', 'all'")
+    timeframe: Optional[str] = Query(None, description="Timeframe preset: '30d', '60d', '90d', 'ytd', 'all'"),
+    game_system: Optional[str] = Query("40k")
 ):
     try:
         resolved_start = start_date
@@ -1479,15 +1511,15 @@ async def api_faction_meta(
                 resolved_start = (now - timedelta(days=90)).strftime("%Y-%m-%d")
                 resolved_end = now.strftime("%Y-%m-%d")
 
-        return get_database().get_faction_meta_stats(start_date=resolved_start, end_date=resolved_end)
+        return get_database().get_faction_meta_stats(start_date=resolved_start, end_date=resolved_end, game_system=game_system)
     except Exception as e:
         logger.error(f"Error in /api/factions/meta: {e}")
         return {"factions": [], "monthly_trends": [], "error": str(e)}
 
 # API: Faction Details & Match History
 @router.get("/api/faction/{faction_name}", summary="Get faction detailed metrics, top players, and match history")
-async def api_faction_details(faction_name: str, limit: int = Query(100, ge=1, le=500)):
-    return get_database().get_faction_details(faction_name.strip(), limit=limit)
+async def api_faction_details(faction_name: str, limit: int = Query(100, ge=1, le=500), game_system: Optional[str] = Query("40k")):
+    return get_database().get_faction_details(faction_name.strip(), limit=limit, game_system=game_system)
 
 # API: Match Win Probability Predictor
 @router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")

@@ -142,13 +142,13 @@
           <p class="es-sec-sub">Create a real tournament directly on Best Coast Pairings and Event Studio with full Swiss & scoring controls</p>
         </div>
         <div class="form-grid">
-          <!-- Game System Picker (Locked to Warhammer 40k Only) -->
+          <!-- Game System Picker -->
           <div class="form-group" style="grid-column: 1 / -1;">
             <label class="form-label">Game System *</label>
-            <select id="create-event-game-system" class="form-input">
+            <select id="create-event-game-system" class="form-input" onchange="typeof onGameSystemChange === 'function' && onGameSystemChange()">
               <option value="WGMSzfKFYA" selected>Warhammer 40k</option>
+              <option value="23qDprPABN">Warhammer: Age of Sigmar</option>
               <option value="dJtT7U0Wv2" disabled>Warhammer: The Old World (Coming Soon)</option>
-              <option value="23qDprPABN" disabled>Warhammer: Age of Sigmar (Coming Soon)</option>
               <option value="vyeOD0fcYY" disabled>Kill Team (Coming Soon)</option>
               <option value="starwars_legion" disabled>Star Wars: Legion (Coming Soon)</option>
               <option value="marvel_cp" disabled>Marvel: Crisis Protocol (Coming Soon)</option>

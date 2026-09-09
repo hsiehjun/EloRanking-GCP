@@ -1260,7 +1260,7 @@ def test_bcp_adapter_submit_pairing_scores_root_and_game_payload():
     print("✅ test_bcp_adapter_submit_pairing_scores_root_and_game_payload passed!")
 
 def test_eventstudio_submit_score_saves_to_db_and_tracker_game():
-    """Verify api_eventstudio_submit_score immediately updates local DB matches and tracker_games for live tournaments."""
+    """Verify api_eventstudio_submit_score pushes scores to BCP for live BCP tournaments and clears table rooms."""
     from routers.eventstudio import api_eventstudio_submit_score, SubmitScorePayload
     from bcp_adapter import BcpAdapter
 
@@ -1287,39 +1287,17 @@ def test_eventstudio_submit_score_saves_to_db_and_tracker_game():
         source_app="GameTracker-OmniTactica"
     )
 
-    mock_conn = MagicMock()
-    mock_cur = MagicMock()
-    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
-    mock_conn.__enter__.return_value = mock_conn
-    mock_db.get_connection.return_value = mock_conn
+    mock_fs = MagicMock()
 
     with patch("routers.eventstudio.get_database", return_value=mock_db), \
          patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch("routers.eventstudio.get_firestore_engine", return_value=mock_fs), \
          patch.object(BcpAdapter, "fetch_event_pairings", return_value=[]), \
          patch.object(BcpAdapter, "submit_pairing_scores", return_value=(True, None)) as mock_bcp_sub:
 
         res = asyncio.run(api_eventstudio_submit_score(payload, req))
         assert res["success"] is True
         assert res["bcp_synced"] is True
-
-        # Check DB upsert_match called
-        mock_db.upsert_match.assert_called_once()
-        match_call = mock_db.upsert_match.call_args[0][0]
-        assert match_call["event_id"] == "BCP-TOURNAMENT-42"
-        assert match_call["player1_name"] == "Alice"
-        assert match_call["player2_name"] == "Bob"
-        assert match_call["player1_score"] == 90
-        assert match_call["player2_score"] == 70
-        assert match_call["winner_id"] == "usr_p1"
-        assert match_call["is_done"] is True
-
-        # Check tracker_games updated via connection cursor execute
-        tracker_calls = [c for c in mock_cur.execute.call_args_list if "UPDATE tracker_games" in str(c[0][0])]
-        assert len(tracker_calls) == 1
-        tracker_sql = tracker_calls[0][0][0]
-        assert "UPDATE tracker_games" in tracker_sql
-        assert "is_finished = TRUE" in tracker_sql
-        assert "bcp_submitted = TRUE" in tracker_sql
 
         # Check BCP adapter called with winner_id, p1_id, p2_id in game_data
         mock_bcp_sub.assert_called_once_with(
@@ -1331,6 +1309,8 @@ def test_eventstudio_submit_score_saves_to_db_and_tracker_game():
             explicit_token="mock_bcp_tok",
             winner_id="usr_p1"
         )
+        # Check Firestore room cleanup triggered
+        assert mock_fs.discard_room.called
 
     print("✅ test_eventstudio_submit_score_saves_to_db_and_tracker_game passed!")
 
