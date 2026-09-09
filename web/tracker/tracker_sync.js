@@ -4482,6 +4482,10 @@ Space Marines - Gladius Task Force (2000 pts)
     if (modal) modal.style.display = 'none';
   };
 
+  window.applyRemoteMasterClock = applyRemoteMasterClock;
+  window.applyRemoteJudgeCall = applyRemoteJudgeCall;
+  window.applyRemoteBroadcast = applyRemoteBroadcast;
+
   function renderJudgeModal() {
     const modal = document.getElementById('gt-judge-modal');
     if (!modal) return;

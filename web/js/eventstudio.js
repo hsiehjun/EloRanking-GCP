@@ -1318,7 +1318,7 @@ function renderPairingsSubtab() {
               <div>
                 <div>JUDGE CALLED: <span style="color: #fff;">${escapeHtml(activeJudgeCall.category || 'Rules Dispute')}</span></div>
                 <div style="font-size: 0.72rem; color: #f87171; font-weight: 500;">
-                  By ${escapeHtml(activeJudgeCall.callerName || activeJudgeCall.called_by || 'Competitor')}
+                  By ${escapeHtml(activeJudgeCall.callerName || activeJudgeCall.called_by || activeJudgeCall.player_name || (typeof activeJudgeCall.caller === 'string' ? activeJudgeCall.caller : (activeJudgeCall.caller && activeJudgeCall.caller.playerName)) || 'Competitor')}
                   ${activeJudgeCall.status === 'en_route' ? ` • <span style="color: #38bdf8; font-weight: 700;">En Route: ${escapeHtml((activeJudgeCall.assignedJudge && activeJudgeCall.assignedJudge.name) || activeJudgeCall.assignedJudge || 'Judge')}</span>` : ''}
                 </div>
               </div>
@@ -2987,7 +2987,11 @@ function handleStudioJudgeCallsUpdate(calls) {
   topBanners.forEach(topBanner => {
     if (active.length > 0) {
       const topCall = active[0];
-      const elapsedMins = topCall.createdAt ? Math.max(0, Math.floor((Date.now() - (typeof topCall.createdAt === 'number' ? topCall.createdAt : new Date(topCall.createdAt).getTime())) / 60000)) : 0;
+      const callTime = topCall.createdAt || topCall.created_at || (typeof topCall.timestamp === 'number' ? topCall.timestamp : null);
+      const elapsedMins = callTime ? Math.max(0, Math.floor((Date.now() - (typeof callTime === 'number' ? callTime : new Date(callTime).getTime())) / 60000)) : 0;
+      const callTable = topCall.tableNumber || topCall.tableNum || topCall.table_num || topCall.table || '?';
+      const callerDisplay = topCall.callerName || topCall.called_by || topCall.player_name || (typeof topCall.caller === 'string' ? topCall.caller : (topCall.caller && topCall.caller.playerName)) || 'Competitor';
+      const callNotes = topCall.notes || topCall.note || '';
       topBanner.style.display = "block";
       topBanner.innerHTML = `
         <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.22), rgba(185, 28, 28, 0.35)); border: 2px solid #ef4444; border-radius: var(--radius-lg); padding: 0.85rem 1.25rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; box-shadow: 0 4px 20px rgba(239,68,68,0.3); animation: gt-pulse 2s infinite;">
@@ -2995,12 +2999,12 @@ function handleStudioJudgeCallsUpdate(calls) {
             <div style="font-size: 1.6rem; animation: bounce 1s infinite;">🚨</div>
             <div>
               <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <span style="font-weight: 800; font-size: 1rem; color: #fff; letter-spacing: 0.02em;">FLOOR JUDGE CALL: TABLE #${topCall.tableNumber || topCall.table || '?'}</span>
+                <span style="font-weight: 800; font-size: 1rem; color: #fff; letter-spacing: 0.02em;">FLOOR JUDGE CALL: TABLE #${callTable}</span>
                 <span class="badge" style="background: #ef4444; color: #fff; font-weight: 800; font-size: 0.72rem; padding: 0.2rem 0.5rem;">${escapeHtml(topCall.category || 'Rules Dispute')}</span>
                 ${active.length > 1 ? `<span class="badge" style="background: rgba(255,255,255,0.2); color: #fff; font-size: 0.7rem;">+${active.length - 1} more awaiting</span>` : ''}
               </div>
               <div style="font-size: 0.8rem; color: #fca5a5; margin-top: 0.15rem;">
-                Called by <strong>${escapeHtml(topCall.callerName || topCall.called_by || 'Competitor')}</strong> • Waiting <strong>${elapsedMins}m</strong> • ${topCall.notes ? `<em>"${escapeHtml(topCall.notes)}"` : (topCall.status === 'en_route' ? `Judge ${escapeHtml((topCall.assignedJudge && topCall.assignedJudge.name) || topCall.assignedJudge || '')} is en route` : 'Awaiting floor judge response')}
+                Called by <strong>${escapeHtml(callerDisplay)}</strong> • Waiting <strong>${elapsedMins}m</strong> • ${callNotes ? `<em>"${escapeHtml(callNotes)}"` : (topCall.status === 'en_route' ? `Judge ${escapeHtml((topCall.assignedJudge && topCall.assignedJudge.name) || topCall.assignedJudge || '')} is en route` : 'Awaiting floor judge response')}
               </div>
             </div>
           </div>
