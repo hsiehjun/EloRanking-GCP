@@ -2995,29 +2995,52 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     }
 
 class JudgeCallCreatePayload(BaseModel):
-    event_id: str
+    event_id: Optional[str] = None
+    eventId: Optional[str] = None
     call_id: Optional[str] = None
+    callId: Optional[str] = None
+    id: Optional[str] = None
     table_num: Optional[Union[int, str]] = None
+    tableNum: Optional[Union[int, str]] = None
+    tableNumber: Optional[Union[int, str]] = None
+    table: Optional[Union[int, str]] = None
     match_id: Optional[str] = None
+    matchId: Optional[str] = None
     player_name: Optional[str] = "Competitor"
+    playerName: Optional[str] = None
+    caller_name: Optional[str] = None
+    callerName: Optional[str] = None
     category: Optional[str] = "Rules Dispute"
     note: Optional[str] = ""
-    caller: Optional[Dict[str, Any]] = None
-    opponent: Optional[Dict[str, Any]] = None
+    notes: Optional[str] = None
+    caller: Optional[Union[str, Dict[str, Any]]] = None
+    opponent: Optional[Union[str, Dict[str, Any]]] = None
+    created_at: Optional[Union[int, float, str]] = None
+    createdAt: Optional[Union[int, float, str]] = None
 
 class JudgeCallResolvePayload(BaseModel):
-    call_id: str
+    call_id: Optional[str] = None
+    callId: Optional[str] = None
+    id: Optional[str] = None
     event_id: Optional[str] = None
+    eventId: Optional[str] = None
     match_id: Optional[str] = None
+    matchId: Optional[str] = None
     status: Optional[str] = "resolved"
     assigned_judge: Optional[Union[str, Dict[str, Any]]] = None
+    assignedJudge: Optional[Union[str, Dict[str, Any]]] = None
 
 class StudioMasterClockPayload(BaseModel):
     status: Optional[str] = "running"
     round: Optional[int] = 1
-    duration_minutes: Optional[int] = 150
+    duration_minutes: Optional[int] = None
+    durationMinutes: Optional[int] = None
     target_end_time: Optional[float] = None
+    targetEndTime: Optional[float] = None
     remaining_seconds: Optional[int] = None
+    remainingSeconds: Optional[int] = None
+    updated_at: Optional[float] = None
+    updatedAt: Optional[float] = None
 
 class StudioBroadcastPayload(BaseModel):
     message: str
@@ -3026,31 +3049,38 @@ class StudioBroadcastPayload(BaseModel):
 
 @router.post("/api/eventstudio/judge_call", summary="Submit judge / TO floor assistance call from game room")
 async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
+    raw_t = payload.table_num if payload.table_num is not None else (payload.tableNum if payload.tableNum is not None else (payload.tableNumber if payload.tableNumber is not None else payload.table))
     t_num = None
-    if payload.table_num is not None:
+    if raw_t is not None:
         try:
-            t_num = int(payload.table_num)
+            t_num = int(raw_t)
         except Exception:
             t_num = 1
             
     import uuid as _uuid
-    call_id = payload.call_id or f"JC-{_uuid.uuid4().hex[:8].upper()}"
+    call_id = payload.call_id or payload.callId or payload.id or f"JC-{_uuid.uuid4().hex[:8].upper()}"
+    eid = payload.event_id or payload.eventId or ""
+    mid = payload.match_id or payload.matchId or ""
+    p_name = payload.player_name or payload.playerName or payload.caller_name or payload.callerName or (payload.caller.get("playerName") if isinstance(payload.caller, dict) else (payload.caller if isinstance(payload.caller, str) else "Competitor"))
+    c_note = payload.note or payload.notes or ""
     fs_engine = get_firestore_engine()
     
     call_record = {
         "id": call_id,
         "call_id": call_id,
-        "eventId": payload.event_id,
-        "event_id": payload.event_id,
-        "tableNum": t_num,
-        "table_num": t_num,
-        "matchId": payload.match_id,
-        "match_id": payload.match_id,
-        "caller": payload.caller or {"playerName": payload.player_name or "Competitor"},
-        "player_name": payload.player_name or (payload.caller.get("playerName") if isinstance(payload.caller, dict) else "Competitor"),
+        "eventId": eid,
+        "event_id": eid,
+        "tableNum": t_num or 1,
+        "table_num": t_num or 1,
+        "matchId": mid,
+        "match_id": mid,
+        "caller": payload.caller or {"playerName": p_name},
+        "callerName": p_name,
+        "player_name": p_name,
         "opponent": payload.opponent,
         "category": payload.category or "Rules Dispute",
-        "note": payload.note or "",
+        "note": c_note,
+        "notes": c_note,
         "status": "pending",
         "assignedJudge": None,
         "assigned_judge": None,
@@ -3059,7 +3089,7 @@ async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
     }
     
     # Primary: Save to Firestore
-    res = fs_engine.save_judge_call(payload.event_id, call_record)
+    res = fs_engine.save_judge_call(eid, call_record)
     
     # Broadcast to in-memory & Firestore tracker room if match_id is present
     if payload.match_id:
@@ -3093,37 +3123,38 @@ async def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = Fal
 @router.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved, cancelled)")
 async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
     fs_engine = get_firestore_engine()
-    event_id = payload.event_id or ""
+    event_id = payload.event_id or payload.eventId or ""
+    call_id = payload.call_id or payload.callId or payload.id or ""
     
     # Look up call if event_id not provided
     if not event_id:
         for eid, calls in fs_engine._fallback_judge_calls.items():
-            if payload.call_id in calls:
+            if call_id in calls:
                 event_id = eid
                 break
                 
     status = payload.status or "resolved"
-    assigned = payload.assigned_judge
+    assigned = payload.assigned_judge or payload.assignedJudge
     if isinstance(assigned, str):
         assigned = {"name": assigned}
         
     ok = fs_engine.update_judge_call_status(
         event_id=event_id,
-        call_id=payload.call_id,
+        call_id=call_id,
         status=status,
         assigned_judge=assigned
     )
     
     # Also update match room if match_id is known
-    match_id = payload.match_id
+    match_id = payload.match_id or payload.matchId
     if not match_id and event_id and event_id in fs_engine._fallback_judge_calls:
-        match_id = fs_engine._fallback_judge_calls[event_id].get(payload.call_id, {}).get("matchId")
+        match_id = fs_engine._fallback_judge_calls[event_id].get(call_id, {}).get("matchId")
         
     if match_id:
         mid = normalize_tracker_match_id(match_id)
         room_judge_state = {
-            "id": payload.call_id,
-            "call_id": payload.call_id,
+            "id": call_id,
+            "call_id": call_id,
             "status": status,
             "assignedJudge": assigned,
             "assigned_judge": payload.assigned_judge if isinstance(payload.assigned_judge, str) else (assigned.get("name") if isinstance(assigned, dict) else None)
@@ -3146,17 +3177,23 @@ async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
         except Exception:
             pass
 
-    return {"success": True, "call_id": payload.call_id, "status": status, "assigned_judge": assigned}
+    return {"success": True, "call_id": call_id, "status": status, "assigned_judge": assigned}
 
 @router.post("/api/eventstudio/event/{event_id}/clock", summary="Update tournament round master clock")
 async def api_eventstudio_update_clock(event_id: str, payload: StudioMasterClockPayload):
     fs_engine = get_firestore_engine()
+    dur = payload.durationMinutes if payload.durationMinutes is not None else (payload.duration_minutes or 150)
+    target_end = payload.targetEndTime if payload.targetEndTime is not None else payload.target_end_time
+    rem_sec = payload.remainingSeconds if payload.remainingSeconds is not None else payload.remaining_seconds
     clock_data = {
         "status": payload.status or "running",
         "round": payload.round or 1,
-        "durationMinutes": payload.duration_minutes or 150,
-        "targetEndTime": payload.target_end_time,
-        "remainingSeconds": payload.remaining_seconds
+        "durationMinutes": dur,
+        "duration_minutes": dur,
+        "targetEndTime": target_end,
+        "target_end_time": target_end,
+        "remainingSeconds": rem_sec,
+        "remaining_seconds": rem_sec,
     }
     updated = fs_engine.update_tournament_master_clock(event_id, clock_data)
 

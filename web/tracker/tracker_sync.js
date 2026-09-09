@@ -2079,12 +2079,21 @@
     if (tournClockPollTimer || !tournamentId) return;
     const fetchClock = async () => {
       if (!tournamentId || document.hidden) return;
+      // If Firestore is connected and actively ticking a running master clock, skip HTTP poll to avoid clobbering
+      if (clientState.firestoreConnected && tournamentMasterClock.status === 'running' && tournamentMasterClock.targetEndTime) {
+        return;
+      }
       try {
         const resp = await fetch(`/api/eventstudio/event/${encodeURIComponent(tournamentId)}/clock`);
         if (resp.ok) {
           const cData = await resp.json();
-          if (cData && cData.clock) {
-            applyRemoteMasterClock(cData.clock);
+          const clk = cData && (cData.clock || cData.masterClock);
+          if (clk) {
+            const hasEnd = Boolean(clk.targetEndTime || clk.target_end_time);
+            if (tournamentMasterClock.status === 'running' && !hasEnd && clk.status !== 'running') {
+              return;
+            }
+            applyRemoteMasterClock(clk);
           }
         }
       } catch (e) {}
@@ -2110,6 +2119,34 @@
         if (data.broadcast) {
           applyRemoteBroadcast(data.broadcast);
         }
+        const calls = data.judge_calls || data.flags;
+        if (Array.isArray(calls)) {
+          const rawState = originalGetItem('gdm-11e-tracker-state');
+          let stObj = {};
+          try { stObj = JSON.parse(rawState) || {}; } catch(e) {}
+          const myTable = getTrackerTableNum() || (stObj.settings && stObj.settings.tableNum);
+          const myMatchId = clientState.matchId;
+
+          const activeForMe = calls.find(c => {
+            const matchMatches = myMatchId && (c.matchId === myMatchId || c.match_id === myMatchId);
+            const tableMatches = myTable && (String(c.tableNum) === String(myTable) || String(c.table_num) === String(myTable) || String(c.tableNumber) === String(myTable));
+            const isActive = c.status === 'pending' || c.status === 'en_route';
+            return (matchMatches || tableMatches) && isActive;
+          });
+
+          if (activeForMe) {
+            applyRemoteJudgeCall(activeForMe);
+          } else if (clientState.activeJudgeCall && (clientState.activeJudgeCall.status === 'pending' || clientState.activeJudgeCall.status === 'en_route')) {
+            const resolvedForMe = calls.find(c => {
+              const idMatches = c.id === clientState.activeJudgeCall.call_id || c.call_id === clientState.activeJudgeCall.call_id || c.id === clientState.activeJudgeCall.id;
+              const matchMatches = myMatchId && (c.matchId === myMatchId || c.match_id === myMatchId);
+              return idMatches || matchMatches;
+            });
+            if (resolvedForMe && (resolvedForMe.status === 'resolved' || resolvedForMe.status === 'cancelled')) {
+              applyRemoteJudgeCall(null);
+            }
+          }
+        }
       }, (err) => {
         console.debug('[Firestore Tournament Sync] Notice:', err);
       });
@@ -2120,14 +2157,29 @@
 
   function applyRemoteMasterClock(remote) {
     if (!remote || typeof remote !== 'object') return;
-    tournamentMasterClock.status = remote.status || 'stopped';
-    tournamentMasterClock.round = remote.round || 1;
-    tournamentMasterClock.durationMinutes = remote.durationMinutes || 150;
-    tournamentMasterClock.targetEndTime = remote.targetEndTime || null;
-    tournamentMasterClock.remainingSeconds = typeof remote.remainingSeconds === 'number' 
+    const targetEnd = remote.targetEndTime || remote.target_end_time || null;
+    const remSec = typeof remote.remainingSeconds === 'number' 
       ? remote.remainingSeconds 
-      : 9000;
-    tournamentMasterClock.updatedAt = remote.updatedAt || Date.now();
+      : (typeof remote.remaining_seconds === 'number' ? remote.remaining_seconds : 9000);
+    const status = remote.status || 'stopped';
+    const round = remote.round || 1;
+    const durMin = remote.durationMinutes || remote.duration_minutes || 150;
+    const upAt = remote.updatedAt || remote.updated_at || Date.now();
+
+    // Guard against uninitialized reset when local clock is already running:
+    if (tournamentMasterClock.status === 'running' && status === 'stopped' && !targetEnd && (!remote.updatedAt && !remote.updated_at)) {
+      return;
+    }
+    if (tournamentMasterClock.updatedAt && upAt && upAt < tournamentMasterClock.updatedAt) {
+      return;
+    }
+
+    tournamentMasterClock.status = status;
+    tournamentMasterClock.round = round;
+    tournamentMasterClock.durationMinutes = durMin;
+    tournamentMasterClock.targetEndTime = targetEnd;
+    tournamentMasterClock.remainingSeconds = remSec;
+    tournamentMasterClock.updatedAt = upAt;
 
     updateMasterClockDom();
     ensureMasterClockTicker();
@@ -4669,32 +4721,63 @@ Space Marines - Gladius Task Force (2000 pts)
 
     const callId = 'call_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     const callData = {
+      id: callId,
       call_id: callId,
+      callId: callId,
+      eventId: tournamentId,
       event_id: tournamentId,
+      tableNum: tableNum,
       table_num: tableNum,
+      tableNumber: tableNum,
+      table: tableNum,
+      matchId: clientState.matchId || '',
       match_id: clientState.matchId || '',
+      playerName: playerName,
       player_name: playerName,
       caller: playerName,
+      callerName: playerName,
       opponent: opponentName,
       category: selectedCategory,
       note: note,
+      notes: note,
       status: 'pending',
+      createdAt: Date.now(),
       created_at: Date.now()
     };
 
-    // 1. Direct Firestore write (instant ~20ms dispatch)
+    // 1. Direct Firestore write to main Event documents (instant ~20ms dispatch & EventStudio onSnapshot trigger)
     const db = getTrackerFirestoreDb();
-    if (db) {
+    if (db && tournamentId) {
       try {
-        if (tournamentId) {
-          db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(err => {
-            console.debug('[Firestore Judge Dispatch] Subcollection notice:', err);
-          });
-        }
+        const updateMainEventDoc = async (ref) => {
+          try {
+            const snap = await ref.get();
+            let list = [];
+            if (snap && snap.exists) {
+              const d = snap.data() || {};
+              list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+            }
+            list = list.filter(c => c.id !== callId && c.call_id !== callId);
+            list.unshift(callData);
+            await ref.set({
+              id: tournamentId,
+              eventId: tournamentId,
+              type: "Event",
+              judge_calls: list,
+              flags: list,
+              updatedAt: Date.now()
+            }, { merge: true });
+          } catch (e) {
+            console.debug('[Firestore Judge Dispatch] Event doc update notice:', e);
+          }
+        };
+
+        updateMainEventDoc(db.collection('tournaments').doc(tournamentId));
+        updateMainEventDoc(db.collection('events').doc(tournamentId));
+
+        db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
         if (clientState.matchId) {
-          db.collection('rooms').doc(clientState.matchId).set({ active_judge_call: callData }, { merge: true }).catch(err => {
-            console.debug('[Firestore Judge Dispatch] Table room notice:', err);
-          });
+          db.collection('rooms').doc(clientState.matchId).set({ active_judge_call: callData }, { merge: true }).catch(() => {});
         }
       } catch (err) {
         console.debug('[Firestore Judge Dispatch] Native write exception:', err);
@@ -4730,19 +4813,51 @@ Space Marines - Gladius Task Force (2000 pts)
   window.gtCancelJudgeCall = async function() {
     const call = clientState.activeJudgeCall;
     if (!call) return;
-    const tournamentId = getTrackerTournamentId() || call.event_id || 'CURRENT_EVENT';
-    const callId = call.call_id;
+    const tournamentId = getTrackerTournamentId() || call.event_id || call.eventId || 'CURRENT_EVENT';
+    const callId = call.call_id || call.id || call.callId;
 
     // 1. Direct Firestore cancel
     const db = getTrackerFirestoreDb();
-    if (db) {
+    if (db && tournamentId && callId) {
       try {
-        if (tournamentId && callId) {
-          db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).update({
-            status: 'cancelled',
-            resolved_at: Date.now()
-          }).catch(() => {});
-        }
+        const cancelInDoc = async (ref) => {
+          try {
+            const snap = await ref.get();
+            if (snap && snap.exists) {
+              const d = snap.data() || {};
+              let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+              let changed = false;
+              list = list.map(c => {
+                if (c.id === callId || c.call_id === callId) {
+                  changed = true;
+                  return Object.assign({}, c, {
+                    status: 'cancelled',
+                    resolved_at: Date.now(),
+                    resolvedAt: Date.now()
+                  });
+                }
+                return c;
+              });
+              if (changed) {
+                await ref.set({
+                  judge_calls: list,
+                  flags: list,
+                  updatedAt: Date.now()
+                }, { merge: true });
+              }
+            }
+          } catch(e) {}
+        };
+
+        cancelInDoc(db.collection('tournaments').doc(tournamentId));
+        cancelInDoc(db.collection('events').doc(tournamentId));
+
+        db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).update({
+          status: 'cancelled',
+          resolved_at: Date.now(),
+          resolvedAt: Date.now()
+        }).catch(() => {});
+
         if (clientState.matchId) {
           db.collection('rooms').doc(clientState.matchId).update({
             active_judge_call: firebase.firestore.FieldValue.delete()

@@ -2509,6 +2509,10 @@ function subscribeStudioTournament(eventId) {
       if (data.masterClock) {
         applyRemoteStudioMasterClock(data.masterClock);
       }
+      const calls = data.judge_calls || data.flags;
+      if (Array.isArray(calls)) {
+        handleStudioJudgeCallsUpdate(calls);
+      }
     }, err => {
       console.warn("Notice on tournament listener:", err);
     });
@@ -2522,24 +2526,29 @@ function applyRemoteStudioMasterClock(clock) {
   studioState.masterClockStatus = clock.status || 'stopped';
   const btn = document.getElementById("btn-timer-toggle");
 
-  if (clock.status === 'running' && clock.targetEndTime) {
-    studioState.masterClockTargetEnd = clock.targetEndTime;
+  const targetEnd = clock.targetEndTime || clock.target_end_time;
+  const remSec = typeof clock.remainingSeconds === 'number' 
+    ? clock.remainingSeconds 
+    : (typeof clock.remaining_seconds === 'number' ? clock.remaining_seconds : null);
+
+  if (clock.status === 'running' && targetEnd) {
+    studioState.masterClockTargetEnd = targetEnd;
     studioState.isTimerRunning = true;
-    studioState.timerSeconds = Math.max(0, Math.round((clock.targetEndTime - Date.now()) / 1000));
+    studioState.timerSeconds = Math.max(0, Math.round((targetEnd - Date.now()) / 1000));
     if (btn) btn.textContent = "⏸️";
     ensureStudioClockTicker();
   } else if (clock.status === 'paused') {
     studioState.isTimerRunning = false;
     studioState.masterClockTargetEnd = null;
-    if (typeof clock.remainingSeconds === 'number') {
-      studioState.timerSeconds = clock.remainingSeconds;
+    if (typeof remSec === 'number') {
+      studioState.timerSeconds = remSec;
     }
     if (btn) btn.textContent = "▶️";
   } else {
     studioState.isTimerRunning = false;
     studioState.masterClockTargetEnd = null;
-    if (typeof clock.remainingSeconds === 'number') {
-      studioState.timerSeconds = clock.remainingSeconds;
+    if (typeof remSec === 'number') {
+      studioState.timerSeconds = remSec;
     }
     if (btn) btn.textContent = "▶️";
   }
@@ -2610,19 +2619,27 @@ async function toggleRoundTimer() {
       status: 'paused',
       round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
       durationMinutes: Math.round(rem / 60) || 150,
+      duration_minutes: Math.round(rem / 60) || 150,
       targetEndTime: null,
+      target_end_time: null,
       remainingSeconds: rem,
-      updatedAt: Date.now()
+      remaining_seconds: rem,
+      updatedAt: Date.now(),
+      updated_at: Date.now()
     };
 
     const db = getStudioFirestoreDb();
     if (db && eventId) {
       try {
-        db.collection('tournaments').doc(eventId).set({
+        const docPayload = {
+          id: eventId,
           eventId: eventId,
+          type: "Event",
           masterClock: clockPayload,
           updatedAt: Date.now()
-        }, { merge: true });
+        };
+        db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
+        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {
         console.warn("Notice saving clock to Firestore:", e);
       }
@@ -2648,19 +2665,27 @@ async function toggleRoundTimer() {
       status: 'running',
       round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
       durationMinutes: Math.round(studioState.timerSeconds / 60) || 150,
+      duration_minutes: Math.round(studioState.timerSeconds / 60) || 150,
       targetEndTime: targetEndTime,
+      target_end_time: targetEndTime,
       remainingSeconds: studioState.timerSeconds,
-      updatedAt: Date.now()
+      remaining_seconds: studioState.timerSeconds,
+      updatedAt: Date.now(),
+      updated_at: Date.now()
     };
 
     const db = getStudioFirestoreDb();
     if (db && eventId) {
       try {
-        db.collection('tournaments').doc(eventId).set({
+        const docPayload = {
+          id: eventId,
           eventId: eventId,
+          type: "Event",
           masterClock: clockPayload,
           updatedAt: Date.now()
-        }, { merge: true });
+        };
+        db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
+        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {
         console.warn("Notice saving clock to Firestore:", e);
       }
@@ -2690,18 +2715,26 @@ async function adjustRoundTimer(deltaMinutes) {
       status: studioState.masterClockStatus,
       round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
       durationMinutes: Math.round(studioState.timerSeconds / 60) || 150,
+      duration_minutes: Math.round(studioState.timerSeconds / 60) || 150,
       targetEndTime: studioState.masterClockStatus === 'running' ? studioState.masterClockTargetEnd : null,
+      target_end_time: studioState.masterClockStatus === 'running' ? studioState.masterClockTargetEnd : null,
       remainingSeconds: studioState.timerSeconds,
-      updatedAt: Date.now()
+      remaining_seconds: studioState.timerSeconds,
+      updatedAt: Date.now(),
+      updated_at: Date.now()
     };
     const db = getStudioFirestoreDb();
     if (db) {
       try {
-        db.collection('tournaments').doc(eventId).set({
+        const docPayload = {
+          id: eventId,
           eventId: eventId,
+          type: "Event",
           masterClock: clockPayload,
           updatedAt: Date.now()
-        }, { merge: true });
+        };
+        db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
+        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {}
     }
     propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
@@ -2729,18 +2762,26 @@ async function resetRoundTimer() {
       status: 'stopped',
       round: studioState.currentRoundView || (ev ? ev.current_round : 1) || 1,
       durationMinutes: Math.round(defSec / 60) || 150,
+      duration_minutes: Math.round(defSec / 60) || 150,
       targetEndTime: null,
+      target_end_time: null,
       remainingSeconds: defSec,
-      updatedAt: Date.now()
+      remaining_seconds: defSec,
+      updatedAt: Date.now(),
+      updated_at: Date.now()
     };
     const db = getStudioFirestoreDb();
     if (db) {
       try {
-        db.collection('tournaments').doc(eventId).set({
+        const docPayload = {
+          id: eventId,
           eventId: eventId,
+          type: "Event",
           masterClock: clockPayload,
           updatedAt: Date.now()
-        }, { merge: true });
+        };
+        db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
+        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {}
     }
     propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
@@ -3186,19 +3227,54 @@ async function markJudgeCallEnRoute(callId) {
   const db = getStudioFirestoreDb();
   if (db) {
     try {
+      // 1. Update subcollection
       await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
         status: "en_route",
         assignedJudge: { name: judgeName },
+        assigned_judge: judgeName,
         enRouteAt: Date.now(),
         updatedAt: Date.now()
       }, { merge: true });
 
+      // 2. Update main Event document arrays (tournaments & events)
+      const updateDocCalls = async (ref) => {
+        try {
+          const snap = await ref.get();
+          if (snap && snap.exists) {
+            const d = snap.data() || {};
+            let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+            let changed = false;
+            list = list.map(c => {
+              if (c.id === callId || c.call_id === callId) {
+                changed = true;
+                return Object.assign({}, c, {
+                  status: "en_route",
+                  assignedJudge: { name: judgeName },
+                  assigned_judge: judgeName,
+                  enRouteAt: Date.now(),
+                  updatedAt: Date.now()
+                });
+              }
+              return c;
+            });
+            if (changed) {
+              await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
+            }
+          }
+        } catch(e) {}
+      };
+      updateDocCalls(db.collection("tournaments").doc(ev.id));
+      updateDocCalls(db.collection("events").doc(ev.id));
+
+      // 3. Update table match room
       if (matchId) {
         await db.collection("rooms").doc(matchId).set({
           active_judge_call: {
             id: callId,
+            call_id: callId,
             status: "en_route",
             assignedJudge: { name: judgeName },
+            assigned_judge: judgeName,
             tableNum: call ? call.tableNum : 1,
             category: call ? call.category : "Rules Dispute"
           }
@@ -3232,16 +3308,47 @@ async function markJudgeCallResolved(callId) {
   const db = getStudioFirestoreDb();
   if (db) {
     try {
+      // 1. Update subcollection
       await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
         status: "resolved",
         resolvedAt: Date.now(),
         updatedAt: Date.now()
       }, { merge: true });
 
+      // 2. Update main Event document arrays
+      const updateDocCalls = async (ref) => {
+        try {
+          const snap = await ref.get();
+          if (snap && snap.exists) {
+            const d = snap.data() || {};
+            let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+            let changed = false;
+            list = list.map(c => {
+              if (c.id === callId || c.call_id === callId) {
+                changed = true;
+                return Object.assign({}, c, {
+                  status: "resolved",
+                  resolvedAt: Date.now(),
+                  updatedAt: Date.now()
+                });
+              }
+              return c;
+            });
+            if (changed) {
+              await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
+            }
+          }
+        } catch(e) {}
+      };
+      updateDocCalls(db.collection("tournaments").doc(ev.id));
+      updateDocCalls(db.collection("events").doc(ev.id));
+
+      // 3. Update table match room
       if (matchId) {
         await db.collection("rooms").doc(matchId).set({
           active_judge_call: {
             id: callId,
+            call_id: callId,
             status: "resolved",
             resolvedAt: Date.now()
           }
@@ -3274,12 +3381,42 @@ async function dismissJudgeCall(callId) {
   const db = getStudioFirestoreDb();
   if (db) {
     try {
+      // 1. Update subcollection
       await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
         status: "cancelled",
         resolvedAt: Date.now(),
         updatedAt: Date.now()
       }, { merge: true });
 
+      // 2. Update main Event document arrays
+      const updateDocCalls = async (ref) => {
+        try {
+          const snap = await ref.get();
+          if (snap && snap.exists) {
+            const d = snap.data() || {};
+            let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+            let changed = false;
+            list = list.map(c => {
+              if (c.id === callId || c.call_id === callId) {
+                changed = true;
+                return Object.assign({}, c, {
+                  status: "cancelled",
+                  resolvedAt: Date.now(),
+                  updatedAt: Date.now()
+                });
+              }
+              return c;
+            });
+            if (changed) {
+              await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
+            }
+          }
+        } catch(e) {}
+      };
+      updateDocCalls(db.collection("tournaments").doc(ev.id));
+      updateDocCalls(db.collection("events").doc(ev.id));
+
+      // 3. Clear match room call
       if (matchId) {
         await db.collection("rooms").doc(matchId).set({
           active_judge_call: null
