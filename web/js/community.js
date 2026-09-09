@@ -3101,7 +3101,118 @@ function toggleRegistrationAccessCode(forceShow) {
     if (toggleWrapper) toggleWrapper.style.display = 'block';
   }
 }
-window.toggleRegistrationAccessCode = toggleRegistrationAccessCode;
+let cachedRegistrationFactions = {};
+
+async function populateRegistrationFactions(gamesystemId = 'WGMSzfKFYA', selectedArmyId = '', selectedSubId = '') {
+  const factionSelect = document.getElementById('event-reg-faction');
+  if (!factionSelect) return [];
+
+  const cleanGid = gamesystemId || 'WGMSzfKFYA';
+  let factions = (typeof cachedGamesystemFactions !== 'undefined' && cachedGamesystemFactions[cleanGid])
+    || cachedRegistrationFactions[cleanGid] || [];
+
+  if (!factions || factions.length === 0) {
+    try {
+      factionSelect.innerHTML = '<option value="">Loading factions from BCP...</option>';
+      const res = await window.api.getGamesystemFactions(cleanGid);
+      factions = (res && res.factions) || [];
+      if (typeof cachedGamesystemFactions !== 'undefined') {
+        cachedGamesystemFactions[cleanGid] = factions;
+      }
+      cachedRegistrationFactions[cleanGid] = factions;
+    } catch (err) {
+      console.warn("Failed to load registration factions:", err);
+      factions = [];
+    }
+  }
+
+  if (!factions || factions.length === 0) {
+    factionSelect.innerHTML = '<option value="">Select Faction (Optional)</option>' +
+      ['Adepta Sororitas', 'Adeptus Custodes', 'Adeptus Mechanicus', 'Aeldari', 'Astra Militarum', 'Black Templars', 'Blood Angels', 'Chaos Daemons', 'Chaos Knights', 'Chaos Space Marines', 'Dark Angels', 'Death Guard', 'Deathwatch', 'Drukhari', 'Genestealer Cults', 'Grey Knights', 'Imperial Knights', 'Leagues of Votann', 'Necrons', 'Orks', 'Space Marines', 'Space Wolves', "T'au Empire", 'Thousand Sons', 'Tyranids', 'World Eaters']
+      .map(f => `<option value="${f}">${f}</option>`).join('');
+    return factions;
+  }
+
+  const currentVal = factionSelect.value;
+  factionSelect.innerHTML = '<option value="">Select Faction (Optional)</option>' + factions.map(f => {
+    return `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`;
+  }).join('');
+
+  const targetArmy = selectedArmyId || currentVal;
+  if (targetArmy) {
+    let matchedF = factions.find(f => String(f.id).trim() === String(targetArmy).trim());
+    if (!matchedF) {
+      const target = String(targetArmy).trim().toLowerCase();
+      matchedF = factions.find(f => {
+        const fn = String(f.name || '').trim().toLowerCase();
+        return fn === target || fn.includes(target) || target.includes(fn);
+      });
+    }
+    if (matchedF) {
+      factionSelect.value = matchedF.id;
+      onRegistrationFactionChange(matchedF.id, selectedSubId);
+    } else {
+      onRegistrationFactionChange('', '');
+    }
+  } else {
+    onRegistrationFactionChange('', '');
+  }
+
+  return factions;
+}
+window.populateRegistrationFactions = populateRegistrationFactions;
+
+function onRegistrationFactionChange(selectedArmyId, selectedSubId = '') {
+  const detachmentSelect = document.getElementById('event-reg-detachment');
+  if (!detachmentSelect) return;
+
+  if (!selectedArmyId) {
+    detachmentSelect.innerHTML = '<option value="">Select Faction first</option>';
+    return;
+  }
+
+  let foundFaction = null;
+  const source = (typeof cachedGamesystemFactions !== 'undefined' && Object.keys(cachedGamesystemFactions).length > 0)
+    ? cachedGamesystemFactions : cachedRegistrationFactions;
+  for (const gid of Object.keys(source)) {
+    const list = source[gid] || [];
+    foundFaction = list.find(f => String(f.id).trim() === String(selectedArmyId).trim() || f.name.toLowerCase() === String(selectedArmyId).toLowerCase());
+    if (foundFaction) break;
+  }
+
+  const subFactions = (foundFaction && foundFaction.subFactions) || [];
+  if (subFactions.length === 0) {
+    detachmentSelect.innerHTML = '<option value="">No detachments available</option>';
+    return;
+  }
+
+  const currentDetVal = detachmentSelect.value;
+  detachmentSelect.innerHTML = '<option value="">-- Select Force Disposition / Detachment --</option>' + subFactions.map(sf => {
+    return `<option value="${escapeHtml(sf.id)}">${escapeHtml(sf.name)}</option>`;
+  }).join('');
+
+  const targetSub = selectedSubId || currentDetVal;
+  if (targetSub) {
+    let matchedSf = subFactions.find(sf => String(sf.id).trim() === String(targetSub).trim());
+    if (!matchedSf) {
+      const target = String(targetSub).trim().toLowerCase();
+      matchedSf = subFactions.find(sf => {
+        const sfn = String(sf.name || '').trim().toLowerCase();
+        return sfn === target || sfn.includes(target) || target.includes(sfn);
+      });
+    }
+    if (matchedSf) {
+      detachmentSelect.value = matchedSf.id;
+    } else {
+      const opt = document.createElement('option');
+      opt.value = targetSub;
+      opt.textContent = targetSub;
+      opt.selected = true;
+      detachmentSelect.appendChild(opt);
+    }
+  }
+}
+window.onRegistrationFactionChange = onRegistrationFactionChange;
 
 async function openEventRegistrationModal(eventId) {
   if (!eventId) return;
@@ -3119,9 +3230,9 @@ async function openEventRegistrationModal(eventId) {
   const nameInput = document.getElementById('event-reg-name');
   const emailInput = document.getElementById('event-reg-email');
   const factionSelect = document.getElementById('event-reg-faction');
-  const detachmentInput = document.getElementById('event-reg-detachment');
+  const detachmentSelect = document.getElementById('event-reg-detachment');
   const armyListInput = document.getElementById('event-reg-army-list');
-  const systemIdInput = document.getElementById('event-reg-system-id');
+  const detailsEl = document.getElementById('event-reg-optional-details');
   const accountPill = document.getElementById('event-reg-account-pill');
   const accountStatus = document.getElementById('event-reg-account-status');
   const regBadge = document.getElementById('event-reg-badge');
@@ -3131,6 +3242,10 @@ async function openEventRegistrationModal(eventId) {
   const accessCodeRequiredInd = document.getElementById('event-reg-access-code-required-indicator');
   const accessCodeBadge = document.getElementById('event-reg-access-code-badge');
   const accessCodeHint = document.getElementById('event-reg-access-code-hint');
+
+  if (armyListInput) armyListInput.value = '';
+  if (savedListSelect) savedListSelect.value = '';
+  if (detailsEl) detailsEl.open = false;
 
   if (accessCodeInput) {
     accessCodeInput.value = '';
@@ -3293,6 +3408,18 @@ window.syncRegistrationFullName = syncRegistrationFullName;
       teamInput.value = prof.team || '';
     }
 
+    // Populate Official BCP Factions and pre-fill if registered
+    const gamesystemId = data.gamesystem_id || data.game_system_id || 'WGMSzfKFYA';
+    const preg = data.player_registration || {};
+    await populateRegistrationFactions(gamesystemId, preg.army_id || preg.faction || '', preg.sub_faction_id || preg.detachment || '');
+
+    if (preg.army_list && armyListInput) {
+      armyListInput.value = preg.army_list;
+    }
+    if (detailsEl && (preg.faction || preg.army_id || preg.detachment || preg.sub_faction_id || preg.army_list)) {
+      detailsEl.open = true;
+    }
+
     // Populate Saved Army Lists from My Hub
     userRegistrationArmyLists = Array.isArray(data.army_lists) ? data.army_lists : [];
     if (savedListSelect) {
@@ -3304,8 +3431,8 @@ window.syncRegistrationFullName = syncRegistrationFullName;
         savedListSelect.appendChild(opt);
       });
 
-      // If user has saved lists, auto-fill from first one if form is clean
-      if (userRegistrationArmyLists.length === 1 && !factionSelect?.value) {
+      // If user has saved lists and is not already registered with a list, auto-fill from first one if form is clean
+      if (userRegistrationArmyLists.length === 1 && !factionSelect?.value && !preg.army_list) {
         savedListSelect.selectedIndex = 1;
         onRegistrationSavedListChange();
       }
@@ -3349,8 +3476,9 @@ function closeEventRegistrationModal() {
 function onRegistrationSavedListChange() {
   const savedListSelect = document.getElementById('event-reg-saved-list');
   const factionSelect = document.getElementById('event-reg-faction');
-  const detachmentInput = document.getElementById('event-reg-detachment');
+  const detachmentSelect = document.getElementById('event-reg-detachment');
   const armyListInput = document.getElementById('event-reg-army-list');
+  const detailsEl = document.getElementById('event-reg-optional-details');
 
   if (!savedListSelect) return;
   const selectedId = savedListSelect.value;
@@ -3359,24 +3487,42 @@ function onRegistrationSavedListChange() {
   const matched = userRegistrationArmyLists.find(al => String(al.id) === String(selectedId));
   if (!matched) return;
 
-  if (factionSelect && matched.faction) {
-    factionSelect.value = matched.faction;
-    if (!factionSelect.value) {
+  if (detailsEl) {
+    detailsEl.open = true;
+  }
+
+  if (matched.faction) {
+    let foundArmyId = '';
+    const factionsSource = (typeof cachedGamesystemFactions !== 'undefined' && Object.keys(cachedGamesystemFactions).length > 0)
+      ? cachedGamesystemFactions : cachedRegistrationFactions;
+    for (const gid of Object.keys(factionsSource)) {
+      const list = factionsSource[gid] || [];
+      const f = list.find(x => x.name.toLowerCase() === matched.faction.toLowerCase() || matched.faction.toLowerCase().includes(x.name.toLowerCase()));
+      if (f) {
+        foundArmyId = f.id;
+        break;
+      }
+    }
+
+    if (foundArmyId && factionSelect) {
+      factionSelect.value = foundArmyId;
+      onRegistrationFactionChange(foundArmyId, matched.detachment || '');
+    } else if (factionSelect) {
       for (let i = 0; i < factionSelect.options.length; i++) {
-        if (factionSelect.options[i].text.toLowerCase() === matched.faction.toLowerCase()) {
+        const optText = (factionSelect.options[i].text || '').toLowerCase();
+        const optVal = (factionSelect.options[i].value || '').toLowerCase();
+        const mFac = matched.faction.toLowerCase();
+        if (optText === mFac || optVal === mFac || optText.includes(mFac) || mFac.includes(optText)) {
           factionSelect.selectedIndex = i;
+          onRegistrationFactionChange(factionSelect.value, matched.detachment || '');
           break;
         }
       }
     }
   }
 
-  if (detachmentInput && matched.detachment) {
-    detachmentInput.value = matched.detachment;
-  }
-
-  if (armyListInput && matched.raw_text) {
-    armyListInput.value = matched.raw_text;
+  if (armyListInput && (matched.raw_text || matched.list_text || matched.army_list)) {
+    armyListInput.value = matched.raw_text || matched.list_text || matched.army_list || '';
   }
 }
 
@@ -3416,10 +3562,9 @@ async function submitEventRegistration() {
   const nameInput = document.getElementById('event-reg-name');
   const emailInput = document.getElementById('event-reg-email');
   const factionSelect = document.getElementById('event-reg-faction');
-  const detachmentInput = document.getElementById('event-reg-detachment');
+  const detachmentSelect = document.getElementById('event-reg-detachment');
   const armyListInput = document.getElementById('event-reg-army-list');
   const savedListSelect = document.getElementById('event-reg-saved-list');
-  const systemIdInput = document.getElementById('event-reg-system-id');
   const statusEl = document.getElementById('event-reg-status');
   const firstNameInput = document.getElementById('event-reg-first-name');
   const lastNameInput = document.getElementById('event-reg-last-name');
@@ -3433,11 +3578,25 @@ async function submitEventRegistration() {
   }
 
   const email = emailInput ? emailInput.value.trim() : '';
-  const faction = factionSelect ? factionSelect.value.trim() : '';
-  const detachment = detachmentInput ? detachmentInput.value.trim() : '';
+
+  let armyId = '';
+  let factionName = '';
+  if (factionSelect && factionSelect.selectedIndex > 0 && factionSelect.value) {
+    armyId = factionSelect.value;
+    factionName = factionSelect.options[factionSelect.selectedIndex]?.text || '';
+    if (factionName.startsWith('Select Faction')) factionName = '';
+  }
+
+  let subFactionId = '';
+  let detachmentName = '';
+  if (detachmentSelect && detachmentSelect.selectedIndex > 0 && detachmentSelect.value) {
+    subFactionId = detachmentSelect.value;
+    detachmentName = detachmentSelect.options[detachmentSelect.selectedIndex]?.text || '';
+    if (detachmentName.startsWith('-- Select') || detachmentName.startsWith('Select Faction') || detachmentName.startsWith('No detachments')) detachmentName = '';
+  }
+
   const armyList = armyListInput ? armyListInput.value.trim() : '';
   const savedListId = savedListSelect ? savedListSelect.value : '';
-  const systemId = systemIdInput ? systemIdInput.value.trim() : '';
 
   if (!fn && !fullName) {
     if (statusEl) {
@@ -3502,11 +3661,14 @@ async function submitEventRegistration() {
     last_name: ln,
     email: email,
     team: team,
-    faction: faction || null,
-    detachment: detachment || null,
+    faction: factionName || armyId || null,
+    faction_name: factionName || null,
+    army_id: armyId || null,
+    detachment: detachmentName || subFactionId || null,
+    detachment_name: detachmentName || null,
+    sub_faction_id: subFactionId || null,
     army_list: armyList || null,
     army_list_id: savedListId || null,
-    system_id: systemId || null,
     access_code: accessCode || null,
     accessCode: accessCode || null,
     bcp_token: bcpToken || null

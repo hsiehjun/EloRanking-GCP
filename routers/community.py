@@ -386,7 +386,11 @@ class CommunityEventRegisterPayload(BaseModel):
     email: Optional[str] = None
     team: Optional[str] = None
     faction: Optional[str] = None
+    army_id: Optional[str] = None
+    faction_name: Optional[str] = None
     detachment: Optional[str] = None
+    sub_faction_id: Optional[str] = None
+    detachment_name: Optional[str] = None
     army_list: Optional[str] = None
     army_list_id: Optional[str] = None
     system_id: Optional[str] = None
@@ -914,8 +918,10 @@ async def api_community_event_register(
 
     email = (payload.email or (user.get("email") if user else "") or "").strip()
     team = (payload.team or (user.get("team") if user else "") or "").strip()
-    faction = (payload.faction or "").strip() or "Unassigned"
-    detachment = (payload.detachment or "").strip()
+    army_id = (payload.army_id or "").strip()
+    sub_faction_id = (payload.sub_faction_id or "").strip()
+    faction = (payload.faction_name or payload.faction or "").strip()
+    detachment = (payload.detachment_name or payload.detachment or "").strip()
     army_list = (payload.army_list or "").strip()
 
     # If army_list_id is provided, pull saved list content if not provided inline
@@ -928,10 +934,44 @@ async def api_community_event_register(
                     detachment = matched.get("detachment")
                 if not army_list:
                     army_list = matched.get("raw_text") or matched.get("list_text") or matched.get("army_list") or ""
-                if faction == "Unassigned" and matched.get("faction"):
+                if not faction and matched.get("faction"):
                     faction = matched.get("faction")
         except Exception as e:
             logger.debug(f"Saved army list lookup notice: {e}")
+
+    # Resolve human-readable names and official BCP gamesystem ObjectIds
+    gamesystem_id = ev.get("gamesystem_id") or rj.get("gameSystemId") or "WGMSzfKFYA"
+    if army_id or sub_faction_id or faction or detachment:
+        try:
+            from bcp_adapter import BcpAdapter
+            _, _, flist = BcpAdapter.fetch_gamesystem_factions(gamesystem_id)
+            if flist:
+                matched_f = None
+                if army_id:
+                    matched_f = next((f for f in flist if str(f.get("id")).strip() == army_id), None)
+                if not matched_f and faction:
+                    fac_lower = faction.lower()
+                    matched_f = next((f for f in flist if f.get("name", "").lower() == fac_lower or fac_lower in f.get("name", "").lower()), None)
+                if matched_f:
+                    army_id = str(matched_f.get("id") or army_id).strip()
+                    if not faction or faction.lower() == "select faction (optional)":
+                        faction = matched_f.get("name") or faction
+                    sfs = matched_f.get("subFactions") or []
+                    matched_sf = None
+                    if sub_faction_id:
+                        matched_sf = next((sf for sf in sfs if str(sf.get("id")).strip() == sub_faction_id), None)
+                    if not matched_sf and detachment:
+                        det_lower = detachment.lower()
+                        matched_sf = next((sf for sf in sfs if sf.get("name", "").lower() == det_lower or det_lower in sf.get("name", "").lower()), None)
+                    if matched_sf:
+                        sub_faction_id = str(matched_sf.get("id") or sub_faction_id).strip()
+                        if not detachment or detachment.lower().startswith("select faction") or detachment.lower().startswith("-- select"):
+                            detachment = matched_sf.get("name") or detachment
+        except Exception as fac_res_err:
+            logger.debug(f"Faction resolution notice in register: {fac_res_err}")
+
+    if not faction:
+        faction = "Unassigned"
 
     system_id = (payload.system_id or "").strip()
 
@@ -947,8 +987,13 @@ async def api_community_event_register(
         "team": team,
         "faction": faction if faction != "Unassigned" else None,
         "army": faction if faction != "Unassigned" else None,
+        "army_id": army_id or None,
+        "armyId": army_id or None,
         "detachment": detachment or None,
+        "sub_faction_id": sub_faction_id or None,
+        "subFactionId": sub_faction_id or None,
         "army_list": army_list or None,
+        "armyList": army_list or None,
         "system_id": system_id or None,
         "access_code": access_code or None,
         "accessCode": access_code or None,
@@ -981,6 +1026,63 @@ async def api_community_event_register(
                 detail=f"Failed to communicate with Best Coast Pairings: {bcp_ex}"
             )
 
+        # Resolve authentic BCP player record ID for subsequent armylist submission or player update
+        resolved_pid = None
+        if bcp_resp and isinstance(bcp_resp, dict):
+            resolved_pid = bcp_resp.get("id") or bcp_resp.get("_id") or (
+                bcp_resp.get("player", {}).get("id") if isinstance(bcp_resp.get("player"), dict) else None
+            )
+        if not resolved_pid:
+            try:
+                resolved_pid = BcpAdapter.resolve_event_player_id(
+                    clean_eid,
+                    user_id=user_id,
+                    candidate_pid=None,
+                    explicit_token=bcp_adapter_token
+                )
+            except Exception as ex_resolve:
+                logger.debug(f"Player ID resolution notice after registration: {ex_resolve}")
+
+        # Update player details on BCP with army, detachment, armyId, subFactionId, team
+        if resolved_pid and (army_id or sub_faction_id or (faction and faction != "Unassigned") or detachment or team):
+            set_fields = {}
+            if army_id:
+                set_fields["armyId"] = army_id
+            if sub_faction_id:
+                set_fields["subFactionId"] = sub_faction_id
+            if faction and faction != "Unassigned":
+                set_fields["army"] = faction
+                set_fields["faction"] = faction
+            if detachment:
+                set_fields["detachment"] = detachment
+            if team:
+                set_fields["teamName"] = team
+            if set_fields:
+                try:
+                    BcpAdapter.update_player(
+                        player_id=resolved_pid,
+                        set_fields=set_fields,
+                        user_id=user_id,
+                        explicit_token=bcp_adapter_token
+                    )
+                except Exception as ex_upd:
+                    logger.debug(f"BCP player update after registration notice: {ex_upd}")
+
+        # Submit army list to BCP armylists collection
+        if resolved_pid and army_list:
+            try:
+                BcpAdapter.submit_armylist(
+                    player_id=resolved_pid,
+                    list_text=army_list,
+                    army_id=army_id or None,
+                    sub_faction_id=sub_faction_id or None,
+                    send_notification=True,
+                    user_id=user_id,
+                    explicit_token=bcp_adapter_token
+                )
+            except Exception as ex_list:
+                logger.debug(f"BCP submit_armylist after registration notice: {ex_list}")
+
         already_reg = bool(bcp_resp and isinstance(bcp_resp, dict) and bcp_resp.get("already_registered"))
         success_msg = f"You are already registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!" if already_reg else f"Successfully registered for {ev.get('name') or 'Tournament'} on Best Coast Pairings!"
 
@@ -990,8 +1092,13 @@ async def api_community_event_register(
             "event_id": clean_eid,
             "event_name": ev.get("name") or "Tournament",
             "player_name": full_name,
+            "player_id": resolved_pid or "",
             "faction": faction,
+            "army_id": army_id,
             "detachment": detachment,
+            "sub_faction_id": sub_faction_id,
+            "has_list_submitted": bool(army_list),
+            "army_list": army_list,
             "bcp_synced": True,
             "bcp_notice": "Already registered on BCP" if already_reg else None,
             "is_registered": True
@@ -1010,7 +1117,9 @@ async def api_community_event_register(
         "state": ev.get("state") or "",
         "country": ev.get("country") or "",
         "faction": faction,
+        "army_id": army_id,
         "detachment": detachment,
+        "sub_faction_id": sub_faction_id,
         "army_list": army_list,
         "has_list_submitted": bool(army_list),
         "checked_in": False,
@@ -1029,7 +1138,9 @@ async def api_community_event_register(
             "id": user.get("player_id") if user else effective_user_id,
             "name": full_name,
             "faction": faction,
+            "army_id": army_id,
             "detachment": detachment,
+            "sub_faction_id": sub_faction_id,
             "army_list": army_list,
             "checked_in": False
         }
@@ -1044,8 +1155,13 @@ async def api_community_event_register(
         "event_id": clean_eid,
         "event_name": ev.get("name") or "Tournament",
         "player_name": full_name,
+        "player_id": user.get("player_id") if user else effective_user_id,
         "faction": faction,
+        "army_id": army_id,
         "detachment": detachment,
+        "sub_faction_id": sub_faction_id,
+        "has_list_submitted": bool(army_list),
+        "army_list": army_list,
         "bcp_synced": False,
         "bcp_notice": None,
         "is_registered": True

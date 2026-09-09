@@ -312,8 +312,14 @@ class BcpAdapter:
         if faction and faction not in ("Unassigned", "Unknown"):
             bcp_payload["army"] = faction
             bcp_payload["faction"] = faction
+        army_id = player_data.get("army_id") or player_data.get("armyId")
+        if army_id:
+            bcp_payload["armyId"] = str(army_id).strip()
         if player_data.get("detachment"):
             bcp_payload["detachment"] = player_data["detachment"]
+        sub_faction_id = player_data.get("sub_faction_id") or player_data.get("subFactionId")
+        if sub_faction_id:
+            bcp_payload["subFactionId"] = str(sub_faction_id).strip()
         team = player_data.get("team") or player_data.get("teamName")
         if team:
             bcp_payload["team"] = team

@@ -690,6 +690,193 @@ def test_access_code_registration_support():
     print("✅ Access code registration support verified across backend, adapter, and frontend!")
 
 
+def test_optional_fields_faction_disposition_list_and_bcp_sync():
+    """
+    Verify that:
+    1. The additional option section in web/app.html strictly contains ONLY:
+       - Faction
+       - Force Disposition (Detachment)
+       - Army List / Saved List
+       and completely removes ITC / BCP System ID.
+    2. Detachment is a select element populated dynamically.
+    3. Faction change triggers onRegistrationFactionChange.
+    4. BCP event registration end-to-end resolves ObjectIds, calls update_player, and calls submit_armylist.
+    5. Native Event Studio registration persists faction, detachment, army_id, sub_faction_id, and army_list.
+    """
+    import asyncio
+    from routers.community import api_community_event_register, CommunityEventRegisterPayload
+
+    # 1. Inspect web/app.html
+    with open("web/app.html", "r", encoding="utf-8") as f:
+        app_html = f.read()
+
+    assert 'id="event-reg-optional-details"' in app_html, "Missing #event-reg-optional-details in app.html"
+    assert 'id="event-reg-system-id"' not in app_html, "ITC / BCP System ID must be completely removed from app.html"
+    assert 'id="event-reg-faction"' in app_html, "Missing #event-reg-faction in app.html"
+    assert 'id="event-reg-detachment"' in app_html, "Missing #event-reg-detachment in app.html"
+    assert 'id="event-reg-army-list"' in app_html, "Missing #event-reg-army-list in app.html"
+    assert 'id="event-reg-saved-list"' in app_html, "Missing #event-reg-saved-list in app.html"
+
+    # Verify Force Disposition (Detachment) label and select tag
+    assert "Force Disposition (Detachment)" in app_html
+    assert '<select id="event-reg-detachment"' in app_html, "#event-reg-detachment must be a <select> element"
+    assert 'onchange="onRegistrationFactionChange(this.value)"' in app_html
+
+    # 2. Inspect web/js/community.js
+    with open("web/js/community.js", "r", encoding="utf-8") as f:
+        comm_js = f.read()
+
+    assert "populateRegistrationFactions" in comm_js
+    assert "onRegistrationFactionChange" in comm_js
+    assert "event-reg-detachment" in comm_js
+
+    # 3. Inspect web/js/app.bundle.min.js
+    with open("web/js/app.bundle.min.js", "r", encoding="utf-8") as f:
+        bundle_js = f.read()
+
+    assert "populateRegistrationFactions" in bundle_js
+    assert "onRegistrationFactionChange" in bundle_js
+
+    # 4. Backend BCP Tournament Registration Flow with Optional Fields
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    user_id = "usr_competitor_01"
+    mock_auth.get_session.return_value = {
+        "id": user_id,
+        "email": "player@example.com",
+        "display_name": "Test Player",
+        "player_id": "p_01",
+        "bcp_user_id": "bcp_u_01"
+    }
+    mock_auth.get_valid_bcp_token.return_value = "bcp_valid_token"
+
+    mock_ev = {
+        "id": "bcp_event_test_01",
+        "name": "Warhammer 40k Grand Tournament",
+        "using_online_reg": True,
+        "ticket_price": 0.0,
+        "capacity": 64,
+        "total_players": 10,
+        "gamesystem_id": "WGMSzfKFYA"
+    }
+    mock_db.get_event_details.return_value = mock_ev
+    mock_db.get_studio_event.return_value = None
+
+    mock_factions = [
+        {
+            "id": "army_space_marines",
+            "name": "Space Marines",
+            "subFactions": [
+                {"id": "sub_gladius", "name": "Gladius Task Force"},
+                {"id": "sub_ironstorm", "name": "Ironstorm Spearhead"}
+            ]
+        }
+    ]
+
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer test_sess"}
+    mock_req.cookies = {}
+
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.fetch_gamesystem_factions", return_value=(True, None, mock_factions)), \
+         patch("bcp_adapter.BcpAdapter.register_player", return_value=(True, None, {"id": "bcp_player_rec_999"})) as mock_reg, \
+         patch("bcp_adapter.BcpAdapter.update_player", return_value=(True, None, {"success": True})) as mock_upd, \
+         patch("bcp_adapter.BcpAdapter.submit_armylist", return_value=(True, None, {"success": True})) as mock_submit_list:
+
+        payload = CommunityEventRegisterPayload(
+            first_name="Test",
+            last_name="Player",
+            email="player@example.com",
+            army_id="army_space_marines",
+            sub_faction_id="sub_gladius",
+            faction="Space Marines",
+            detachment="Gladius Task Force",
+            army_list="++ Space Marines List ++ 2000pts"
+        )
+
+        resp = asyncio.run(api_community_event_register("bcp_event_test_01", payload, mock_req))
+
+        assert resp["success"] is True
+        assert resp["is_registered"] is True
+        assert resp["faction"] == "Space Marines"
+        assert resp["army_id"] == "army_space_marines"
+        assert resp["detachment"] == "Gladius Task Force"
+        assert resp["sub_faction_id"] == "sub_gladius"
+        assert resp["has_list_submitted"] is True
+        assert resp["army_list"] == "++ Space Marines List ++ 2000pts"
+
+        # Verify BcpAdapter.register_player received armyId and subFactionId
+        assert mock_reg.called
+        reg_args = mock_reg.call_args[0]
+        player_dict = reg_args[1]
+        assert player_dict.get("armyId") == "army_space_marines"
+        assert player_dict.get("subFactionId") == "sub_gladius"
+
+        # Verify BcpAdapter.update_player was called to sync player fields on BCP
+        assert mock_upd.called
+        upd_kwargs = mock_upd.call_args[1] if mock_upd.call_args[1] else mock_upd.call_args[0]
+        set_fields = upd_kwargs.get("set_fields") if "set_fields" in upd_kwargs else mock_upd.call_args[1]["set_fields"]
+        assert set_fields["armyId"] == "army_space_marines"
+        assert set_fields["subFactionId"] == "sub_gladius"
+        assert set_fields["army"] == "Space Marines"
+        assert set_fields["detachment"] == "Gladius Task Force"
+
+        # Verify BcpAdapter.submit_armylist was called with the army list text
+        assert mock_submit_list.called
+        list_kwargs = mock_submit_list.call_args[1]
+        assert list_kwargs["player_id"] == "bcp_player_rec_999"
+        assert list_kwargs["list_text"] == "++ Space Marines List ++ 2000pts"
+        assert list_kwargs["army_id"] == "army_space_marines"
+        assert list_kwargs["sub_faction_id"] == "sub_gladius"
+
+    # 5. Backend Native Event Studio Registration Flow
+    mock_es_ev = {
+        "id": "ES-TEST-001",
+        "name": "Event Studio Local Championship",
+        "using_online_reg": True,
+        "ticket_price": 0.0,
+        "capacity": 32,
+        "total_players": 4,
+        "roster": []
+    }
+    mock_db.get_event_details.return_value = None
+    mock_db.get_studio_event.return_value = mock_es_ev
+
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth), \
+         patch("bcp_adapter.BcpAdapter.fetch_gamesystem_factions", return_value=(True, None, mock_factions)):
+
+        es_payload = CommunityEventRegisterPayload(
+            first_name="Local",
+            last_name="Champion",
+            email="champion@example.com",
+            army_id="army_space_marines",
+            sub_faction_id="sub_gladius",
+            army_list="++ Local Champion List ++"
+        )
+
+        es_resp = asyncio.run(api_community_event_register("ES-TEST-001", es_payload, mock_req))
+        assert es_resp["success"] is True
+        assert es_resp["bcp_synced"] is False
+        assert es_resp["faction"] == "Space Marines"
+        assert es_resp["army_id"] == "army_space_marines"
+        assert es_resp["detachment"] == "Gladius Task Force"
+        assert es_resp["sub_faction_id"] == "sub_gladius"
+
+        # Verify db.add_user_registered_tournament persisted all fields
+        assert mock_db.add_user_registered_tournament.called
+        saved_reg = mock_db.add_user_registered_tournament.call_args[0][1]
+        assert saved_reg["faction"] == "Space Marines"
+        assert saved_reg["army_id"] == "army_space_marines"
+        assert saved_reg["detachment"] == "Gladius Task Force"
+        assert saved_reg["sub_faction_id"] == "sub_gladius"
+        assert saved_reg["army_list"] == "++ Local Champion List ++"
+        assert saved_reg["has_list_submitted"] is True
+
+    print("✅ Optional registration fields strictly restricted to Faction, Disposition & List, and BCP sync verified!")
+
+
 if __name__ == "__main__":
     print("🚀 Running Community Registration Automated Test Suite...")
     test_database_upcoming_events_normalization()
@@ -700,4 +887,5 @@ if __name__ == "__main__":
     test_community_sql_cte_column_integrity_and_error_handling()
     test_streamlined_registration_fields_and_unauth_fallback()
     test_access_code_registration_support()
+    test_optional_fields_faction_disposition_list_and_bcp_sync()
     print("\n🎉 ALL COMMUNITY REGISTRATION FLOW TESTS PASSED SUCCESSFULLY!")
