@@ -895,7 +895,7 @@ def test_event_modal_subtabs_hidden_on_mobile_and_desktop():
     assert '#event-subtab-teams[style*="display: none"]' in styles_css
 
     # 3. Check tournaments.js resets subtabs on open
-    assert "subtabPlayerInit.style.setProperty('display', 'none', 'important')" in tournaments_js
+    assert "subtabPlayerInit.style.setProperty('display', (initialTab === 'player') ? 'inline-flex' : 'none', 'important')" in tournaments_js
     assert "subtabTeamsInit.style.setProperty('display', 'none', 'important')" in tournaments_js
 
     print("✅ test_event_modal_subtabs_hidden_on_mobile_and_desktop passed!")
@@ -1267,20 +1267,22 @@ def test_eventstudio_submit_score_saves_to_db_and_tracker_game():
         assert match_call["is_done"] is True
 
         # Check tracker_games updated via connection cursor execute
-        mock_cur.execute.assert_called_once()
-        tracker_sql = mock_cur.execute.call_args[0][0]
+        tracker_calls = [c for c in mock_cur.execute.call_args_list if "UPDATE tracker_games" in str(c[0][0])]
+        assert len(tracker_calls) == 1
+        tracker_sql = tracker_calls[0][0][0]
         assert "UPDATE tracker_games" in tracker_sql
         assert "is_finished = TRUE" in tracker_sql
         assert "bcp_submitted = TRUE" in tracker_sql
 
-        # Check BCP adapter called with winner_id in game_data
+        # Check BCP adapter called with winner_id, p1_id, p2_id in game_data
         mock_bcp_sub.assert_called_once_with(
             pairing_id="bcp_pair_123",
             p1_score=90,
             p2_score=70,
-            game_data={"winner_id": "usr_p1"},
+            game_data={"winner_id": "usr_p1", "p1_id": "usr_p1", "p2_id": "usr_p2"},
             user_id="usr_p1",
-            explicit_token="mock_bcp_tok"
+            explicit_token="mock_bcp_tok",
+            winner_id="usr_p1"
         )
 
     print("✅ test_eventstudio_submit_score_saves_to_db_and_tracker_game passed!")
@@ -1503,6 +1505,65 @@ def test_eventstudio_spectator_tracker_and_bcp_submit_scores():
 
     print("✅ test_eventstudio_spectator_tracker_and_bcp_submit_scores passed!")
 
+def test_game_tracker_bcp_submit_and_put_fallback():
+    """Verify BcpAdapter.submit_pairing_scores forwards game IDs, competitor IDs, winner, and falls back to PUT on POST failure."""
+    from bcp_adapter import BcpAdapter
+
+    # 1. Verify PUT fallback in BcpAdapter.submit_pairing_scores
+    calls = []
+    def mock_exec(url, method="POST", json_data=None, user_id=None, explicit_token=None, **kwargs):
+        calls.append((url, method, json_data))
+        if method == "POST":
+            return None, "HTTP 404: Endpoint not found"
+        elif method == "PUT":
+            return {"success": True}, None
+        return None, "error"
+
+    with patch.object(BcpAdapter, "execute_call", side_effect=mock_exec):
+        ok, err = BcpAdapter.submit_pairing_scores(
+            pairing_id="test_pid_888",
+            p1_score=40,
+            p2_score=25,
+            game_data={
+                "p1_game_id": "T75ksHkVRf9B",
+                "p2_game_id": "mLs7f8wJMDXu",
+                "p1_id": "f2avrXEHDb4y",
+                "p2_id": "aNfUhm126Sas",
+                "winner_id": "f2avrXEHDb4y"
+            },
+            explicit_token="mock_tok"
+        )
+        assert ok is True
+        assert len(calls) == 2
+        # First call POST
+        assert calls[0][1] == "POST"
+        assert "submitScores" in calls[0][0]
+        # Second call PUT fallback
+        assert calls[1][1] == "PUT"
+        assert calls[1][0].endswith("/pairings/test_pid_888")
+        put_payload = calls[1][2]
+        assert put_payload["player1Score"] == 40
+        assert put_payload["player2Score"] == 25
+        assert put_payload["player1Result"] == 2
+        assert put_payload["player2Result"] == 0
+        assert put_payload["player1GameId"] == "T75ksHkVRf9B"
+        assert put_payload["player2GameId"] == "mLs7f8wJMDXu"
+        assert put_payload["player1Id"] == "f2avrXEHDb4y"
+        assert put_payload["player2Id"] == "aNfUhm126Sas"
+        assert put_payload["winnerId"] == "f2avrXEHDb4y"
+        assert put_payload["player1Game"]["id"] == "T75ksHkVRf9B"
+        assert put_payload["player2Game"]["id"] == "mLs7f8wJMDXu"
+
+    # 2. Verify tracker_sync.js contains BCP primary action, automatic submit, and direct client fallback
+    tracker_js = (root_dir / "web" / "tracker" / "tracker_sync.js").read_text()
+    assert "🏆 SUBMIT SCORE TO BCP & FINISH MATCH" in tracker_js
+    assert "window.__submitMatchToBcp()" in tracker_js
+    assert "https://newprod-api.bestcoastpairings.com/v1/pairings/" in tracker_js
+    assert "player1GameId: resolvedP1Gid" in tracker_js
+    assert "player2GameId: resolvedP2Gid" in tracker_js
+
+    print("✅ test_game_tracker_bcp_submit_and_put_fallback passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1539,6 +1600,7 @@ if __name__ == "__main__":
     test_bcp_metadata_scores_and_payload_wiring()
     test_eventstudio_quiet_polling_and_live_sync_ui()
     test_eventstudio_spectator_tracker_and_bcp_submit_scores()
+    test_game_tracker_bcp_submit_and_put_fallback()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 
 

@@ -2748,8 +2748,12 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     if isinstance(payload.game_details, dict):
         p1_gid = payload.game_details.get("p1_game_id") or payload.game_details.get("player1GameId")
         p2_gid = payload.game_details.get("p2_game_id") or payload.game_details.get("player2GameId")
+        if not p1_id:
+            p1_id = payload.game_details.get("p1_id") or payload.game_details.get("player1Id")
+        if not p2_id:
+            p2_id = payload.game_details.get("p2_id") or payload.game_details.get("player2Id")
 
-    if not bcp_pairing_id and not payload.event_id.startswith("ES-"):
+    if (not bcp_pairing_id or not p1_gid or not p2_gid or not p1_id or not p2_id) and not payload.event_id.startswith("ES-"):
         canonical_event_id = _resolve_canonical_event_id(payload.event_id, user=user, explicit_token=bcp_token)
         try:
             res_p = bcp_adapter.fetch_event_pairings(canonical_event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
@@ -2761,11 +2765,12 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
                 u1 = p1_obj.get("user") if isinstance(p1_obj.get("user"), dict) else {}
                 u2 = p2_obj.get("user") if isinstance(p2_obj.get("user"), dict) else {}
 
+                pid_match = bool(bcp_pairing_id and (str(p.get("id") or "") == str(bcp_pairing_id) or str(p.get("bcp_pairing_id") or "") == str(bcp_pairing_id)))
                 table_matches = (t_val == table_val or str(t_val) == str(table_val))
                 p1_name_match = bool(payload.p1_name and (payload.p1_name.lower() in (str(p1_obj.get("name") or "").lower(), str(p2_obj.get("name") or "").lower())))
 
-                if table_matches or p1_name_match:
-                    bcp_pairing_id = p.get("id") or p.get("bcp_pairing_id")
+                if pid_match or table_matches or p1_name_match:
+                    bcp_pairing_id = bcp_pairing_id or p.get("id") or p.get("bcp_pairing_id")
                     p1_id = p1_id or str(p1_obj.get("id") or p.get("player1Id") or u1.get("id") or "")
                     p2_id = p2_id or str(p2_obj.get("id") or p.get("player2Id") or u2.get("id") or "")
                     p1_name = payload.p1_name or p1_obj.get("name") or "Player 1"
@@ -2870,13 +2875,18 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             submit_game_data["p1_game_id"] = str(p1_gid)
         if p2_gid and "p2_game_id" not in submit_game_data:
             submit_game_data["p2_game_id"] = str(p2_gid)
+        if p1_id and "p1_id" not in submit_game_data:
+            submit_game_data["p1_id"] = str(p1_id)
+        if p2_id and "p2_id" not in submit_game_data:
+            submit_game_data["p2_id"] = str(p2_id)
         bcp_synced, bcp_err = bcp_adapter.submit_pairing_scores(
             pairing_id=bcp_pairing_id,
             p1_score=payload.p1_score,
             p2_score=payload.p2_score,
             game_data=submit_game_data,
             user_id=user_id,
-            explicit_token=bcp_token
+            explicit_token=bcp_token,
+            winner_id=winner_id
         )
         if not bcp_synced:
             bcp_notice = bcp_err
@@ -2892,6 +2902,11 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         "p1_score": payload.p1_score,
         "p2_score": payload.p2_score,
         "pairing_id": bcp_pairing_id,
+        "p1_game_id": p1_gid,
+        "p2_game_id": p2_gid,
+        "p1_id": p1_id,
+        "p2_id": p2_id,
+        "winner_id": winner_id,
         "source_app": payload.source_app,
         "bcp_synced": bcp_synced,
         "bcp_notice": bcp_notice

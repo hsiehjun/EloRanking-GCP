@@ -362,9 +362,19 @@
     const winnerName = (p1Score > p2Score) ? p1Name : ((p2Score > p1Score) ? p2Name : 'Draw / Tie');
     const winnerColor = (p1Score > p2Score) ? '#38bdf8' : ((p2Score > p1Score) ? '#f43f5e' : '#f59e0b');
 
-    const eventId = game.eventId || st.event_id || '';
-    const roundNum = game.roundNum || st.round_num || st.round || 1;
-    const tableNum = game.tableNum || st.table_num || '';
+    const urlParams = new URLSearchParams(window.location.search);
+    let eventId = game.eventId || st.event_id || urlParams.get('event_id') || '';
+    let roundNum = game.roundNum || st.round_num || st.round || urlParams.get('round_num') || 1;
+    let tableNum = game.tableNum || st.table_num || urlParams.get('table_num') || '';
+
+    if ((!eventId || eventId === 'Casual') && matchId) {
+      const bcpMatch = matchId.match(/(?:WH40K-)?(?:BCP-)?([a-zA-Z0-9_-]+)-R(\d+)-T(\d+)/i);
+      if (bcpMatch) {
+        eventId = bcpMatch[1];
+        if (!roundNum || roundNum === 1) roundNum = parseInt(bcpMatch[2], 10);
+        if (!tableNum) tableNum = parseInt(bcpMatch[3], 10);
+      }
+    }
 
     let existingModal = document.getElementById('gt-complete-modal');
     if (existingModal) existingModal.remove();
@@ -431,17 +441,25 @@
 
           <!-- Action Buttons -->
           <div style="display:flex; flex-direction:column; gap:8px;">
-            <!-- Primary Action: Conclude & Save Match (For ALL matches) -->
-            <button id="gt-btn-conclude" onclick="window.__finalizeAndLockMatch()" style="width:100%; background:#059669; color:#fff; font-weight:800; font-size:13px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em; transition:all 0.15s;">
-              🏁 CONCLUDE & SAVE MATCH
-            </button>
-
             ${isBcpTournament ? `
-              <!-- Optional BCP Sync if event is registered -->
-              <button id="gt-btn-submit-bcp" onclick="window.__submitMatchToBcp()" style="width:100%; background:#0284c7; color:#fff; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.03em; transition:all 0.15s;">
-                🏆 SUBMIT SCORE TO BEST COAST PAIRINGS
+              <!-- Primary Tournament Action: Submit to BCP & Finish Match -->
+              <button id="gt-btn-conclude" onclick="window.__finalizeAndLockMatch()" style="width:100%; background:#0284c7; color:#fff; font-weight:800; font-size:13px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em; transition:all 0.15s; box-shadow:0 4px 14px rgba(2,132,199,0.35);">
+                🏆 SUBMIT SCORE TO BCP & FINISH MATCH
               </button>
-            ` : ''}
+
+              <button id="gt-btn-submit-bcp" onclick="window.__submitMatchToBcp()" style="width:100%; background:rgba(2,132,199,0.18); border:1px solid #0284c7; color:#38bdf8; font-weight:700; font-size:12px; text-transform:uppercase; border:none; padding:9px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.03em; transition:all 0.15s;">
+                📤 SUBMIT SCORE TO BCP ONLY
+              </button>
+
+              <button onclick="window.__finalizeAndLockMatch(true)" style="width:100%; background:transparent; border:1px dashed #334155; color:#94a3b8; font-weight:600; font-size:11px; text-transform:uppercase; padding:7px; border-radius:6px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.03em;">
+                🏁 FINISH & ARCHIVE (OFFLINE ONLY)
+              </button>
+            ` : `
+              <!-- Casual Battle Action -->
+              <button id="gt-btn-conclude" onclick="window.__finalizeAndLockMatch()" style="width:100%; background:#059669; color:#fff; font-weight:800; font-size:13px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em; transition:all 0.15s;">
+                🏁 CONCLUDE & SAVE MATCH
+              </button>
+            `}
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
               <button onclick="window.__copyMatchScorecardSummary()" style="background:#1e293b; border:1px solid #334155; color:#f8fafc; font-weight:700; font-size:11px; padding:10px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">
@@ -459,10 +477,46 @@
     document.body.appendChild(modal);
   };
 
-  window.__finalizeAndLockMatch = async function () {
+  window.__finalizeAndLockMatch = async function (skipBcp) {
     const btn = document.getElementById('gt-btn-conclude');
     const statusEl = document.getElementById('gt-complete-submit-status');
-    if (btn) { btn.disabled = true; btn.textContent = 'SAVING MATCH...'; }
+
+    const matchId = getActiveMatchId();
+    const raw = originalGetItem('gdm-11e-tracker-state');
+    let st = {};
+    try { st = JSON.parse(raw) || {}; } catch(e) {}
+    const game = st.game || {};
+    const urlParams = new URLSearchParams(window.location.search);
+    let eventId = game.eventId || st.event_id || urlParams.get('event_id') || '';
+    if ((!eventId || eventId === 'Casual') && matchId) {
+      const bcpMatch = matchId.match(/(?:WH40K-)?(?:BCP-)?([a-zA-Z0-9_-]+)-R(\d+)-T(\d+)/i);
+      if (bcpMatch) eventId = bcpMatch[1];
+    }
+    const isBcpTournament = !!eventId && eventId !== 'Casual' && eventId !== 'casual';
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = (isBcpTournament && !skipBcp) ? 'SUBMITTING TO BCP & SAVING...' : 'SAVING MATCH...';
+    }
+
+    if (isBcpTournament && !skipBcp) {
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.color = '#38bdf8';
+        statusEl.textContent = 'Submitting score to Best Coast Pairings...';
+      }
+      try {
+        const bcpRes = await window.__submitMatchToBcp();
+        if (bcpRes && bcpRes.bcp_synced) {
+          if (statusEl) {
+            statusEl.style.color = '#10b981';
+            statusEl.textContent = '✅ Score synced to Best Coast Pairings! Finalizing battle record...';
+          }
+        }
+      } catch (err) {
+        console.warn('Notice submitting to BCP during conclusion:', err);
+      }
+    }
 
     clientState.isFinalizing = true;
     clearTimeout(clientState.debounceTimer);
@@ -470,10 +524,6 @@
       try { fsDocUnsub(); fsDocUnsub = null; } catch(e) {}
     }
 
-    const matchId = getActiveMatchId();
-    const raw = originalGetItem('gdm-11e-tracker-state');
-    let st = {};
-    try { st = JSON.parse(raw) || {}; } catch(e) {}
     st.is_finished = true;
     st.started = true;
     st.round = 5;
@@ -562,12 +612,28 @@
     const urlParams = new URLSearchParams(window.location.search);
     const p1Score = getVp(st.p1 || {});
     const p2Score = getVp(st.p2 || {});
-    const eventId = game.eventId || st.event_id || urlParams.get('event_id') || 'Casual';
-    const roundNum = game.roundNum || st.round_num || urlParams.get('round_num') || 1;
-    const tableNum = game.tableNum || st.table_num || urlParams.get('table_num') || 1;
-    const pairingId = game.pairingId || st.pairing_id || (st.game && st.game.pairingId) || urlParams.get('pairing_id') || null;
-    const bcpTok = (typeof window.getBcpToken === 'function' ? window.getBcpToken() : '') || localStorage.getItem('bcp_jwt') || localStorage.getItem('bcp_token') || null;
+    let eventId = game.eventId || st.event_id || urlParams.get('event_id') || 'Casual';
+    let roundNum = game.roundNum || st.round_num || urlParams.get('round_num') || 1;
+    let tableNum = game.tableNum || st.table_num || urlParams.get('table_num') || 1;
+    let pairingId = game.pairingId || st.pairing_id || (st.game && st.game.pairingId) || urlParams.get('pairing_id') || null;
 
+    if ((!eventId || eventId === 'Casual' || !roundNum || !tableNum) && matchId) {
+      const bcpMatch = matchId.match(/(?:WH40K-)?(?:BCP-)?([a-zA-Z0-9_-]+)-R(\d+)-T(\d+)/i);
+      if (bcpMatch) {
+        if (!eventId || eventId === 'Casual') eventId = bcpMatch[1];
+        if (!roundNum || roundNum === 1) roundNum = parseInt(bcpMatch[2], 10);
+        if (!tableNum || tableNum === 1) tableNum = parseInt(bcpMatch[3], 10);
+      }
+    }
+
+    const p1Id = game.p1Id || st.p1_id || game.p1_id || st.player1Id || null;
+    const p2Id = game.p2Id || st.p2_id || game.p2_id || st.player2Id || null;
+    const p1GameId = game.p1GameId || st.p1_game_id || game.p1_game_id || st.player1GameId || null;
+    const p2GameId = game.p2GameId || st.p2_game_id || game.p2_game_id || st.player2GameId || null;
+
+    const bcpTok = (typeof window.getBcpToken === 'function' ? window.getBcpToken() : '') || (window.api && typeof window.api.getBcpToken === 'function' ? window.api.getBcpToken() : '') || localStorage.getItem('bcp_jwt') || localStorage.getItem('bcp_token') || null;
+
+    let resData = {};
     try {
       const resp = await fetch('/api/eventstudio/submit_score', {
         method: 'POST',
@@ -583,8 +649,8 @@
           pairing_id: pairingId,
           p1_score: p1Score,
           p2_score: p2Score,
-          p1_id: game.p1Id || st.p1_id || null,
-          p2_id: game.p2Id || st.p2_id || null,
+          p1_id: p1Id,
+          p2_id: p2Id,
           p1_name: game.p1Name || st.p1_name || 'Player 1',
           p2_name: game.p2Name || st.p2_name || 'Player 2',
           source_app: 'GameTracker-OmniTactica',
@@ -592,17 +658,102 @@
           game_details: {
             match_id: matchId,
             first_turn: firstTurnVal,
-            p1_id: game.p1Id || st.p1_id || null,
-            p2_id: game.p2Id || st.p2_id || null,
+            p1_id: p1Id,
+            p2_id: p2Id,
+            p1_game_id: p1GameId,
+            p2_game_id: p2GameId,
+            player1GameId: p1GameId,
+            player2GameId: p2GameId,
             p1_faction: game.p1Faction || st.p1_faction,
             p2_faction: game.p2Faction || st.p2_faction
           }
         })
       });
 
-      const resData = await resp.json().catch(() => ({}));
+      resData = await resp.json().catch(() => ({}));
       if (!resp.ok || resData.success === false) {
         throw new Error(resData.error || resData.detail || 'Score submission failed');
+      }
+
+      // Direct client-side submission fallback if server was unable to sync with BCP but browser has token
+      const cleanTok = bcpTok ? bcpTok.replace(/^Bearer\s+/i, '').trim() : '';
+      const targetPid = (resData && resData.pairing_id) || pairingId;
+      if (!resData.bcp_synced && cleanTok && targetPid && !String(targetPid).startsWith('bcp-pairing-')) {
+        try {
+          const p1Res = p1Score > p2Score ? 2 : (p1Score === p2Score ? 1 : 0);
+          const p2Res = p2Score > p1Score ? 2 : (p1Score === p2Score ? 1 : 0);
+          const resolvedP1Gid = (resData && resData.p1_game_id) || p1GameId;
+          const resolvedP2Gid = (resData && resData.p2_game_id) || p2GameId;
+          const resolvedP1Id = (resData && resData.p1_id) || p1Id;
+          const resolvedP2Id = (resData && resData.p2_id) || p2Id;
+          const resolvedWinnerId = (p1Score > p2Score ? resolvedP1Id : (p2Score > p1Score ? resolvedP2Id : null)) || (resData && resData.winner_id) || null;
+          const cleanTargetPid = String(targetPid).trim();
+
+          const directPayload = {
+            pairingType: "Pairing",
+            isDone: true,
+            player1Score: p1Score,
+            player2Score: p2Score,
+            player1Points: p1Score,
+            player2Points: p2Score,
+            player1Result: p1Res,
+            player2Result: p2Res,
+            player1Game: {
+              points: p1Score,
+              result: p1Res,
+              ...(resolvedP1Gid ? { id: resolvedP1Gid } : {})
+            },
+            player2Game: {
+              points: p2Score,
+              result: p2Res,
+              ...(resolvedP2Gid ? { id: resolvedP2Gid } : {})
+            },
+            ...(resolvedP1Gid ? { player1GameId: resolvedP1Gid } : {}),
+            ...(resolvedP2Gid ? { player2GameId: resolvedP2Gid } : {}),
+            ...(resolvedP1Id ? { player1Id: resolvedP1Id } : {}),
+            ...(resolvedP2Id ? { player2Id: resolvedP2Id } : {}),
+            ...(resolvedWinnerId ? { winnerId: resolvedWinnerId } : {}),
+            metaData: {
+              "p1-gamePoints": String(p1Score),
+              "p2-gamePoints": String(p2Score),
+              "p1-gameResult": String(p1Res),
+              "p2-gameResult": String(p2Res),
+              "p1-marginOfVictory": p1Score - p2Score,
+              "p2-marginOfVictory": p2Score - p1Score
+            }
+          };
+
+          let directResp = await fetch(`https://newprod-api.bestcoastpairings.com/v1/pairings/${encodeURIComponent(cleanTargetPid)}/submitScores`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${cleanTok}`,
+              'client-id': 'web-app',
+              'env': 'bcp'
+            },
+            body: JSON.stringify(directPayload)
+          });
+
+          if (!directResp.ok) {
+            directResp = await fetch(`https://newprod-api.bestcoastpairings.com/v1/pairings/${encodeURIComponent(cleanTargetPid)}`, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${cleanTok}`,
+                'client-id': 'web-app',
+                'env': 'bcp'
+              },
+              body: JSON.stringify(directPayload)
+            });
+          }
+
+          if (directResp.ok) {
+            resData.bcp_synced = true;
+            resData.bcp_notice = null;
+          }
+        } catch (de) {
+          console.warn("Direct client BCP submit error:", de);
+        }
       }
 
       if (statusEl) {
@@ -634,6 +785,8 @@
       saveLocalState(st);
       notifyStateChanged();
 
+      return resData;
+
     } catch (err) {
       if (statusEl) {
         statusEl.style.display = 'block';
@@ -641,6 +794,7 @@
         statusEl.textContent = `Error submitting to Best Coast Pairings: ${err.message}`;
       }
       if (btn) { btn.disabled = false; btn.textContent = 'RETRY BCP SUBMIT'; }
+      return resData;
     }
   };
 

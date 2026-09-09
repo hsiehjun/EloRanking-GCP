@@ -853,6 +853,8 @@ class BcpAdapter:
 
         p1_gid = game_data.get("p1_game_id") or game_data.get("player1GameId") if isinstance(game_data, dict) else None
         p2_gid = game_data.get("p2_game_id") or game_data.get("player2GameId") if isinstance(game_data, dict) else None
+        p1_id = game_data.get("p1_id") or game_data.get("player1Id") if isinstance(game_data, dict) else None
+        p2_id = game_data.get("p2_id") or game_data.get("player2Id") if isinstance(game_data, dict) else None
 
         if p1_gid:
             payload["player1GameId"] = str(p1_gid)
@@ -863,18 +865,35 @@ class BcpAdapter:
             payload["player2Game"]["id"] = str(p2_gid)
             payload["gameData"]["player2Game"]["id"] = str(p2_gid)
 
+        if p1_id:
+            payload["player1Id"] = str(p1_id)
+            payload["gameData"]["player1Id"] = str(p1_id)
+        if p2_id:
+            payload["player2Id"] = str(p2_id)
+            payload["gameData"]["player2Id"] = str(p2_id)
+
         if resolved_winner:
             payload["winnerId"] = str(resolved_winner)
             payload["gameData"]["winnerId"] = str(resolved_winner)
 
         if game_data and isinstance(game_data, dict):
-            payload["gameData"].update(game_data)
+            for k, v in game_data.items():
+                if k not in payload["gameData"]:
+                    payload["gameData"][k] = v
 
         data, err = cls.execute_call(url, method="POST", json_data=payload, user_id=user_id, explicit_token=explicit_token)
         if data is not None or not err:
-            logger.info(f"✅ Successfully submitted scores to BCP for pairing {clean_pid}")
+            logger.info(f"✅ Successfully submitted scores to BCP for pairing {clean_pid} via submitScores")
             return True, None
-        return False, err
+
+        # Fallback to direct PUT /pairings/{clean_pid}
+        url_put = f"{BCP_API_BASE}/pairings/{clean_pid}"
+        data_put, err_put = cls.execute_call(url_put, method="PUT", json_data=payload, user_id=user_id, explicit_token=explicit_token)
+        if data_put is not None or not err_put:
+            logger.info(f"✅ Successfully submitted scores to BCP for pairing {clean_pid} via PUT fallback")
+            return True, None
+
+        return False, err or err_put
 
     @classmethod
     def swap_pairing_players(
