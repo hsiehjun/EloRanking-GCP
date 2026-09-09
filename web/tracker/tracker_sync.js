@@ -1514,7 +1514,7 @@
                       <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
                         ▶️ Resume Match
                       </a>
-                      ${isRegisteredPlayer ? `
+                      ${isRegisteredPlayer && !(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
                         <button onclick="window.__gdmHideTrackerGame('${escapeHtml(mid)}', this.closest('div[style*=\\'background\\']'))" style="background:var(--loss-bg, rgba(239,68,68,0.15)); color:var(--loss, #ef4444); border:1px solid rgba(239,68,68,0.3); border-radius:8px; padding:6px 10px; font-size:12px; cursor:pointer;" title="Discard / Abandon Session">
                           🗑️
                         </button>
@@ -1714,6 +1714,11 @@
   // Instant (0ms) Optimistic Discard & Deletion for Active/Unfinished Match Session
   window.__gdmHideTrackerGame = function(matchId, cardEl) {
     if (!matchId) return;
+    const cleanId = String(matchId).toUpperCase();
+    if (cleanId.startsWith('BCP-') || cleanId.startsWith('ES-') || cleanId.startsWith('WH40K-BCP-') || cleanId.startsWith('WH40K-ES-')) {
+      alert("Tournament match rooms are managed by the event organizer (TO) and cannot be deleted by competitors.");
+      return;
+    }
     if (!confirm(`Discard & delete match #${matchId.replace('WH40K-', '')}?\n\n(This will remove it from your active sessions with zero Elo penalty.)`)) {
       return;
     }

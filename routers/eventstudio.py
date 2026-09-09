@@ -1434,6 +1434,30 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
 
     db.delete_studio_event(event_id, organizer_id=user_id)
 
+    # 1. Cascade delete all corresponding table game rooms and tournament records in Firestore
+    fs_engine = get_firestore_engine()
+    cascaded = fs_engine.delete_tournament_and_rooms(event_id)
+
+    # 2. Clean up in-memory TRACKER_ROOMS
+    prefix1 = f"BCP-{event_id}-"
+    prefix2 = f"ES-{event_id}-"
+    prefix3 = f"WH40K-BCP-{event_id}-"
+    exact1 = f"BCP-{event_id}"
+    exact2 = f"ES-{event_id}"
+    for mid in list(TRACKER_ROOMS.keys()):
+        mid_u = str(mid).upper()
+        if (
+            mid_u.startswith(prefix1.upper()) or
+            mid_u.startswith(prefix2.upper()) or
+            mid_u.startswith(prefix3.upper()) or
+            mid_u == exact1.upper() or
+            mid_u == exact2.upper() or
+            TRACKER_ROOMS[mid].get("eventId") == event_id or
+            TRACKER_ROOMS[mid].get("event_id") == event_id or
+            TRACKER_ROOMS[mid].get("tournament_id") == event_id
+        ):
+            TRACKER_ROOMS.pop(mid, None)
+
     # Delete on BCP if authenticated
     bcp_deleted = False
     if user_id and not event_id.startswith("ES-"):
@@ -1448,8 +1472,9 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
     return {
         "success": True,
         "event_id": event_id,
+        "rooms_deleted": cascaded.get("rooms_deleted", 0),
         "bcp_deleted": bcp_deleted,
-        "message": "Tournament deleted successfully."
+        "message": "Tournament and corresponding table rooms deleted successfully."
     }
 
 @router.post("/api/eventstudio/event/{event_id}/start", summary="Start tournament on OmniTactica and BCP")
@@ -2830,28 +2855,56 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             "game_details": payload.game_details or {}
         }
     }
-    try:
-        if hasattr(db, "upsert_match"):
-            db.upsert_match(match_record)
-    except Exception as me:
-        logger.debug(f"Notice upserting match {match_id} into DB: {me}")
+    # 5. Strictly for native EventStudio tournaments (ES-*), persist local match record
+    if payload.event_id.startswith("ES-"):
+        try:
+            if hasattr(db, "upsert_match"):
+                db.upsert_match(match_record)
+        except Exception as me:
+            logger.debug(f"Notice upserting match {match_id} into DB: {me}")
+
+    # Tournament games submitted to BCP are NOT stored in tracker_games (data is ingested exclusively via scraper.py).
+    # Discard the table room from Firestore and in-memory cache upon score submission.
+    fs_engine = get_firestore_engine()
+    rooms_to_clear = {
+        match_id,
+        f"BCP-{payload.event_id}-R{payload.round_num}-T{table_val}",
+        f"ES-{payload.event_id}-R{payload.round_num}-T{table_val}",
+        f"WH40K-BCP-{payload.event_id}-R{payload.round_num}-T{table_val}"
+    }
+    if isinstance(payload.game_details, dict) and payload.game_details.get("match_id"):
+        rooms_to_clear.add(str(payload.game_details["match_id"]).strip().upper())
+
+    for mid_clean in rooms_to_clear:
+        if mid_clean:
+            norm_mid = normalize_tracker_match_id(mid_clean)
+            try:
+                fs_engine.discard_room(norm_mid)
+            except Exception as fe:
+                logger.debug(f"Notice discarding Firestore room {norm_mid}: {fe}")
+            if norm_mid in TRACKER_ROOMS:
+                try:
+                    del TRACKER_ROOMS[norm_mid]
+                except KeyError:
+                    pass
 
     try:
-        with db.get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE tracker_games
-                    SET p1_score = %s,
-                        p2_score = %s,
-                        is_finished = TRUE,
-                        bcp_submitted = TRUE,
-                        updated_at = NOW()
-                    WHERE (event_id = %s AND round_num = %s AND table_num = %s)
-                       OR match_id = %s;
-                """, (p1_score, p2_score, payload.event_id, payload.round_num, table_val, match_id))
-            conn.commit()
-    except Exception as tge:
-        logger.debug(f"Notice updating tracker_games for table {table_val}: {tge}")
+        from routers.tracker import TRACKER_LISTENERS
+        for mid_clean in rooms_to_clear:
+            norm_mid = normalize_tracker_match_id(mid_clean)
+            for q in list(TRACKER_LISTENERS.get(norm_mid, [])):
+                try:
+                    q.put_nowait({
+                        "type": "match_finalized",
+                        "match_id": norm_mid,
+                        "status": "completed",
+                        "is_finished": True,
+                        "bcp_submitted": True
+                    })
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     # 6. Strictly for native EventStudio tournaments (ES-*), update local draft
     if payload.event_id.startswith("ES-"):

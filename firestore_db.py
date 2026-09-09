@@ -600,6 +600,109 @@ class FirestoreRoomEngine:
         calls.sort(key=lambda c: c.get("createdAt") or 0, reverse=True)
         return calls
 
+    def delete_event_rooms(self, event_id: str) -> int:
+        """
+        Deletes all table game rooms in Firestore associated with an event.
+        Ensures tournament table rooms are managed strictly by the event.
+        """
+        if not event_id:
+            return 0
+        event_id = str(event_id).strip()
+        deleted_count = 0
+        seen_mids = set()
+
+        prefix1 = f"BCP-{event_id}-"
+        prefix2 = f"ES-{event_id}-"
+        prefix3 = f"WH40K-BCP-{event_id}-"
+        exact1 = f"BCP-{event_id}"
+        exact2 = f"ES-{event_id}"
+
+        if self._client:
+            try:
+                col = self._client.collection("rooms")
+                for field in ("eventId", "event_id", "tournament_id"):
+                    try:
+                        for doc in col.where(field, "==", event_id).stream():
+                            mid = doc.id
+                            if mid not in seen_mids:
+                                seen_mids.add(mid)
+                                doc.reference.delete()
+                                deleted_count += 1
+                    except Exception:
+                        pass
+
+                for doc in col.stream():
+                    mid = doc.id
+                    if mid in seen_mids:
+                        continue
+                    mid_upper = mid.upper()
+                    if (
+                        mid_upper.startswith(prefix1.upper()) or
+                        mid_upper.startswith(prefix2.upper()) or
+                        mid_upper.startswith(prefix3.upper()) or
+                        mid_upper == exact1.upper() or
+                        mid_upper == exact2.upper()
+                    ):
+                        seen_mids.add(mid)
+                        doc.reference.delete()
+                        deleted_count += 1
+            except Exception as e:
+                logger.warning(f"Notice deleting Firestore rooms for event {event_id}: {e}")
+
+        # Clean fallback in-memory rooms
+        fallback_to_delete = []
+        for mid, rdata in list(self._fallback_rooms.items()):
+            mid_upper = str(mid).upper()
+            if (
+                mid in seen_mids or
+                mid_upper.startswith(prefix1.upper()) or
+                mid_upper.startswith(prefix2.upper()) or
+                mid_upper.startswith(prefix3.upper()) or
+                mid_upper == exact1.upper() or
+                mid_upper == exact2.upper() or
+                rdata.get("eventId") == event_id or
+                rdata.get("event_id") == event_id or
+                rdata.get("tournament_id") == event_id or
+                (isinstance(rdata.get("state"), dict) and (
+                    rdata["state"].get("event_id") == event_id or
+                    rdata["state"].get("tournament_id") == event_id or
+                    (isinstance(rdata["state"].get("game"), dict) and rdata["state"]["game"].get("eventId") == event_id)
+                ))
+            ):
+                fallback_to_delete.append(mid)
+
+        for mid in fallback_to_delete:
+            self._fallback_rooms.pop(mid, None)
+            deleted_count += 1
+
+        return deleted_count
+
+    def delete_tournament_document(self, event_id: str) -> bool:
+        """Deletes tournaments/{event_id} and all its judge_calls from Firestore."""
+        if not event_id:
+            return False
+        event_id = str(event_id).strip()
+        if self._client:
+            try:
+                doc_ref = self.get_tournament_doc_ref(event_id)
+                if doc_ref:
+                    # Delete judge_calls subcollection
+                    for j_doc in doc_ref.collection("judge_calls").stream():
+                        j_doc.reference.delete()
+                    doc_ref.delete()
+            except Exception as e:
+                logger.warning(f"Notice deleting tournament doc {event_id} from Firestore: {e}")
+
+        self._fallback_tournaments.pop(event_id, None)
+        self._fallback_judge_calls.pop(event_id, None)
+        return True
+
+    def delete_tournament_and_rooms(self, event_id: str) -> Dict[str, Any]:
+        """Cascades tournament deletion to all its table game rooms in Firestore."""
+        rooms_deleted = self.delete_event_rooms(event_id)
+        self.delete_tournament_document(event_id)
+        return {"success": True, "event_id": event_id, "rooms_deleted": rooms_deleted}
+
     def cleanup_expired_documents(self) -> Dict[str, int]:
         """
         Cleans up expired documents across Firestore collections.

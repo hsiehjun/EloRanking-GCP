@@ -30,9 +30,6 @@ router = APIRouter(tags=["Game Tracker"])
 # MULTIPLAYER REALTIME GAME TRACKER ENGINE & SUPABASE SYNC
 # =========================================================================
 
-TRACKER_ROOMS: Dict[str, Dict[str, Any]] = {}
-TRACKER_LISTENERS: Dict[str, List[asyncio.Queue]] = {}
-
 def generate_unique_match_id(db) -> str:
     """Generates a cryptographically collision-free random match ID."""
     for _ in range(20):
@@ -1355,7 +1352,33 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
         pass
 
     fs_engine = get_firestore_engine()
-    room_doc = fs_engine.get_room(match_id) or TRACKER_ROOMS.get(match_id)
+    room_doc = fs_engine.get_room(match_id) or TRACKER_ROOMS.get(match_id) or {}
+
+    # Verify: If this room belongs to an event/tournament, players CANNOT delete it.
+    # Room creation and deletion must be managed strictly by the event (TO).
+    is_event_room = (
+        match_id.startswith("BCP-") or
+        match_id.startswith("ES-") or
+        match_id.startswith("WH40K-BCP-") or
+        match_id.startswith("WH40K-ES-") or
+        bool(room_doc.get("eventId")) or
+        bool(room_doc.get("event_id")) or
+        bool(room_doc.get("tournament_id")) or
+        bool(room_doc.get("state", {}).get("event_id")) or
+        bool(room_doc.get("state", {}).get("tournament_id")) or
+        bool(room_doc.get("state", {}).get("game", {}).get("eventId"))
+    )
+
+    if is_event_room:
+        is_to_or_admin = False
+        if user:
+            role = str(user.get("role") or "").lower()
+            is_to_or_admin = role in ("admin", "superuser", "to", "organizer", "referee") or bool(user.get("is_admin")) or bool(user.get("can_access_to"))
+        if not is_to_or_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="Tournament match rooms are managed by the event organizer (TO) and cannot be deleted by players."
+            )
     
     # Verify authorization: ONLY the 2 registered players (Player 1 or Player 2) or admin can delete
     if room_doc:
@@ -1424,8 +1447,17 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
+        match_id.startswith("WH40K-BCP-") or
+        match_id.startswith("WH40K-ES-") or
+        bool(room.get("eventId")) or
+        bool(room.get("event_id")) or
+        bool(room.get("tournament_id")) or
         bool(room.get("state", {}).get("event_id")) or
-        bool(room.get("state", {}).get("game", {}).get("eventId"))
+        bool(room.get("state", {}).get("tournament_id")) or
+        bool(room.get("state", {}).get("game", {}).get("eventId")) or
+        bool(state.get("event_id")) or
+        bool(state.get("tournament_id")) or
+        bool(state.get("game", {}).get("eventId"))
     )
 
     if is_tournament:
@@ -1444,11 +1476,14 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     p1_id = room.get("user_id_p1") or (user["id"] if user else None)
     p2_id = room.get("user_id_p2")
 
-    # 1. Update PostgreSQL permanently
-    try:
-        db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
-    except Exception as e:
-        logger.warning(f"Notice saving finalized game to DB: {e}")
+    # 1. Update PostgreSQL permanently ONLY if this is a casual / local match (not from events)
+    if not is_tournament:
+        try:
+            db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
+        except Exception as e:
+            logger.warning(f"Notice saving finalized casual game to DB: {e}")
+    else:
+        logger.info(f"Skipping tracker_games save for tournament match {match_id} (data managed via BCP/scraper).")
 
     # 2. Broadcast conclusion to connected SSE listeners (Player 2, Spectators)
     listeners = TRACKER_LISTENERS.get(match_id, [])

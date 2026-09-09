@@ -1063,9 +1063,11 @@ function renderMyHub(data) {
                         <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
                           ▶️ Resume Match
                         </a>
-                        <button onclick="discardTrackerSession('${escapeHtml(mid)}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Test Match">
-                          🗑️
-                        </button>
+                        ${!(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
+                          <button onclick="discardTrackerSession('${escapeHtml(mid)}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Casual Match">
+                            🗑️
+                          </button>
+                        ` : ''}
                       </div>
                     </div>
                   </div>
@@ -3163,6 +3165,11 @@ function launchTrackerWithList(listId) {
 
 function discardTrackerSession(matchId) {
   if (!matchId) return;
+  const cleanId = String(matchId).toUpperCase();
+  if (cleanId.startsWith('BCP-') || cleanId.startsWith('ES-') || cleanId.startsWith('WH40K-BCP-') || cleanId.startsWith('WH40K-ES-')) {
+    alert("Tournament match rooms are managed by the event organizer (TO) and cannot be deleted by players.");
+    return;
+  }
   if (!confirm('Are you sure you want to discard this unfinished session? (Will not count towards your Elo or battle record)')) return;
 
   // 1. Instant 0ms Optimistic UI removal from DOM
