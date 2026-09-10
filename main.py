@@ -131,8 +131,15 @@ def cmd_scrape(args):
         print(f"    {db.db_path}")
 
     # Optional auto-reconstruct
+    reconstruct_all = getattr(args, "reconstruct_all", False) or os.getenv("RECONSTRUCT_ALL", "").lower() in ("true", "1", "yes")
     reconstruct = getattr(args, "reconstruct", False) or os.getenv("RECONSTRUCT", "").lower() in ("true", "1", "yes")
-    if reconstruct:
+    if reconstruct_all:
+        target_recon = getattr(args, "game_system", "40k") or "40k"
+        print(f"\n[*] Automatically recomputing FULL Elo ratings for {target_recon.upper()} from scratch...")
+        engine = EloEngine(db=db)
+        res_recon = engine.reconstruct_all_rankings(game_system=target_recon)
+        print(f"[+] Full Elo Reconstruction Finished: {res_recon}")
+    elif reconstruct:
         target_recon = getattr(args, "game_system", "40k") or "40k"
         print(f"\n[*] Automatically recomputing Elo ratings for {target_recon.upper()} across historical matches...")
         engine = EloEngine(db=db)
@@ -344,6 +351,7 @@ def main():
     p_scrape.add_argument("--delay", type=float, default=0.4, help="Delay between API calls in seconds")
     p_scrape.add_argument("--db", help="PostgreSQL connection string (DSN)")
     p_scrape.add_argument("--reconstruct", action="store_true", default=False, help="Automatically recompute Elo ratings after scraping")
+    p_scrape.add_argument("--reconstruct-all", "--full-reconstruct", dest="reconstruct_all", action="store_true", default=False, help="Replay all historical matches chronologically from scratch")
 
     # Reconstruct command
     p_recon = subparsers.add_parser("reconstruct", help="Reconstruct Elo ratings from historical matches")
