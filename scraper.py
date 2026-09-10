@@ -900,3 +900,8 @@ class BestCoastPairingsScraper:
         logger.info(f"Successfully synced {total_synced} live upcoming events across next 3 months for gameSystemId={game_system_id} from BCP API.")
         return total_synced
 
+
+if __name__ == "__main__":
+    from scripts.historical_scrape import main as cli_main
+    cli_main()
+
