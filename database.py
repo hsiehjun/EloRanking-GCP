@@ -1862,10 +1862,10 @@ class PostgresDatabase:
         finally:
             PostgresDatabase._stats_refresh_lock.release()
 
-    def get_top_ranked_players(self, page=1, page_size=25, limit=None, min_matches=3, query=None, faction=None, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
-        return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order, game_system=game_system)
+    def get_top_ranked_players(self, page=1, page_size=25, limit=None, min_matches=3, query=None, faction=None, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k", active_only: bool = True) -> Dict[str, Any]:
+        return self.get_players_directory(page=page, page_size=page_size, limit=limit, query=query, faction=faction, min_matches=min_matches, sort_by=sort_by, order=order, game_system=game_system, active_only=active_only)
 
-    def get_players_directory(self, page=1, page_size=25, limit=None, query=None, faction=None, min_matches=0, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
+    def get_players_directory(self, page=1, page_size=25, limit=None, query=None, faction=None, min_matches=0, sort_by="current_elo", order="DESC", game_system: Optional[str] = "40k", active_only: bool = False) -> Dict[str, Any]:
         """Returns paginated directory of players with total count (instant cached)."""
         if limit is not None and limit > 0:
             page_size = limit
@@ -1873,7 +1873,7 @@ class PostgresDatabase:
         page_size = max(1, min(int(page_size or 25), 200))
         offset = (page - 1) * page_size
 
-        cache_key = (page, page_size, limit, query, faction, min_matches, sort_by, order, game_system)
+        cache_key = (page, page_size, limit, query, faction, min_matches, sort_by, order, game_system, active_only)
         cached = PostgresDatabase.get_cached(PostgresDatabase._players_cache_dict, cache_key, ttl=90)
         if cached:
             return cached
@@ -1898,12 +1898,12 @@ class PostgresDatabase:
                     # Faction isolated aggregation
                     count_sql = """
                     WITH faction_player_matches AS (
-                        SELECT player1_id as p_id
+                        SELECT player1_id as p_id, match_date as m_date
                         FROM matches
                         WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
                           AND player1_faction ILIKE %s
                         UNION ALL
-                        SELECT player2_id as p_id
+                        SELECT player2_id as p_id, match_date as m_date
                         FROM matches
                         WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
                           AND player2_faction ILIKE %s
@@ -1925,7 +1925,10 @@ class PostgresDatabase:
                         else:
                             count_sql += " AND (r.player_name ILIKE %s OR fpm.p_id = %s)"
                             count_params.extend([f"%{q_str}%", q_str])
-                    count_sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s ) SELECT COUNT(*) as total_count FROM qualifying_players;"
+                    count_sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s"
+                    if active_only:
+                        count_sql += " AND COALESCE(MAX(fpm.m_date), MAX(r.last_active_date), CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'"
+                    count_sql += " ) SELECT COUNT(*) as total_count FROM qualifying_players;"
                     count_params.append(min_matches)
 
                     cursor.execute(count_sql, count_params)
@@ -1991,6 +1994,8 @@ class PostgresDatabase:
                             sql += " AND (fpm.p_name ILIKE %s OR fpm.p_id = %s)"
                             params.extend([f"%{q_str}%", q_str])
                     sql += " GROUP BY fpm.p_id HAVING COUNT(*) >= %s"
+                    if active_only:
+                        sql += " AND COALESCE(MAX(fpm.m_date), MAX(r.last_active_date), CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'"
                     params.append(min_matches)
                     sql += f" ORDER BY {col} {dir_str} NULLS LAST LIMIT %s OFFSET %s;"
                     params.extend([page_size, offset])
@@ -2010,6 +2015,8 @@ class PostgresDatabase:
                 # Global player ratings directory
                 where_clauses = ["r.matches_played >= %s"]
                 params = [min_matches]
+                if active_only:
+                    where_clauses.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
                 if game_system and game_system != "all":
                     where_clauses.append("(r.game_system = %s OR r.game_system IS NULL)")
                     params.append(game_system)
@@ -2059,6 +2066,8 @@ class PostgresDatabase:
                         conn.rollback()
                     safe_where = ["r.matches_played >= %s"]
                     safe_params = [min_matches]
+                    if active_only:
+                        safe_where.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
                     if query:
                         q_str = str(query).strip()
                         safe_where.append("(r.player_name ILIKE %s OR r.player_id = %s)")

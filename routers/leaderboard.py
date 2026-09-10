@@ -53,7 +53,8 @@ async def api_leaderboard(
     faction: str = Query("All"),
     sort_by: str = Query("current_elo"),
     order: str = Query("DESC"),
-    game_system: Optional[str] = Query("40k")
+    game_system: Optional[str] = Query("40k"),
+    active_only: bool = Query(True)
 ):
     return get_database().get_top_ranked_players(
         page=page,
@@ -64,7 +65,8 @@ async def api_leaderboard(
         faction=faction.strip() if faction else "All",
         sort_by=sort_by,
         order=order,
-        game_system=game_system
+        game_system=game_system,
+        active_only=active_only
     )
 
 # API: Teams Power Rankings
@@ -109,7 +111,8 @@ async def api_players_directory(
     min_matches: int = Query(0, ge=0),
     sort_by: str = Query("current_elo"),
     order: str = Query("DESC"),
-    game_system: Optional[str] = Query("40k")
+    game_system: Optional[str] = Query("40k"),
+    active_only: bool = Query(False)
 ):
     return get_database().get_players_directory(
         page=page,
@@ -120,7 +123,8 @@ async def api_players_directory(
         min_matches=min_matches,
         sort_by=sort_by,
         order=order,
-        game_system=game_system
+        game_system=game_system,
+        active_only=active_only
     )
 
 # API: Autocomplete Search for Match Predictor

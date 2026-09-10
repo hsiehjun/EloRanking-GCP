@@ -437,8 +437,9 @@ window.api = {
   },
 
   // Leaderboard (Players)
-  async getLeaderboard(faction = 'All', page = 1, pageSize = 25, sortBy = 'current_elo', order = 'DESC', gameSystem = '') {
+  async getLeaderboard(faction = 'All', page = 1, pageSize = 25, sortBy = 'current_elo', order = 'DESC', gameSystem = '', activeOnly = true) {
     const params = new URLSearchParams({ faction, page, page_size: pageSize, sort_by: sortBy, order });
+    if (activeOnly !== undefined) params.set('active_only', activeOnly ? 'true' : 'false');
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     if (currentSys) params.set('game_system', currentSys);
     return this._fetchJson(`/api/leaderboard?${params}`);
