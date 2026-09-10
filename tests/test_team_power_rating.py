@@ -172,6 +172,15 @@ def test_get_team_roster_180_day_window():
         active_list = mock_cur.fetchall.return_value[:5]
         expected_power = compute_expected_power(active_list)
         assert stats["power_rating"] == expected_power, f"Expected {expected_power}, got {stats['power_rating']}"
+        expected_top5_avg = round(sum(p["current_elo"] for p in active_list) / 5, 1)
+        assert stats["top5_avg_elo"] == expected_top5_avg, f"Expected top5_avg_elo {expected_top5_avg}, got {stats['top5_avg_elo']}"
+
+        # Check player ace / core / active flags
+        roster = res["roster"]
+        assert roster[0]["is_ace"] is True and roster[0]["is_core"] is True and roster[0]["active_rank"] == 1
+        assert roster[1]["is_ace"] is False and roster[1]["is_core"] is True and roster[1]["active_rank"] == 2
+        assert roster[4]["is_core"] is True and roster[4]["active_rank"] == 5
+        assert roster[5]["is_active"] is False and roster[5]["is_core"] is False and roster[5]["is_ace"] is False
 
     print("✅ test_get_team_roster_180_day_window passed!")
 

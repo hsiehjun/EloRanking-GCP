@@ -614,6 +614,24 @@ async function openTeamModal(teamName) {
     const wrEl = document.getElementById('team-modal-winrate');
     if (wrEl) wrEl.innerText = `${stats.win_rate || 0}%`;
 
+    const top5El = document.getElementById('team-modal-top5-avg');
+    const top5Pill = document.getElementById('team-modal-top5-pill');
+    let top5Avg = stats.top5_avg_elo;
+    if ((top5Avg === undefined || top5Avg === null) && roster.length > 0) {
+      const activeCore = roster.filter(p => p.is_active !== false).slice(0, 5);
+      if (activeCore.length > 0) {
+        top5Avg = (activeCore.reduce((sum, p) => sum + Number(p.current_elo || 1500), 0) / activeCore.length).toFixed(1);
+      }
+    }
+    if (top5El) {
+      if (top5Avg && Number(top5Avg) > 0) {
+        top5El.innerText = Number(top5Avg).toFixed(1);
+        if (top5Pill) top5Pill.style.display = 'inline-flex';
+      } else {
+        if (top5Pill) top5Pill.style.display = 'none';
+      }
+    }
+
     renderTeamRosterRows(roster);
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading team: ${err.message}</td></tr>`;
@@ -630,6 +648,10 @@ function renderTeamRosterRows(roster) {
     return;
   }
 
+  // Determine if current sort is default (current_elo descending)
+  const isDefaultSort = !window.currentSort || !window.currentSort['team-roster'] || 
+    (window.currentSort['team-roster'].field === 'current_elo' && !window.currentSort['team-roster'].asc);
+
   roster.forEach((p, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
@@ -638,11 +660,36 @@ function renderTeamRosterRows(roster) {
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const winRate = p.win_rate !== undefined ? p.win_rate : (p.matches_played > 0 ? ((p.wins / p.matches_played) * 100).toFixed(1) : 0);
 
+    const isAce = p.is_ace === true || (isDefaultSort && idx === 0 && p.is_active !== false);
+    const isCore = p.is_core === true || (isDefaultSort && idx < 5 && p.is_active !== false);
+    const isInactive = p.is_active === false;
+
+    let rowClass = 'roster-row-standard';
+    let rankCellClass = 'rank-cell';
+    let rankContent = `#${rank}`;
+    let badgeHtml = '';
+
+    if (isAce) {
+      rowClass = 'roster-row-ace';
+      rankCellClass = 'rank-cell rank-top-1';
+      rankContent = `#${rank} <span class="rank-crown" title="Top Ace">👑</span>`;
+      badgeHtml = `<span class="roster-core-badge badge-ace" title="Top Ace — Anchors 20% Ace + 40% Core Avg in Team Power Rating">👑 TOP ACE</span>`;
+    } else if (isCore) {
+      rowClass = 'roster-row-core';
+      rankCellClass = 'rank-cell rank-core';
+      badgeHtml = `<span class="roster-core-badge badge-core" title="Core 5 — Primary 5-player squad anchoring 40% of Team Power Rating">🛡️ CORE 5</span>`;
+    } else if (isInactive) {
+      badgeHtml = `<span class="roster-inactive-badge" title="Inactive (>180 days without match play) • Excluded from active Core 5 and Power Rating">Inactive</span>`;
+    }
+
+    tr.className = rowClass;
+
     tr.innerHTML = `
-      <td class="rank-cell">#${rank}</td>
+      <td class="${rankCellClass}">${rankContent}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.player_name || p.full_name || 'Player')}</span>
+          ${badgeHtml}
         </div>
       </td>
       <td class="elo-badge ${eloBadgeClass}">
@@ -666,6 +713,28 @@ function renderTeamRosterRows(roster) {
       </td>
     `;
     tbody.appendChild(tr);
+
+    // Insert Roster Depth Divider row after the 5th player when in default Elo descending sort
+    if (isDefaultSort && idx === 4 && roster.length > 5) {
+      const remainingCount = roster.length - 5;
+      const dividerTr = document.createElement('tr');
+      dividerTr.className = 'roster-divider-row';
+      dividerTr.innerHTML = `
+        <td colspan="7">
+          <div class="roster-divider-content">
+            <div class="roster-divider-left">
+              <span class="roster-divider-icon">👥</span>
+              <span class="roster-divider-title">Club Roster Depth</span>
+              <span class="roster-divider-count">(${remainingCount} additional ${remainingCount === 1 ? 'competitor' : 'competitors'})</span>
+            </div>
+            <div class="roster-divider-right">
+              <span>Contributes to 40% Entire Club Avg</span>
+            </div>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(dividerTr);
+    }
   });
 }
 

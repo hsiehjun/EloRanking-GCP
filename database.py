@@ -3231,9 +3231,32 @@ class PostgresDatabase:
                 active_count = len(active_roster)
                 roster_count = len(roster)
 
+                # Flag active status and core/ace designations on player records
+                active_idx = 0
+                for p in roster:
+                    act = _is_active(p)
+                    p["is_active"] = act
+                    if act:
+                        active_idx += 1
+                        p["active_rank"] = active_idx
+                        if active_idx == 1:
+                            p["is_ace"] = True
+                            p["is_core"] = True
+                        elif active_idx <= 5:
+                            p["is_ace"] = False
+                            p["is_core"] = True
+                        else:
+                            p["is_ace"] = False
+                            p["is_core"] = False
+                    else:
+                        p["active_rank"] = None
+                        p["is_ace"] = False
+                        p["is_core"] = False
+
                 if active_count <= 0:
                     power_rating = 0.0
                     active_avg_elo = 0.0
+                    top5_active_avg = 0.0
                 else:
                     active_top_ace = active_roster[0]["current_elo"] if active_roster else top_elo
                     top5_active = active_roster[:5]
@@ -3259,6 +3282,7 @@ class PostgresDatabase:
                         "power_rating": power_rating,
                         "avg_elo": avg_elo,
                         "active_avg_elo": round(active_avg_elo, 1) if active_count > 0 else 0.0,
+                        "top5_avg_elo": round(top5_active_avg, 1) if active_count > 0 else 0.0,
                         "top_player_elo": round(top_elo, 1),
                         "total_matches": total_matches,
                         "total_wins": total_wins,
