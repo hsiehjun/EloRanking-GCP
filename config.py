@@ -46,13 +46,14 @@ DEFAULT_HEADERS = {
 # Game System IDs on BCP
 GAME_SYSTEMS = {
     "warhammer_40k": "WGMSzfKFYA",  # Warhammer 40,000
-    "warhammer_aos": "23qDprPABN",  # Warhammer Age of Sigmar (4th Edition)
+    "warhammer_aos": "OY8FCPBf6O",  # Warhammer Age of Sigmar (BCP canonical ID)
     "warhammer_tow": "pd0PejEmWE",  # Warhammer The Old World
     "warhammer_underworlds": "Z8rcM0GCLw",
 }
 
 DEFAULT_GAME_SYSTEM_ID = GAME_SYSTEMS["warhammer_40k"]
 AOS_GAME_SYSTEM_ID = GAME_SYSTEMS["warhammer_aos"]
+AOS_LEGACY_GAME_SYSTEM_IDS = ["23qDprPABN", "OY8FCPBf6O"]
 DEFAULT_GAME_SYSTEM = "40k"
 SUPPORTED_GAME_SYSTEMS = ["40k", "aos"]
 ENABLE_AOS = True

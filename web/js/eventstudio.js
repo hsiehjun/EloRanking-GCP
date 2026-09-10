@@ -3570,7 +3570,7 @@ function onGameSystemChange() {
   const nameInput = document.getElementById("create-event-name");
   const roundLen = document.getElementById("create-event-round-length");
   if (!gs) return;
-  if (gs.value === "23qDprPABN") {
+  if (gs.value === "OY8FCPBf6O" || gs.value === "23qDprPABN") {
     if (nameInput && (!nameInput.value || nameInput.placeholder.includes("40k") || nameInput.placeholder.includes("40K"))) {
       nameInput.placeholder = "e.g. Adepticon Age of Sigmar Grand Tournament 2026";
     }

@@ -287,7 +287,7 @@ class PostgresDatabase:
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v16_multigame_isolation':
+                        if setting and setting[0] == 'v17_multigame_constraint_fix':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -480,9 +480,11 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_system ON tracker_games(game_system);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_done_sys ON matches(game_system) WHERE is_done = TRUE;
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_done_sys ON player_ratings(game_system) WHERE matches_played > 0;
+                UPDATE player_ratings SET game_system = '40k' WHERE game_system IS NULL;
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_player_ratings_player_system ON player_ratings (player_id, game_system);
 
                 -- Auto-tag AoS events if they were created with AoS BCP Game System ID
-                UPDATE events SET game_system = 'aos' WHERE game_system_id = '23qDprPABN' AND game_system != 'aos';
+                UPDATE events SET game_system = 'aos' WHERE (game_system_id = 'OY8FCPBf6O' OR game_system_id = '23qDprPABN') AND game_system != 'aos';
 
                 CREATE TABLE IF NOT EXISTS tracker_games (
                     match_id VARCHAR(64) PRIMARY KEY,
@@ -1017,7 +1019,7 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v16_multigame_isolation')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v17_multigame_constraint_fix')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     """)
                 conn.commit()
@@ -1260,7 +1262,7 @@ class PostgresDatabase:
             raw_gs = (event_data.get("game_system") or "").strip().lower()
             if raw_gs:
                 game_sys = raw_gs
-            elif str(game_sys_id) == str(AOS_GAME_SYSTEM_ID):
+            elif str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
                 game_sys = "aos"
             else:
                 game_sys = "40k"
@@ -4416,7 +4418,7 @@ class PostgresDatabase:
         raw_gs = (event_data.get("game_system") or "").strip().lower()
         if raw_gs:
             game_system = raw_gs
-        elif game_system_id == AOS_GAME_SYSTEM_ID:
+        elif str(game_system_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
             game_system = "aos"
         else:
             game_system = "40k"

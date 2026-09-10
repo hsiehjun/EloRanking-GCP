@@ -565,7 +565,7 @@ class BestCoastPairingsScraper:
         raw_gs = (event_data.get("game_system") or pairing.get("game_system") or "").strip().lower()
         if raw_gs:
             game_system = raw_gs
-        elif str(game_sys_id) == str(AOS_GAME_SYSTEM_ID):
+        elif str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O"):
             game_system = "aos"
         else:
             game_system = "40k"
@@ -718,7 +718,7 @@ class BestCoastPairingsScraper:
         event_data["id"] = event_data.get("id") or event_data.get("objectId") or event_id
         game_sys_id = event_data.get("gameSystemId") or event_data.get("game_system_id")
         if "game_system" not in event_data:
-            event_data["game_system"] = "aos" if str(game_sys_id) == str(AOS_GAME_SYSTEM_ID) else "40k"
+            event_data["game_system"] = "aos" if str(game_sys_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") else "40k"
         self.db.upsert_event(event_data)
 
         # Check team event and fetch team standings
@@ -889,7 +889,7 @@ class BestCoastPairingsScraper:
 
                 for ev in events:
                     if "game_system" not in ev:
-                        ev["game_system"] = "aos" if str(game_system_id) == str(AOS_GAME_SYSTEM_ID) else "40k"
+                        ev["game_system"] = "aos" if str(game_system_id) in (str(AOS_GAME_SYSTEM_ID), "23qDprPABN", "OY8FCPBf6O") else "40k"
                     self.db.upsert_event(ev)
                     total_synced += 1
 

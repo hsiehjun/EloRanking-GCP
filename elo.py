@@ -374,8 +374,6 @@ class EloEngine:
 
                 if history_batch:
                     extras.execute_values(cursor, insert_history_pg, history_batch, page_size=2500)
-                    conn.commit()
-                    cursor.execute("SET LOCAL synchronous_commit = OFF;")
 
                 # Upsert updated player ratings for touched players only into composite PK (player_id, game_system)
                 now_iso = datetime.now(timezone.utc)
@@ -416,8 +414,18 @@ class EloEngine:
                     ))
 
                 if ratings_data:
-                    extras.execute_values(cursor, upsert_ratings_pg, ratings_data, page_size=2000)
-                    conn.commit()
+                    try:
+                        extras.execute_values(cursor, upsert_ratings_pg, ratings_data, page_size=2000)
+                    except Exception as up_err:
+                        err_str = str(up_err).lower()
+                        if "on conflict" in err_str or "constraint" in err_str or "unique" in err_str:
+                            logger.warning(f"Notice: composite constraint missing; falling back to ON CONFLICT (player_id): {up_err}")
+                            upsert_fallback = upsert_ratings_pg.replace("ON CONFLICT (player_id, game_system)", "ON CONFLICT (player_id)")
+                            extras.execute_values(cursor, upsert_fallback, ratings_data, page_size=2000)
+                        else:
+                            raise
+
+                conn.commit()
 
                 # Invalidate caches
                 if hasattr(self.db, "invalidate_all_caches"):

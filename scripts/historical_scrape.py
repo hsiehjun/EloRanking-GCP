@@ -46,6 +46,7 @@ def run_historical_scrape(
     max_events: Optional[int] = None,
     delay: float = 0.4,
     reconstruct: bool = False,
+    reconstruct_all: bool = False,
     days: int = 30
 ):
     logger.info("🚀 Starting Cloud Run Job: BCP Historical Tournament Scrape")
@@ -93,7 +94,12 @@ def run_historical_scrape(
 
     logger.info(f"🎉 Historical Scrape Finished: {total_events} events, {total_matches} matches stored.")
 
-    if reconstruct:
+    if reconstruct_all:
+        logger.info(f"🏆 Performing FULL Elo reconstruction from scratch for game system(s): {sys_target}...")
+        engine = get_elo_engine()
+        recon_res = engine.reconstruct_all_rankings(game_system=sys_target)
+        logger.info(f"🏆 Full Elo Reconstruction complete: {recon_res}")
+    elif reconstruct:
         logger.info(f"📈 Automatically recomputing incremental Elo ratings for game system(s): {sys_target}...")
         engine = get_elo_engine()
         recon_res = engine.reconstruct_incremental(game_system=sys_target)
@@ -118,6 +124,7 @@ def main():
     parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max events to scrape")
     parser.add_argument("--delay", type=float, default=float(os.getenv("DELAY", "0.4")), help="API request delay in seconds")
     parser.add_argument("--reconstruct", action="store_true", default=os.getenv("RECONSTRUCT", "").lower() in ("true", "1", "yes"), help="Recompute incremental Elo after scraping")
+    parser.add_argument("--reconstruct-all", "--full-reconstruct", action="store_true", default=os.getenv("RECONSTRUCT_ALL", "").lower() in ("true", "1", "yes"), help="Replay all historical matches chronologically from scratch")
     args = parser.parse_args()
 
     try:
@@ -129,6 +136,7 @@ def main():
             max_events=args.max_events,
             delay=args.delay,
             reconstruct=args.reconstruct,
+            reconstruct_all=args.reconstruct_all,
             days=args.days
         )
     except Exception as e:
