@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import argparse
 import logging
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 from config import DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
@@ -18,7 +19,7 @@ from elo import get_elo_engine
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("elo.job.tournament_sync")
 
-def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: int = 50):
+def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Optional[int] = None):
     logger.info("🚀 Starting Cloud Run Job: BCP Tournament Scraper & Elo Recalculation")
     db = get_database()
     logger.info(f"💾 Database target: {db.db_path}")
@@ -87,7 +88,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Cloud Run Job: Tournament scraping & Elo recalculation")
     parser.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
-    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS", "50")), help="Max tournaments to scrape per game system (default: 50)")
+    parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
     args = parser.parse_args()
 
     try:
