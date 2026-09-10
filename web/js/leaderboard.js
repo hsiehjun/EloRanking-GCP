@@ -270,7 +270,7 @@ function renderLeaderboardRows() {
 }
 
 async function loadLeaderboardTeams(isPrefetch = false) {
-  const minRoster = 1;
+  const minRoster = 5;
   const tbody = document.getElementById('lead-teams-body');
   const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   const cacheKey = `lb_teams_${gs}_${minRoster}_${leaderboardTeamsPagination.page}_${leaderboardTeamsPagination.pageSize}_${leaderboardTeamsSortState.field}_${leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'}`;
@@ -404,7 +404,7 @@ function renderLeaderboardTeamsRows() {
         <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${topElo})</span>
       </td>
       <td style="font-family:var(--font-mono); font-weight:600;">
-        <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border);">${t.roster_count || 1} Players</span>
+        <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border);" title="${t.roster_count || 1} Total Registered Competitors">${t.active_roster_count !== undefined && t.active_roster_count !== null ? `${t.active_roster_count} Active` : `${t.roster_count || 1} Players`}</span>
       </td>
       <td style="font-family:var(--font-mono); font-size:0.85rem;">
         <span style="color:var(--win); font-weight:600;">${t.total_wins || 0}W</span> - 

@@ -2948,7 +2948,7 @@ class PostgresDatabase:
                     sys_params = [game_system]
 
                 sql = f"""
-                WITH team_members AS (
+                WITH team_players AS (
                     SELECT 
                         TRIM(team) as team_name,
                         player_id,
@@ -2957,16 +2957,29 @@ class PostgresDatabase:
                         COALESCE(wins, 0) as wins,
                         COALESCE(losses, 0) as losses,
                         COALESCE(draws, 0) as draws,
-                        COALESCE(matches_played, 0) as matches_played
+                        COALESCE(matches_played, 0) as matches_played,
+                        COALESCE(last_active_date, CURRENT_DATE) as last_active_date,
+                        CASE 
+                            WHEN COALESCE(last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
+                            ELSE 0 
+                        END as is_active
                     FROM player_ratings
                     WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
                     {sys_clause}
+                ),
+                ranked_active AS (
+                    SELECT 
+                        tp.*,
+                        ROW_NUMBER() OVER (PARTITION BY tp.team_name, tp.is_active ORDER BY tp.current_elo DESC) as active_rn
+                    FROM team_players tp
                 )
                 SELECT 
                     tm.team_name as team,
                     COUNT(DISTINCT tm.player_id) as roster_count,
+                    SUM(tm.is_active) as active_roster_count,
                     ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
                     ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
+                    ROUND(COALESCE(AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END), AVG(tm.current_elo))::numeric, 1) as active_avg_elo,
                     (ARRAY_AGG(tm.player_name ORDER BY tm.current_elo DESC))[1] as top_player_name,
                     (ARRAY_AGG(tm.player_id ORDER BY tm.current_elo DESC))[1] as top_player_id,
                     SUM(tm.wins) as total_wins,
@@ -2975,23 +2988,27 @@ class PostgresDatabase:
                     SUM(tm.matches_played) as total_matches,
                     ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
                     ROUND((
-                        -- 1. Skill Baseline: 65% Roster Mean + 35% Top Ace
-                        (0.65 * AVG(tm.current_elo) + 0.35 * MAX(tm.current_elo))
-                        *
-                        -- 2. Bayesian Win Dominance Performance Multiplier (0.65 + 0.70 * P_adj)
-                        (
-                            0.65 + 0.70 * (
-                                (SUM(tm.wins)::numeric + (0.5 * SUM(tm.draws)::numeric) + 15.0)
-                                /
-                                (GREATEST(1.0, SUM(tm.matches_played)::numeric) + 30.0)
+                        CASE 
+                            WHEN SUM(tm.is_active) <= 0 THEN 0.0
+                            ELSE (
+                                -- 1. Tri-Anchor Skill Baseline: 40% Top 5 Active + 40% Entire Active Avg + 20% Top Ace
+                                (
+                                    0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
+                                    + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
+                                    + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
+                                )
+                                *
+                                -- 2. Active Roster Maturity Curve (10% to 100% at 30 active members)
+                                CASE 
+                                    WHEN SUM(tm.is_active) <= 1 THEN 0.10
+                                    WHEN SUM(tm.is_active) >= 30 THEN 1.00
+                                    ELSE (0.10 + 0.90 * POWER(LOG(SUM(tm.is_active)::numeric) / LOG(30.0), 0.65))
+                                END
                             )
-                        )
-                        +
-                        -- 3. Match Volume Consistency Bonus (40 * log10(N/25 + 1))
-                        (40.0 * LOG( (GREATEST(0.0, SUM(tm.matches_played)::numeric) / 25.0) + 1.0 ))
+                        END
                     )::numeric, 1) as power_rating,
-                    CASE WHEN COUNT(DISTINCT tm.player_id) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
-                FROM team_members tm
+                    CASE WHEN SUM(tm.is_active) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
+                FROM ranked_active tm
                 GROUP BY tm.team_name
                 HAVING COUNT(DISTINCT tm.player_id) >= 1
                 ORDER BY power_rating DESC;
@@ -3003,7 +3020,7 @@ class PostgresDatabase:
                     conn.rollback()
                     logger.warning(f"Fallback _get_all_teams_list notice: {e}")
                     safe_sql = """
-                    WITH team_members AS (
+                    WITH team_players AS (
                         SELECT 
                             TRIM(team) as team_name,
                             player_id,
@@ -3012,15 +3029,28 @@ class PostgresDatabase:
                             COALESCE(wins, 0) as wins,
                             COALESCE(losses, 0) as losses,
                             COALESCE(draws, 0) as draws,
-                            COALESCE(matches_played, 0) as matches_played
+                            COALESCE(matches_played, 0) as matches_played,
+                            COALESCE(last_active_date, CURRENT_DATE) as last_active_date,
+                            CASE 
+                                WHEN COALESCE(last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
+                                ELSE 0 
+                            END as is_active
                         FROM player_ratings
                         WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                    ),
+                    ranked_active AS (
+                        SELECT 
+                            tp.*,
+                            ROW_NUMBER() OVER (PARTITION BY tp.team_name, tp.is_active ORDER BY tp.current_elo DESC) as active_rn
+                        FROM team_players tp
                     )
                     SELECT 
                         tm.team_name as team,
                         COUNT(DISTINCT tm.player_id) as roster_count,
+                        SUM(tm.is_active) as active_roster_count,
                         ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
                         ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
+                        ROUND(COALESCE(AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END), AVG(tm.current_elo))::numeric, 1) as active_avg_elo,
                         (ARRAY_AGG(tm.player_name ORDER BY tm.current_elo DESC))[1] as top_player_name,
                         (ARRAY_AGG(tm.player_id ORDER BY tm.current_elo DESC))[1] as top_player_id,
                         SUM(tm.wins) as total_wins,
@@ -3029,20 +3059,27 @@ class PostgresDatabase:
                         SUM(tm.matches_played) as total_matches,
                         ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
                         ROUND((
-                            (0.65 * AVG(tm.current_elo) + 0.35 * MAX(tm.current_elo))
-                            *
-                            (
-                                0.65 + 0.70 * (
-                                    (SUM(tm.wins)::numeric + (0.5 * SUM(tm.draws)::numeric) + 15.0)
-                                    /
-                                    (GREATEST(1.0, SUM(tm.matches_played)::numeric) + 30.0)
+                            CASE 
+                                WHEN SUM(tm.is_active) <= 0 THEN 0.0
+                                ELSE (
+                                    -- 1. Tri-Anchor Skill Baseline: 40% Top 5 Active + 40% Entire Active Avg + 20% Top Ace
+                                    (
+                                        0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
+                                        + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
+                                        + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
+                                    )
+                                    *
+                                    -- 2. Active Roster Maturity Curve (10% to 100% at 30 active members)
+                                    CASE 
+                                        WHEN SUM(tm.is_active) <= 1 THEN 0.10
+                                        WHEN SUM(tm.is_active) >= 30 THEN 1.00
+                                        ELSE (0.10 + 0.90 * POWER(LOG(SUM(tm.is_active)::numeric) / LOG(30.0), 0.65))
+                                    END
                                 )
-                            )
-                            +
-                            (40.0 * LOG( (GREATEST(0.0, SUM(tm.matches_played)::numeric) / 25.0) + 1.0 ))
+                            END
                         )::numeric, 1) as power_rating,
-                        CASE WHEN COUNT(DISTINCT tm.player_id) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
-                    FROM team_members tm
+                        CASE WHEN SUM(tm.is_active) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
+                    FROM ranked_active tm
                     GROUP BY tm.team_name
                     HAVING COUNT(DISTINCT tm.player_id) >= 1
                     ORDER BY power_rating DESC;
@@ -3070,7 +3107,10 @@ class PostgresDatabase:
         filtered = list(all_teams)
         min_roster = int(min_members or 1)
         if min_roster > 1:
-            filtered = [t for t in filtered if int(t.get("roster_count") or 0) >= min_roster]
+            filtered = [
+                t for t in filtered 
+                if int(t.get("active_roster_count") if t.get("active_roster_count") is not None else t.get("roster_count") or 0) >= min_roster
+            ]
 
         if query:
             q = query.strip().lower()
@@ -3082,7 +3122,7 @@ class PostgresDatabase:
         
         if sort_by_col == "team":
             filtered = sorted(filtered, key=lambda x: str(x.get("team") or "").lower(), reverse=not reverse)
-        elif sort_by_col in ("roster_count", "total_matches", "total_wins", "total_losses", "total_draws"):
+        elif sort_by_col in ("roster_count", "active_roster_count", "total_matches", "total_wins", "total_losses", "total_draws"):
             filtered = sorted(filtered, key=lambda x: (int(x.get(sort_by_col) or 0), float(x.get("power_rating") or 0)), reverse=reverse)
         else:
             filtered = sorted(filtered, key=lambda x: (float(x.get(sort_by_col) or 0), int(x.get("roster_count") or 0)), reverse=reverse)
@@ -3163,28 +3203,69 @@ class PostgresDatabase:
                 top_elo = roster[0]["current_elo"] if roster else 1500.0
                 win_rate = round((total_wins / total_matches) * 100.0, 1) if total_matches > 0 else 0.0
                 
-                # Power Rating Algorithm (Option 1)
-                skill_baseline = (0.65 * avg_elo) + (0.35 * top_elo)
-                p_adj = (total_wins + 0.5 * total_draws + 15.0) / (max(1, total_matches) + 30.0)
-                perf_multiplier = 0.65 + (0.70 * p_adj)
-                volume_bonus = 40.0 * math.log10((total_matches / 25.0) + 1.0)
-                
-                power_rating = round((skill_baseline * perf_multiplier) + volume_bonus, 1)
+                # 6-Month Rolling Window (180 days) Active Filter & Tri-Anchor Streamlined Power Rating
+                from datetime import datetime, date, timezone, timedelta
+                now_dt = datetime.now(timezone.utc)
+                cutoff_180d = now_dt - timedelta(days=180)
+                cutoff_date = cutoff_180d.date()
+
+                def _is_active(p):
+                    val = p.get("last_active_date")
+                    if val is None:
+                        return True
+                    if isinstance(val, datetime):
+                        if val.tzinfo is not None:
+                            return val >= cutoff_180d
+                        return val >= cutoff_180d.replace(tzinfo=None)
+                    elif isinstance(val, date):
+                        return val >= cutoff_date
+                    elif isinstance(val, str):
+                        try:
+                            d = datetime.fromisoformat(val[:10]).date()
+                            return d >= cutoff_date
+                        except Exception:
+                            return True
+                    return True
+
+                active_roster = [p for p in roster if _is_active(p)]
+                active_count = len(active_roster)
+                roster_count = len(roster)
+
+                if active_count <= 0:
+                    power_rating = 0.0
+                    active_avg_elo = 0.0
+                else:
+                    active_top_ace = active_roster[0]["current_elo"] if active_roster else top_elo
+                    top5_active = active_roster[:5]
+                    top5_active_avg = sum(p["current_elo"] for p in top5_active) / len(top5_active)
+                    active_avg_elo = sum(p["current_elo"] for p in active_roster) / active_count
+                    skill_baseline = (0.40 * top5_active_avg) + (0.40 * active_avg_elo) + (0.20 * active_top_ace)
+
+                    if active_count <= 1:
+                        f_roster = 0.10
+                    elif active_count >= 30:
+                        f_roster = 1.00
+                    else:
+                        f_roster = 0.10 + 0.90 * ((math.log10(active_count) / math.log10(30)) ** 0.65)
+
+                    power_rating = round(skill_baseline * f_roster, 1)
 
                 res = {
                     "team": team_name,
                     "roster": roster,
                     "stats": {
-                        "roster_count": len(roster),
+                        "roster_count": roster_count,
+                        "active_roster_count": active_count,
                         "power_rating": power_rating,
                         "avg_elo": avg_elo,
+                        "active_avg_elo": round(active_avg_elo, 1) if active_count > 0 else 0.0,
                         "top_player_elo": round(top_elo, 1),
                         "total_matches": total_matches,
                         "total_wins": total_wins,
                         "total_losses": total_losses,
                         "total_draws": total_draws,
                         "win_rate": win_rate,
-                        "is_qualified": (len(roster) >= 5 and total_matches >= 25)
+                        "is_qualified": (active_count >= 5 and total_matches >= 25)
                     }
                 }
                 PostgresDatabase.set_cached(PostgresDatabase._team_roster_cache_dict, cache_key, res)

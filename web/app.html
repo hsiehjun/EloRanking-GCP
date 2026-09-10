@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=f65cd4ae3b">
-  <link rel="stylesheet" href="/css/styles.css?v=f65cd4ae3b">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=f65cd4ae3b">
+  <link rel="stylesheet" href="/css/theme.css?v=748df50c69">
+  <link rel="stylesheet" href="/css/styles.css?v=748df50c69">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=748df50c69">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -499,9 +499,12 @@
       <!-- View 2: Teams Leaderboard -->
       <div id="lead-view-teams" style="display: none;">
         <div class="controls-bar mobile-hidden">
-          <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem;">
+          <div style="font-weight: 700; font-size: 0.95rem; color: #fff; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
             <span>🛡️ Global Team Power Standings</span>
-            <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">(Search gaming clubs in 🔍 Search)</span>
+            <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">(Min. 5 Active Players • 180-Day Rolling Window)</span>
+            <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.55rem; border-radius: 20px; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="openPowerRatingInfoModal(event)" title="Click to see how Team Power Rating is computed">
+              <span style="color: var(--accent); font-weight: 700;">ⓘ</span> How Power Rating Works
+            </button>
           </div>
         </div>
 
@@ -511,7 +514,10 @@
               <tr>
                 <th>Rank</th>
                 <th>Team / Gaming Club</th>
-                <th>Team Power Rating</th>
+                <th>
+                  Team Power Rating
+                  <button class="info-circle-btn" onclick="openPowerRatingInfoModal(event)" title="How Team Power Rating is computed" aria-label="Team Power Rating explanation">ⓘ</button>
+                </th>
                 <th>Avg Elo</th>
                 <th>Top Rated Player</th>
                 <th>Roster</th>
@@ -833,7 +839,10 @@
             <thead>
               <tr>
                 <th class="sortable" onclick="sortTable('teams', 'team')">Team / Gaming Club</th>
-                <th class="sortable sorted-desc" onclick="sortTable('teams', 'power_rating')">Team Power Rating</th>
+                <th class="sortable sorted-desc" onclick="sortTable('teams', 'power_rating')">
+                  Team Power Rating
+                  <button class="info-circle-btn" onclick="openPowerRatingInfoModal(event)" title="How Team Power Rating is computed" aria-label="Team Power Rating explanation">ⓘ</button>
+                </th>
                 <th class="sortable" onclick="sortTable('teams', 'avg_elo')">Avg Elo</th>
                 <th class="sortable" onclick="sortTable('teams', 'top_player_elo')">Top Rated Player</th>
                 <th class="sortable" onclick="sortTable('teams', 'roster_count')">Roster</th>
@@ -2458,6 +2467,7 @@
           <div class="stat-pill">
             <span class="pill-label">🛡️ Power Rating:</span>
             <span class="pill-val" id="team-modal-power" style="color: var(--accent);">-</span>
+            <button class="info-circle-btn" onclick="openPowerRatingInfoModal(event)" title="How Team Power Rating is computed" aria-label="Team Power Rating explanation">ⓘ</button>
           </div>
           <div class="stat-pill">
             <span class="pill-label">👥 Roster:</span>
@@ -2488,6 +2498,93 @@
             </thead>
             <tbody id="team-roster-body"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Team Power Rating Explanation Modal -->
+  <div id="power-rating-info-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+    <div class="modal-window" style="max-width: 680px;">
+      <div class="modal-header">
+        <div>
+          <h2 style="font-size: 1.3rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+            <span>🛡️</span> How Team Power Rating Works
+          </h2>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            A mathematically balanced metric measuring club caliber, depth, and community growth.
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeModal('power-rating-info-modal')">✕</button>
+      </div>
+
+      <div class="modal-body" style="padding: 1.25rem; font-size: 0.88rem; line-height: 1.6; color: var(--text-primary);">
+        <!-- Quick Formula Box -->
+        <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 1.2rem; text-align: center;">
+          <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent); font-weight: 700;">Core Equation</div>
+          <div style="font-family: var(--font-mono); font-size: 1.15rem; font-weight: 700; color: #fff; margin: 0.4rem 0;">
+            Team Power Rating = Skill Baseline × Roster Maturity %
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-muted);">
+            Rated directly on the natural 0 – 2,500+ Elo scale.
+          </div>
+        </div>
+
+        <!-- Section 1: Skill Baseline -->
+        <div style="margin-bottom: 1.2rem;">
+          <h3 style="font-size: 0.98rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem;">
+            <span>1️⃣</span> Tri-Anchor Skill Baseline
+          </h3>
+          <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">
+            Combines top-table tournament strength with club-wide development and superstar potential:
+          </p>
+          <ul style="padding-left: 1.25rem; margin: 0; display: flex; flex-direction: column; gap: 0.35rem;">
+            <li><b style="color: #fff;">40% Top 5 Active Average:</b> Evaluates the club's primary 5-player tournament squad.</li>
+            <li><b style="color: #fff;">40% Entire Active Club Average:</b> Rewards true club depth, coaching, and overall membership caliber.</li>
+            <li><b style="color: #fff;">20% Top Ace Elo:</b> Recognizes the club's peak champion / individual tournament threat.</li>
+          </ul>
+        </div>
+
+        <!-- Section 2: Roster Maturity -->
+        <div style="margin-bottom: 1.2rem;">
+          <h3 style="font-size: 0.98rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem;">
+            <span>2️⃣</span> Active Roster Maturity Curve (10% → 100%)
+          </h3>
+          <p style="color: var(--text-secondary); margin-bottom: 0.6rem;">
+            To encourage recruitment and community building, clubs unlock more of their potential as their active roster grows (reaching full 100% maturity at 30 active players):
+          </p>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(115px, 1fr)); gap: 0.5rem; text-align: center;">
+            <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">1 Player (Solo)</div>
+              <div style="font-family: var(--font-mono); font-weight: 700; color: var(--loss);">10.0%</div>
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">5 Players (Squad)</div>
+              <div style="font-family: var(--font-mono); font-weight: 700; color: var(--accent);">65.3%</div>
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">10 Players (Club)</div>
+              <div style="font-family: var(--font-mono); font-weight: 700; color: var(--win);">79.8%</div>
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">20 Players (Major)</div>
+              <div style="font-family: var(--font-mono); font-weight: 700; color: #a855f7;">92.9%</div>
+            </div>
+            <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem;">
+              <div style="font-size: 0.72rem; color: var(--text-muted);">30+ Players (Max)</div>
+              <div style="font-family: var(--font-mono); font-weight: 700; color: #eab308;">100.0% 🏆</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: 180-Day Rolling Window -->
+        <div style="margin-bottom: 0.5rem;">
+          <h3 style="font-size: 0.98rem; font-weight: 700; color: #fff; margin-bottom: 0.4rem; display: flex; align-items: center; gap: 0.4rem;">
+            <span>3️⃣</span> 6-Month Rolling Active Window (180 Days)
+          </h3>
+          <p style="color: var(--text-secondary); margin: 0;">
+            A player counts as active if they have participated in at least one tournament in the past 180 days (semi-annual season). Dormant clubs that stop playing naturally see their maturity contract, preventing inactive rosters from hoarding rank without requiring grueling weekly play.
+          </p>
         </div>
       </div>
     </div>
@@ -2664,8 +2761,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "f65cd4ae3b";</script>
-  <script src="/js/app.bundle.min.js?v=f65cd4ae3b"></script>
+  <script>window.APP_VERSION = "748df50c69";</script>
+  <script src="/js/app.bundle.min.js?v=748df50c69"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

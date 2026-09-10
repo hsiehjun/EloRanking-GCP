@@ -391,6 +391,35 @@ select:focus { border-color: var(--accent); }
   gap: 0.6rem;
 }
 
+/* Info Circle Button */
+.info-circle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.15);
+  color: var(--accent);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  transition: all 0.2s ease;
+  line-height: 1;
+  padding: 0;
+  outline: none;
+}
+.info-circle-btn:hover {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  transform: scale(1.1);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
 /* Dynamic Scaling Table Component */
 .table-container {
   background: var(--bg-secondary);

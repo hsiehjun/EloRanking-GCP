@@ -608,7 +608,7 @@ async function openTeamModal(teamName) {
     const pwrEl = document.getElementById('team-modal-power');
     if (pwrEl) pwrEl.innerText = stats.power_rating ? Number(stats.power_rating).toFixed(1) : '-';
     const rosEl = document.getElementById('team-modal-roster');
-    if (rosEl) rosEl.innerText = `${stats.roster_count || roster.length} Players`;
+    if (rosEl) rosEl.innerText = stats.active_roster_count !== undefined && stats.active_roster_count !== null ? `${stats.active_roster_count} Active (${stats.roster_count || roster.length} Total)` : `${stats.roster_count || roster.length} Players`;
     const matEl = document.getElementById('team-modal-matches');
     if (matEl) matEl.innerText = `${stats.total_matches || 0} (${stats.total_wins || 0}W - ${stats.total_losses || 0}L${stats.total_draws ? ' - ' + stats.total_draws + 'D' : ''})`;
     const wrEl = document.getElementById('team-modal-winrate');
@@ -1206,3 +1206,16 @@ function showUnregisteredPlayerAlert(playerName) {
 window.showUnregisteredPlayerAlert = showUnregisteredPlayerAlert;
 window.handleSubmitFeedback = handleSubmitFeedback;
 window.setFeedbackType = setFeedbackType;
+
+function openPowerRatingInfoModal(event) {
+  if (event) {
+    if (typeof event.stopPropagation === 'function') event.stopPropagation();
+    if (typeof event.preventDefault === 'function') event.preventDefault();
+  }
+  const modal = document.getElementById('power-rating-info-modal');
+  if (modal) {
+    bringModalToFront(modal);
+  }
+}
+window.openPowerRatingInfoModal = openPowerRatingInfoModal;
+

@@ -445,7 +445,7 @@ window.api = {
   },
 
   // Leaderboard (Teams)
-  async getLeaderboardTeams(minRoster = 1, page = 1, pageSize = 25, sortBy = 'power_rating', order = 'DESC', gameSystem = '') {
+  async getLeaderboardTeams(minRoster = 5, page = 1, pageSize = 25, sortBy = 'power_rating', order = 'DESC', gameSystem = '') {
     const params = new URLSearchParams({ min_roster: minRoster, page, page_size: pageSize, sort_by: sortBy, order });
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     if (currentSys) params.set('game_system', currentSys);
