@@ -93,8 +93,10 @@ function renderTeamsDirectoryRows() {
         </span>
         <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${Number(t.top_player_elo).toFixed(1)})</span>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600;">
-        <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border);">${t.roster_count} Players</span>
+      <td>
+        <span class="roster-badge" title="${escapeHtml((t.roster_count || 1) + ' Total Registered Competitors (' + (t.active_roster_count != null ? t.active_roster_count : (t.roster_count || 1)) + ' Active in last 180 days)')}">
+          <span class="roster-badge-num">${t.active_roster_count != null ? t.active_roster_count : (t.roster_count || 1)}</span> <span class="roster-badge-label">Active</span>
+        </span>
       </td>
       <td style="font-family:var(--font-mono); font-size:0.85rem;">
         <span style="color:var(--win); font-weight:600;">${t.total_wins}W</span> - 

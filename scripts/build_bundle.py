@@ -48,6 +48,10 @@ def build_bundle():
     bundled_parts = []
     total_raw_bytes = 0
 
+    import shutil
+    import subprocess
+    esbuild_bin = shutil.which("esbuild")
+
     for mod_name in BUNDLE_MODULES:
         mod_path = WEB_JS_DIR / mod_name
         if not mod_path.exists():
@@ -56,20 +60,19 @@ def build_bundle():
             
         raw_content = mod_path.read_text(encoding="utf-8")
         total_raw_bytes += len(raw_content.encode("utf-8"))
-        minified = jsmin(raw_content)
+        if esbuild_bin:
+            content = raw_content.strip()
+        else:
+            content = jsmin(raw_content).strip()
         
         # Ensure clean module separation
-        minified = minified.strip()
-        if not minified.endswith(";"):
-            minified += ";"
-        bundled_parts.append(minified)
-        print(f"  ✓ Processed {mod_name} ({len(raw_content)} -> {len(minified)} bytes)")
+        if not content.endswith(";"):
+            content += ";"
+        bundled_parts.append(content)
+        print(f"  ✓ Processed {mod_name} ({len(raw_content)} bytes)")
 
     full_bundle = "\n\n".join(bundled_parts)
     
-    import shutil
-    import subprocess
-    esbuild_bin = shutil.which("esbuild")
     if esbuild_bin:
         print("  ⚡ Running esbuild AST optimizer, variable mangler, and compressor...")
         res = subprocess.run(

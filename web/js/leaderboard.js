@@ -382,6 +382,9 @@ function renderLeaderboardTeamsRows() {
     const avgElo = Number(t.avg_elo || 1500).toFixed(1);
     const topElo = Number(t.top_player_elo || 1500).toFixed(1);
     const wr = Number(t.team_win_rate || 0).toFixed(1);
+    const activeCount = t.active_roster_count !== undefined && t.active_roster_count !== null ? t.active_roster_count : (t.roster_count || 1);
+    const totalCount = t.roster_count || activeCount || 1;
+    const rosterTitle = `${totalCount} Total Registered Competitors (${activeCount} Active in last 180 days)`;
 
     tr.innerHTML = `
       <td class="rank-cell ${rankClass}">#${rank}</td>
@@ -403,8 +406,10 @@ function renderLeaderboardTeamsRows() {
         </span>
         <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${topElo})</span>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600;">
-        <span class="badge" style="background:var(--bg-primary); border:1px solid var(--border);" title="${t.roster_count || 1} Total Registered Competitors">${t.active_roster_count !== undefined && t.active_roster_count !== null ? `${t.active_roster_count} Active` : `${t.roster_count || 1} Players`}</span>
+      <td>
+        <span class="roster-badge" title="${escapeHtml(rosterTitle)}">
+          <span class="roster-badge-num">${activeCount}</span> <span class="roster-badge-label">Active</span>
+        </span>
       </td>
       <td style="font-family:var(--font-mono); font-size:0.85rem;">
         <span style="color:var(--win); font-weight:600;">${t.total_wins || 0}W</span> - 

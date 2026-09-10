@@ -520,6 +520,33 @@ tbody tr:hover {
 .badge-draw { background: var(--draw-bg); color: var(--draw); border: 1px solid rgba(234, 179, 8, 0.25); }
 .badge-tier-s { background: var(--tier-s-bg); color: var(--tier-s); border: 1px solid rgba(168, 85, 247, 0.3); }
 
+/* Roster Badge Component */
+.roster-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  color: #38bdf8;
+  text-transform: none !important;
+  font-size: 0.76rem;
+  font-weight: 600;
+  padding: 0.22rem 0.6rem;
+  border-radius: 9999px;
+  letter-spacing: normal;
+  white-space: nowrap;
+}
+.roster-badge-num {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #fff;
+}
+.roster-badge-label {
+  color: #38bdf8;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
 .elo-badge {
   font-family: var(--font-mono);
   font-weight: 700;
