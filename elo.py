@@ -204,8 +204,41 @@ class EloEngine:
         total_new = len(new_matches)
 
         if total_new == 0:
-            print(f"      ✅ Database is completely up to date for {sys_target.upper()}! Zero new matches to process.\n")
-            return {"total_new_matches": 0, "status": "UP_TO_DATE", "game_system": sys_target}
+            # Self-healing: verify if any player ratings are out-of-sync with their latest rating_history
+            healed = 0
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        WITH latest_rh AS (
+                            SELECT DISTINCT ON (player_id, game_system)
+                                player_id, new_elo, game_system, match_date
+                            FROM rating_history
+                            WHERE COALESCE(game_system, '40k') = %s
+                            ORDER BY player_id, game_system, match_date DESC NULLS LAST, id DESC
+                        )
+                        UPDATE player_ratings pr
+                        SET current_elo = l.new_elo,
+                            peak_elo = GREATEST(pr.peak_elo, l.new_elo),
+                            last_active_date = COALESCE(l.match_date, pr.last_active_date),
+                            updated_at = NOW()
+                        FROM latest_rh l
+                        WHERE pr.player_id = l.player_id
+                          AND COALESCE(pr.game_system, '40k') = l.game_system
+                          AND ABS(pr.current_elo - l.new_elo) > 0.01;
+                        """, (sys_target,))
+                        try:
+                            healed = int(cur.rowcount)
+                        except (ValueError, TypeError):
+                            healed = 0
+                        conn.commit()
+                        if healed > 0:
+                            logger.info(f"✨ Self-healed {healed} out-of-sync player rating(s) for {sys_target.upper()} from rating_history.")
+            except Exception as heal_err:
+                logger.debug(f"Notice during rating history alignment: {heal_err}")
+
+            print(f"      ✅ Database is completely up to date for {sys_target.upper()}! Zero new matches to process (healed: {healed}).\n")
+            return {"total_new_matches": 0, "status": "UP_TO_DATE", "game_system": sys_target, "healed_ratings": healed}
 
         print(f"      📥 Found {total_new:,} new {sys_target.upper()} matches to ingest incrementally.")
 

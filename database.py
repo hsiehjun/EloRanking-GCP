@@ -485,6 +485,8 @@ class PostgresDatabase:
 
                 -- Auto-tag AoS events if they were created with AoS BCP Game System ID
                 UPDATE events SET game_system = 'aos' WHERE (game_system_id = 'OY8FCPBf6O' OR game_system_id = '23qDprPABN') AND game_system != 'aos';
+                UPDATE matches SET game_system = 'aos' WHERE event_id IN (SELECT id FROM events WHERE game_system = 'aos') AND game_system != 'aos';
+                UPDATE rating_history SET game_system = 'aos' WHERE event_id IN (SELECT id FROM events WHERE game_system = 'aos') AND game_system != 'aos';
 
                 CREATE TABLE IF NOT EXISTS tracker_games (
                     match_id VARCHAR(64) PRIMARY KEY,
