@@ -663,6 +663,26 @@ tbody tr:hover {
   opacity: 0.85;
 }
 
+.roster-inactive-divider-row {
+  background: rgba(15, 23, 42, 0.45) !important;
+  border-top: 1px dashed rgba(148, 163, 184, 0.25) !important;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.04) !important;
+}
+.roster-inactive-divider-row .roster-divider-title {
+  color: #94a3b8;
+}
+.roster-inactive-divider-row .roster-divider-right {
+  color: #94a3b8;
+  opacity: 0.75;
+}
+
+.roster-row-inactive {
+  opacity: 0.78;
+}
+.roster-row-inactive:hover {
+  opacity: 1;
+}
+
 .elo-badge {
   font-family: var(--font-mono);
   font-weight: 700;
@@ -1838,6 +1858,10 @@ input, select, textarea {
   }
   #team-roster-table tr.roster-divider-row .roster-divider-right {
     font-size: 0.68rem !important;
+  }
+  #team-roster-table tr.roster-inactive-divider-row {
+    border-color: rgba(148, 163, 184, 0.25) !important;
+    background: rgba(15, 23, 42, 0.6) !important;
   }
 
   #team-modal .tournament-stats-strip {

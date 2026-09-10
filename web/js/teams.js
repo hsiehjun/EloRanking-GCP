@@ -84,8 +84,8 @@ function renderTeamsDirectoryRows() {
       <td style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:#a855f7;">
         ${Number(t.power_rating).toFixed(1)}
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600; color:var(--accent);">
-        ${Number(t.avg_elo).toFixed(1)}
+      <td style="font-family:var(--font-mono); font-weight:600; color:var(--accent);" title="${Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1)} Active Club Avg (${Number(t.avg_elo || t.active_avg_elo || 1500).toFixed(1)} All-Time Registered Avg)">
+        ${Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1)}
       </td>
       <td>
         <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id}')">

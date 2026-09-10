@@ -379,7 +379,9 @@ function renderLeaderboardTeamsRows() {
     else if (rank === 3) rankClass = 'rank-top-3';
 
     const pRating = Number(t.power_rating || 0).toFixed(1);
-    const avgElo = Number(t.avg_elo || 1500).toFixed(1);
+    const activeAvg = Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1);
+    const allAvg = Number(t.avg_elo || t.active_avg_elo || 1500).toFixed(1);
+    const avgEloTitle = `${activeAvg} Active Club Avg (${allAvg} All-Time Registered Avg)`;
     const topElo = Number(t.top_player_elo || 1500).toFixed(1);
     const wr = Number(t.team_win_rate || 0).toFixed(1);
     const activeCount = t.active_roster_count !== undefined && t.active_roster_count !== null ? t.active_roster_count : (t.roster_count || 1);
@@ -397,8 +399,8 @@ function renderLeaderboardTeamsRows() {
       <td style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:#a855f7;">
         ${pRating}
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600; color:var(--accent);">
-        ${avgElo}
+      <td style="font-family:var(--font-mono); font-weight:600; color:var(--accent);" title="${escapeHtml(avgEloTitle)}">
+        ${activeAvg}
       </td>
       <td>
         <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}')">
