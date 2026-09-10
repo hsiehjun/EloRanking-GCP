@@ -270,7 +270,7 @@ function renderLeaderboardRows() {
 }
 
 async function loadLeaderboardTeams(isPrefetch = false) {
-  const minRoster = 5;
+  const minRoster = 1;
   const tbody = document.getElementById('lead-teams-body');
   const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   const cacheKey = `lb_teams_${gs}_${minRoster}_${leaderboardTeamsPagination.page}_${leaderboardTeamsPagination.pageSize}_${leaderboardTeamsSortState.field}_${leaderboardTeamsSortState.asc ? 'ASC' : 'DESC'}`;

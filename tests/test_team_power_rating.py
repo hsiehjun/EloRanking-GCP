@@ -101,39 +101,38 @@ def test_solo_vs_club_power_rating():
     print(f"✅ test_solo_vs_club_power_rating passed! (Solo: {solo_power}, 5-Man: {squad_5_power}, AoW: {aow_power})")
 
 
-def test_get_teams_leaderboard_min_members_filtering():
-    """Verify get_teams_leaderboard filters out teams with fewer than 5 active members by default."""
+def test_get_teams_leaderboard_natural_sorting():
+    """Verify get_teams_leaderboard defaults to min_members=1, naturally sorting solo squads to the bottom by power rating."""
     db = make_test_db()
 
     mock_teams = [
-        {"team": "Solo Squad", "roster_count": 1, "active_roster_count": 1, "power_rating": 243.0},
-        {"team": "Duo Squad", "roster_count": 2, "active_roster_count": 2, "power_rating": 800.0},
-        {"team": "Trios Team", "roster_count": 3, "active_roster_count": 3, "power_rating": 1100.0},
-        {"team": "4-Player Squad", "roster_count": 4, "active_roster_count": 4, "power_rating": 1300.0},
-        {"team": "Dormant 10-Man Club", "roster_count": 10, "active_roster_count": 2, "power_rating": 911.5},
-        {"team": "Team USA", "roster_count": 6, "active_roster_count": 6, "power_rating": 1850.0},
         {"team": "Art of War", "roster_count": 25, "active_roster_count": 23, "power_rating": 2207.7},
+        {"team": "Team USA", "roster_count": 6, "active_roster_count": 6, "power_rating": 1850.0},
+        {"team": "4-Player Squad", "roster_count": 4, "active_roster_count": 4, "power_rating": 1300.0},
+        {"team": "Trios Team", "roster_count": 3, "active_roster_count": 3, "power_rating": 1100.0},
+        {"team": "Dormant 10-Man Club", "roster_count": 10, "active_roster_count": 2, "power_rating": 911.5},
+        {"team": "Duo Squad", "roster_count": 2, "active_roster_count": 2, "power_rating": 800.0},
+        {"team": "Solo Squad", "roster_count": 1, "active_roster_count": 1, "power_rating": 243.0},
     ]
 
     with patch.object(db, "_get_all_teams_list", return_value=mock_teams):
-        # Default call (min_members=5)
+        # Default call (min_members=1): all teams appear, naturally sorted by power rating
         res_default = db.get_teams_leaderboard()
         default_names = [t["team"] for t in res_default["items"]]
-        assert "Solo Squad" not in default_names, "Solo Squad must not be in default leaderboard"
-        assert "Duo Squad" not in default_names, "Duo Squad must not be in default leaderboard"
-        assert "Trios Team" not in default_names, "Trios Team must not be in default leaderboard"
-        assert "4-Player Squad" not in default_names, "4-player squad must not be in min 5 leaderboard"
-        assert "Dormant 10-Man Club" not in default_names, "Dormant club with only 2 active players must not be in min 5 leaderboard"
-        assert "Team USA" in default_names, "Team USA must be included"
-        assert "Art of War" in default_names, "Art of War must be included"
+        assert len(default_names) == 7, f"Expected all 7 teams, got {len(default_names)}"
+        assert default_names[0] == "Art of War", "Top active club must be #1"
+        assert default_names[1] == "Team USA", "Solid squad must be #2"
+        assert default_names[-1] == "Solo Squad", "Solo player (243.0) must naturally sit at the bottom"
 
-        # Explicit directory search with min_members=1
-        res_all = db.get_teams_leaderboard(min_members=1)
-        all_names = [t["team"] for t in res_all["items"]]
-        assert "Solo Squad" in all_names, "Solo Squad must appear when min_members=1"
-        assert len(all_names) == 7, f"Expected all 7 teams, got {len(all_names)}"
+        # Explicit filter when user specifies min_members=5
+        res_min5 = db.get_teams_leaderboard(min_members=5)
+        min5_names = [t["team"] for t in res_min5["items"]]
+        assert "Solo Squad" not in min5_names, "Solo Squad filtered when min_members=5"
+        assert "Dormant 10-Man Club" not in min5_names, "Dormant club filtered when min_members=5"
+        assert "Team USA" in min5_names, "Team USA included"
+        assert "Art of War" in min5_names, "Art of War included"
 
-    print("✅ test_get_teams_leaderboard_min_members_filtering passed!")
+    print("✅ test_get_teams_leaderboard_natural_sorting passed!")
 
 
 def test_get_team_roster_180_day_window():
@@ -180,6 +179,6 @@ def test_get_team_roster_180_day_window():
 if __name__ == "__main__":
     test_recruitment_and_depth_advantage()
     test_solo_vs_club_power_rating()
-    test_get_teams_leaderboard_min_members_filtering()
+    test_get_teams_leaderboard_natural_sorting()
     test_get_team_roster_180_day_window()
     print("\n🎉 All Team Power Rating tests passed!")

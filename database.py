@@ -3094,7 +3094,7 @@ class PostgresDatabase:
                     PostgresDatabase._all_teams_cache_time = now
                 return rows
 
-    def get_teams_leaderboard(self, page=1, page_size=25, min_members=5, limit=None, query=None, sort_by="power_rating", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
+    def get_teams_leaderboard(self, page=1, page_size=25, min_members=1, limit=None, query=None, sort_by="power_rating", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns paginated power rankings of teams & gaming clubs (instant sub-millisecond in-memory)."""
         if limit is not None and limit > 0:
             page_size = limit
