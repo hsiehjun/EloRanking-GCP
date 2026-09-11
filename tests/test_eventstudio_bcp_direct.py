@@ -1310,8 +1310,8 @@ def test_eventstudio_submit_score_saves_to_db_and_tracker_game():
             explicit_token="mock_bcp_tok",
             winner_id="usr_p1"
         )
-        # Check Firestore room marked completed and digital scorecard saved to DB
-        assert mock_fs.update_room.called
+        # Check Firestore room discarded upon completion and digital scorecard saved to DB
+        assert mock_fs.discard_room.called
         assert mock_db.save_tracker_game.called
 
     print("✅ test_eventstudio_submit_score_saves_to_db_and_tracker_game passed!")

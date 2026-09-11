@@ -456,7 +456,7 @@ def test_event_deletion_cascades_to_firestore_rooms():
     TRACKER_ROOMS.pop(casual_room, None)
 
 
-def test_bcp_submission_retains_firestore_room_and_saves_tracker_games():
+def test_bcp_submission_discards_firestore_room_and_saves_tracker_games():
     fs_engine = get_firestore_engine()
 
     event_id = "evt-bcp-test-cleanup-88"
@@ -507,11 +507,10 @@ def test_bcp_submission_retains_firestore_room_and_saves_tracker_games():
         res = asyncio.run(api_eventstudio_submit_score(payload, mock_req))
         assert res["success"] is True
 
-    # Room must be marked completed in Firestore and memory (scorecard retained!)
+    # Room must be discarded / removed from Firestore and memory on completion
     room_doc = fs_engine.get_room(normalized_mid)
-    assert room_doc is not None
-    assert room_doc.get("status") == "completed"
-    assert room_doc.get("is_finished") is True
+    assert room_doc is None
+    assert normalized_mid not in TRACKER_ROOMS
 
     # DB writes to tracker_games MUST be called to retain digital scorecard
     mock_db.save_tracker_game.assert_called_once()
@@ -525,16 +524,28 @@ def test_all_games_stored_in_tracker_games():
     db.database_url = "postgresql://test:test@localhost:5432/test"
     db.pool = None
 
-    # 1. Direct database.py test: Both event matches and casual matches proceed to DB tracker_games
+    # 1. Direct database.py test: In-progress matches are skipped, completed matches proceed to DB tracker_games
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_conn.__enter__.return_value = mock_conn
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
     with patch.object(db, "get_connection", return_value=mock_conn):
-        # BCP match ID -> writes to DB!
-        res_bcp = db.save_tracker_game("BCP-EVT1-R1-T1", {
+        # In-progress match (round 1, not finished) -> SKIPPED (returns False, zero DB writes!)
+        res_inprogress = db.save_tracker_game("BCP-PROGRESS-1", {
             "round": 1,
+            "is_finished": False,
+            "game": {"p1Name": "P1", "p2Name": "P2"},
+            "p1": {"score": 10},
+            "p2": {"score": 5}
+        })
+        assert res_inprogress is False
+        assert mock_cur.execute.call_count == 0
+
+        # Completed BCP match -> writes to DB!
+        res_bcp = db.save_tracker_game("BCP-EVT1-R1-T1", {
+            "round": 5,
+            "is_finished": True,
             "game": {"p1Name": "P1", "p2Name": "P2"},
             "p1": {"score": 80},
             "p2": {"score": 75}
@@ -542,10 +553,11 @@ def test_all_games_stored_in_tracker_games():
         assert res_bcp is True
         assert mock_cur.execute.call_count >= 1
 
-        # ES match ID -> writes to DB!
+        # Completed ES match -> writes to DB!
         mock_cur.reset_mock()
         res_es = db.save_tracker_game("ES-EVT2-R1-T1", {
-            "round": 1,
+            "round": 5,
+            "is_finished": True,
             "game": {"p1Name": "P1", "p2Name": "P2"},
             "p1": {"score": 90},
             "p2": {"score": 60}
@@ -553,26 +565,22 @@ def test_all_games_stored_in_tracker_games():
         assert res_es is True
         assert mock_cur.execute.call_count >= 1
 
-        # Match with eventId in state -> writes to DB!
+        # Completed Match with eventId in state -> writes to DB!
         mock_cur.reset_mock()
         res_custom_evt = db.save_tracker_game("MATCH-SOME-99", {
-            "round": 1,
+            "round": 5,
+            "is_finished": True,
             "eventId": "evt-some-77",
             "game": {"p1Name": "Alice", "p2Name": "Bob"}
         })
         assert res_custom_evt is True
         assert mock_cur.execute.call_count >= 1
 
-        # update_tracker_army_list for BCP -> writes to DB!
-        mock_cur.reset_mock()
-        res_list = db.update_tracker_army_list("BCP-EVT1-R1-T1", "p1", {"faction": "Necrons"})
-        assert res_list is True
-        assert mock_cur.execute.call_count >= 1
-
-        # Casual local match -> writes to database!
+        # Completed Casual local match -> writes to database!
         mock_cur.reset_mock()
         res_casual = db.save_tracker_game("WH40K-CASUAL-LOCAL-42", {
-            "round": 1,
+            "round": 5,
+            "is_finished": True,
             "game": {"p1Name": "Alice", "p2Name": "Bob"},
             "p1": {"score": 40},
             "p2": {"score": 35}
@@ -581,7 +589,7 @@ def test_all_games_stored_in_tracker_games():
         assert mock_cur.execute.call_count >= 1
 
     # 2. Finalize endpoint test: api_tracker_finalize_game
-    # Tournament match: persists to db.save_tracker_game, marks completed in Firestore
+    # Tournament match: persists to db.save_tracker_game, discards room from Firestore & memory
     tourn_mid = "BCP-FIN-TEST-R1-T1"
     norm_tourn_mid = normalize_tracker_match_id(tourn_mid)
     fs_engine.create_room(norm_tourn_mid, {
@@ -608,11 +616,10 @@ def test_all_games_stored_in_tracker_games():
     # Verifications for tournament match finalize:
     mock_db_instance.save_tracker_game.assert_called_once()
     tourn_room = fs_engine.get_room(norm_tourn_mid)
-    assert tourn_room is not None
-    assert tourn_room.get("status") == "completed"
-    assert tourn_room.get("is_finished") is True
+    assert tourn_room is None
+    assert norm_tourn_mid not in TRACKER_ROOMS
 
-    # Casual match: calls db.save_tracker_game, marks completed in Firestore
+    # Casual match: calls db.save_tracker_game, discards room from Firestore & memory
     mock_db_instance.reset_mock()
     casual_mid = "CASUAL-FIN-LOCAL-77"
     fs_engine.create_room(casual_mid, {
@@ -632,9 +639,50 @@ def test_all_games_stored_in_tracker_games():
     # Verifications for casual match finalize:
     mock_db_instance.save_tracker_game.assert_called_once()
     casual_room = fs_engine.get_room(casual_mid)
-    assert casual_room is not None
-    assert casual_room.get("status") == "completed"
-    assert casual_room.get("is_finished") is True
+    assert casual_room is None
+    assert casual_mid not in TRACKER_ROOMS
+
+    # 3. Scorecard reading from right source (completed -> tracker_games; in-progress -> firestore)
+    from routers.tracker import api_get_scorecard
+
+    # Case A: Completed match in tracker_games
+    mock_db_instance.get_tracker_game.return_value = {
+        "match_id": "BCP-COMPLETED-100",
+        "is_finished": True,
+        "p1_score": 85,
+        "p2_score": 70,
+        "state_json": {
+            "game": {"p1Name": "P1", "p2Name": "P2"},
+            "is_finished": True
+        }
+    }
+    with patch("routers.tracker.get_database", return_value=mock_db_instance), \
+         patch("routers.tracker.get_firestore_engine", return_value=fs_engine):
+        sc_res = asyncio.run(api_get_scorecard("BCP-COMPLETED-100"))
+        assert sc_res["success"] is True
+        assert sc_res["is_finished"] is True
+        assert sc_res["status"] == "completed"
+        assert sc_res["source"] == "tracker_games"
+
+    # Case B: In-progress match in Firestore
+    mock_db_instance.get_tracker_game.return_value = None
+    fs_engine.create_room("BCP-LIVE-200", {
+        "match_id": "BCP-LIVE-200",
+        "status": "active",
+        "is_finished": False,
+        "state": {
+            "round": 2,
+            "game": {"p1Name": "LiveP1", "p2Name": "LiveP2"}
+        }
+    })
+    with patch("routers.tracker.get_database", return_value=mock_db_instance), \
+         patch("routers.tracker.get_firestore_engine", return_value=fs_engine):
+        sc_live = asyncio.run(api_get_scorecard("BCP-LIVE-200"))
+        assert sc_live["success"] is True
+        assert sc_live["is_finished"] is False
+        assert sc_live["status"] == "active"
+        assert sc_live["source"] == "firestore"
+        assert sc_live["state"]["game"]["p1Name"] == "LiveP1"
 
 
 if __name__ == "__main__":
@@ -654,8 +702,8 @@ if __name__ == "__main__":
     print("✓ test_player_cannot_delete_event_room passed")
     test_event_deletion_cascades_to_firestore_rooms()
     print("✓ test_event_deletion_cascades_to_firestore_rooms passed")
-    test_bcp_submission_retains_firestore_room_and_saves_tracker_games()
-    print("✓ test_bcp_submission_retains_firestore_room_and_saves_tracker_games passed")
+    test_bcp_submission_discards_firestore_room_and_saves_tracker_games()
+    print("✓ test_bcp_submission_discards_firestore_room_and_saves_tracker_games passed")
     test_all_games_stored_in_tracker_games()
     print("✓ test_all_games_stored_in_tracker_games passed")
     print("\nAll 10 real-time tournament operations bridge & lifecycle tests passed successfully!")

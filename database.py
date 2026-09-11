@@ -3958,7 +3958,17 @@ class PostgresDatabase:
         if p2_score == 0 and "p2Score" in state:
             p2_score = int(state["p2Score"])
 
-        is_finished = bool(state.get("is_finished") or state.get("isFinished") or (current_round >= 5 and started))
+        is_finished = bool(
+            state.get("is_finished")
+            or state.get("isFinished")
+            or state.get("status") == "completed"
+            or (current_round >= 5 and started)
+        )
+
+        # Guard: Only write to tracker_games table when the game has been completed, never while in progress
+        if not is_finished:
+            logger.info(f"Skipping tracker_games DB write for match {match_id}: match is still in progress (only completed games are saved).")
+            return False
 
         winner_name = None
         if is_finished:
@@ -3976,6 +3986,11 @@ class PostgresDatabase:
         who_went_first = p1_name if (first_turn in (1, "1", "player1", "p1", p1_name)) else (p2_name if (first_turn in (2, "2", "player2", "p2", p2_name)) else None)
         bcp_submitted = bool(state.get("bcp_submitted") or state.get("bcpSubmitted"))
 
+        p1_army = state.get("p1_army_list") or (state.get("rosters", {}).get("player1") if isinstance(state.get("rosters"), dict) else None)
+        p2_army = state.get("p2_army_list") or (state.get("rosters", {}).get("player2") if isinstance(state.get("rosters"), dict) else None)
+        p1_army_json = json.dumps(p1_army) if p1_army else None
+        p2_army_json = json.dumps(p2_army) if p2_army else None
+
         refs_list = list(refs) if isinstance(refs, (list, tuple)) else []
         refs_sql = "{" + ",".join([f'"{r}"' for r in refs_list]) + "}"
 
@@ -3990,7 +4005,7 @@ class PostgresDatabase:
                         primary_mission, deployment, mission_rule,
                         current_round, started, is_finished, winner_name,
                         version, state_json, event_id, round_num, table_num,
-                        who_went_first, bcp_submitted, updated_at
+                        who_went_first, bcp_submitted, p1_army_list, p2_army_list, updated_at
                     ) VALUES (
                         %s, %s, %s, %s, %s,
                         %s, %s, %s, %s,
@@ -3998,7 +4013,7 @@ class PostgresDatabase:
                         %s, %s, %s,
                         %s, %s, %s, %s,
                         %s, %s::jsonb, %s, %s, %s,
-                        %s, %s, NOW()
+                        %s, %s, %s::jsonb, %s::jsonb, NOW()
                     )
                     ON CONFLICT (match_id) DO UPDATE SET
                         p1_name = EXCLUDED.p1_name,
@@ -4026,6 +4041,8 @@ class PostgresDatabase:
                         table_num = COALESCE(EXCLUDED.table_num, tracker_games.table_num),
                         who_went_first = COALESCE(EXCLUDED.who_went_first, tracker_games.who_went_first),
                         bcp_submitted = COALESCE(EXCLUDED.bcp_submitted, tracker_games.bcp_submitted),
+                        p1_army_list = COALESCE(EXCLUDED.p1_army_list, tracker_games.p1_army_list),
+                        p2_army_list = COALESCE(EXCLUDED.p2_army_list, tracker_games.p2_army_list),
                         updated_at = NOW();
                     """, (
                         match_id, p1_name, p1_faction, p1_detachment, p1_score,
@@ -4037,7 +4054,8 @@ class PostgresDatabase:
                         current_round, started, is_finished, winner_name,
                         version, json.dumps(state),
                         str(event_id) if event_id else None,
-                        round_num, table_num, who_went_first, bcp_submitted
+                        round_num, table_num, who_went_first, bcp_submitted,
+                        p1_army_json, p2_army_json
                     ))
                 conn.commit()
             return True
@@ -4133,7 +4151,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    # Update row if exists
+                    # Update row if exists in tracker_games (only for completed matches)
                     cursor.execute(f"""
                     UPDATE tracker_games
                     SET {col_list} = %s::jsonb,
@@ -4143,18 +4161,6 @@ class PostgresDatabase:
                         updated_at = NOW()
                     WHERE match_id = %s;
                     """, (list_json, list_id, faction, detachment, match_id))
-                    
-                    if cursor.rowcount == 0:
-                        cursor.execute(f"""
-                        INSERT INTO tracker_games (match_id, {col_list}, {col_id}, {col_fac}, {col_det}, updated_at, created_at)
-                        VALUES (%s, %s::jsonb, %s, %s, %s, NOW(), NOW())
-                        ON CONFLICT (match_id) DO UPDATE
-                        SET {col_list} = EXCLUDED.{col_list},
-                            {col_id} = COALESCE(EXCLUDED.{col_id}, tracker_games.{col_id}),
-                            {col_fac} = COALESCE(EXCLUDED.{col_fac}, tracker_games.{col_fac}),
-                            {col_det} = COALESCE(EXCLUDED.{col_det}, tracker_games.{col_det}),
-                            updated_at = NOW();
-                        """, (match_id, list_json, list_id, faction, detachment))
                 conn.commit()
             return True
         except Exception as e:

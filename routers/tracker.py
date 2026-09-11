@@ -1367,9 +1367,18 @@ async def api_tracker_user_sessions(
     for doc in active_docs:
         mid = (doc.get("roomKey") or doc.get("matchId") or (doc.get("state", {}).get("match_id") if isinstance(doc.get("state"), dict) else "") or "").strip().upper()
         if mid and mid not in seen_matches:
-            # Cross-check with PostgreSQL: If already concluded/finished, skip and NEVER list as active!
+            # Cross-check with PostgreSQL: If already concluded/finished, purge ghost room and NEVER list as active!
             saved = db.get_tracker_game(mid)
             if saved and (saved.get("is_finished") or (isinstance(saved.get("state_json"), dict) and saved["state_json"].get("is_finished"))):
+                try:
+                    fs_engine.discard_room(mid)
+                except Exception:
+                    pass
+                if mid in TRACKER_ROOMS:
+                    try:
+                        del TRACKER_ROOMS[mid]
+                    except KeyError:
+                        pass
                 continue
 
             seen_matches.add(mid)
@@ -1566,23 +1575,18 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
         except Exception:
             pass
 
-    # 3. Mark completed in Cloud Firestore (retains scorecard for players & spectators)
+    # 3. Clean up / discard concluded match room from Cloud Firestore
     try:
-        fs_engine.update_room(match_id, {
-            "status": "completed",
-            "is_finished": True,
-            "state": state,
-            "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}",
-            "updatedAt": int(datetime.now(timezone.utc).timestamp() * 1000)
-        })
+        fs_engine.discard_room(match_id)
     except Exception as e:
-        logger.warning(f"Notice updating Firestore room on conclusion {match_id}: {e}")
+        logger.warning(f"Notice discarding Firestore room on conclusion {match_id}: {e}")
 
-    # 4. Update Memory Cache
+    # 4. Clean up Memory Cache
     if match_id in TRACKER_ROOMS:
-        TRACKER_ROOMS[match_id]["status"] = "completed"
-        TRACKER_ROOMS[match_id]["is_finished"] = True
-        TRACKER_ROOMS[match_id]["state"] = state
+        try:
+            del TRACKER_ROOMS[match_id]
+        except KeyError:
+            pass
         
     return {
         "success": True,
@@ -1637,6 +1641,31 @@ async def api_get_scorecard(match_id: str):
     if match_id.startswith("ES-"):
         candidates.append(match_id[3:])
 
+    # 1. Check PostgreSQL tracker_games first: completed games are permanently stored here
+    game_rec = None
+    if db:
+        for cand in candidates:
+            try:
+                rec = db.get_tracker_game(cand)
+                if rec:
+                    game_rec = rec
+                    break
+            except Exception:
+                pass
+
+    if game_rec and (game_rec.get("is_finished") or (isinstance(game_rec.get("state_json"), dict) and game_rec["state_json"].get("is_finished"))):
+        state = game_rec.get("state") or game_rec.get("state_json") or {}
+        return {
+            "success": True,
+            "match_id": match_id,
+            "game_record": game_rec,
+            "state": state,
+            "is_finished": True,
+            "status": "completed",
+            "source": "tracker_games"
+        }
+
+    # 2. If not completed in tracker_games, read from active live match (in-memory or Firestore Native)
     room = None
     state = None
     for cand in candidates:
@@ -1657,19 +1686,10 @@ async def api_get_scorecard(match_id: str):
                     break
         except Exception:
             pass
-            
-    game_rec = None
-    if db:
-        for cand in candidates:
-            try:
-                game_rec = db.get_tracker_game(cand)
-                if game_rec:
-                    break
-            except Exception:
-                pass
-            
+
+    # 3. Fallback: If found in tracker_games without is_finished flag explicitly true
     if not state and game_rec:
-        state = game_rec.get("state_json") or game_rec
+        state = game_rec.get("state") or game_rec.get("state_json") or game_rec
         
     if not state and not game_rec:
         raise HTTPException(status_code=404, detail="Scorecard not found for this match ID")
@@ -1692,7 +1712,8 @@ async def api_get_scorecard(match_id: str):
         "game_record": game_rec,
         "state": state,
         "is_finished": is_finished,
-        "status": status
+        "status": status,
+        "source": "firestore" if active_room else "tracker_games"
     }
 
 @router.get("/scorecard/{match_id}", summary="View digital scorecard page")

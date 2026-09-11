@@ -587,6 +587,9 @@
                   status: rData.status || 'active'
                 });
               }
+            } else if (snap && !snap.exists) {
+              // Room was discarded from Firestore upon completion; immediately fetch finalized scorecard from tracker_games
+              pollLiveScorecardQuietly();
             }
           }, err => console.debug('Firestore scorecard notice:', err));
         });

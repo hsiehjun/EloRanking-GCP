@@ -3028,24 +3028,19 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     except Exception as se:
         logger.warning(f"Notice saving tracker game to DB from Event Studio: {se}")
 
-    # 2. Retain completed status and scorecard in Firestore room documents
+    # 2. Concluded match room is discarded / removed from Firestore and memory
     for mid_clean in target_rooms:
         if mid_clean:
             norm_mid = normalize_tracker_match_id(mid_clean)
             try:
-                fs_engine.update_room(norm_mid, {
-                    "status": "completed",
-                    "is_finished": True,
-                    "state": persisted_state,
-                    "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}",
-                    "updatedAt": int(datetime.now(timezone.utc).timestamp() * 1000)
-                })
+                fs_engine.discard_room(norm_mid)
             except Exception as fe:
-                logger.debug(f"Notice updating Firestore room {norm_mid}: {fe}")
+                logger.debug(f"Notice discarding Firestore room {norm_mid}: {fe}")
             if norm_mid in TRACKER_ROOMS:
-                TRACKER_ROOMS[norm_mid]["status"] = "completed"
-                TRACKER_ROOMS[norm_mid]["is_finished"] = True
-                TRACKER_ROOMS[norm_mid]["state"] = persisted_state
+                try:
+                    del TRACKER_ROOMS[norm_mid]
+                except KeyError:
+                    pass
 
     try:
         from routers.tracker import TRACKER_LISTENERS
