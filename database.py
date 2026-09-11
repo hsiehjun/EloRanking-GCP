@@ -1806,9 +1806,9 @@ class PostgresDatabase:
                     where_e = "WHERE 1=1"
                     params_sys = []
                     if cache_key != "all":
-                        where_pr += " AND (game_system = %s OR game_system IS NULL)"
-                        where_m += " AND (game_system = %s OR game_system IS NULL)"
-                        where_e += " AND (game_system = %s OR game_system IS NULL)"
+                        where_pr += " AND COALESCE(game_system, '40k') = %s"
+                        where_m += " AND COALESCE(game_system, '40k') = %s"
+                        where_e += " AND COALESCE(game_system, '40k') = %s"
                         params_sys = [cache_key]
 
                     cursor.execute(f"SELECT COUNT(*) as cnt FROM player_ratings {where_pr};", tuple(params_sys))
@@ -1893,6 +1893,7 @@ class PostgresDatabase:
                 }
                 col = allowed_cols.get(sort_by, "current_elo")
                 dir_str = "ASC" if str(order).upper() == "ASC" else "DESC"
+                target_sys = (game_system or "40k").strip().lower()
 
                 if faction and faction != "All" and faction != "All Factions":
                     # Faction isolated aggregation
@@ -1901,20 +1902,20 @@ class PostgresDatabase:
                         SELECT player1_id as p_id, match_date as m_date
                         FROM matches
                         WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
-                          AND player1_faction ILIKE %s
+                          AND player1_faction ILIKE %s AND COALESCE(game_system, '40k') = %s
                         UNION ALL
                         SELECT player2_id as p_id, match_date as m_date
                         FROM matches
                         WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
-                          AND player2_faction ILIKE %s
+                          AND player2_faction ILIKE %s AND COALESCE(game_system, '40k') = %s
                     ),
                     qualifying_players AS (
                         SELECT fpm.p_id
                         FROM faction_player_matches fpm
-                        LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
+                        LEFT JOIN player_ratings r ON fpm.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s
                         WHERE 1=1
                     """
-                    count_params = [f"%{faction}%", f"%{faction}%"]
+                    count_params = [f"%{faction}%", target_sys, f"%{faction}%", target_sys, target_sys]
                     if query:
                         q_str = str(query).strip()
                         tokens = [t for t in q_str.split() if t]
@@ -1945,7 +1946,7 @@ class PostgresDatabase:
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE player1_id IS NOT NULL AND player1_id != '' AND is_done = TRUE
-                          AND player1_faction ILIKE %s
+                          AND player1_faction ILIKE %s AND COALESCE(game_system, '40k') = %s
                         UNION ALL
                         SELECT 
                             player2_id as p_id,
@@ -1956,7 +1957,7 @@ class PostgresDatabase:
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
                         WHERE player2_id IS NOT NULL AND player2_id != '' AND is_bye = FALSE AND is_done = TRUE
-                          AND player2_faction ILIKE %s
+                          AND player2_faction ILIKE %s AND COALESCE(game_system, '40k') = %s
                     )
                     SELECT 
                         fpm.p_id as player_id,
@@ -1974,7 +1975,7 @@ class PostgresDatabase:
                         CASE WHEN MAX(u.id) IS NOT NULL THEN TRUE ELSE FALSE END as has_account,
                         MAX(u.id) as account_user_id
                     FROM faction_player_matches fpm
-                    LEFT JOIN player_ratings r ON fpm.p_id = r.player_id
+                    LEFT JOIN player_ratings r ON fpm.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s
                     LEFT JOIN users u ON (
                         (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = fpm.p_id)
                         OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = fpm.p_id)
@@ -1982,7 +1983,7 @@ class PostgresDatabase:
                     )
                     WHERE 1=1
                     """
-                    params = [f"%{faction}%", f"%{faction}%", faction]
+                    params = [f"%{faction}%", target_sys, f"%{faction}%", target_sys, faction, target_sys]
                     if query:
                         q_str = str(query).strip()
                         tokens = [t for t in q_str.split() if t]
@@ -2018,8 +2019,8 @@ class PostgresDatabase:
                 if active_only:
                     where_clauses.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
                 if game_system and game_system != "all":
-                    where_clauses.append("(r.game_system = %s OR r.game_system IS NULL)")
-                    params.append(game_system)
+                    where_clauses.append("COALESCE(r.game_system, '40k') = %s")
+                    params.append(target_sys)
                 if query:
                     q_str = str(query).strip()
                     tokens = [t for t in q_str.split() if t]
@@ -2068,6 +2069,9 @@ class PostgresDatabase:
                     safe_params = [min_matches]
                     if active_only:
                         safe_where.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
+                    if game_system and game_system != "all":
+                        safe_where.append("COALESCE(r.game_system, '40k') = %s")
+                        safe_params.append(target_sys)
                     if query:
                         q_str = str(query).strip()
                         safe_where.append("(r.player_name ILIKE %s OR r.player_id = %s)")
@@ -2809,10 +2813,11 @@ class PostgresDatabase:
                     "total": len(sorted_events)
                 }
 
-    def get_events_field_stats(self, event_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    def get_events_field_stats(self, event_ids: List[str], game_system: Optional[str] = "40k") -> Dict[str, Dict[str, Any]]:
         """Returns computed average Elo, top seed Elo, and rated player count for a list of event IDs based on enrolled participants."""
         if not event_ids:
             return {}
+        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute("""
@@ -2824,9 +2829,10 @@ class PostgresDatabase:
                     COUNT(DISTINCT CASE WHEN pr.player_id IS NOT NULL OR pr.current_elo IS NOT NULL THEN ep.player_id ELSE NULL END) as rated_players_count
                 FROM event_participants ep
                 LEFT JOIN player_ratings pr ON (ep.player_id = pr.player_id OR (pr.player_name IS NOT NULL AND LOWER(pr.player_name) = LOWER(ep.full_name)))
+                                           AND COALESCE(pr.game_system, '40k') = %s
                 WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
                 GROUP BY ep.event_id;
-                """, (event_ids,))
+                """, (target_sys, event_ids,))
                 rows = cursor.fetchall()
                 return {r["event_id"]: dict(r) for r in rows}
 
@@ -2844,8 +2850,8 @@ class PostgresDatabase:
                 params: List[Any] = []
 
                 if game_system and game_system != "all":
-                    where_clauses.append("(e.game_system = %s OR e.game_system IS NULL)")
-                    params.append(game_system)
+                    where_clauses.append("COALESCE(e.game_system, '40k') = %s")
+                    params.append((game_system or "40k").lower())
 
                 if query:
                     where_clauses.append("(e.name ILIKE %s OR e.city ILIKE %s OR e.state ILIKE %s OR e.country ILIKE %s)")
@@ -2953,8 +2959,8 @@ class PostgresDatabase:
                 sys_clause = ""
                 sys_params = []
                 if game_system and game_system != "all":
-                    sys_clause = " AND (game_system = %s OR game_system IS NULL)"
-                    sys_params = [game_system]
+                    sys_clause = " AND COALESCE(game_system, '40k') = %s"
+                    sys_params = [(game_system or "40k").lower()]
 
                 sql = f"""
                 WITH team_players AS (
@@ -3173,7 +3179,7 @@ class PostgresDatabase:
                         COALESCE(win_rate, 0.0) as win_rate,
                         COALESCE(last_active_date, CURRENT_DATE) as last_active_date
                     FROM player_ratings
-                    WHERE TRIM(team) ILIKE %s AND (game_system = %s OR game_system IS NULL)
+                    WHERE TRIM(team) ILIKE %s AND COALESCE(game_system, '40k') = %s
                     ORDER BY current_elo DESC NULLS LAST;
                     """, (team_name, system))
                     roster = [dict(r) for r in cursor.fetchall()]
@@ -3316,8 +3322,8 @@ class PostgresDatabase:
                 where_clauses = ["is_done = TRUE"]
                 params: List[Any] = []
                 if game_system and game_system != "all":
-                    where_clauses.append("(game_system = %s OR game_system IS NULL)")
-                    params.append(game_system)
+                    where_clauses.append("COALESCE(game_system, '40k') = %s")
+                    params.append((game_system or "40k").lower())
                 if start_date:
                     where_clauses.append("match_date >= %s")
                     params.append(start_date)
@@ -3503,8 +3509,8 @@ class PostgresDatabase:
                 where_sql = "WHERE h.player_id = %s"
                 params = [player_id]
                 if game_system and game_system != "all":
-                    where_sql += " AND (h.game_system = %s OR h.game_system IS NULL)"
-                    params.append(game_system)
+                    where_sql += " AND COALESCE(h.game_system, '40k') = %s"
+                    params.append((game_system or "40k").lower())
                 try:
                     cursor.execute(f"""
                     SELECT h.*, e.name as event_name
@@ -3540,8 +3546,8 @@ class PostgresDatabase:
                 where_sql = "WHERE (m.player1_id = %s OR m.player2_id = %s)"
                 params = [player_id, player_id]
                 if game_system and game_system != "all":
-                    where_sql += " AND (m.game_system = %s OR m.game_system IS NULL)"
-                    params.append(game_system)
+                    where_sql += " AND COALESCE(m.game_system, '40k') = %s"
+                    params.append((game_system or "40k").lower())
                 try:
                     cursor.execute(f"""
                     SELECT m.*, e.name as event_name
@@ -3579,8 +3585,8 @@ class PostgresDatabase:
                 sys_clause = ""
                 sys_params = []
                 if game_system and game_system != "all":
-                    sys_clause = " AND (game_system = %s OR game_system IS NULL)"
-                    sys_params = [game_system]
+                    sys_clause = " AND COALESCE(game_system, '40k') = %s"
+                    sys_params = [(game_system or "40k").lower()]
 
                 try:
                     if len(tokens) > 1:
@@ -3648,8 +3654,8 @@ class PostgresDatabase:
                 sys_clause = ""
                 sys_params = [p1_real_id, p2_real_id, p2_real_id, p1_real_id]
                 if game_system and game_system != "all":
-                    sys_clause = " AND (m.game_system = %s OR m.game_system IS NULL)"
-                    sys_params.append(game_system)
+                    sys_clause = " AND COALESCE(m.game_system, '40k') = %s"
+                    sys_params.append((game_system or "40k").lower())
 
                 try:
                     cursor.execute(f"""
@@ -3696,9 +3702,10 @@ class PostgresDatabase:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 sys_clause = ""
                 sys_params = []
+                system = (game_system or "40k").lower()
                 if game_system and game_system != "all":
-                    sys_clause = " AND (matches.game_system = %s OR matches.game_system IS NULL)"
-                    sys_params = [game_system]
+                    sys_clause = " AND COALESCE(matches.game_system, '40k') = %s"
+                    sys_params = [system]
 
                 # 1. Pure Match-Level Commander Records strictly for games played WITH this faction
                 try:
@@ -3736,12 +3743,12 @@ class PostgresDatabase:
                         ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
                         ROUND(AVG(fpg.score)::numeric, 1) as avg_score
                     FROM faction_player_games fpg
-                    LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND (r.game_system = %s OR r.game_system IS NULL))
+                    LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s)
                     GROUP BY fpg.p_id
                     HAVING COUNT(*) >= 1
                     ORDER BY wins DESC, matches_played DESC, current_elo DESC
                     LIMIT 25;
-                    """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, game_system or "40k"))
+                    """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, system))
                     top_players = [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
                     conn.rollback()
@@ -4696,6 +4703,7 @@ class PostgresDatabase:
         warlord = str(list_data.get("warlord") or "")
         source_format = str(list_data.get("source_format") or "Custom")
         raw_text = str(list_data.get("raw_text") or "")
+        game_system = str(list_data.get("game_system") or "40k").strip().lower()
         list_json = json.dumps(list_data)
 
         with self.get_connection() as conn:
@@ -4703,10 +4711,10 @@ class PostgresDatabase:
                 cursor.execute("""
                 INSERT INTO user_army_lists (
                     id, user_id, name, faction, detachment, points, points_limit,
-                    warlord, source_format, raw_text, list_data, updated_at
+                    warlord, source_format, raw_text, list_data, game_system, updated_at
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s::jsonb, NOW()
+                    %s, %s, %s, %s::jsonb, %s, NOW()
                 )
                 ON CONFLICT (id) DO UPDATE SET
                     name = EXCLUDED.name,
@@ -4718,35 +4726,56 @@ class PostgresDatabase:
                     source_format = EXCLUDED.source_format,
                     raw_text = EXCLUDED.raw_text,
                     list_data = EXCLUDED.list_data,
+                    game_system = COALESCE(EXCLUDED.game_system, user_army_lists.game_system, '40k'),
                     updated_at = NOW();
                 """, (
                     list_id, user_id, name, faction, detachment, points, points_limit,
-                    warlord, source_format, raw_text, list_json
+                    warlord, source_format, raw_text, list_json, game_system
                 ))
             conn.commit()
 
         return self.get_user_army_list(list_id, user_id=user_id) or list_data
 
-    def get_user_army_lists(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def get_user_army_lists(self, user_id: Optional[str] = None, game_system: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieves all saved army lists for a given user or global defaults."""
+        target_sys = (game_system.strip().lower() if game_system else None)
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
                 if user_id:
-                    cursor.execute("""
-                    SELECT id, user_id, name, faction, detachment, points, points_limit,
-                           warlord, source_format, list_data, created_at, updated_at
-                    FROM user_army_lists
-                    WHERE user_id = %s OR user_id IS NULL
-                    ORDER BY updated_at DESC;
-                    """, (user_id,))
+                    if target_sys:
+                        cursor.execute("""
+                        SELECT id, user_id, name, faction, detachment, points, points_limit,
+                               warlord, source_format, list_data, game_system, created_at, updated_at
+                        FROM user_army_lists
+                        WHERE (user_id = %s OR user_id IS NULL) AND COALESCE(game_system, '40k') = %s
+                        ORDER BY updated_at DESC;
+                        """, (user_id, target_sys))
+                    else:
+                        cursor.execute("""
+                        SELECT id, user_id, name, faction, detachment, points, points_limit,
+                               warlord, source_format, list_data, game_system, created_at, updated_at
+                        FROM user_army_lists
+                        WHERE user_id = %s OR user_id IS NULL
+                        ORDER BY updated_at DESC;
+                        """, (user_id,))
                 else:
-                    cursor.execute("""
-                    SELECT id, user_id, name, faction, detachment, points, points_limit,
-                           warlord, source_format, list_data, created_at, updated_at
-                    FROM user_army_lists
-                    ORDER BY updated_at DESC
-                    LIMIT 50;
-                    """)
+                    if target_sys:
+                        cursor.execute("""
+                        SELECT id, user_id, name, faction, detachment, points, points_limit,
+                               warlord, source_format, list_data, game_system, created_at, updated_at
+                        FROM user_army_lists
+                        WHERE COALESCE(game_system, '40k') = %s
+                        ORDER BY updated_at DESC
+                        LIMIT 50;
+                        """, (target_sys,))
+                    else:
+                        cursor.execute("""
+                        SELECT id, user_id, name, faction, detachment, points, points_limit,
+                               warlord, source_format, list_data, game_system, created_at, updated_at
+                        FROM user_army_lists
+                        ORDER BY updated_at DESC
+                        LIMIT 50;
+                        """)
                 rows = cursor.fetchall()
                 res = []
                 for r in rows:
@@ -6330,11 +6359,14 @@ class PostgresDatabase:
         lng: float,
         radius_miles: float = 50.0,
         elo_bracket: Optional[str] = None,
-        play_style: Optional[str] = None
+        play_style: Optional[str] = None,
+        game_system: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Finds nearby opt-in players looking for games, ranked by distance & Elo."""
         if lat is None or lng is None:
             return []
+        
+        target_sys = (game_system.strip().lower() if game_system else "40k")
         
         # Haversine distance in SQL
         distance_sql = """
@@ -6374,7 +6406,7 @@ class PostgresDatabase:
                 mr.sender_id as existing_request_sender_id
             FROM player_lfg_profiles p
             JOIN users u ON p.player_id = u.id
-            LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id)
+            LEFT JOIN player_ratings pr ON (u.player_id = pr.player_id OR u.id = pr.player_id) AND COALESCE(pr.game_system, '40k') = %s
             LEFT JOIN match_requests mr ON (
                 (mr.sender_id = %s AND mr.receiver_id = p.player_id) OR
                 (mr.receiver_id = %s AND mr.sender_id = p.player_id)
@@ -6384,11 +6416,14 @@ class PostgresDatabase:
               AND p.latitude IS NOT NULL 
               AND p.longitude IS NOT NULL
               AND {distance_sql} <= %s
+              AND (%s = ANY(COALESCE(p.game_systems, ARRAY['40k'])) OR COALESCE(p.game_system, '40k') = %s)
         """
         params = [
             lat, lng, lat,
+            target_sys,
             current_user_id, current_user_id, current_user_id,
-            lat, lng, lat, radius_miles
+            lat, lng, lat, radius_miles,
+            target_sys, target_sys
         ]
 
         if play_style and play_style.strip() and play_style.lower() != 'all':
@@ -7048,22 +7083,27 @@ class PostgresDatabase:
         user_lat: float,
         user_lng: float,
         radius_miles: float = 50.0,
-        days_ahead: int = 92
+        days_ahead: int = 92,
+        game_system: Optional[str] = "40k"
     ) -> List[Dict[str, Any]]:
         """
-        Queries live upcoming Warhammer 40k events directly from the Best Coast Pairings (BCP) API
-        for the specified GPS coordinates and radius, looking ahead up to days_ahead (default 92 days / ~3 months),
+        Queries live upcoming events directly from the Best Coast Pairings (BCP) API
+        for the specified GPS coordinates, radius, and game system, looking ahead up to days_ahead (default 92 days / ~3 months),
         starting from yesterday (to capture ongoing multi-day weekend tournaments).
         """
         if user_lat is None or user_lng is None:
             return []
+
+        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
+        bcp_game_sys = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
 
         effective_radius = max(5, int(round(radius_miles)))
         cache_key = (
             round(user_lat, 2),
             round(user_lng, 2),
             effective_radius,
-            days_ahead
+            days_ahead,
+            target_sys
         )
         cached = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, ttl=300)
         if cached is not None:
@@ -7076,7 +7116,7 @@ class PostgresDatabase:
 
         params = {
             "limit": 50,
-            "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+            "gameSystemId": bcp_game_sys,
             "startDate": start_iso,
             "endDate": end_iso,
             "excludeOnline": "true",
@@ -7241,7 +7281,8 @@ class PostgresDatabase:
                 "ticket_currency": ticket_currency,
                 "num_tickets": num_tickets,
                 "external_url": external_url,
-                "private_event": private_event
+                "private_event": private_event,
+                "game_system": target_sys
             })
 
         PostgresDatabase.set_cached(PostgresDatabase._bcp_upcoming_cache_dict, cache_key, normalized_events)
@@ -7256,7 +7297,8 @@ class PostgresDatabase:
         region: Optional[str] = None,
         current_user_id: Optional[str] = None,
         current_player_id: Optional[str] = None,
-        include_bcp: bool = False
+        include_bcp: bool = False,
+        game_system: Optional[str] = "40k"
     ) -> Dict[str, Any]:
         """
         Builds complete community hub payload based on GPS location and search radius:
@@ -7265,6 +7307,7 @@ class PostgresDatabase:
         - Local community leaderboard derived exclusively from competitors who played in those tournaments
         - Local competitors discovered via tournament participation
         """
+        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
         try:
             radius_miles = float(radius_miles or 50.0)
         except (ValueError, TypeError):
@@ -7400,7 +7443,8 @@ class PostgresDatabase:
                     int(round(radius_miles)),
                     str(current_player_id or ""),
                     str(current_user_id or ""),
-                    bool(include_bcp)
+                    bool(include_bcp),
+                    target_sys
                 )
                 cached = PostgresDatabase.get_cached(PostgresDatabase._community_overview_cache_dict, cache_key, ttl=90)
                 if cached is not None:
@@ -7528,6 +7572,7 @@ class PostgresDatabase:
                             (e.latitude BETWEEN %s AND %s AND e.longitude BETWEEN %s AND %s)
                             OR (e.latitude IS NULL)
                         )
+                          AND COALESCE(e.game_system, '40k') = %s
                     ),
                     events_dist AS (
                         SELECT *,
@@ -7571,7 +7616,7 @@ class PostgresDatabase:
                 cursor.execute(
                     combined_events_sql,
                     (
-                        min_lat, max_lat, min_lng, max_lng,
+                        min_lat, max_lat, min_lng, max_lng, target_sys,
                         user_lat, user_lng, user_lat,
                         min_lat, max_lat, min_lng, max_lng,
                         radius_miles, radius_miles
@@ -7618,7 +7663,8 @@ class PostgresDatabase:
                             user_lat=user_lat,
                             user_lng=user_lng,
                             radius_miles=radius_miles,
-                            days_ahead=92
+                            days_ahead=92,
+                            game_system=target_sys
                         )
                     except Exception as e:
                         logger.warning(f"Notice fetching live BCP upcoming tournaments: {e}")
@@ -7630,7 +7676,8 @@ class PostgresDatabase:
                             round(user_lat, 2),
                             round(user_lng, 2),
                             effective_radius,
-                            92
+                            92,
+                            target_sys
                         )
                         cached_bcp = PostgresDatabase.get_cached(PostgresDatabase._bcp_upcoming_cache_dict, bcp_cache_key, ttl=300)
                         if cached_bcp:
@@ -7697,7 +7744,7 @@ class PostgresDatabase:
 
                 # Collect event IDs for field stats and player discovery
                 all_event_ids = list({e["id"] for e in (events_upcoming + events_recent_all) if e.get("id")})
-                field_stats_map = self.get_events_field_stats(all_event_ids) if all_event_ids else {}
+                field_stats_map = self.get_events_field_stats(all_event_ids, game_system=target_sys) if all_event_ids else {}
 
                 for ev in (events_upcoming + events_recent):
                     eid = ev["id"]
@@ -7719,7 +7766,7 @@ class PostgresDatabase:
 
                 # Resolve user Elo for relevance and delta calculations
                 if current_player_id:
-                    cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s;", (current_player_id,))
+                    cursor.execute("SELECT current_elo FROM player_ratings WHERE player_id = %s AND COALESCE(game_system, '40k') = %s;", (current_player_id, target_sys))
                     u_elo_row = cursor.fetchone()
                     if u_elo_row and u_elo_row.get("current_elo"):
                         user_elo = float(u_elo_row["current_elo"])
@@ -7732,8 +7779,8 @@ class PostgresDatabase:
                             OR
                             (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND pr.player_id = u.bcp_user_id)
                         ) 
-                        WHERE u.id = %s;
-                    """, (current_user_id,))
+                        WHERE u.id = %s AND COALESCE(pr.game_system, '40k') = %s;
+                    """, (current_user_id, target_sys))
                     u_elo_row = cursor.fetchone()
                     if u_elo_row and u_elo_row.get("current_elo"):
                         user_elo = float(u_elo_row["current_elo"])
@@ -7866,7 +7913,7 @@ class PostgresDatabase:
                             MAX(u.display_name) as account_display_name,
                             CASE WHEN MAX(u.id) IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                         FROM event_participants ep
-                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
                         LEFT JOIN users u ON (
                             (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = ep.player_id)
                             OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = ep.player_id)
@@ -7877,7 +7924,7 @@ class PostgresDatabase:
                                  pr.team, pr.matches_played, pr.wins, pr.losses, pr.win_rate
                         ORDER BY current_elo DESC
                         LIMIT 500;
-                    """, (all_event_ids,))
+                    """, (target_sys, all_event_ids,))
                     comp_rows = cursor.fetchall()
 
                     # Check if any players in player_local_stats were missing from event_participants
@@ -7905,8 +7952,8 @@ class PostgresDatabase:
                                 OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = pr.player_id)
                                 OR u.id = pr.player_id
                             )
-                            WHERE pr.player_id = ANY(%s);
-                        """, (missing_pids,))
+                            WHERE pr.player_id = ANY(%s) AND COALESCE(pr.game_system, '40k') = %s;
+                        """, (missing_pids, target_sys))
                         for mr in cursor.fetchall():
                             md = dict(mr)
                             md["event_ids"] = list(player_local_stats[md["player_id"]]["events"])
@@ -8007,16 +8054,17 @@ class PostgresDatabase:
                             u.display_name as account_display_name,
                             CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                         FROM player_lfg_profiles p
-                        LEFT JOIN player_ratings pr ON p.player_id = pr.player_id
+                        LEFT JOIN player_ratings pr ON p.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
                         LEFT JOIN users u ON (
                             (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = p.player_id)
                             OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = p.player_id)
                             OR u.id = p.player_id
                         )
                         WHERE p.latitude BETWEEN %s AND %s AND p.longitude BETWEEN %s AND %s
+                          AND (COALESCE(p.game_system, '40k') = %s OR %s = ANY(COALESCE(p.game_systems, ARRAY['40k'::text])))
                         ORDER BY pr.current_elo DESC NULLS LAST
                         LIMIT 50;
-                    """, (min_lat, max_lat, min_lng, max_lng))
+                    """, (target_sys, min_lat, max_lat, min_lng, max_lng, target_sys, target_sys))
                     for r in cursor.fetchall():
                         p_dict = dict(r)
                         p_dict["regional_events_count"] = 0
@@ -8135,7 +8183,7 @@ class PostgresDatabase:
                                 SUM(COALESCE(pr.wins, 0)) * 100.0 / NULLIF(SUM(COALESCE(pr.matches_played, 0)), 0)
                             )::numeric, 1) as team_win_rate
                         FROM event_participants ep
-                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id
+                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
                         WHERE ep.event_id = ANY(%s)
                           AND (
                               (ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-'))
@@ -8146,7 +8194,7 @@ class PostgresDatabase:
                         HAVING COUNT(DISTINCT ep.player_id) >= 1
                         ORDER BY avg_elo DESC, local_members_count DESC
                         LIMIT 50;
-                    """, (all_event_ids,))
+                    """, (target_sys, all_event_ids,))
                     team_rows = cursor.fetchall()
                     for idx, tr in enumerate(team_rows, start=1):
                         td = dict(tr)

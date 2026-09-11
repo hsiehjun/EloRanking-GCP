@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=042c65e8cc">
-  <link rel="stylesheet" href="/css/styles.css?v=042c65e8cc">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=042c65e8cc">
+  <link rel="stylesheet" href="/css/theme.css?v=89b69cf7bd">
+  <link rel="stylesheet" href="/css/styles.css?v=89b69cf7bd">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=89b69cf7bd">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -41,6 +41,12 @@
         return;
       }
       if (val === 'tracker') {
+        if (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') {
+          if (typeof openAosTrackerModal === 'function') openAosTrackerModal();
+          var mob = document.getElementById('mobile-nav-select');
+          if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+          return;
+        }
         window.location.href = '/11th/tracker';
         return;
       }
@@ -152,7 +158,7 @@
           <div class="logo-title" style="display:flex; align-items:center; gap:6px;">
             <span style="font-weight:900; letter-spacing:0.04em; background: linear-gradient(135deg, #ffffff 0%, #38bdf8 60%, #0284c7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">OmniTactica</span>
           </div>
-          <div class="logo-subtitle">40K Tactical Suite</div>
+          <div class="logo-subtitle" id="app-logo-subtitle">40K Tactical Suite</div>
         </div>
       </a>
 
@@ -163,7 +169,7 @@
         <button class="nav-btn" id="nav-btn-community" onclick="switchTab('community')">
           👥 Community Hub
         </button>
-        <a class="nav-btn" id="nav-btn-tracker" href="/11th/tracker" style="text-decoration: none;">
+        <a class="nav-btn" id="nav-btn-tracker" href="/11th/tracker" onclick="return handleTrackerNavClick(event);" style="text-decoration: none;">
           🎲 Game Tracker
         </a>
         <button class="nav-btn active" id="nav-btn-leaderboard" onclick="switchTab('leaderboard')">
@@ -202,10 +208,21 @@
             </svg>
           </div>
         </div>
+        <button type="button" id="mobile-game-switcher" class="mobile-game-system-pill" onclick="toggleGameSystemMobile()" title="Switch Game System">
+          <span id="mobile-sys-icon">⚔️</span> <span id="mobile-sys-label">40K</span>
+        </button>
       </div>
 
       <!-- User Account Action & Feedback Area -->
       <div class="header-actions-group" style="display: flex; align-items: center; gap: 0.6rem;">
+        <div class="game-system-switcher desktop-only" id="desktop-game-switcher" role="radiogroup" aria-label="Game System">
+          <button type="button" class="game-system-pill active" data-sys="40k" onclick="switchGameSystem('40k')" title="Warhammer 40,000">
+            <span class="sys-icon">⚔️</span> <span class="sys-label">40K</span>
+          </button>
+          <button type="button" class="game-system-pill" data-sys="aos" onclick="switchGameSystem('aos')" title="Warhammer Age of Sigmar">
+            <span class="sys-icon">⚡</span> <span class="sys-label">AoS</span>
+          </button>
+        </div>
         <button id="nav-btn-feedback" onclick="openFeedbackModal()" class="nav-btn" style="padding: 5px 12px; font-size: 0.82rem; display: none; align-items: center; gap: 5px; color: #94a3b8; border: 1px solid rgba(255,255,255,0.1); border-radius: 9999px; background: rgba(15,23,42,0.6); cursor: pointer; transition: all 0.2s;" onmouseover="this.style.color='#38bdf8'; this.style.borderColor='rgba(56,189,248,0.4)';" onmouseout="this.style.color='#94a3b8'; this.style.borderColor='rgba(255,255,255,0.1)';" title="Send Feedback or Report an Issue">
           <span>💬</span> <span style="font-weight: 600;">Feedback</span>
         </button>
@@ -2761,8 +2778,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "042c65e8cc";</script>
-  <script src="/js/app.bundle.min.js?v=042c65e8cc"></script>
+  <script>window.APP_VERSION = "89b69cf7bd";</script>
+  <script src="/js/app.bundle.min.js?v=89b69cf7bd"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
@@ -3399,6 +3416,25 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AoS Tracker Modal -->
+  <div id="aos-tracker-modal" class="modal-backdrop" style="display: none;" onclick="if(event.target === this) closeAosTrackerModal()">
+    <div class="modal-card" style="max-width: 480px; padding: 2rem; background: var(--bg-card); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-lg); box-shadow: 0 12px 36px rgba(0,0,0,0.6), 0 0 24px rgba(245, 158, 11, 0.2); text-align: center;">
+      <div style="font-size: 3rem; margin-bottom: 0.75rem;">⚡</div>
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.3rem; font-weight: 800; color: #f59e0b;">AoS Battle Tracker In Development</h3>
+      <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; margin: 0 0 1.5rem 0;">
+        The dedicated Warhammer Age of Sigmar Battle Tracker is currently being prepared for the Mortal Realms. In the meantime, our complete 40K Tactical Suite tracker remains fully operational.
+      </p>
+      <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+        <a href="/11th/tracker" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.6rem 1.2rem; border-color: rgba(56,189,248,0.4); color: #38bdf8; text-decoration: none;">
+          ⚔️ Launch 40K Tracker
+        </a>
+        <button type="button" onclick="closeAosTrackerModal()" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.6rem 1.2rem; background: #f59e0b; border-color: #d97706; color: #1e1b4b; font-weight: 700;">
+          Got it
+        </button>
       </div>
     </div>
   </div>

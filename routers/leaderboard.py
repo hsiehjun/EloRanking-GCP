@@ -308,7 +308,10 @@ async def api_events_recommended(
     now_ts = time.time()
     effective_radius = int(radius_miles) if radius_miles and radius_miles > 0 else 50
     days_ahead = max(30, int(months_ahead * 30.5))
-    geo_key = f"{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}_{months_ahead}"
+    target_sys = (game_system.strip().lower() if game_system else "40k")
+    target_sys = "aos" if target_sys == "aos" else "40k"
+    bcp_sys_id = "OY8FCPBf6O" if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
+    geo_key = f"{target_sys}_{round(user_lat, 2) if user_lat else None}_{round(user_lng, 2) if user_lng else None}_{effective_radius}_{months_ahead}"
     
     if not hasattr(api_events_recommended, "_cache"):
         api_events_recommended._cache = {}
@@ -324,7 +327,7 @@ async def api_events_recommended(
             # Direct BCP API server-side geospatial query (exact matching BCP web app)
             params = {
                 "limit": 50,
-                "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                "gameSystemId": bcp_sys_id,
                 "startDate": now_dt.strftime("%Y-%m-%dT00:00:00.000Z"),
                 "endDate": (now_dt + timedelta(days=days_ahead)).strftime("%Y-%m-%dT23:59:59.999Z"),
                 "excludeOnline": "true",
@@ -367,7 +370,7 @@ async def api_events_recommended(
                 next_key = None
                 params = {
                     "limit": 50,
-                    "gameSystemId": DEFAULT_GAME_SYSTEM_ID,
+                    "gameSystemId": bcp_sys_id,
                     "startDate": s_iso,
                     "endDate": e_iso
                 }
@@ -401,9 +404,10 @@ async def api_events_recommended(
                     FROM events
                     WHERE event_date >= CURRENT_DATE - INTERVAL '14 days'
                       AND event_date <= CURRENT_DATE + (INTERVAL '1 day' * %s)
+                      AND COALESCE(game_system, '40k') = %s
                     ORDER BY event_date ASC
                     LIMIT 150;
-                    """, (days_ahead,))
+                    """, (days_ahead, target_sys))
                     db_evs = [dict(r) for r in cursor.fetchall()]
                     seen_ids_temp = {e.get("id") or e.get("objectId") for e in bcp_events if e.get("id") or e.get("objectId")}
                     for dbev in db_evs:
@@ -1541,13 +1545,14 @@ async def api_predict(
     p1: Optional[str] = Query(None),
     p2: Optional[str] = Query(None),
     player1: Optional[str] = Query(None),
-    player2: Optional[str] = Query(None)
+    player2: Optional[str] = Query(None),
+    game_system: Optional[str] = Query("40k")
 ):
     p1_name = p1 or player1 or ""
     p2_name = p2 or player2 or ""
     if not p1_name or not p2_name:
         raise HTTPException(status_code=400, detail="Missing p1 (player1) or p2 (player2) parameters")
-    return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip())
+    return get_elo_engine().predict_match_outcome(p1_name.strip(), p2_name.strip(), game_system=game_system)
 
 
 

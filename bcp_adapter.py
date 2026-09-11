@@ -12,15 +12,20 @@ from typing import Optional, Dict, Any, Tuple, List
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
-        BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
+        BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
+        DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
     )
 except ImportError:
     try:
         from experimental.users.hsiehjun.EloRanking.config import (
-            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
+            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
+            DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
         )
     except ImportError:
-        from config import BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT
+        from config import (
+            BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
+            DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID
+        )
 
 logger = logging.getLogger("BcpAdapter")
 
@@ -1231,6 +1236,7 @@ class BcpAdapter:
             army_id = p_data.get("armyId") or p_data.get("army_id") or ""
             sub_faction_id = p_data.get("subFactionId") or p_data.get("sub_faction_id") or ""
             gamesystem_id = item.get("gameSystemId") or item.get("gamesystem") or item.get("systemId") or "WGMSzfKFYA"
+            ev_game_sys = "aos" if (gamesystem_id == AOS_GAME_SYSTEM_ID or str(gamesystem_id) in ("OY8FCPBf6O", "23qDprPABN")) else "40k"
 
             events_list.append({
                 "bcp_event_id": ev_id,
@@ -1243,6 +1249,7 @@ class BcpAdapter:
                 "sub_faction_id": sub_faction_id,
                 "dropped": dropped,
                 "gamesystem_id": gamesystem_id,
+                "game_system": ev_game_sys,
                 "event_name": item.get("name") or "Tournament",
                 "event_date": item.get("eventDate") or item.get("startDate") or item.get("eventStartDate"),
                 "end_date": item.get("endDate") or item.get("eventEndDate"),

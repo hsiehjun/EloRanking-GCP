@@ -21,6 +21,185 @@ if (typeof window !== 'undefined') {
 
 let activeTab = 'my-hub';
 
+// Game system state: '40k' or 'aos'
+let currentGameSystem = '40k';
+window.currentGameSystem = currentGameSystem;
+
+function initGameSystem() {
+  const path = (window.location.pathname || '').toLowerCase();
+  const params = new URLSearchParams(window.location.search);
+  const querySys = (params.get('game') || params.get('sys') || '').toLowerCase();
+  let storedSys = '';
+  try {
+    storedSys = (localStorage.getItem('omni_game_system') || '').toLowerCase();
+  } catch (e) {}
+
+  let initialSys = '40k';
+  if (path.startsWith('/aos')) {
+    initialSys = 'aos';
+  } else if (path.startsWith('/40k')) {
+    initialSys = '40k';
+  } else if (querySys === 'aos' || querySys === '40k') {
+    initialSys = querySys;
+  } else if (storedSys === 'aos' || storedSys === '40k') {
+    initialSys = storedSys;
+  }
+
+  applyGameSystem(initialSys, false);
+}
+
+function applyGameSystem(sys, updateUrl = true) {
+  currentGameSystem = (sys === 'aos') ? 'aos' : '40k';
+  window.currentGameSystem = currentGameSystem;
+  try {
+    localStorage.setItem('omni_game_system', currentGameSystem);
+  } catch (e) {}
+
+  // Update root attribute for styling
+  if (document.documentElement) {
+    document.documentElement.setAttribute('data-game-system', currentGameSystem);
+  }
+
+  // Update branding subtitle
+  const subEl = document.getElementById('app-logo-subtitle');
+  if (subEl) {
+    subEl.textContent = (currentGameSystem === 'aos') ? 'AoS Tactical Suite' : '40K Tactical Suite';
+  }
+
+  // Update desktop segmented switcher buttons
+  const desktopBtns = document.querySelectorAll('.game-system-pill');
+  desktopBtns.forEach(btn => {
+    const btnSys = btn.getAttribute('data-sys');
+    btn.classList.toggle('active', btnSys === currentGameSystem);
+  });
+
+  // Update mobile compact switcher pill
+  const mobIcon = document.getElementById('mobile-sys-icon');
+  const mobLabel = document.getElementById('mobile-sys-label');
+  const mobBtn = document.getElementById('mobile-game-switcher');
+  if (mobIcon && mobLabel) {
+    if (currentGameSystem === 'aos') {
+      mobIcon.textContent = '⚡';
+      mobLabel.textContent = 'AoS';
+      if (mobBtn) mobBtn.classList.add('aos-active');
+    } else {
+      mobIcon.textContent = '⚔️';
+      mobLabel.textContent = '40K';
+      if (mobBtn) mobBtn.classList.remove('aos-active');
+    }
+  }
+
+  // Update URL if requested
+  if (updateUrl && window.history && window.history.replaceState) {
+    const prefix = (currentGameSystem === 'aos') ? '/aos' : '';
+    const hash = window.location.hash || ('#' + activeTab);
+    const targetPath = `${prefix}${prefix ? '/' : ''}${hash}`;
+    window.history.replaceState(null, '', targetPath || `/${hash}`);
+  }
+}
+
+function switchGameSystem(sys) {
+  if (sys === currentGameSystem) return;
+  applyGameSystem(sys, true);
+
+  // Clear caches
+  if (typeof window.resetFactionState === 'function') {
+    window.resetFactionState();
+  }
+  if (typeof window.resetMyHubState === 'function') {
+    window.resetMyHubState();
+  }
+  if (typeof window.resetPredictorState === 'function') {
+    window.resetPredictorState();
+  }
+  if (typeof communityState !== 'undefined') {
+    communityState.overview = null;
+    communityState.overviewKey = null;
+    communityState.overviewLoadedAt = 0;
+  }
+  if (typeof leaderboardPagination !== 'undefined') {
+    leaderboardPagination.page = 1;
+  }
+  if (typeof leaderboardTeamsPagination !== 'undefined') {
+    leaderboardTeamsPagination.page = 1;
+  }
+  if (typeof playersPagination !== 'undefined') {
+    playersPagination.page = 1;
+  }
+  if (typeof teamsPagination !== 'undefined') {
+    teamsPagination.page = 1;
+  }
+  if (typeof playersDirectoryData !== 'undefined') {
+    playersDirectoryData = [];
+  }
+  if (typeof teamsDirectoryData !== 'undefined') {
+    teamsDirectoryData = [];
+  }
+
+  // Reload current tab and stats
+  loadGlobalStats();
+
+  if (activeTab === 'leaderboard') {
+    const teamsBtn = document.getElementById('lead-subtab-teams');
+    if (teamsBtn && teamsBtn.classList.contains('active')) {
+      if (typeof loadLeaderboardTeams === 'function') loadLeaderboardTeams();
+    } else {
+      if (typeof loadLeaderboard === 'function') loadLeaderboard();
+    }
+  } else if (activeTab === 'my-hub') {
+    if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
+  } else if (activeTab === 'meta-intel') {
+    if (typeof loadFactionMeta === 'function') loadFactionMeta();
+  } else if (activeTab === 'community') {
+    if (typeof loadCommunityHub === 'function') {
+      loadCommunityHub(null, null, null, null, true);
+    }
+  } else if (activeTab === 'search') {
+    const teamsBtn = document.getElementById('search-subtab-teams');
+    if (teamsBtn && teamsBtn.classList.contains('active')) {
+      if (typeof loadTeamsDirectory === 'function') loadTeamsDirectory();
+    } else {
+      if (typeof loadPlayersDirectory === 'function') loadPlayersDirectory();
+    }
+  }
+}
+
+function toggleGameSystemMobile() {
+  const nextSys = (currentGameSystem === 'aos') ? '40k' : 'aos';
+  switchGameSystem(nextSys);
+}
+
+function openAosTrackerModal() {
+  const modal = document.getElementById('aos-tracker-modal');
+  if (modal) {
+    modal.style.display = 'flex';
+  }
+}
+
+function closeAosTrackerModal() {
+  const modal = document.getElementById('aos-tracker-modal');
+  if (modal) {
+    modal.style.display = 'none';
+  }
+}
+
+function handleTrackerNavClick(e) {
+  if (currentGameSystem === 'aos') {
+    if (e && e.preventDefault) e.preventDefault();
+    openAosTrackerModal();
+    return false;
+  }
+  return true;
+}
+
+window.initGameSystem = initGameSystem;
+window.applyGameSystem = applyGameSystem;
+window.switchGameSystem = switchGameSystem;
+window.toggleGameSystemMobile = toggleGameSystemMobile;
+window.openAosTrackerModal = openAosTrackerModal;
+window.closeAosTrackerModal = closeAosTrackerModal;
+window.handleTrackerNavClick = handleTrackerNavClick;
+
 function switchTab(tabName) {
   // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
@@ -89,8 +268,13 @@ function switchTab(tabName) {
 
   // Update URL hash history and clean away any query parameters
   if (window.history && window.history.replaceState) {
-    const cleanPath = window.location.pathname.replace(/\/+$/, '') || '/';
-    window.history.replaceState(null, '', `${cleanPath}#${tabName}`);
+    let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');
+    if (currentGameSystem === 'aos') {
+      if (!cleanPath.startsWith('/aos')) cleanPath = '/aos';
+    } else {
+      if (cleanPath.startsWith('/aos')) cleanPath = '';
+    }
+    window.history.replaceState(null, '', `${cleanPath || '/'}#${tabName}`);
   }
 
   // Trigger lazy loading of view data
@@ -148,6 +332,12 @@ function switchTab(tabName) {
 function handleMobileNavChange(val) {
   if (!val) return;
   if (val === 'tracker') {
+    if (currentGameSystem === 'aos') {
+      openAosTrackerModal();
+      const mob = document.getElementById('mobile-nav-select');
+      if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+      return;
+    }
     window.location.href = '/11th/tracker';
     return;
   }
@@ -198,6 +388,19 @@ window.handleMobileNavChange = handleMobileNavChange;
 window.addEventListener('hashchange', () => {
   const hash = window.location.hash.replace('#', '').trim();
   if (hash) switchTab(hash);
+});
+
+// Support browser back / forward navigation across game systems and tabs
+window.addEventListener('popstate', () => {
+  const path = (window.location.pathname || '').toLowerCase();
+  const targetSys = path.startsWith('/aos') ? 'aos' : '40k';
+  if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem) {
+    if (typeof switchGameSystem === 'function') switchGameSystem(targetSys);
+  }
+  const hash = window.location.hash.replace('#', '').trim();
+  if (hash && typeof activeTab !== 'undefined' && hash !== activeTab) {
+    if (typeof switchTab === 'function') switchTab(hash);
+  }
 });
 
 window.addEventListener('tournaments-updated', () => {
@@ -546,6 +749,9 @@ window.applyAppUpdateNow = applyAppUpdateNow;
 window.dismissAppUpdateBanner = dismissAppUpdateBanner;
 
 document.addEventListener('DOMContentLoaded', async () => {
+  if (typeof initGameSystem === 'function') {
+    initGameSystem();
+  }
   if (typeof initAuth === 'function') {
     await initAuth();
   }

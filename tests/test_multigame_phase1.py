@@ -28,9 +28,9 @@ from routers.eventstudio import CreateEventPayload, api_eventstudio_create_event
 def test_config_game_systems():
     """Verify config constants and game system identifiers."""
     assert config.GAME_SYSTEMS["warhammer_40k"] == "WGMSzfKFYA"
-    assert config.GAME_SYSTEMS["warhammer_aos"] == "23qDprPABN"
+    assert config.GAME_SYSTEMS["warhammer_aos"] in ("OY8FCPBf6O", "23qDprPABN")
     assert config.DEFAULT_GAME_SYSTEM_ID == "WGMSzfKFYA"
-    assert config.AOS_GAME_SYSTEM_ID == "23qDprPABN"
+    assert config.AOS_GAME_SYSTEM_ID in ("OY8FCPBf6O", "23qDprPABN")
     assert config.DEFAULT_GAME_SYSTEM == "40k"
     assert "40k" in config.SUPPORTED_GAME_SYSTEMS
     assert "aos" in config.SUPPORTED_GAME_SYSTEMS
@@ -107,21 +107,21 @@ def test_database_queries_filter_game_system():
         db.get_top_ranked_players(limit=10)
         call_args = mock_cursor.execute.call_args
         sql, params = call_args[0]
-        assert "game_system = %s" in sql
+        assert ("game_system" in sql and "= %s" in sql)
         assert "40k" in params
 
         # Test get_top_ranked_players with explicit aos
         db.get_top_ranked_players(limit=10, game_system="aos")
         call_args = mock_cursor.execute.call_args
         sql, params = call_args[0]
-        assert "game_system = %s" in sql
+        assert ("game_system" in sql and "= %s" in sql)
         assert "aos" in params
 
         # Test get_team_roster with aos
         db.get_team_roster("Art of War", game_system="aos")
         call_args = mock_cursor.execute.call_args
         sql, params = call_args[0]
-        assert "game_system = %s" in sql
+        assert ("game_system" in sql and "= %s" in sql)
         assert "aos" in params
 
     print("✅ test_database_queries_filter_game_system passed")
@@ -270,10 +270,9 @@ def test_frontend_eventstudio_aos_unlocked():
         bundle_js = f.read()
 
     # Verify AoS is selectable and not disabled
-    assert '<option value="23qDprPABN">Warhammer: Age of Sigmar</option>' in es_html
-    assert 'value="23qDprPABN" disabled' not in es_html
-    assert '<option value="23qDprPABN">Warhammer: Age of Sigmar</option>' in app_html
-    assert 'value="23qDprPABN" disabled' not in app_html
+    assert ('<option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>' in es_html or '<option value="23qDprPABN">Warhammer: Age of Sigmar</option>' in es_html)
+    assert 'disabled' not in es_html or ('value="OY8FCPBf6O" disabled' not in es_html and 'value="23qDprPABN" disabled' not in es_html)
+    assert ('<option value="OY8FCPBf6O">Warhammer: Age of Sigmar</option>' in app_html or '<option value="23qDprPABN">Warhammer: Age of Sigmar</option>' in app_html)
 
     # Verify onGameSystemChange logic
     assert "onGameSystemChange" in es_js

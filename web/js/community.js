@@ -310,7 +310,8 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
   }
 
   // Deduplicate concurrent in-flight requests for same location & radius
-  const requestKey = `${communityState.lat != null ? communityState.lat.toFixed(2) : ''}_${communityState.lng != null ? communityState.lng.toFixed(2) : ''}_${communityState.radiusMiles}`;
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const requestKey = `${gs}_${communityState.lat != null ? communityState.lat.toFixed(2) : ''}_${communityState.lng != null ? communityState.lng.toFixed(2) : ''}_${communityState.radiusMiles}`;
   if (_activeCommunityHubPromise && _activeCommunityHubKey === requestKey) {
     return _activeCommunityHubPromise;
   }
@@ -506,8 +507,9 @@ function renderCommunityHeader(locInfo) {
   const rad = locInfo?.radius_miles || communityState.radiusMiles || 50;
   const locName = locInfo?.location_name || locInfo?.name || communityState.locationName || 'Your Location';
 
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? 'AoS' : '40K';
   if (badgeEl) badgeEl.textContent = `📍 ${rad}-Mile Tournament Radius`;
-  if (titleEl) titleEl.textContent = `Local 40k Scene within ${rad} miles of ${locName}`;
+  if (titleEl) titleEl.textContent = `Local ${gs} Scene within ${rad} miles of ${locName}`;
   if (descEl) descEl.textContent = `Local tournaments, sparring radar, game stores, and regional player standings.`;
   const userLocEl = document.getElementById('user-location-text');
   if (userLocEl && locName) userLocEl.textContent = locName;
@@ -3296,7 +3298,10 @@ async function openEventRegistrationModal(eventId) {
 
   try {
     const data = await window.api.getCommunityEventRegistration(eventId);
-    if (loadingModal) closeEventRegistrationLoadingModal();
+    if (loadingModal) {
+      loadingModal.style.display = 'none';
+      closeEventRegistrationLoadingModal();
+    }
 
     if (!data || !data.success) {
       modal.style.display = 'flex';

@@ -176,6 +176,70 @@ header {
   box-shadow: 0 1px 4px rgba(0,0,0,0.4);
 }
 
+/* Game System Switcher (Desktop & Mobile) */
+.game-system-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  padding: 2px;
+  gap: 2px;
+  user-select: none;
+  flex-shrink: 0;
+}
+.game-system-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+.game-system-pill:hover {
+  color: #f1f5f9;
+}
+.game-system-pill.active {
+  background: rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.25);
+}
+[data-game-system="aos"] .game-system-pill.active {
+  background: rgba(245, 158, 11, 0.22);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.5);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
+}
+
+.mobile-game-system-pill {
+  display: none;
+}
+
+/* AoS Theme Variables & Overrides */
+[data-game-system="aos"] {
+  --accent: #f59e0b;
+  --accent-glow: rgba(245, 158, 11, 0.2);
+}
+[data-game-system="aos"] .logo-title span {
+  background: linear-gradient(135deg, #ffffff 0%, #fbbf24 60%, #d97706 100%) !important;
+  -webkit-background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+}
+[data-game-system="aos"] .nav-btn.active {
+  color: #fbbf24;
+}
+[data-game-system="aos"] .mobile-nav-select {
+  color: #fbbf24 !important;
+  border-color: rgba(245, 158, 11, 0.4) !important;
+}
+
 /* Main Container */
 main {
   max-width: 1440px;
@@ -1442,13 +1506,43 @@ input, select, textarea {
     width: 100% !important;
     flex: 1 1 100% !important;
     margin: 0 !important;
+    gap: 6px !important;
+    align-items: center !important;
   }
 
   .mobile-nav-select-wrap {
     position: relative !important;
-    width: 100% !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
     display: flex !important;
     align-items: center !important;
+  }
+
+  .mobile-game-system-pill {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 4px !important;
+    height: 38px !important;
+    padding: 0 10px !important;
+    border-radius: 9px !important;
+    font-size: 0.78rem !important;
+    font-weight: 800 !important;
+    cursor: pointer !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.98) 0%, rgba(12, 30, 52, 0.98) 100%) !important;
+    color: #38bdf8 !important;
+    border: 1px solid rgba(56, 189, 248, 0.4) !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3) !important;
+    transition: all 0.2s ease !important;
+  }
+  .mobile-game-system-pill.aos-active,
+  [data-game-system="aos"] .mobile-game-system-pill {
+    background: linear-gradient(135deg, rgba(26, 18, 9, 0.98) 0%, rgba(45, 29, 7, 0.98) 100%) !important;
+    color: #fbbf24 !important;
+    border: 1px solid rgba(245, 158, 11, 0.5) !important;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.25) !important;
   }
 
   .mobile-nav-select {

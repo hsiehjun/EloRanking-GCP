@@ -100,7 +100,8 @@ async def api_search_connect_players(
     lat: Optional[float] = Query(None),
     lng: Optional[float] = Query(None),
     radius_miles: float = Query(50.0, ge=1.0, le=250.0),
-    play_style: Optional[str] = Query(None)
+    play_style: Optional[str] = Query(None),
+    game_system: Optional[str] = Query(None)
 ):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -123,7 +124,8 @@ async def api_search_connect_players(
         lat=lat,
         lng=lng,
         radius_miles=radius_miles,
-        play_style=play_style
+        play_style=play_style,
+        game_system=game_system
     )
     return {"success": True, "players": players}
 

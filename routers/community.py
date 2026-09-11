@@ -58,7 +58,8 @@ async def api_community_overview(
     location_name: Optional[str] = Query(None),
     region: Optional[str] = Query(None),
     token: Optional[str] = Query(None),
-    include_bcp: bool = Query(False)
+    include_bcp: bool = Query(False),
+    game_system: Optional[str] = Query("40k")
 ):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -76,7 +77,8 @@ async def api_community_overview(
         region=region,
         current_user_id=user_id,
         current_player_id=player_id,
-        include_bcp=include_bcp
+        include_bcp=include_bcp,
+        game_system=game_system
     )
 
 @router.get("/api/community/bcp_upcoming", summary="Fetch live BCP upcoming tournaments asynchronously")
@@ -84,17 +86,19 @@ async def api_community_bcp_upcoming(
     lat: float = Query(...),
     lng: float = Query(...),
     radius_miles: float = Query(50.0),
-    days_ahead: int = Query(92)
+    days_ahead: int = Query(92),
+    game_system: Optional[str] = Query("40k")
 ):
     db = get_database()
-    events = db.fetch_bcp_upcoming_events(user_lat=lat, user_lng=lng, radius_miles=radius_miles, days_ahead=days_ahead)
+    events = db.fetch_bcp_upcoming_events(user_lat=lat, user_lng=lng, radius_miles=radius_miles, days_ahead=days_ahead, game_system=game_system)
     return {"success": True, "events": events}
 
 _community_field_stats_cache: Dict[str, Dict[str, Any]] = {}
 
-def compute_live_bcp_field_stats(eid: str, db) -> Dict[str, Any]:
+def compute_live_bcp_field_stats(eid: str, db, game_system: Optional[str] = "40k") -> Dict[str, Any]:
     """Fetches live roster from BCP API and computes field avg / top seed Elo without mutating backend DB."""
     try:
+        target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
         s = BestCoastPairingsScraper(db=db, request_delay=0.0)
         roster = s.fetch_event_players(eid)
         if not roster:
@@ -133,8 +137,9 @@ def compute_live_bcp_field_stats(eid: str, db) -> Dict[str, Any]:
                         cursor.execute("""
                             SELECT player_id, player_name, current_elo
                             FROM player_ratings
-                            WHERE player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s));
-                        """, (list(candidate_pids), list(candidate_names)))
+                            WHERE (player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s)))
+                              AND COALESCE(game_system, '40k') = %s;
+                        """, (list(candidate_pids), list(candidate_names), target_sys))
                         for row in cursor.fetchall():
                             if isinstance(row, dict) or hasattr(row, "keys"):
                                 r = dict(row)
@@ -203,15 +208,19 @@ def compute_live_bcp_field_stats(eid: str, db) -> Dict[str, Any]:
 @router.post("/api/community/events/field_stats", summary="Get or compute live average field Elo and top seed Elo")
 async def api_community_events_field_stats(
     request: Request,
-    event_ids: Optional[str] = Query(None, description="Comma-separated event IDs")
+    event_ids: Optional[str] = Query(None, description="Comma-separated event IDs"),
+    game_system: Optional[str] = Query("40k")
 ):
     target_ids: List[str] = []
+    target_sys = "aos" if (game_system or "").lower() == "aos" else "40k"
     if event_ids:
         target_ids.extend([eid.strip() for eid in event_ids.split(",") if eid.strip()])
     if request.method == "POST":
         try:
             body = await request.json()
             if isinstance(body, dict):
+                if body.get("game_system"):
+                    target_sys = "aos" if str(body["game_system"]).strip().lower() == "aos" else "40k"
                 t_list = body.get("event_ids") or body.get("ids") or []
                 if isinstance(t_list, list):
                     target_ids.extend([str(x).strip() for x in t_list if str(x).strip()])
@@ -232,7 +241,8 @@ async def api_community_events_field_stats(
 
     # Check in-memory cache first (15-minute TTL for populated stats, 60s for empty stats)
     for eid in target_ids:
-        cached = _community_field_stats_cache.get(eid)
+        c_key = f"{eid}:{target_sys}"
+        cached = _community_field_stats_cache.get(c_key)
         if cached:
             ttl = 900 if int(cached.get("stats", {}).get("total_enrolled") or 0) > 0 else 60
             if (now_ts - cached.get("timestamp", 0) < ttl):
@@ -243,15 +253,16 @@ async def api_community_events_field_stats(
     if missing_ids:
         db = get_database()
         # 1. Query existing DB participants (read-only)
-        db_stats = db.get_events_field_stats(missing_ids)
+        db_stats = db.get_events_field_stats(missing_ids, game_system=target_sys)
         need_bcp_sync: List[str] = []
 
         for eid in missing_ids:
+            c_key = f"{eid}:{target_sys}"
             stat = db_stats.get(eid)
             # If DB already has participants from prior scraping, cache and return
             if stat and int(stat.get("total_enrolled") or 0) > 0:
                 results[eid] = stat
-                _community_field_stats_cache[eid] = {
+                _community_field_stats_cache[c_key] = {
                     "timestamp": now_ts,
                     "stats": stat
                 }
@@ -261,10 +272,11 @@ async def api_community_events_field_stats(
         # 2. For events without participants in DB, compute live from BCP API (strictly zero DB writes)
         if need_bcp_sync:
             with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(need_bcp_sync))) as executor:
-                future_map = {executor.submit(compute_live_bcp_field_stats, eid, db): eid for eid in need_bcp_sync}
+                future_map = {executor.submit(compute_live_bcp_field_stats, eid, db, target_sys): eid for eid in need_bcp_sync}
                 done, not_done = concurrent.futures.wait(future_map.keys(), timeout=6.0)
                 for fut in done:
                     eid = future_map[fut]
+                    c_key = f"{eid}:{target_sys}"
                     try:
                         stat = fut.result()
                     except Exception:
@@ -277,7 +289,7 @@ async def api_community_events_field_stats(
                             "status": "empty"
                         }
                     results[eid] = stat
-                    _community_field_stats_cache[eid] = {
+                    _community_field_stats_cache[c_key] = {
                         "timestamp": now_ts,
                         "stats": stat
                     }

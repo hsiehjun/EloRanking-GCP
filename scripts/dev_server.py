@@ -722,7 +722,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"success": True, "match_id": room_id or "WH40K-DEV1", "data": data, "state": None}).encode("utf-8"))
             return
 
-        if clean_path in ("app", "app.html"):
+        if clean_path in ("app", "app.html", "aos", "aos/app", "40k", "40k/app"):
             self._serve_html_with_auth(WEB_DIR / "app.html", is_head)
             return
 

@@ -454,5 +454,10 @@ if (typeof window !== 'undefined') {
   window.applyCustomFactionDateFilter = applyCustomFactionDateFilter;
   window.setFactionViewMode = setFactionViewMode;
   window.openDatePicker = openDatePicker;
+  window.resetFactionState = function() {
+    factionMetaData = null;
+    selectedFactions.clear();
+    allAvailableFactions = [];
+  };
 }
 

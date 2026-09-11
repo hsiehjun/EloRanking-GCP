@@ -19,7 +19,7 @@ from core import (
     _get_user_session_or_401, _get_admin_session_or_403, _get_to_session_or_403,
     NO_CACHE_HEADERS, VERIFIED_TOURNAMENT_CITIES, web_dir, package_dir, logger,
     BestCoastPairingsScraper, _decode_jwt_payload, init_tracker_room_from_chat, _roster_cache, extras,
-    DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
+    DEFAULT_GAME_SYSTEM_ID, AOS_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR, MIN_MATCHES_FOR_RANKING,
     BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT, GOOGLE_MAPS_API_KEY,
     TRACKER_ROOMS, TRACKER_LISTENERS, generate_unique_match_id, normalize_tracker_match_id
 )
@@ -307,7 +307,7 @@ async def api_user_bcp_disconnect(request: Request, token: Optional[str] = Query
     return get_auth_manager().unlink_bcp_account(session["id"])
 
 @router.get("/api/user/dashboard", summary="Get personalized competitor hub analytics")
-async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None)):
+async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(None), token: Optional[str] = Query(None), game_system: Optional[str] = Query("40k")):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
@@ -322,14 +322,19 @@ async def api_user_dashboard(request: Request, player_id: Optional[str] = Query(
             target_pid = target_pid or session.get("player_id")
 
     if not target_pid and not target_uid:
-        top_p = get_database().get_top_ranked_players(limit=1)
+        top_p = get_database().get_top_ranked_players(limit=1, game_system=game_system)
         target_pid = top_p.get("items", [{}])[0].get("player_id", "demo") if isinstance(top_p, dict) else "demo"
 
-    return auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid)
+    return auth_mgr.get_user_competitor_hub(player_id=target_pid, user_id=target_uid, game_system=game_system)
 
 
 @router.get("/api/user/registered-tournaments", summary="Get tournaments registered on BCP for current user")
-async def api_user_registered_tournaments(request: Request, force_sync: bool = Query(False), token: Optional[str] = Query(None)):
+async def api_user_registered_tournaments(
+    request: Request,
+    force_sync: bool = Query(False),
+    token: Optional[str] = Query(None),
+    game_system: Optional[str] = Query(None)
+):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = token or (auth_header[7:] if auth_header.startswith("Bearer ") else None) or request.cookies.get("session_token")
@@ -395,6 +400,9 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
         t["id"] = t.get("id") or t_eid
         t["bcp_event_id"] = t_eid
         t["event_name"] = t.get("event_name") or t.get("name") or "Tournament"
+        gs_id = str(t.get("gamesystem_id") or t.get("game_system_id") or "")
+        if not t.get("game_system"):
+            t["game_system"] = "aos" if (gs_id in (AOS_GAME_SYSTEM_ID, "OY8FCPBf6O", "23qDprPABN")) else "40k"
 
     # Enrich active BCP tournaments with live currentPlayer endpoint (purely in-memory, ZERO DB WRITES)
     if combined_tournaments:
@@ -451,6 +459,10 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
         except Exception as enrich_err:
             logger.debug(f"Notice during in-memory tournament enrichment: {enrich_err}")
 
+    if game_system:
+        target_sys = game_system.strip().lower()
+        combined_tournaments = [t for t in combined_tournaments if t.get("game_system", "40k") == target_sys]
+
     return {
         "success": True,
         "bcp_connected": bool(bcp_connected),
@@ -460,7 +472,11 @@ async def api_user_registered_tournaments(request: Request, force_sync: bool = Q
 
 
 @router.post("/api/user/registered-tournaments/sync", summary="Force sync tournaments registered on BCP for current user")
-async def api_user_sync_registered_tournaments(request: Request, token: Optional[str] = Query(None)):
-    return await api_user_registered_tournaments(request, force_sync=True, token=token)
+async def api_user_sync_registered_tournaments(
+    request: Request,
+    token: Optional[str] = Query(None),
+    game_system: Optional[str] = Query(None)
+):
+    return await api_user_registered_tournaments(request, force_sync=True, token=token, game_system=game_system)
 
 

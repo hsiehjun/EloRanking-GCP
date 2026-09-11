@@ -980,7 +980,7 @@ async def api_eventstudio_create_event(payload: CreateEventPayload, request: Req
         "organizer_id": user_id,
         "organizer_bcp_id": bcp_user_id,
         "game_system_id": game_sys,
-        "game_system": "aos" if game_sys == AOS_GAME_SYSTEM_ID else "40k",
+        "game_system": "aos" if (game_sys == AOS_GAME_SYSTEM_ID or game_sys in ("23qDprPABN", "OY8FCPBf6O")) else "40k",
         "using_online_reg": bool(payload.using_online_reg),
         "num_tickets": int(payload.num_tickets or payload.capacity or 32),
         "ticket_price": float(payload.ticket_price or 0.0),
@@ -1329,11 +1329,13 @@ async def api_eventstudio_search_locations(q: str = Query("")):
 
     return {"results": matches[:10]}
 
-@router.get("/api/eventstudio/circuits", summary="Get available Warhammer 40k circuits from BCP")
-async def api_eventstudio_get_circuits(request: Request):
+@router.get("/api/eventstudio/circuits", summary="Get available Warhammer circuits from BCP")
+async def api_eventstudio_get_circuits(request: Request, game_system: Optional[str] = Query("40k")):
+    target_sys = (game_system or "40k").strip().lower()
+    bcp_sys_id = AOS_GAME_SYSTEM_ID if target_sys == "aos" else DEFAULT_GAME_SYSTEM_ID
     try:
         import urllib.request, json
-        url = f"{BCP_API_BASE}/leagues?limit=50&gameSystemId={DEFAULT_GAME_SYSTEM_ID}&active=true"
+        url = f"{BCP_API_BASE}/leagues?limit=50&gameSystemId={bcp_sys_id}&active=true"
         headers = DEFAULT_HEADERS.copy()
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=8) as resp:
@@ -1346,6 +1348,12 @@ async def api_eventstudio_get_circuits(request: Request):
             return {"success": True, "circuits": formatted}
     except Exception as e:
         logger.warning(f"Error fetching circuits from BCP: {e}")
+        if target_sys == "aos":
+            return {"success": True, "circuits": [
+                {"id": "AOS-ITC", "name": "ITC - Age of Sigmar Circuit"},
+                {"id": "AOS-UKTC", "name": "UKTC - Age of Sigmar Circuit"},
+                {"id": "AOS-US-OPEN", "name": "GW Warhammer Open - Age of Sigmar"}
+            ]}
         return {"success": True, "circuits": [
             {"id": "NvjgICBwiP", "name": "ITC - Independent Tournament Circuit"},
             {"id": "247D2CRUW2", "name": "The U.K. Tournament Circuit (UKTC)"},

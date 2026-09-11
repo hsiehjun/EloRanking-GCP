@@ -71,7 +71,7 @@ async def api_upload_armylist(request: Request):
     return {"success": True, "army_list": parsed}
 
 @router.get("/api/armylists", summary="Get saved army lists for current user")
-async def api_get_armylists(request: Request):
+async def api_get_armylists(request: Request, game_system: Optional[str] = Query(None)):
     auth_mgr = get_auth_manager()
     session_token = request.cookies.get("session_token")
     auth_header = request.headers.get("Authorization")
@@ -81,7 +81,7 @@ async def api_get_armylists(request: Request):
     user_id = user["id"] if user else None
 
     db = get_database()
-    lists = db.get_user_army_lists(user_id=user_id)
+    lists = db.get_user_army_lists(user_id=user_id, game_system=game_system)
     return {"success": True, "army_lists": lists}
 
 @router.post("/api/armylists", summary="Save or create user army list")

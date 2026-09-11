@@ -46,10 +46,12 @@ async function loadMyHubDashboard() {
   }
 
   // 1. Instant optimistic shell render (0ms perceived latency)
-  let cachedData = myHubData;
+  const gs = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const cacheStorageKey = `my_hub_cache_${gs}`;
+  let cachedData = (myHubData && myHubData._gameSystem === gs) ? myHubData : null;
   if (!cachedData) {
     try {
-      const stored = localStorage.getItem('my_hub_cache');
+      const stored = localStorage.getItem(cacheStorageKey) || (gs === '40k' ? localStorage.getItem('my_hub_cache') : null);
       if (stored) cachedData = JSON.parse(stored);
     } catch (e) {}
   }
@@ -104,9 +106,13 @@ async function loadMyHubDashboard() {
       data.registered_tournaments = regRes.value.tournaments;
     }
 
+    data._gameSystem = gs;
     myHubData = data;
     try {
-      localStorage.setItem('my_hub_cache', JSON.stringify(data));
+      localStorage.setItem(cacheStorageKey, JSON.stringify(data));
+      if (gs === '40k') {
+        localStorage.setItem('my_hub_cache', JSON.stringify(data));
+      }
     } catch (e) {}
 
     renderMyHub(data);
@@ -3241,3 +3247,8 @@ window.exportArmyListToBcp = exportArmyListToBcp;
 window.deleteHubArmyList = deleteHubArmyList;
 window.launchTrackerWithList = launchTrackerWithList;
 window.discardTrackerSession = discardTrackerSession;
+window.resetMyHubState = function() {
+  myHubData = null;
+  window.myHubData = null;
+  hubSavedLists = [];
+};

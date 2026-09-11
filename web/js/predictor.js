@@ -205,3 +205,17 @@ function renderHeadToHeadHistory(h2h) {
     tbody.appendChild(tr);
   });
 }
+
+function resetPredictorState() {
+  predP1 = null;
+  predP2 = null;
+  const i1 = document.getElementById('p1-name-input');
+  const i2 = document.getElementById('p2-name-input');
+  if (i1) i1.value = '';
+  if (i2) i2.value = '';
+  const d1 = document.getElementById('p1-ac-dropdown');
+  const d2 = document.getElementById('p2-ac-dropdown');
+  if (d1) d1.style.display = 'none';
+  if (d2) d2.style.display = 'none';
+}
+window.resetPredictorState = resetPredictorState;

@@ -395,7 +395,7 @@ window.api = {
   },
 
   // Personalized Competitor Hub
-  async getUserDashboard(playerId = null) {
+  async getUserDashboard(playerId = null, gameSystem = '') {
     const token = this.getAuthToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -403,28 +403,36 @@ window.api = {
     const params = new URLSearchParams();
     if (validPid) params.append('player_id', validPid);
     if (token) params.append('token', token);
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
     const qs = params.toString() ? `?${params.toString()}` : '';
     return this._fetchJson(`/api/user/dashboard${qs}`, { headers });
   },
 
   // User Registered Tournaments (BCP Synced)
-  async getUserRegisteredTournaments(forceSync = false) {
+  async getUserRegisteredTournaments(forceSync = false, gameSystem = '') {
     const token = this.getAuthToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const bcpToken = this.getBcpToken();
     if (bcpToken) headers['X-BCP-Token'] = bcpToken;
-    const qs = forceSync ? '?force_sync=true' : '';
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const params = new URLSearchParams();
+    if (forceSync) params.set('force_sync', 'true');
+    if (currentSys) params.set('game_system', currentSys);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     return this._fetchJson(`/api/user/registered-tournaments${qs}`, { headers });
   },
 
-  async syncUserRegisteredTournaments() {
+  async syncUserRegisteredTournaments(gameSystem = '') {
     const token = this.getAuthToken();
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const bcpToken = this.getBcpToken();
     if (bcpToken) headers['X-BCP-Token'] = bcpToken;
-    return this._fetchJson('/api/user/registered-tournaments/sync', {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/user/registered-tournaments/sync${qs}`, {
       method: 'POST',
       headers
     });
@@ -462,19 +470,23 @@ window.api = {
   },
 
   // Players Directory
-  async getPlayersDirectory(query = '', faction = 'All', sortBy = 'current_elo', order = 'DESC', page = 1, pageSize = 25) {
+  async getPlayersDirectory(query = '', faction = 'All', sortBy = 'current_elo', order = 'DESC', page = 1, pageSize = 25, gameSystem = '') {
     const params = new URLSearchParams({ query, faction, sort_by: sortBy, order, page, page_size: pageSize });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
     return this._fetchJson(`/api/players?${params}`);
   },
 
   // Tournaments Directory
-  async getTournaments(query = '', status = 'all', sortBy = 'event_date', order = 'DESC', page = 1, pageSize = 25) {
+  async getTournaments(query = '', status = 'all', sortBy = 'event_date', order = 'DESC', page = 1, pageSize = 25, gameSystem = '') {
     const params = new URLSearchParams({ query, status, sort_by: sortBy, order, page, page_size: pageSize });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
     return this._fetchJson(`/api/events?${params}`);
   },
 
   // Recommended Events for User & Geo-Search
-  async getRecommendedEvents(playerId = '', query = '', tier = '', lat = null, lng = null, radius = null, limit = 35, state = '', sortBy = 'date', monthsAhead = 2) {
+  async getRecommendedEvents(playerId = '', query = '', tier = '', lat = null, lng = null, radius = null, limit = 35, state = '', sortBy = 'date', monthsAhead = 2, gameSystem = '') {
     const params = new URLSearchParams();
     if (playerId) params.append('player_id', playerId);
     if (query) params.append('query', query);
@@ -486,17 +498,23 @@ window.api = {
     if (sortBy) params.append('sort_by', sortBy);
     if (limit) params.append('limit', limit);
     if (monthsAhead) params.append('months_ahead', monthsAhead);
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
     return this._fetchJson(`/api/events/recommended?${params}`);
   },
 
   // Single Player Profile & Win Path
-  async getPlayerProfile(playerId) {
-    return this._fetchJson(`/api/player/${encodeURIComponent(playerId)}`);
+  async getPlayerProfile(playerId, gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/player/${encodeURIComponent(playerId)}${qs}`);
   },
 
   // Single Team Roster
-  async getTeamRoster(teamName) {
-    return this._fetchJson(`/api/team/${encodeURIComponent(teamName)}`);
+  async getTeamRoster(teamName, gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/team/${encodeURIComponent(teamName)}${qs}`);
   },
 
   // Single Tournament Details & Pairings
@@ -515,29 +533,37 @@ window.api = {
   },
 
   // Faction Meta & Dynamic Timeline Trends
-  async getFactionMeta(startDate = null, endDate = null, timeframe = null) {
+  async getFactionMeta(startDate = null, endDate = null, timeframe = null, gameSystem = '') {
     const params = new URLSearchParams();
     if (timeframe) params.append('timeframe', timeframe);
     if (startDate) params.append('start_date', startDate);
     if (endDate) params.append('end_date', endDate);
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
     const url = params.toString() ? `/api/factions/meta?${params}` : '/api/factions/meta';
     return this._fetchJson(url);
   },
 
   // Single Faction Details & Pilots
-  async getFactionDetails(factionName) {
-    return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}`);
+  async getFactionDetails(factionName, gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}${qs}`);
   },
 
   // Match Predictor
-  async predictMatch(p1Id, p2Id) {
+  async predictMatch(p1Id, p2Id, gameSystem = '') {
     const params = new URLSearchParams({ p1: p1Id, p2: p2Id });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
     return this._fetchJson(`/api/predict?${params}`);
   },
 
   // Autocomplete Search Players
-  async searchPlayers(query, limit = 10) {
+  async searchPlayers(query, limit = 10, gameSystem = '') {
     const params = new URLSearchParams({ q: query, limit });
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
     return this._fetchJson(`/api/players/search?${params}`);
   },
 
@@ -933,8 +959,10 @@ window.api = {
   },
 
   // Army Lists: Get User Lists
-  async getArmyLists() {
-    return this._fetchJson('/api/armylists', {
+  async getArmyLists(gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
+    return this._fetchJson(`/api/armylists${qs}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
     });
   },
@@ -948,10 +976,12 @@ window.api = {
 
   // Army Lists: Save or Create
   async saveArmyList(listData) {
+    const currentSys = (listData && listData.game_system) || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const payload = Object.assign({}, listData, { game_system: currentSys });
     return this._fetchJson('/api/armylists', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${this.getAuthToken()}` },
-      body: JSON.stringify(listData)
+      body: JSON.stringify(payload)
     });
   },
 
@@ -1000,12 +1030,14 @@ window.api = {
   },
 
   // Community Hub: Search Nearby Players
-  async searchConnectPlayers(lat = null, lng = null, radius = 50, playStyle = '') {
+  async searchConnectPlayers(lat = null, lng = null, radius = 50, playStyle = '', gameSystem = '') {
     const params = new URLSearchParams();
     if (lat !== null && lat !== undefined) params.append('lat', lat);
     if (lng !== null && lng !== undefined) params.append('lng', lng);
     if (radius) params.append('radius_miles', radius);
     if (playStyle && playStyle !== 'all') params.append('play_style', playStyle);
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.append('game_system', currentSys);
     return this._fetchJson(`/api/connect/players?${params}`, {
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
     });
@@ -1106,7 +1138,7 @@ window.api = {
     return this._fetchJson(`/api/community/reverse_geocode?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
   },
 
-  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null, includeBcp = false, fetchOptions = {}) {
+  async getCommunityOverview(lat = null, lng = null, radiusMiles = 100, locationName = '', region = null, includeBcp = false, fetchOptions = {}, gameSystem = '') {
     if (typeof lat === 'string' && lng == null) {
       region = lat;
       lat = null;
@@ -1120,6 +1152,8 @@ window.api = {
     if (locationName) params.set('location_name', locationName);
     if (region) params.set('region', region);
     if (includeBcp) params.set('include_bcp', 'true');
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    if (currentSys) params.set('game_system', currentSys);
 
     const options = Object.assign({
       headers: { 'Authorization': `Bearer ${this.getAuthToken()}` }
@@ -1129,12 +1163,14 @@ window.api = {
   },
 
   // Community Hub: Live BCP upcoming tournaments (asynchronous)
-  async getCommunityBcpUpcoming(lat, lng, radiusMiles = 50, daysAhead = 92) {
+  async getCommunityBcpUpcoming(lat, lng, radiusMiles = 50, daysAhead = 92, gameSystem = '') {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const params = new URLSearchParams({
       lat: String(lat),
       lng: String(lng),
       radius_miles: String(radiusMiles),
-      days_ahead: String(daysAhead)
+      days_ahead: String(daysAhead),
+      game_system: currentSys || '40k'
     });
     return this._fetchJson(`/api/community/bcp_upcoming?${params.toString()}`);
   },

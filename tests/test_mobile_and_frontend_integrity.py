@@ -1163,9 +1163,9 @@ def test_registered_tournaments_module():
         "routers/auth.py missing /api/user/registered-tournaments/sync endpoint"
 
     # 4. Frontend API layer
-    assert "getUserRegisteredTournaments(forceSync = false)" in api_js, \
+    assert "getUserRegisteredTournaments(forceSync = false" in api_js, \
         "api.js missing getUserRegisteredTournaments method"
-    assert "syncUserRegisteredTournaments()" in api_js, \
+    assert "syncUserRegisteredTournaments(" in api_js, \
         "api.js missing syncUserRegisteredTournaments method"
 
     # 5. CSS styles and responsive rules

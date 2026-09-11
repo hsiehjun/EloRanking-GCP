@@ -266,10 +266,17 @@ async def api_version():
 # Authenticated Application Shell
 @app.get("/app", include_in_schema=False)
 @app.get("/app.html", include_in_schema=False)
+@app.get("/aos", include_in_schema=False)
+@app.get("/aos/", include_in_schema=False)
+@app.get("/aos/app", include_in_schema=False)
+@app.get("/40k", include_in_schema=False)
+@app.get("/40k/", include_in_schema=False)
+@app.get("/40k/app", include_in_schema=False)
 async def serve_app(request: Request, token: Optional[str] = Query(None)):
     user = _get_request_user(request, token)
     if not user:
-        return RedirectResponse(url="/login?redirect=/app", status_code=307)
+        target_path = request.url.path or "/app"
+        return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(target_path)}", status_code=307)
     app_file = web_dir / "app.html"
     if app_file.exists():
         return FileResponse(

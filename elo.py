@@ -115,19 +115,26 @@ class EloEngine:
             "draw_deltas": {"p1": f"{d_p1_draw:+}", "p2": f"{d_p2_draw:+}"}
         }
 
-    def predict_match_outcome(self, p1_id_or_name: str, p2_id_or_name: str) -> Dict[str, Any]:
+    def predict_match_outcome(self, p1_id_or_name: str, p2_id_or_name: str, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Calculates win probabilities, simulated Elo rating changes, and past head-to-head encounters."""
         from psycopg2 import extras
 
+        target_sys = (game_system or "40k").lower()
         p1_data = None
         p2_data = None
 
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                cur.execute("SELECT * FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p1_id_or_name, p1_id_or_name))
+                cur.execute(
+                    "SELECT * FROM player_ratings WHERE (player_id = %s OR player_name ILIKE %s) AND COALESCE(game_system, '40k') = %s LIMIT 1;",
+                    (p1_id_or_name, p1_id_or_name, target_sys)
+                )
                 p1_data = cur.fetchone()
 
-                cur.execute("SELECT * FROM player_ratings WHERE player_id = %s OR player_name ILIKE %s LIMIT 1;", (p2_id_or_name, p2_id_or_name))
+                cur.execute(
+                    "SELECT * FROM player_ratings WHERE (player_id = %s OR player_name ILIKE %s) AND COALESCE(game_system, '40k') = %s LIMIT 1;",
+                    (p2_id_or_name, p2_id_or_name, target_sys)
+                )
                 p2_data = cur.fetchone()
 
         r1 = float(p1_data["current_elo"]) if p1_data else self.initial_elo
@@ -151,7 +158,7 @@ class EloEngine:
         d_p2_draw = round(k * (0.5 - exp2), 1)
 
         # Head-to-head encounters
-        h2h_matches = self.db.get_head_to_head(p1_id_or_name, p2_id_or_name)
+        h2h_matches = self.db.get_head_to_head(p1_id_or_name, p2_id_or_name, game_system=target_sys)
 
         return {
             "p1_win_prob": p1_prob,
@@ -908,6 +915,7 @@ class EloEngine:
 
         # Collect distinct teams for this player ordered by recency
         all_teams_list = []
+        target_sys = (game_system or "40k").strip().lower()
         try:
             with self.db.get_connection() as conn:
                 with conn.cursor() as cur:
@@ -917,9 +925,10 @@ class EloEngine:
                     LEFT JOIN events e ON ep.event_id = e.id
                     WHERE ep.player_id = %s AND ep.team IS NOT NULL AND TRIM(ep.team) != '' 
                       AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                      AND COALESCE(e.game_system, '40k') = %s
                     GROUP BY TRIM(ep.team)
                     ORDER BY last_seen DESC NULLS LAST;
-                    """, (player_id,))
+                    """, (player_id, target_sys))
                     all_teams_list = [r[0] for r in cur.fetchall() if r[0]]
         except Exception as e:
             logger.debug(f"Error fetching team history for {player_id}: {e}")
