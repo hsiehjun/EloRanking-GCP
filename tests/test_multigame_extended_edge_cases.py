@@ -165,6 +165,7 @@ class TestConcurrentCacheAccess(unittest.TestCase):
 
     def setUp(self):
         self.db = PostgresDatabase.__new__(PostgresDatabase)
+        self.db.dsn = "mock_dsn"
 
     def test_concurrent_threads_community_cache(self):
         """Simulate concurrent threads fetching 40k and AoS community overviews simultaneously."""
@@ -180,22 +181,22 @@ class TestConcurrentCacheAccess(unittest.TestCase):
 
         def worker(sys_name):
             try:
-                with patch.object(self.db, "get_connection") as mock_gc, \
-                     patch.object(self.db, "reverse_geocode_coordinates", return_value={"formatted": "Austin, TX"}):
-                    mock_gc.return_value.__enter__.return_value = mock_conn
-                    self.db.get_community_overview(lat=30.2672, lng=-97.7431, radius_miles=50, game_system=sys_name)
+                self.db.get_community_overview(lat=30.2672, lng=-97.7431, radius_miles=50, game_system=sys_name)
             except Exception as e:
                 errors.append(e)
 
-        threads = []
-        for _ in range(10):
-            threads.append(threading.Thread(target=worker, args=("40k",)))
-            threads.append(threading.Thread(target=worker, args=("aos",)))
+        with patch.object(self.db, "get_connection") as mock_gc, \
+             patch.object(self.db, "reverse_geocode_coordinates", return_value={"formatted": "Austin, TX"}):
+            mock_gc.return_value.__enter__.return_value = mock_conn
+            threads = []
+            for _ in range(10):
+                threads.append(threading.Thread(target=worker, args=("40k",)))
+                threads.append(threading.Thread(target=worker, args=("aos",)))
 
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
 
         self.assertEqual(len(errors), 0, f"Thread errors encountered: {errors}")
         keys = list(PostgresDatabase._community_overview_cache_dict.keys())

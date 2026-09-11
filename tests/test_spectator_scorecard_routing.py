@@ -438,6 +438,22 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertNotIn("userRole === 'to' || Boolean(u.can_access_to)", js_content)
         print("✓ test_tournaments_js_strict_to_isolation passed")
 
+    def test_tournaments_js_pairings_render_user_role_defined(self):
+        """Verify renderEventPairingsRows defines userRole before use so pairings render for all users."""
+        js_content = (ROOT_DIR / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        render_fn = js_content.split("function renderEventPairingsRows")[1].split("async function launchTournamentTracker")[0]
+        
+        # Verify userRole is declared
+        self.assertIn("const userRole =", render_fn)
+        user_role_idx = render_fn.find("const userRole =")
+        is_admin_idx = render_fn.find("const isGlobalAdmin =")
+        self.assertTrue(user_role_idx < is_admin_idx, "userRole must be defined BEFORE isGlobalAdmin is evaluated")
+        
+        # Verify row rendering is protected with try-catch
+        self.assertIn("try {", render_fn)
+        self.assertIn("catch (rowErr)", render_fn)
+        print("✓ test_tournaments_js_pairings_render_user_role_defined passed")
+
 
 if __name__ == "__main__":
     unittest.main()

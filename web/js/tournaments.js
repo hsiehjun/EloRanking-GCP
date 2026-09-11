@@ -1569,243 +1569,255 @@ function renderEventPairingsRows() {
   }
 
   tbody.innerHTML = '';
-  matchesToRender.forEach(m => {
-    const tr = document.createElement('tr');
-    const isP1Win = m.winner_id && m.winner_id === m.player1_id;
-    const isP2Win = m.winner_id && m.winner_id === m.player2_id;
-    const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
-    const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
-    const matchId = `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
 
-    const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
-    const hasScore = (m.player1_score !== null && m.player2_score !== null);
-    const hasTrackerGame = Boolean(m.has_tracker_game);
-    const isTrackerDone = Boolean(m.tracker_is_done || m.tracker_status === 'completed');
+  // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
+  const u = (typeof authState !== 'undefined' && authState && authState.user) ||
+            (typeof currentUser !== 'undefined' ? currentUser : null) ||
+            (typeof window !== 'undefined' ? window.currentUser : null);
 
-    const p1Faction = m.player1_faction || eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction || '';
-    const p2Faction = m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '';
+  const userRole = String(
+    (u && (u.role || u.user_role)) ||
+    (typeof authState !== 'undefined' && authState && (authState.role || (authState.user && authState.user.role))) ||
+    ''
+  ).trim().toLowerCase();
 
-    // Permission checks: Is current logged-in user Player 1, Player 2, or Staff (Admin/TO/Referee)?
-    const u = (typeof authState !== 'undefined' && authState && authState.user) ||
-              (typeof currentUser !== 'undefined' ? currentUser : null) ||
-              (typeof window !== 'undefined' ? window.currentUser : null);
-
-    // Collect all candidate names for logged-in user
-    const userNames = [];
-    if (u) {
-      [
-        u.display_name,
-        u.competitor_name,
-        u.full_name,
-        u.name,
-        u.username,
-        (u.first_name || u.firstName) ? `${u.first_name || u.firstName} ${u.last_name || u.lastName || ''}` : '',
-        (u.lastName) ? `${u.firstName || ''} ${u.lastName}` : ''
-      ].forEach(n => {
-        if (n && typeof n === 'string' && n.trim()) {
-          userNames.push(n.trim().toLowerCase());
-        }
-      });
-    }
-    if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
-      const preg = currentEventRegistration.player_registration || {};
-      const uprof = currentEventRegistration.user_profile || {};
-      [
-        preg.full_name,
-        preg.name,
-        preg.first_name ? `${preg.first_name} ${preg.last_name || ''}` : '',
-        uprof.display_name,
-        uprof.first_name ? `${uprof.first_name} ${uprof.last_name || ''}` : ''
-      ].forEach(n => {
-        if (n && typeof n === 'string' && n.trim()) {
-          userNames.push(n.trim().toLowerCase());
-        }
-      });
-    }
-
-    // Collect all candidate IDs for logged-in user
-    const userIds = [];
-    if (u) {
-      [u.player_id, u.bcp_user_id, u.bcp_id, u.id, u.sub, u.userId].forEach(id => {
-        if (id && typeof id === 'string' && id.trim()) {
-          userIds.push(id.trim().toLowerCase());
-        }
-      });
-    }
-    if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
-      const preg = currentEventRegistration.player_registration || {};
-      const uprof = currentEventRegistration.user_profile || {};
-      [preg.player_id, preg.id, preg.userId, preg.user_id, uprof.bcp_user_id, uprof.id].forEach(id => {
-        if (id && typeof id === 'string' && id.trim()) {
-          userIds.push(id.trim().toLowerCase());
-        }
-      });
-    }
-
-    // Collect all candidate emails for logged-in user
-    const userEmails = [];
-    if (u) {
-      [u.email, u.bcp_email].forEach(em => {
-        if (em && typeof em === 'string' && em.trim()) {
-          userEmails.push(em.trim().toLowerCase());
-        }
-      });
-    }
-    if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
-      const preg = currentEventRegistration.player_registration || {};
-      const uprof = currentEventRegistration.user_profile || {};
-      [preg.email, uprof.email].forEach(em => {
-        if (em && typeof em === 'string' && em.trim()) {
-          userEmails.push(em.trim().toLowerCase());
-        }
-      });
-    }
-
-    function checkNameMatch(candidate, target) {
-      if (!candidate || !target) return false;
-      const c = candidate.trim().toLowerCase();
-      const t = target.trim().toLowerCase();
-      if (c === t) return true;
-      if (c.replace(/\s+/g, '') === t.replace(/\s+/g, '')) return true;
-      return false;
-    }
-
-    const p1NameClean = (m.player1_name || '').trim().toLowerCase();
-    const p2NameClean = (m.player2_name || '').trim().toLowerCase();
-    const p1IdClean = (m.player1_id || '').trim().toLowerCase();
-    const p2IdClean = (m.player2_id || '').trim().toLowerCase();
-
-    // Look up cached player records in roster
-    const allRosterPlayers = [
-      ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
-      ...((currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
-      ...((currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : [])
-    ];
-
-    const p1Record = allRosterPlayers.find(p => {
-      if (!p) return false;
-      const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
-      if (p1IdClean && pid && pid === p1IdClean) return true;
-      const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
-      if (p1NameClean && pname && checkNameMatch(pname, p1NameClean)) return true;
-      return false;
-    });
-
-    const p2Record = allRosterPlayers.find(p => {
-      if (!p) return false;
-      const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
-      if (p2IdClean && pid && pid === p2IdClean) return true;
-      const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
-      if (p2NameClean && pname && checkNameMatch(pname, p2NameClean)) return true;
-      return false;
-    });
-
-    function recordMatchesUser(rec) {
-      if (!rec) return false;
-      const recIds = [rec.player_id, rec.id, rec.user_id, rec.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
-      if (recIds.some(id => userIds.includes(id))) return true;
-      const recEmail = String(rec.email || '').trim().toLowerCase();
-      if (recEmail && userEmails.includes(recEmail)) return true;
-      const recName = String(rec.full_name || rec.name || rec.player_name || '').trim().toLowerCase();
-      if (recName && userNames.some(un => checkNameMatch(un, recName))) return true;
-      return false;
-    }
-
-    const isP1 = Boolean(u && (
-      (p1IdClean && userIds.includes(p1IdClean)) ||
-      (p1NameClean && userNames.some(un => checkNameMatch(un, p1NameClean))) ||
-      recordMatchesUser(p1Record)
-    ));
-
-    const isP2 = Boolean(u && (
-      (p2IdClean && userIds.includes(p2IdClean)) ||
-      (p2NameClean && userNames.some(un => checkNameMatch(un, p2NameClean))) ||
-      recordMatchesUser(p2Record)
-    ));
-
-    // Strict Tournament Organizer authorization: ONLY the specific TO of this tournament (or platform superadmin) is staff
-    const isGlobalAdmin = Boolean(u && (
-      Boolean(u.is_admin) || userRole === 'admin' || userRole === 'superuser'
-    ));
-    const eventOrganizerIds = [
-      currentEventData?.organizer_id,
-      currentEventData?.organizer_bcp_id,
-      currentEventData?.raw_json?.userId,
-      currentEventData?.raw_json?.organizerId,
-      currentEventData?.raw_json?.ownerId,
-      currentEventData?.created_by
-    ].filter(Boolean).map(x => String(x).trim().toLowerCase());
-    const isEventOrganizer = Boolean(u && eventOrganizerIds.length > 0 && (
-      userIds.some(uid => eventOrganizerIds.includes(uid))
-    ));
-    const isStaff = Boolean(isGlobalAdmin || isEventOrganizer);
-    // Paired competitors and the specific Tournament Organizer/Admin can launch and update the match tracker.
-    // Non-staff competitors and casual spectators spectate via the live scorecard.
-    const canEdit = Boolean(isP1 || isP2 || isStaff);
-
-    let actionBtn = '';
-    if (!isBye) {
-      // 1. If game was actually completed with digital scorecard in tracker_games
-      if (hasTrackerGame && (isTrackerDone || hasScore)) {
-        actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`;
-      } 
-      // 2. If match is uncompleted and user has competitor/staff permissions to edit/track
-      else if (!hasScore && canEdit) {
-        const safeEventId = String(eventId).replace(/'/g, "\\'");
-        const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
-        const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
-        const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
-        const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
-        const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
-        const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
-        actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
-      } 
-      // 3. If match is uncompleted and user is a spectator / other competitor
-      else if (!hasScore && !canEdit) {
-        const safeEventId = String(eventId).replace(/'/g, "\\'");
-        const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
-        const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
-        const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
-        const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
-        const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
-        const spectateLabel = hasTrackerGame ? '👁️ Spectate Live' : '👁️ Spectate';
-        actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#a5b4fc; background:rgba(99, 102, 241, 0.12); border-radius:6px; font-weight:600; cursor:pointer;" onclick="event.stopPropagation(); spectateTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${safePairingId}')" title="Spectate Table ${m.table_number || 1} match in live view-only mode">${spectateLabel}</button>`;
+  // Collect all candidate names for logged-in user
+  const userNames = [];
+  if (u) {
+    [
+      u.display_name,
+      u.competitor_name,
+      u.full_name,
+      u.name,
+      u.username,
+      (u.first_name || u.firstName) ? `${u.first_name || u.firstName} ${u.last_name || u.lastName || ''}` : '',
+      (u.lastName) ? `${u.firstName || ''} ${u.lastName}` : ''
+    ].forEach(n => {
+      if (n && typeof n === 'string' && n.trim()) {
+        userNames.push(n.trim().toLowerCase());
       }
-    }
+    });
+  }
+  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+    const preg = currentEventRegistration.player_registration || {};
+    const uprof = currentEventRegistration.user_profile || {};
+    [
+      preg.full_name,
+      preg.name,
+      preg.first_name ? `${preg.first_name} ${preg.last_name || ''}` : '',
+      uprof.display_name,
+      uprof.first_name ? `${uprof.first_name} ${uprof.last_name || ''}` : ''
+    ].forEach(n => {
+      if (n && typeof n === 'string' && n.trim()) {
+        userNames.push(n.trim().toLowerCase());
+      }
+    });
+  }
 
-    tr.innerHTML = `
-      <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
-      <td style="font-family:var(--font-mono); color:var(--text-muted);">T${m.table_number || 1}</td>
-      <td>
-        <div class="player-name-cell">
-          <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player1_id}')">
-            ${escapeHtml(m.player1_name || 'Player 1')}
-          </span>
-          ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
-        </div>
-      </td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">
-        ${m.player1_score !== null ? m.player1_score : '-'}
-      </td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Win ? 'var(--win)' : 'var(--text-secondary)'};">
-        ${m.player2_score !== null ? m.player2_score : '-'}
-      </td>
-      <td>
-        <div class="player-name-cell">
-          <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player2_id}')">
-            ${escapeHtml(m.player2_name || (m.is_bye ? 'BYE' : 'Player 2'))}
-          </span>
-          ${(!isBye && p2Faction) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span></div>` : ''}
-        </div>
-      </td>
-      <td>
-        <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end;">
-          <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
-          ${actionBtn}
-        </div>
-      </td>
-    `;
-    tbody.appendChild(tr);
+  // Collect all candidate IDs for logged-in user
+  const userIds = [];
+  if (u) {
+    [u.player_id, u.bcp_user_id, u.bcp_id, u.id, u.sub, u.userId].forEach(id => {
+      if (id && typeof id === 'string' && id.trim()) {
+        userIds.push(id.trim().toLowerCase());
+      }
+    });
+  }
+  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+    const preg = currentEventRegistration.player_registration || {};
+    const uprof = currentEventRegistration.user_profile || {};
+    [preg.player_id, preg.id, preg.userId, preg.user_id, uprof.bcp_user_id, uprof.id].forEach(id => {
+      if (id && typeof id === 'string' && id.trim()) {
+        userIds.push(id.trim().toLowerCase());
+      }
+    });
+  }
+
+  // Collect all candidate emails for logged-in user
+  const userEmails = [];
+  if (u) {
+    [u.email, u.bcp_email].forEach(em => {
+      if (em && typeof em === 'string' && em.trim()) {
+        userEmails.push(em.trim().toLowerCase());
+      }
+    });
+  }
+  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+    const preg = currentEventRegistration.player_registration || {};
+    const uprof = currentEventRegistration.user_profile || {};
+    [preg.email, uprof.email].forEach(em => {
+      if (em && typeof em === 'string' && em.trim()) {
+        userEmails.push(em.trim().toLowerCase());
+      }
+    });
+  }
+
+  function checkNameMatch(candidate, target) {
+    if (!candidate || !target) return false;
+    const c = candidate.trim().toLowerCase();
+    const t = target.trim().toLowerCase();
+    if (c === t) return true;
+    if (c.replace(/\s+/g, '') === t.replace(/\s+/g, '')) return true;
+    return false;
+  }
+
+  // Look up cached player records in roster
+  const allRosterPlayers = [
+    ...(Array.isArray(eventPlayersCache) ? eventPlayersCache : []),
+    ...((currentEventData && Array.isArray(currentEventData.players)) ? currentEventData.players : []),
+    ...((currentEventData && Array.isArray(currentEventData.roster)) ? currentEventData.roster : [])
+  ];
+
+  function recordMatchesUser(rec) {
+    if (!rec) return false;
+    const recIds = [rec.player_id, rec.id, rec.user_id, rec.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
+    if (recIds.some(id => userIds.includes(id))) return true;
+    const recEmail = String(rec.email || '').trim().toLowerCase();
+    if (recEmail && userEmails.includes(recEmail)) return true;
+    const recName = String(rec.full_name || rec.name || rec.player_name || '').trim().toLowerCase();
+    if (recName && userNames.some(un => checkNameMatch(un, recName))) return true;
+    return false;
+  }
+
+  // Strict Tournament Organizer authorization: ONLY the specific TO of this tournament (or platform superadmin) is staff
+  const isGlobalAdmin = Boolean(u && (
+    Boolean(u.is_admin) || userRole === 'admin' || userRole === 'superuser'
+  ));
+  const eventOrganizerIds = [
+    currentEventData?.organizer_id,
+    currentEventData?.organizer_bcp_id,
+    currentEventData?.raw_json?.userId,
+    currentEventData?.raw_json?.organizerId,
+    currentEventData?.raw_json?.ownerId,
+    currentEventData?.created_by
+  ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+  const isEventOrganizer = Boolean(u && eventOrganizerIds.length > 0 && (
+    userIds.some(uid => eventOrganizerIds.includes(uid))
+  ));
+  const isStaff = Boolean(isGlobalAdmin || isEventOrganizer);
+
+  matchesToRender.forEach(m => {
+    try {
+      const tr = document.createElement('tr');
+      const isP1Win = m.winner_id && m.winner_id === m.player1_id;
+      const isP2Win = m.winner_id && m.winner_id === m.player2_id;
+      const outcome = isP1Win ? 'Player 1 Win' : (isP2Win ? 'Player 2 Win' : (m.is_draw ? 'Draw' : (m.is_bye ? 'BYE' : 'Pending')));
+      const eventId = currentOpenEventId || (currentEventData && currentEventData.id) || '';
+      const matchId = `BCP-${eventId}-R${m.round || 1}-T${m.table_number || 1}`;
+
+      const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
+      const hasScore = (m.player1_score !== null && m.player2_score !== null);
+      const hasTrackerGame = Boolean(m.has_tracker_game);
+      const isTrackerDone = Boolean(m.tracker_is_done || m.tracker_status === 'completed');
+
+      const p1Faction = m.player1_faction || eventPlayersCache.find(p => p.player_id === m.player1_id || p.full_name === m.player1_name)?.faction || '';
+      const p2Faction = m.player2_faction || eventPlayersCache.find(p => p.player_id === m.player2_id || p.full_name === m.player2_name)?.faction || '';
+
+      const p1NameClean = (m.player1_name || '').trim().toLowerCase();
+      const p2NameClean = (m.player2_name || '').trim().toLowerCase();
+      const p1IdClean = (m.player1_id || '').trim().toLowerCase();
+      const p2IdClean = (m.player2_id || '').trim().toLowerCase();
+
+      const p1Record = allRosterPlayers.find(p => {
+        if (!p) return false;
+        const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
+        if (p1IdClean && pid && pid === p1IdClean) return true;
+        const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
+        if (p1NameClean && pname && checkNameMatch(pname, p1NameClean)) return true;
+        return false;
+      });
+
+      const p2Record = allRosterPlayers.find(p => {
+        if (!p) return false;
+        const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
+        if (p2IdClean && pid && pid === p2IdClean) return true;
+        const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
+        if (p2NameClean && pname && checkNameMatch(pname, p2NameClean)) return true;
+        return false;
+      });
+
+      const isP1 = Boolean(u && (
+        (p1IdClean && userIds.includes(p1IdClean)) ||
+        (p1NameClean && userNames.some(un => checkNameMatch(un, p1NameClean))) ||
+        recordMatchesUser(p1Record)
+      ));
+
+      const isP2 = Boolean(u && (
+        (p2IdClean && userIds.includes(p2IdClean)) ||
+        (p2NameClean && userNames.some(un => checkNameMatch(un, p2NameClean))) ||
+        recordMatchesUser(p2Record)
+      ));
+
+      // Paired competitors and the specific Tournament Organizer/Admin can launch and update the match tracker.
+      // Non-staff competitors and casual spectators spectate via the live scorecard.
+      const canEdit = Boolean(isP1 || isP2 || isStaff);
+
+      let actionBtn = '';
+      if (!isBye) {
+        // 1. If game was actually completed with digital scorecard in tracker_games
+        if (hasTrackerGame && (isTrackerDone || hasScore)) {
+          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`;
+        } 
+        // 2. If match is uncompleted and user has competitor/staff permissions to edit/track
+        else if (!hasScore && canEdit) {
+          const safeEventId = String(eventId).replace(/'/g, "\\'");
+          const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
+          const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
+          const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
+          const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
+          const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
+          const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
+          actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
+        } 
+        // 3. If match is uncompleted and user is a spectator / other competitor
+        else if (!hasScore && !canEdit) {
+          const safeEventId = String(eventId).replace(/'/g, "\\'");
+          const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
+          const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
+          const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
+          const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
+          const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
+          const spectateLabel = hasTrackerGame ? '👁️ Spectate Live' : '👁️ Spectate';
+          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#a5b4fc; background:rgba(99, 102, 241, 0.12); border-radius:6px; font-weight:600; cursor:pointer;" onclick="event.stopPropagation(); spectateTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${safePairingId}')" title="Spectate Table ${m.table_number || 1} match in live view-only mode">${spectateLabel}</button>`;
+        }
+      }
+
+      tr.innerHTML = `
+        <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
+        <td style="font-family:var(--font-mono); color:var(--text-muted);">T${m.table_number || 1}</td>
+        <td>
+          <div class="player-name-cell">
+            <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player1_id}')">
+              ${escapeHtml(m.player1_name || 'Player 1')}
+            </span>
+            ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
+          </div>
+        </td>
+        <td style="font-family:var(--font-mono); font-weight:700; color:${isP1Win ? 'var(--win)' : 'var(--text-secondary)'};">
+          ${m.player1_score !== null ? m.player1_score : '-'}
+        </td>
+        <td style="font-family:var(--font-mono); font-weight:700; color:${isP2Win ? 'var(--win)' : 'var(--text-secondary)'};">
+          ${m.player2_score !== null ? m.player2_score : '-'}
+        </td>
+        <td>
+          <div class="player-name-cell">
+            <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player2_id}')">
+              ${escapeHtml(m.player2_name || (m.is_bye ? 'BYE' : 'Player 2'))}
+            </span>
+            ${(!isBye && p2Faction) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span></div>` : ''}
+          </div>
+        </td>
+        <td>
+          <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end;">
+            <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
+            ${actionBtn}
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    } catch (rowErr) {
+      console.error('Error rendering pairing row:', rowErr, m);
+    }
   });
 }
 
