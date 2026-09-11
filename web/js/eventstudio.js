@@ -528,18 +528,6 @@ async function pollTournamentWorkspaceQuietly(eventId) {
         }
       }
     }
-
-    // Continuously check active judge calls via REST as fallback to Firestore snapshot
-    try {
-      if (window.api && typeof window.api.getJudgeCalls === "function") {
-        const jRes = await window.api.getJudgeCalls(eventId, false);
-        if (jRes && Array.isArray(jRes.calls)) {
-          handleStudioJudgeCallsUpdate(jRes.calls);
-        }
-      }
-    } catch (jErr) {
-      // Quiet fallback
-    }
   } catch (err) {
     console.debug("Notice during quiet workspace poll:", err);
   } finally {
@@ -1096,8 +1084,8 @@ async function loadTournamentWorkspace(eventId) {
     subscribeStudioTournament(ev.id);
     subscribeStudioJudgeCalls(ev.id);
 
-    // Fetch initial active judge calls via REST as immediate fallback
-    if (window.api && typeof window.api.getJudgeCalls === 'function') {
+    // If Firestore DB client is unavailable, fetch initial active judge calls via REST fallback
+    if (!getStudioFirestoreDb() && window.api && typeof window.api.getJudgeCalls === 'function') {
       window.api.getJudgeCalls(ev.id, false).then(res => {
         if (res && res.success && Array.isArray(res.calls)) {
           handleStudioJudgeCallsUpdate(res.calls);

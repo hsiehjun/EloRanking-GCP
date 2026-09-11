@@ -1367,18 +1367,9 @@ async def api_tracker_user_sessions(
     for doc in active_docs:
         mid = (doc.get("roomKey") or doc.get("matchId") or (doc.get("state", {}).get("match_id") if isinstance(doc.get("state"), dict) else "") or "").strip().upper()
         if mid and mid not in seen_matches:
-            # Cross-check with PostgreSQL: If already concluded/finished, purge ghost room and NEVER list as active!
+            # Cross-check with PostgreSQL: If already concluded/finished, skip and NEVER list as active!
             saved = db.get_tracker_game(mid)
             if saved and (saved.get("is_finished") or (isinstance(saved.get("state_json"), dict) and saved["state_json"].get("is_finished"))):
-                try:
-                    fs_engine.discard_room(mid)
-                except Exception:
-                    pass
-                if mid in TRACKER_ROOMS:
-                    try:
-                        del TRACKER_ROOMS[mid]
-                    except KeyError:
-                        pass
                 continue
 
             seen_matches.add(mid)
@@ -1554,14 +1545,11 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     p1_id = room.get("user_id_p1") or (user["id"] if user else None)
     p2_id = room.get("user_id_p2")
 
-    # 1. Update PostgreSQL permanently ONLY if this is a casual / local match (not from events)
-    if not is_tournament:
-        try:
-            db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
-        except Exception as e:
-            logger.warning(f"Notice saving finalized casual game to DB: {e}")
-    else:
-        logger.info(f"Skipping tracker_games save for tournament match {match_id} (data managed via BCP/scraper).")
+    # 1. Update PostgreSQL permanently for both casual and tournament games
+    try:
+        db.save_tracker_game(match_id, state, user_id_p1=p1_id, user_id_p2=p2_id)
+    except Exception as e:
+        logger.warning(f"Notice saving finalized game to DB {match_id}: {e}")
 
     # 2. Broadcast conclusion to connected SSE listeners (Player 2, Spectators)
     listeners = TRACKER_LISTENERS.get(match_id, [])
@@ -1578,18 +1566,23 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
         except Exception:
             pass
 
-    # 3. Delete / remove from Cloud Firestore (active session is concluded!)
+    # 3. Mark completed in Cloud Firestore (retains scorecard for players & spectators)
     try:
-        fs_engine.discard_room(match_id)
+        fs_engine.update_room(match_id, {
+            "status": "completed",
+            "is_finished": True,
+            "state": state,
+            "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}",
+            "updatedAt": int(datetime.now(timezone.utc).timestamp() * 1000)
+        })
     except Exception as e:
-        logger.warning(f"Notice discarding Firestore room on conclusion {match_id}: {e}")
+        logger.warning(f"Notice updating Firestore room on conclusion {match_id}: {e}")
 
-    # 4. Clean up Memory Cache
+    # 4. Update Memory Cache
     if match_id in TRACKER_ROOMS:
-        try:
-            del TRACKER_ROOMS[match_id]
-        except KeyError:
-            pass
+        TRACKER_ROOMS[match_id]["status"] = "completed"
+        TRACKER_ROOMS[match_id]["is_finished"] = True
+        TRACKER_ROOMS[match_id]["state"] = state
         
     return {
         "success": True,
@@ -1631,19 +1624,42 @@ async def api_get_scorecard(match_id: str):
     match_id = normalize_tracker_match_id(match_id)
     db = get_database()
     
-    room = TRACKER_ROOMS.get(match_id)
-    state = room.get("state") if room else None
+    candidates = [match_id, match_id.upper(), match_id.lower()]
+    if not match_id.startswith("BCP-"):
+        candidates.extend([f"BCP-{match_id}", f"BCP-{match_id}".upper()])
+    if not match_id.startswith("ES-"):
+        candidates.extend([f"ES-{match_id}", f"ES-{match_id}".upper()])
+    if match_id.startswith("BCP-"):
+        candidates.append(match_id[4:])
+    if match_id.startswith("ES-"):
+        candidates.append(match_id[3:])
+
+    room = None
+    state = None
+    for cand in candidates:
+        if cand in TRACKER_ROOMS:
+            room = TRACKER_ROOMS[cand]
+            if room and room.get("state"):
+                state = room.get("state")
+                break
     
     if not state:
         try:
             fs_engine = get_firestore_engine()
-            fs_room = fs_engine.get_room(match_id)
-            if fs_room and fs_room.get("state"):
-                state = fs_room.get("state")
+            for cand in candidates:
+                fs_room = fs_engine.get_room(cand)
+                if fs_room and fs_room.get("state"):
+                    state = fs_room.get("state")
+                    break
         except Exception:
             pass
             
-    game_rec = db.get_tracker_game(match_id)
+    game_rec = None
+    for cand in candidates:
+        game_rec = db.get_tracker_game(cand)
+        if game_rec:
+            break
+            
     if not state and game_rec:
         state = game_rec.get("state_json") or game_rec
         

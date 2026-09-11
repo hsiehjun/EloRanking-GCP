@@ -181,9 +181,74 @@ def test_frontend_public_listing_link_and_handlers():
     print("✅ test_frontend_public_listing_link_and_handlers passed!")
 
 
+
+from routers.tracker import api_get_scorecard, TRACKER_ROOMS
+
+def test_scorecard_retention_and_no_judge_polling():
+    """Verify that scorecards are retained and retrievable, and no REST polling of judge calls exists in quiet polls."""
+    studio_js = (root_dir / "web" / "js" / "eventstudio.js").read_text()
+    
+    # 1. Verify pollTournamentWorkspaceQuietly does NOT contain getJudgeCalls polling
+    poll_fn_start = studio_js.find("async function pollTournamentWorkspaceQuietly")
+    poll_fn_end = studio_js.find("async function pollStudioEventsQuietly")
+    assert poll_fn_start != -1 and poll_fn_end != -1
+    poll_fn_body = studio_js[poll_fn_start:poll_fn_end]
+    assert "getJudgeCalls" not in poll_fn_body, "pollTournamentWorkspaceQuietly must not poll getJudgeCalls!"
+
+    # 2. Verify api_get_scorecard finds completed match in Firestore
+    fs = get_firestore_engine()
+    test_match_id = "BCP-K0mczlQ3fDnw-R1-T1"
+    norm_mid = test_match_id.strip().upper()
+    fs.create_room(norm_mid, {
+        "match_id": test_match_id,
+        "status": "completed",
+        "is_finished": True,
+        "state": {
+            "is_finished": True,
+            "round": 5,
+            "p1": {"score": 85, "name": "Player 1"},
+            "p2": {"score": 70, "name": "Player 2"},
+            "game": {"p1Name": "Player 1", "p2Name": "Player 2", "primary": "Take & Hold"}
+        }
+    })
+
+    mock_db = MagicMock()
+    mock_db.get_tracker_game.return_value = None
+
+    with patch("routers.tracker.get_database", return_value=mock_db):
+        # Test retrieval by mixed-case ID
+        res_sc = asyncio.run(api_get_scorecard(test_match_id))
+        assert res_sc.get("success") is True
+        assert res_sc.get("state") is not None
+        assert res_sc["state"]["p1"]["score"] == 85
+        assert res_sc["state"]["p2"]["score"] == 70
+
+        # Test retrieval by uppercase ID
+        res_sc_upper = asyncio.run(api_get_scorecard(norm_mid))
+        assert res_sc_upper.get("success") is True
+        assert res_sc_upper["state"]["p1"]["score"] == 85
+
+        # Test retrieval when only in database tracker_games
+        mock_db.get_tracker_game.return_value = {
+            "match_id": "BCP-SAVED-IN-DB-R1-T1",
+            "state_json": {
+                "is_finished": True,
+                "round": 5,
+                "p1": {"score": 90, "name": "Winner"},
+                "p2": {"score": 60, "name": "Runner Up"}
+            }
+        }
+        res_db = asyncio.run(api_get_scorecard("BCP-SAVED-IN-DB-R1-T1"))
+        assert res_db.get("success") is True
+        assert res_db["state"]["p1"]["score"] == 90
+
+    print("✅ test_scorecard_retention_and_no_judge_polling passed!")
+
+
 if __name__ == "__main__":
     test_normalize_bcp_pairing_p2_elo_defaults()
     test_firestore_cross_case_judge_call_sync()
     test_eventstudio_judge_call_api_endpoints()
     test_frontend_public_listing_link_and_handlers()
-    print("\n🎉 ALL EVENT STUDIO JUDGE RADAR & BCP LINK TESTS PASSED!")
+    test_scorecard_retention_and_no_judge_polling()
+    print("\n🎉 ALL EVENT STUDIO JUDGE RADAR, SCORECARD RETENTION & BCP LINK TESTS PASSED!")

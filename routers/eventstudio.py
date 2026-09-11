@@ -2948,34 +2948,108 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         except Exception as me:
             logger.debug(f"Notice upserting match {match_id} into DB: {me}")
 
-    # Tournament games submitted to BCP are NOT stored in tracker_games (data is ingested exclusively via scraper.py).
-    # Discard the table room from Firestore and in-memory cache upon score submission.
+    # Tournament games retain their verified digital scorecard in PostgreSQL tracker_games and Firestore rooms.
     fs_engine = get_firestore_engine()
-    rooms_to_clear = {
+    target_rooms = {
         match_id,
         f"BCP-{payload.event_id}-R{payload.round_num}-T{table_val}",
         f"ES-{payload.event_id}-R{payload.round_num}-T{table_val}",
         f"WH40K-BCP-{payload.event_id}-R{payload.round_num}-T{table_val}"
     }
     if isinstance(payload.game_details, dict) and payload.game_details.get("match_id"):
-        rooms_to_clear.add(str(payload.game_details["match_id"]).strip().upper())
+        target_rooms.add(str(payload.game_details["match_id"]).strip().upper())
 
-    for mid_clean in rooms_to_clear:
+    persisted_state = None
+    for mid_clean in target_rooms:
+        if mid_clean:
+            norm_mid = normalize_tracker_match_id(mid_clean)
+            r = fs_engine.get_room(norm_mid) or TRACKER_ROOMS.get(norm_mid)
+            if r and isinstance(r.get("state"), dict):
+                persisted_state = dict(r["state"])
+                break
+
+    if not persisted_state:
+        persisted_state = {
+            "event_id": payload.event_id,
+            "round_num": int(payload.round_num),
+            "table_num": int(table_val),
+            "started": True,
+            "is_finished": True,
+            "bcp_submitted": True,
+            "p1Score": int(payload.p1_score),
+            "p2Score": int(payload.p2_score),
+            "game": {
+                "eventId": payload.event_id,
+                "roundNum": int(payload.round_num),
+                "tableNum": int(table_val),
+                "p1Name": p1_name,
+                "p2Name": p2_name,
+                "p1Faction": p1_fac,
+                "p2Faction": p2_fac,
+                "p1Score": int(payload.p1_score),
+                "p2Score": int(payload.p2_score),
+                "primary": (payload.game_details or {}).get("primary") or "Take & Hold",
+                "deployment": (payload.game_details or {}).get("deployment") or "Search & Destroy",
+                "firstTurn": (payload.game_details or {}).get("first_turn") or (payload.game_details or {}).get("firstTurn") or 1,
+            },
+            "p1": {
+                "name": p1_name,
+                "faction": p1_fac,
+                "score": int(payload.p1_score),
+                "battleReady": True,
+                "rounds": [{"round": r, "primaryScore": int(payload.p1_score) // 5} for r in range(1, 6)]
+            },
+            "p2": {
+                "name": p2_name,
+                "faction": p2_fac,
+                "score": int(payload.p2_score),
+                "battleReady": True,
+                "rounds": [{"round": r, "primaryScore": int(payload.p2_score) // 5} for r in range(1, 6)]
+            }
+        }
+    else:
+        persisted_state["is_finished"] = True
+        persisted_state["started"] = True
+        persisted_state["bcp_submitted"] = True
+        persisted_state["event_id"] = payload.event_id
+        persisted_state["round_num"] = int(payload.round_num)
+        persisted_state["table_num"] = int(table_val)
+        if "game" in persisted_state and isinstance(persisted_state["game"], dict):
+            persisted_state["game"]["p1Score"] = int(payload.p1_score)
+            persisted_state["game"]["p2Score"] = int(payload.p2_score)
+        if "p1" in persisted_state and isinstance(persisted_state["p1"], dict):
+            persisted_state["p1"]["score"] = int(payload.p1_score)
+        if "p2" in persisted_state and isinstance(persisted_state["p2"], dict):
+            persisted_state["p2"]["score"] = int(payload.p2_score)
+
+    # 1. Permanently persist verified digital scorecard in PostgreSQL tracker_games
+    try:
+        db.save_tracker_game(match_id, persisted_state, user_id_p1=p1_id, user_id_p2=p2_id)
+    except Exception as se:
+        logger.warning(f"Notice saving tracker game to DB from Event Studio: {se}")
+
+    # 2. Retain completed status and scorecard in Firestore room documents
+    for mid_clean in target_rooms:
         if mid_clean:
             norm_mid = normalize_tracker_match_id(mid_clean)
             try:
-                fs_engine.discard_room(norm_mid)
+                fs_engine.update_room(norm_mid, {
+                    "status": "completed",
+                    "is_finished": True,
+                    "state": persisted_state,
+                    "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}",
+                    "updatedAt": int(datetime.now(timezone.utc).timestamp() * 1000)
+                })
             except Exception as fe:
-                logger.debug(f"Notice discarding Firestore room {norm_mid}: {fe}")
+                logger.debug(f"Notice updating Firestore room {norm_mid}: {fe}")
             if norm_mid in TRACKER_ROOMS:
-                try:
-                    del TRACKER_ROOMS[norm_mid]
-                except KeyError:
-                    pass
+                TRACKER_ROOMS[norm_mid]["status"] = "completed"
+                TRACKER_ROOMS[norm_mid]["is_finished"] = True
+                TRACKER_ROOMS[norm_mid]["state"] = persisted_state
 
     try:
         from routers.tracker import TRACKER_LISTENERS
-        for mid_clean in rooms_to_clear:
+        for mid_clean in target_rooms:
             norm_mid = normalize_tracker_match_id(mid_clean)
             for q in list(TRACKER_LISTENERS.get(norm_mid, [])):
                 try:
@@ -2984,10 +3058,13 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
                         "match_id": norm_mid,
                         "status": "completed",
                         "is_finished": True,
-                        "bcp_submitted": True
+                        "bcp_submitted": True,
+                        "scorecard_url": f"/scorecard/{urllib.parse.quote(match_id)}"
                     })
                 except Exception:
                     pass
+    except Exception as le:
+        logger.debug(f"Notice notifying listeners of match finalization: {le}")
     except Exception:
         pass
 

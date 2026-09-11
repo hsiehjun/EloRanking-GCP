@@ -3898,19 +3898,6 @@ class PostgresDatabase:
         
         match_id = match_id.strip().upper()
         game_data = state.get("game", {}) if isinstance(state.get("game"), dict) else state
-
-        # Guard: Only store tracker_games in our DB if the game is locally created and completed by players NOT from events
-        raw_event = state.get("event_id") or state.get("eventId") or state.get("tournament_id") or (game_data.get("eventId") if isinstance(game_data, dict) else None) or (game_data.get("tournament_id") if isinstance(game_data, dict) else None)
-        has_event = bool(raw_event and str(raw_event).strip().lower() not in ("", "casual", "none"))
-        if (
-            match_id.startswith("BCP-") or
-            match_id.startswith("ES-") or
-            match_id.startswith("WH40K-BCP-") or
-            match_id.startswith("WH40K-ES-") or
-            has_event
-        ):
-            logger.info(f"Skipping tracker_games DB write for event match {match_id} (tournament data is stored exclusively via BCP/scraper).")
-            return True
         
         p1_name = game_data.get("p1Name") or state.get("p1Name") or "Player 1"
         p1_faction = game_data.get("p1Faction") or state.get("p1Faction") or ""
@@ -4079,6 +4066,18 @@ class PostgresDatabase:
                     SELECT * FROM tracker_games WHERE match_id = %s;
                     """, (match_id,))
                     row = cursor.fetchone()
+                    if not row and not match_id.startswith("BCP-"):
+                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"BCP-{match_id}",))
+                        row = cursor.fetchone()
+                    if not row and not match_id.startswith("ES-"):
+                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (f"ES-{match_id}",))
+                        row = cursor.fetchone()
+                    if not row and match_id.startswith("BCP-"):
+                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[4:],))
+                        row = cursor.fetchone()
+                    if not row and match_id.startswith("ES-"):
+                        cursor.execute("SELECT * FROM tracker_games WHERE match_id = %s;", (match_id[3:],))
+                        row = cursor.fetchone()
                     if row:
                         d = dict(row)
                         if isinstance(d.get("state_json"), str):
@@ -4121,13 +4120,6 @@ class PostgresDatabase:
         if not match_id:
             return False
         match_id = match_id.strip().upper()
-        if (
-            match_id.startswith("BCP-") or
-            match_id.startswith("ES-") or
-            match_id.startswith("WH40K-BCP-") or
-            match_id.startswith("WH40K-ES-")
-        ):
-            return True
         col_list = "p1_army_list" if role in ["player1", "p1"] else "p2_army_list"
         col_id = "p1_army_list_id" if role in ["player1", "p1"] else "p2_army_list_id"
         col_fac = "p1_faction" if role in ["player1", "p1"] else "p2_faction"
@@ -4178,13 +4170,6 @@ class PostgresDatabase:
         if not match_id or not clock_data:
             return False
         match_id = match_id.strip().upper()
-        if (
-            match_id.startswith("BCP-") or
-            match_id.startswith("ES-") or
-            match_id.startswith("WH40K-BCP-") or
-            match_id.startswith("WH40K-ES-")
-        ):
-            return True
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
