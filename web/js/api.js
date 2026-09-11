@@ -629,6 +629,17 @@ window.api = {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}${query}`, { headers });
   },
 
+  // EventStudio: Get Active Round Pairings (lightweight single-call)
+  async getStudioRoundPairings(eventId, roundNum, options = {}) {
+    const bcpToken = options.bcp_token || (typeof this.getBcpToken === 'function' ? this.getBcpToken() : '') || (typeof getBcpToken === 'function' ? getBcpToken() : '');
+    const query = bcpToken ? `?bcp_token=${encodeURIComponent(bcpToken)}` : '';
+    const headers = {};
+    if (bcpToken) {
+      headers['X-BCP-Token'] = bcpToken;
+    }
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/round/${encodeURIComponent(roundNum)}/pairings${query}`, { headers });
+  },
+
   // EventStudio: Create Tournament
   async createStudioEvent(payload) {
     const token = this.getAuthToken();

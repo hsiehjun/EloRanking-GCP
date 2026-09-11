@@ -362,6 +362,26 @@ async function refreshTournamentWorkspace(btn) {
 
 let studioPollTimer = null;
 let studioIsPolling = false;
+let studioWorkspacePollTick = 0;
+
+function isAnyStudioModalOpen() {
+  const modalIds = [
+    'modal-swap-players',
+    'modal-add-player',
+    'modal-studio-broadcast',
+    'modal-tournament-register',
+    'request-to-modal',
+    'bcp-link-modal',
+    'edit-tournament-modal'
+  ];
+  for (const id of modalIds) {
+    const el = document.getElementById(id);
+    if (el && (el.classList.contains('active') || (el.style.display && el.style.display !== 'none'))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function flashLiveSyncIndicator() {
   const dots = document.querySelectorAll("#studio-live-sync-dot");
@@ -380,89 +400,119 @@ function flashLiveSyncIndicator() {
 async function pollTournamentWorkspaceQuietly(eventId) {
   if (studioIsPolling || !eventId) return;
   studioIsPolling = true;
+  studioWorkspacePollTick += 1;
   try {
-    const res = await window.api.getStudioEvent(eventId);
-    const ev = (res && res.event) ? res.event : res;
-    if (!ev || !ev.id || ev.id !== studioState.activeTournament?.id) return;
+    const ev = studioState.activeTournament;
+    if (!ev || ev.id !== eventId) return;
 
-    flashLiveSyncIndicator();
-    studioState.activeTournament = ev;
+    const currentRound = studioState.currentRoundView || ev.current_round || 1;
+    const isPairingsSubtab = studioState.activeSubtab === "pairings";
 
-    // Header updates
-    const nameEl = document.getElementById("manage-event-name");
-    const dateEl = document.getElementById("manage-event-date");
-    const locEl = document.getElementById("manage-event-location");
-    const roundsPtsEl = document.getElementById("manage-event-rounds-pts");
-    const rosterCountEl = document.getElementById("manage-roster-count");
+    // Fast-path: When viewing Pairings subtab, perform lightweight single-call for active round
+    if (isPairingsSubtab && window.api && typeof window.api.getStudioRoundPairings === "function" && (studioWorkspacePollTick % 4 !== 0)) {
+      try {
+        const pRes = await window.api.getStudioRoundPairings(eventId, currentRound);
+        if (pRes && pRes.success && Array.isArray(pRes.pairings)) {
+          if (!studioState.activeTournament.pairings) {
+            studioState.activeTournament.pairings = {};
+          }
+          studioState.activeTournament.pairings[String(currentRound)] = pRes.pairings;
+          flashLiveSyncIndicator();
 
-    if (nameEl && ev.name) nameEl.textContent = ev.name;
-    const dateStr = ev.event_date ? (String(ev.event_date).split("T")[0]) : "Date TBD";
-    const locStr = [ev.venue, ev.city, ev.state].filter(Boolean).join(", ") || "Local Venue";
-    const rounds = ev.num_rounds || ev.rounds || 5;
-    const pts = ev.points || 2000;
-    if (dateEl) dateEl.textContent = dateStr;
-    if (locEl) locEl.textContent = locStr;
-    if (roundsPtsEl) roundsPtsEl.textContent = `${rounds} Rounds (${pts} pts)`;
-
-    const roster = ev.roster || [];
-    if (rosterCountEl) rosterCountEl.textContent = roster.length;
-
-    // Lifecycle badge
-    const isEnded = Boolean(ev.is_ended || ev.isEnded);
-    const isStarted = Boolean(ev.started || (ev.status === "active") || (ev.current_round && ev.current_round > 1));
-    const statusBadges = document.querySelectorAll("#manage-event-status-badge");
-    statusBadges.forEach(badge => {
-      badge.style.display = "inline-block";
-      if (isEnded) {
-        badge.className = "badge";
-        badge.style.background = "rgba(239, 68, 68, 0.15)";
-        badge.style.color = "#f87171";
-        badge.style.borderColor = "rgba(239, 68, 68, 0.35)";
-        badge.textContent = "🔴 CONCLUDED";
-      } else if (isStarted) {
-        badge.className = "badge badge-online";
-        badge.style.background = "";
-        badge.style.color = "";
-        badge.style.borderColor = "";
-        badge.textContent = `🟢 IN PROGRESS • ROUND ${ev.current_round || 1}`;
-      } else {
-        badge.className = "badge";
-        badge.style.background = "rgba(234, 179, 8, 0.15)";
-        badge.style.color = "#facc15";
-        badge.style.borderColor = "rgba(234, 179, 8, 0.35)";
-        badge.textContent = "🟡 REGISTRATION OPEN";
-      }
-    });
-
-    const startBtns = document.querySelectorAll("#manage-event-start-btn");
-    startBtns.forEach(btn => {
-      btn.style.display = (!isStarted && !isEnded) ? "inline-flex" : "none";
-    });
-
-    // Guard against interrupting active typing or modals
-    const activeEl = document.activeElement;
-    const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
-    const hasOpenModal = Boolean(document.querySelector('.modal.active, .modal[style*="display: flex"], .modal[style*="display: block"]'));
-
-    if (!hasOpenModal) {
-      if (studioState.activeSubtab === "roster") {
-        if (!isInputFocused || activeEl.id !== "roster-search-input") {
-          const searchInp = document.getElementById("roster-search-input");
-          const prevSearch = searchInp ? searchInp.value : "";
-          renderRosterSubtab();
-          if (prevSearch && searchInp) {
-            searchInp.value = prevSearch;
-            if (typeof filterRosterTable === 'function') filterRosterTable();
+          const activeEl = document.activeElement;
+          const isTypingScore = activeEl && activeEl.id && activeEl.id.startsWith("score-");
+          if (!isAnyStudioModalOpen() && !isTypingScore) {
+            renderPairingsSubtab();
           }
         }
-      } else if (studioState.activeSubtab === "pairings") {
-        if (!isInputFocused) {
-          renderPairingsSubtab();
+      } catch (pErr) {
+        console.debug("Notice during round pairings quiet poll:", pErr);
+      }
+    } else {
+      // Full event workspace poll (syncs roster, check-ins, drops, metadata, and all rounds)
+      const res = await window.api.getStudioEvent(eventId);
+      const updatedEv = (res && res.event) ? res.event : res;
+      if (!updatedEv || !updatedEv.id || updatedEv.id !== studioState.activeTournament?.id) return;
+
+      flashLiveSyncIndicator();
+      studioState.activeTournament = updatedEv;
+
+      // Header updates
+      const nameEl = document.getElementById("manage-event-name");
+      const dateEl = document.getElementById("manage-event-date");
+      const locEl = document.getElementById("manage-event-location");
+      const roundsPtsEl = document.getElementById("manage-event-rounds-pts");
+      const rosterCountEl = document.getElementById("manage-roster-count");
+
+      if (nameEl && updatedEv.name) nameEl.textContent = updatedEv.name;
+      const dateStr = updatedEv.event_date ? (String(updatedEv.event_date).split("T")[0]) : "Date TBD";
+      const locStr = [updatedEv.venue, updatedEv.city, updatedEv.state].filter(Boolean).join(", ") || "Local Venue";
+      const rounds = updatedEv.num_rounds || updatedEv.rounds || 5;
+      const pts = updatedEv.points || 2000;
+      if (dateEl) dateEl.textContent = dateStr;
+      if (locEl) locEl.textContent = locStr;
+      if (roundsPtsEl) roundsPtsEl.textContent = `${rounds} Rounds (${pts} pts)`;
+
+      const roster = updatedEv.roster || [];
+      if (rosterCountEl) rosterCountEl.textContent = roster.length;
+
+      // Lifecycle badge
+      const isEnded = Boolean(updatedEv.is_ended || updatedEv.isEnded);
+      const isStarted = Boolean(updatedEv.started || (updatedEv.status === "active") || (updatedEv.current_round && updatedEv.current_round > 1));
+      const statusBadges = document.querySelectorAll("#manage-event-status-badge");
+      statusBadges.forEach(badge => {
+        badge.style.display = "inline-block";
+        if (isEnded) {
+          badge.className = "badge";
+          badge.style.background = "rgba(239, 68, 68, 0.15)";
+          badge.style.color = "#f87171";
+          badge.style.borderColor = "rgba(239, 68, 68, 0.35)";
+          badge.textContent = "🔴 CONCLUDED";
+        } else if (isStarted) {
+          badge.className = "badge badge-online";
+          badge.style.background = "";
+          badge.style.color = "";
+          badge.style.borderColor = "";
+          badge.textContent = `🟢 IN PROGRESS • ROUND ${updatedEv.current_round || 1}`;
+        } else {
+          badge.className = "badge";
+          badge.style.background = "rgba(234, 179, 8, 0.15)";
+          badge.style.color = "#facc15";
+          badge.style.borderColor = "rgba(234, 179, 8, 0.35)";
+          badge.textContent = "🟡 REGISTRATION OPEN";
         }
-      } else if (studioState.activeSubtab === "standings") {
-        renderStandingsSubtab();
-      } else if (studioState.activeSubtab === "meta") {
-        renderMetaSubtab();
+      });
+
+      const startBtns = document.querySelectorAll("#manage-event-start-btn");
+      startBtns.forEach(btn => {
+        btn.style.display = (!isStarted && !isEnded) ? "inline-flex" : "none";
+      });
+
+      // Guard against interrupting active typing or open studio modals
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+      const isTypingScore = activeEl && activeEl.id && activeEl.id.startsWith("score-");
+
+      if (!isAnyStudioModalOpen()) {
+        if (studioState.activeSubtab === "roster") {
+          if (!isInputFocused || activeEl.id !== "roster-search-input") {
+            const searchInp = document.getElementById("roster-search-input");
+            const prevSearch = searchInp ? searchInp.value : "";
+            renderRosterSubtab();
+            if (prevSearch && searchInp) {
+              searchInp.value = prevSearch;
+              if (typeof filterRosterTable === 'function') filterRosterTable();
+            }
+          }
+        } else if (studioState.activeSubtab === "pairings") {
+          if (!isTypingScore) {
+            renderPairingsSubtab();
+          }
+        } else if (studioState.activeSubtab === "standings") {
+          renderStandingsSubtab();
+        } else if (studioState.activeSubtab === "meta") {
+          renderMetaSubtab();
+        }
       }
     }
 
@@ -1058,7 +1108,12 @@ function switchManageSubtab(subtabName) {
   if (!ev) return;
 
   if (subtabName === "roster") renderRosterSubtab();
-  else if (subtabName === "pairings") renderPairingsSubtab();
+  else if (subtabName === "pairings") {
+    renderPairingsSubtab();
+    if (ev && ev.id && typeof pollTournamentWorkspaceQuietly === "function") {
+      pollTournamentWorkspaceQuietly(ev.id);
+    }
+  }
   else if (subtabName === "standings") renderStandingsSubtab();
   else if (subtabName === "meta") renderMetaSubtab();
   else if (subtabName === "settings") renderSettingsSubtab();
@@ -1425,6 +1480,10 @@ window.ensureStudioTrackerRoom = ensureStudioTrackerRoom;
 function selectRoundView(roundNum) {
   studioState.currentRoundView = roundNum;
   renderPairingsSubtab();
+  const ev = studioState.activeTournament;
+  if (ev && ev.id && typeof pollTournamentWorkspaceQuietly === "function") {
+    pollTournamentWorkspaceQuietly(ev.id);
+  }
 }
 
 async function triggerGenerateSwissPairings() {

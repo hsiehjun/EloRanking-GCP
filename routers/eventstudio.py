@@ -695,6 +695,68 @@ async def api_eventstudio_get_event(event_id: str, request: Request):
         "event": ev
     }
 
+@router.get("/api/eventstudio/event/{event_id}/round/{round_num}/pairings", summary="Get live pairings and scores for a specific tournament round (lightweight single-call)")
+async def api_eventstudio_get_round_pairings(
+    event_id: str,
+    round_num: int,
+    request: Request,
+    bcp_token: Optional[str] = Query(None)
+):
+    db = get_database()
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    user = auth_mgr.get_session(session_token) if session_token else None
+    x_bcp_token = bcp_token or request.headers.get("X-BCP-Token") or request.query_params.get("bcp_token") or (auth_mgr.get_valid_bcp_token(user["id"]) if user else None)
+
+    round_str = str(round_num)
+
+    # 1. Local event (ES-...)
+    if event_id.startswith("ES-"):
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail=f"Tournament '{event_id}' not found")
+        pairings_map = ev.get("pairings") or {}
+        round_pairings = pairings_map.get(round_str) or pairings_map.get(round_num) or []
+        return {
+            "success": True,
+            "event_id": event_id,
+            "round": round_num,
+            "pairings": round_pairings,
+            "current_round": ev.get("current_round") or 1,
+            "is_ended": bool(ev.get("is_ended"))
+        }
+
+    # 2. BCP event - single fast call for this round
+    canonical_id = _resolve_canonical_event_id(event_id, user=user, explicit_token=x_bcp_token)
+    ok, p_err, raw_r_pairings = bcp_adapter.fetch_event_pairings(
+        event_id=canonical_id,
+        round_num=round_num,
+        pairing_type="Pairing",
+        user_id=user["id"] if user else None,
+        explicit_token=x_bcp_token
+    )
+    if not raw_r_pairings:
+        try:
+            from scraper import BestCoastPairingsScraper
+            scraper = BestCoastPairingsScraper(db=db)
+            raw_r_pairings = scraper.fetch_event_pairings_for_round(canonical_id, round_num)
+        except Exception as sc_err:
+            logger.debug(f"Notice fetching round pairings fallback for {canonical_id}: {sc_err}")
+
+    norm_pairings = []
+    if raw_r_pairings:
+        for idx, pairing in enumerate(raw_r_pairings):
+            norm = _normalize_bcp_pairing(pairing, default_table=idx + 1)
+            norm_pairings.append(norm)
+
+    return {
+        "success": True,
+        "event_id": canonical_id,
+        "round": round_num,
+        "pairings": norm_pairings
+    }
+
 @router.post("/api/eventstudio/event/create", summary="Create new tournament and register to BCP")
 async def api_eventstudio_create_event(payload: CreateEventPayload, request: Request):
     user = _get_to_session_or_403(request)

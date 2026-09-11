@@ -12,6 +12,7 @@ sys.path.insert(0, str(root_dir))
 
 from routers.eventstudio import (
     api_eventstudio_get_event,
+    api_eventstudio_get_round_pairings,
     api_eventstudio_list_events,
     api_eventstudio_create_event,
     api_eventstudio_remove_player,
@@ -1591,6 +1592,80 @@ def test_game_tracker_bcp_submit_and_put_fallback():
 
     print("✅ test_game_tracker_bcp_submit_and_put_fallback passed!")
 
+def test_eventstudio_active_round_pairings_endpoint_and_frontend_wiring():
+    """Verify GET /api/eventstudio/event/{event_id}/round/{round_num}/pairings and frontend wiring."""
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer token123"}
+    mock_req.cookies = {}
+    mock_req.query_params = {}
+
+    # 1. Native local event (ES-...)
+    mock_db.get_studio_event.return_value = {
+        "id": "ES-TEST-LOCAL-1",
+        "name": "Local Swiss Draft",
+        "current_round": 2,
+        "is_ended": False,
+        "pairings": {
+            "1": [{"table": 1, "p1_name": "Alice", "p2_name": "Bob", "p1_score": 85, "p2_score": 70, "is_done": True}],
+            "2": [{"table": 1, "p1_name": "Alice", "p2_name": "Charlie", "p1_score": 0, "p2_score": 0, "is_done": False}]
+        }
+    }
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth):
+        res = asyncio.run(api_eventstudio_get_round_pairings("ES-TEST-LOCAL-1", 2, mock_req))
+        assert res["success"] is True
+        assert res["event_id"] == "ES-TEST-LOCAL-1"
+        assert res["round"] == 2
+        assert len(res["pairings"]) == 1
+        assert res["pairings"][0]["p1_name"] == "Alice"
+        assert res["pairings"][0]["p2_name"] == "Charlie"
+
+    # 2. BCP event (single fast round fetch)
+    raw_bcp_pairings = [
+        {
+            "id": "pairing-bcp-101",
+            "table": 1,
+            "round": 3,
+            "player1": {"id": "p1", "name": "John Doe", "armyList": {"faction": "Necrons"}},
+            "player2": {"id": "p2", "name": "Jane Smith", "armyList": {"faction": "Aeldari"}},
+            "player1Game": {"id": "g1", "points": 90, "opponentPoints": 60, "result": "win"},
+            "player2Game": {"id": "g2", "points": 60, "opponentPoints": 90, "result": "loss"}
+        }
+    ]
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch("routers.eventstudio.bcp_adapter.fetch_event_pairings", return_value=(True, None, raw_bcp_pairings)):
+        res_bcp = asyncio.run(api_eventstudio_get_round_pairings("bcp-event-xyz", 3, mock_req))
+        assert res_bcp["success"] is True
+        assert res_bcp["round"] == 3
+        assert len(res_bcp["pairings"]) == 1
+        p = res_bcp["pairings"][0]
+        assert p["table"] == 1
+        assert p["p1_name"] == "John Doe"
+        assert p["p2_name"] == "Jane Smith"
+        assert p["p1_score"] == 90
+        assert p["p2_score"] == 60
+        assert p["is_done"] is True
+
+    # 3. Frontend API client verification
+    api_js = (root_dir / "web" / "js" / "api.js").read_text()
+    assert "getStudioRoundPairings(eventId, roundNum, options = {})" in api_js
+    assert "/api/eventstudio/event/${encodeURIComponent(eventId)}/round/${encodeURIComponent(roundNum)}/pairings" in api_js
+
+    # 4. EventStudio frontend integration verification
+    es_js = (root_dir / "web" / "js" / "eventstudio.js").read_text()
+    assert "isAnyStudioModalOpen()" in es_js
+    assert "getStudioRoundPairings(eventId, currentRound)" in es_js
+    assert "studioWorkspacePollTick" in es_js
+    assert "flashLiveSyncIndicator()" in es_js
+    assert "isTypingScore" in es_js
+
+    print("✅ test_eventstudio_active_round_pairings_endpoint_and_frontend_wiring passed!")
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1629,6 +1704,7 @@ if __name__ == "__main__":
     test_eventstudio_quiet_polling_and_live_sync_ui()
     test_eventstudio_spectator_tracker_and_bcp_submit_scores()
     test_game_tracker_bcp_submit_and_put_fallback()
+    test_eventstudio_active_round_pairings_endpoint_and_frontend_wiring()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 
 
