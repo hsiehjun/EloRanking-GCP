@@ -569,12 +569,19 @@ def sync_player_names_job(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BCP Player Name Sync & Data Correction Job")
+    parser.add_argument("script_name", nargs="*", help="Optional script name passed by Cloud Run args (ignored)")
     parser.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
     parser.add_argument("--limit", "--max-calls", dest="limit", type=int, default=None, help="Maximum number of player lookups to perform in this run (e.g. 500, 1000)")
     parser.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=8, help="Number of concurrent worker threads (default: 8)")
     parser.add_argument("--batch-commit", type=int, default=100, help="Commit to database every N resolved names (default: 100)")
     parser.add_argument("--dry-run", action="store_true", help="Scan and resolve names without writing to database")
-    args = parser.parse_args()
+
+    # Filter out redundant script filenames (e.g. 'player_sync.py') passed via Cloud Run --args
+    clean_argv = [
+        arg for arg in sys.argv[1:]
+        if not (arg.endswith(".py") or arg in ("player_sync", "sync_players"))
+    ]
+    args, unknown = parser.parse_known_args(clean_argv)
 
     try:
         res = sync_player_names_job(

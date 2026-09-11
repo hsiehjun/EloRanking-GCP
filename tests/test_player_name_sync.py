@@ -304,6 +304,42 @@ def test_concurrent_bcp_sync_and_incremental_commit():
     print(f"✅ test_concurrent_bcp_sync_and_incremental_commit passed ({len(applied_batches)} commits executed)")
 
 
+def test_cli_argument_parsing_resilience():
+    """Verify CLI parsing handles redundant script names passed by Cloud Run --args without errors."""
+    import argparse
+    
+    test_cases = [
+        ["player_sync.py", "player_sync.py", "--game-system", "aos", "--limit", "1000"],
+        ["player_sync.py", "--game-system", "aos", "--limit", "500"],
+        ["scripts/sync_players.py", "player_sync.py", "--game-system", "40k", "--dry-run"],
+        ["player_sync.py", "--concurrency", "4", "--batch-commit", "50"],
+    ]
+
+    for argv in test_cases:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("script_name", nargs="*")
+        parser.add_argument("--game-system", choices=["40k", "aos", "all"], default="all")
+        parser.add_argument("--limit", "--max-calls", dest="limit", type=int, default=None)
+        parser.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=8)
+        parser.add_argument("--batch-commit", type=int, default=100)
+        parser.add_argument("--dry-run", action="store_true")
+
+        clean_argv = [
+            arg for arg in argv[1:]
+            if not (arg.endswith(".py") or arg in ("player_sync", "sync_players"))
+        ]
+        args, unknown = parser.parse_known_args(clean_argv)
+        assert args is not None
+        if "--game-system" in argv:
+            idx = argv.index("--game-system")
+            assert args.game_system == argv[idx + 1]
+        if "--limit" in argv:
+            idx = argv.index("--limit")
+            assert args.limit == int(argv[idx + 1])
+
+    print("✅ test_cli_argument_parsing_resilience passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -315,4 +351,5 @@ if __name__ == "__main__":
     test_find_placeholder_player_ids_and_parameter_safety()
     test_concurrent_bcp_sync_and_incremental_commit()
     test_cloudbuild_includes_player_sync_job()
+    test_cli_argument_parsing_resilience()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")
