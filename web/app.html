@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=debc0a88e4">
-  <link rel="stylesheet" href="/css/styles.css?v=debc0a88e4">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=debc0a88e4">
+  <link rel="stylesheet" href="/css/theme.css?v=8a87391c5a">
+  <link rel="stylesheet" href="/css/styles.css?v=8a87391c5a">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=8a87391c5a">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -1144,7 +1144,7 @@
                 <button id="btn-open-broadcast" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.35);" onclick="openBroadcastModal()" title="Broadcast Live Announcement to All Tables">📢 Broadcast</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openCircuitsModal()">🏆 Circuits</button>
                 <button class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem;" onclick="openEditTournamentModal()">⚙️ Edit Details</button>
-                <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;">🔗 Public Listing ↗</a>
+                <a id="manage-event-bcp-link" href="#" target="_blank" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; text-decoration: none;" onclick="openStudioPublicListing(event)" title="Open Public Event Listing on Best Coast Pairings">🔗 Public Listing ↗</a>
                 <button id="manage-event-end-btn" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.85rem; color: #f59e0b; border-color: rgba(245,158,11,0.4);" onclick="endAndArchiveTournament()">🏆 End Event</button>
               </div>
             </div>
@@ -2778,8 +2778,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "debc0a88e4";</script>
-  <script src="/js/app.bundle.min.js?v=debc0a88e4"></script>
+  <script>window.APP_VERSION = "8a87391c5a";</script>
+  <script src="/js/app.bundle.min.js?v=8a87391c5a"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

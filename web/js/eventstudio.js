@@ -488,6 +488,19 @@ async function pollTournamentWorkspaceQuietly(eventId) {
         btn.style.display = (!isStarted && !isEnded) ? "inline-flex" : "none";
       });
 
+      const bcpLinks = document.querySelectorAll("#manage-event-bcp-link");
+      const isBcp = updatedEv.id && !String(updatedEv.id).startsWith("ES-");
+      const isDeletedOnBcp = updatedEv.bcp_status === "deleted_on_bcp" || updatedEv.bcp_deleted === true;
+      bcpLinks.forEach(bLink => {
+        if (isDeletedOnBcp || !isBcp) {
+          bLink.style.display = "none";
+        } else {
+          bLink.style.display = "inline-flex";
+          const cleanId = String(updatedEv.bcp_id || updatedEv.id).replace(/^event\//, '').trim();
+          bLink.href = updatedEv.bcp_url || `https://www.bestcoastpairings.com/event/${encodeURIComponent(cleanId)}`;
+        }
+      });
+
       // Guard against interrupting active typing or open studio modals
       const activeEl = document.activeElement;
       const isInputFocused = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
@@ -981,16 +994,16 @@ async function loadTournamentWorkspace(eventId) {
         bcpBadge.style.display = "none";
       }
     }
-    if (bcpLink) {
-      if (isDeletedOnBcp) {
-        bcpLink.style.display = "none";
-      } else if (isBcp) {
-        bcpLink.style.display = "inline-flex";
-        bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
+    const bcpLinks = document.querySelectorAll("#manage-event-bcp-link");
+    bcpLinks.forEach(bLink => {
+      if (isDeletedOnBcp || !isBcp) {
+        bLink.style.display = "none";
       } else {
-        bcpLink.style.display = "none";
+        bLink.style.display = "inline-flex";
+        const cleanId = String(ev.bcp_id || ev.id).replace(/^event\//, '').trim();
+        bLink.href = ev.bcp_url || `https://www.bestcoastpairings.com/event/${encodeURIComponent(cleanId)}`;
       }
-    }
+    });
 
     // Render / update unlinked warning banner inside the workspace
     let warningBanner = document.getElementById("manage-event-unlinked-warning");
@@ -1082,6 +1095,15 @@ async function loadTournamentWorkspace(eventId) {
     // Attach real-time Firestore listeners for Master Clock, Broadcasts & Floor Judge Radar
     subscribeStudioTournament(ev.id);
     subscribeStudioJudgeCalls(ev.id);
+
+    // Fetch initial active judge calls via REST as immediate fallback
+    if (window.api && typeof window.api.getJudgeCalls === 'function') {
+      window.api.getJudgeCalls(ev.id, false).then(res => {
+        if (res && res.success && Array.isArray(res.calls)) {
+          handleStudioJudgeCallsUpdate(res.calls);
+        }
+      }).catch(e => console.debug("Notice fetching initial judge calls:", e));
+    }
 
     switchManageSubtab(studioState.activeSubtab || "roster");
   } catch (err) {
@@ -1341,7 +1363,7 @@ function renderPairingsSubtab() {
     const p2Name = isBye ? "BYE" : (match.p2_name || match.p2Name || "Player 2");
     const p2Fac = isBye ? "" : (match.p2_faction || match.p2Faction || "");
     const p2Team = isBye ? "" : (match.p2_team || match.p2Team || "");
-    const p2Elo = match.p2_elo !== undefined ? match.p2_elo : (match.p2Elo || 1500);
+    const p2Elo = isBye ? 0.0 : (match.p2_elo !== undefined && match.p2_elo !== null ? (match.p2_elo || 1500) : (match.p2Elo || 1500));
     const p2Prob = match.p2_win_prob !== undefined ? match.p2_win_prob : (100.0 - p1Prob);
     const p2Score = match.p2_score !== undefined ? match.p2_score : 0;
 
@@ -1349,7 +1371,7 @@ function renderPairingsSubtab() {
     const rematchRounds = Array.isArray(match.rematch_rounds) && match.rematch_rounds.length > 0 ? match.rematch_rounds.join(', ') : '';
     const sameTeam = Boolean(match.same_team);
 
-    const matchId = `BCP-${ev.id}-R${currentRound}-T${table}`.toUpperCase();
+    const matchId = `BCP-${ev.id}-R${currentRound}-T${table}`;
     const pid = match.id || match.bcp_pairing_id || '';
     const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : '';
     const pairingParam = cleanPid ? `&pairing_id=${encodeURIComponent(cleanPid)}` : '';
@@ -1454,7 +1476,7 @@ function renderPairingsSubtab() {
 }
 
 async function ensureStudioTrackerRoom(e, eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, p1Fac, p2Fac, pairingId) {
-  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
+  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
   try {
     if (window.api && typeof window.api.createTournamentTrackerRoom === 'function') {
       await window.api.createTournamentTrackerRoom({
@@ -2561,23 +2583,34 @@ function subscribeStudioTournament(eventId) {
   const db = getStudioFirestoreDb();
   if (!db || !eventId) return;
 
-  try {
-    studioState.tournamentUnsub = db.collection('tournaments').doc(eventId).onSnapshot(doc => {
-      if (!doc || !doc.exists) return;
-      const data = doc.data() || {};
-      if (data.masterClock) {
-        applyRemoteStudioMasterClock(data.masterClock);
-      }
-      const calls = data.judge_calls || data.flags;
-      if (Array.isArray(calls)) {
-        handleStudioJudgeCallsUpdate(calls);
-      }
-    }, err => {
-      console.warn("Notice on tournament listener:", err);
-    });
-  } catch (e) {
-    console.warn("Notice initializing tournament listener:", e);
-  }
+  const docIds = [eventId];
+  if (eventId.toUpperCase() !== eventId) docIds.push(eventId.toUpperCase());
+
+  const unsubs = [];
+  docIds.forEach(did => {
+    try {
+      const u = db.collection('tournaments').doc(did).onSnapshot(doc => {
+        if (!doc || !doc.exists) return;
+        const data = doc.data() || {};
+        if (data.masterClock) {
+          applyRemoteStudioMasterClock(data.masterClock);
+        }
+        const calls = data.judge_calls || data.flags;
+        if (Array.isArray(calls)) {
+          handleStudioJudgeCallsUpdate(calls);
+        }
+      }, err => {
+        console.warn("Notice on tournament listener:", err);
+      });
+      unsubs.push(u);
+    } catch (e) {
+      console.warn("Notice initializing tournament listener:", e);
+    }
+  });
+
+  studioState.tournamentUnsub = () => {
+    unsubs.forEach(fn => { try { fn(); } catch(e) {} });
+  };
 }
 
 function applyRemoteStudioMasterClock(clock) {
@@ -2995,6 +3028,8 @@ function playStudioJudgeChime() {
 
 let lastPendingCallIds = new Set();
 
+const studioDocJudgeCalls = {};
+
 function subscribeStudioJudgeCalls(eventId) {
   if (studioState.judgeCallsUnsub) {
     try { studioState.judgeCallsUnsub(); } catch (e) {}
@@ -3003,31 +3038,69 @@ function subscribeStudioJudgeCalls(eventId) {
   const db = getStudioFirestoreDb();
   if (!db || !eventId) return;
 
-  try {
-    studioState.judgeCallsUnsub = db.collection("tournaments").doc(eventId).collection("judge_calls")
-      .onSnapshot(snap => {
-        const calls = [];
-        snap.forEach(doc => {
-          const d = doc.data() || {};
-          if (!d.id) d.id = doc.id;
-          calls.push(d);
+  const docIds = [eventId];
+  if (eventId.toUpperCase() !== eventId) docIds.push(eventId.toUpperCase());
+
+  const unsubs = [];
+  docIds.forEach(did => {
+    try {
+      const u = db.collection("tournaments").doc(did).collection("judge_calls")
+        .onSnapshot(snap => {
+          const calls = [];
+          snap.forEach(doc => {
+            const d = doc.data() || {};
+            if (!d.id) d.id = doc.id;
+            calls.push(d);
+          });
+          studioDocJudgeCalls[did] = calls;
+          handleStudioJudgeCallsUpdate();
+        }, err => {
+          console.warn("Notice on judge calls listener:", err);
         });
-        handleStudioJudgeCallsUpdate(calls);
-      }, err => {
-        console.warn("Notice on judge calls listener:", err);
-      });
-  } catch (e) {
-    console.warn("Notice initializing judge calls listener:", e);
-  }
+      unsubs.push(u);
+    } catch (e) {
+      console.warn("Notice initializing judge calls listener:", e);
+    }
+  });
+
+  studioState.judgeCallsUnsub = () => {
+    unsubs.forEach(fn => { try { fn(); } catch(e) {} });
+  };
 }
 
-function handleStudioJudgeCallsUpdate(calls) {
+function handleStudioJudgeCallsUpdate(incomingCalls) {
+  if (Array.isArray(incomingCalls)) {
+    studioDocJudgeCalls['incoming'] = incomingCalls;
+  }
+
+  const mergedMap = new Map();
+  (studioState.judgeCalls || []).forEach(c => {
+    const cid = c.id || c.call_id;
+    if (cid) mergedMap.set(cid, c);
+  });
+  (studioState.resolvedJudgeCalls || []).forEach(c => {
+    const cid = c.id || c.call_id;
+    if (cid) mergedMap.set(cid, c);
+  });
+
+  Object.values(studioDocJudgeCalls).forEach(arr => {
+    if (Array.isArray(arr)) {
+      arr.forEach(c => {
+        const cid = c.id || c.call_id;
+        if (cid) {
+          mergedMap.set(cid, Object.assign({}, mergedMap.get(cid) || {}, c));
+        }
+      });
+    }
+  });
+
+  const allCalls = Array.from(mergedMap.values());
   const active = [];
   const resolved = [];
   let hasNewPending = false;
   const currentPending = new Set();
 
-  calls.forEach(c => {
+  allCalls.forEach(c => {
     if (c.status === "pending" || c.status === "en_route") {
       active.push(c);
       if (c.status === "pending") {
@@ -3282,48 +3355,56 @@ async function markJudgeCallEnRoute(callId) {
 
   const call = (studioState.judgeCalls || []).find(c => c.id === callId);
   const matchId = call ? (call.matchId || call.match_id) : null;
+  const targetDocIds = [ev.id];
+  if (ev.id.toUpperCase() !== ev.id) targetDocIds.push(ev.id.toUpperCase());
+  if (call && (call.eventId || call.event_id)) {
+    const cEid = String(call.eventId || call.event_id).trim();
+    if (cEid && !targetDocIds.includes(cEid)) targetDocIds.push(cEid);
+  }
 
   const db = getStudioFirestoreDb();
   if (db) {
     try {
-      // 1. Update subcollection
-      await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
-        status: "en_route",
-        assignedJudge: { name: judgeName },
-        assigned_judge: judgeName,
-        enRouteAt: Date.now(),
-        updatedAt: Date.now()
-      }, { merge: true });
+      for (const dId of targetDocIds) {
+        // 1. Update subcollection
+        await db.collection("tournaments").doc(dId).collection("judge_calls").doc(callId).set({
+          status: "en_route",
+          assignedJudge: { name: judgeName },
+          assigned_judge: judgeName,
+          enRouteAt: Date.now(),
+          updatedAt: Date.now()
+        }, { merge: true });
 
-      // 2. Update main Event document arrays (tournaments & events)
-      const updateDocCalls = async (ref) => {
-        try {
-          const snap = await ref.get();
-          if (snap && snap.exists) {
-            const d = snap.data() || {};
-            let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
-            let changed = false;
-            list = list.map(c => {
-              if (c.id === callId || c.call_id === callId) {
-                changed = true;
-                return Object.assign({}, c, {
-                  status: "en_route",
-                  assignedJudge: { name: judgeName },
-                  assigned_judge: judgeName,
-                  enRouteAt: Date.now(),
-                  updatedAt: Date.now()
-                });
+        // 2. Update main Event document arrays (tournaments & events)
+        const updateDocCalls = async (ref) => {
+          try {
+            const snap = await ref.get();
+            if (snap && snap.exists) {
+              const d = snap.data() || {};
+              let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+              let changed = false;
+              list = list.map(c => {
+                if (c.id === callId || c.call_id === callId) {
+                  changed = true;
+                  return Object.assign({}, c, {
+                    status: "en_route",
+                    assignedJudge: { name: judgeName },
+                    assigned_judge: judgeName,
+                    enRouteAt: Date.now(),
+                    updatedAt: Date.now()
+                  });
+                }
+                return c;
+              });
+              if (changed) {
+                await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
               }
-              return c;
-            });
-            if (changed) {
-              await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
             }
-          }
-        } catch(e) {}
-      };
-      updateDocCalls(db.collection("tournaments").doc(ev.id));
-      updateDocCalls(db.collection("events").doc(ev.id));
+          } catch(e) {}
+        };
+        updateDocCalls(db.collection("tournaments").doc(dId));
+        updateDocCalls(db.collection("events").doc(dId));
+      }
 
       // 3. Update table match room
       if (matchId) {
@@ -3363,44 +3444,52 @@ async function markJudgeCallResolved(callId) {
 
   const call = (studioState.judgeCalls || []).find(c => c.id === callId);
   const matchId = call ? (call.matchId || call.match_id) : null;
+  const targetDocIds = [ev.id];
+  if (ev.id.toUpperCase() !== ev.id) targetDocIds.push(ev.id.toUpperCase());
+  if (call && (call.eventId || call.event_id)) {
+    const cEid = String(call.eventId || call.event_id).trim();
+    if (cEid && !targetDocIds.includes(cEid)) targetDocIds.push(cEid);
+  }
 
   const db = getStudioFirestoreDb();
   if (db) {
     try {
-      // 1. Update subcollection
-      await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
-        status: "resolved",
-        resolvedAt: Date.now(),
-        updatedAt: Date.now()
-      }, { merge: true });
+      for (const dId of targetDocIds) {
+        // 1. Update subcollection
+        await db.collection("tournaments").doc(dId).collection("judge_calls").doc(callId).set({
+          status: "resolved",
+          resolvedAt: Date.now(),
+          updatedAt: Date.now()
+        }, { merge: true });
 
-      // 2. Update main Event document arrays
-      const updateDocCalls = async (ref) => {
-        try {
-          const snap = await ref.get();
-          if (snap && snap.exists) {
-            const d = snap.data() || {};
-            let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
-            let changed = false;
-            list = list.map(c => {
-              if (c.id === callId || c.call_id === callId) {
-                changed = true;
-                return Object.assign({}, c, {
-                  status: "resolved",
-                  resolvedAt: Date.now(),
-                  updatedAt: Date.now()
-                });
+        // 2. Update main Event document arrays
+        const updateDocCalls = async (ref) => {
+          try {
+            const snap = await ref.get();
+            if (snap && snap.exists) {
+              const d = snap.data() || {};
+              let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+              let changed = false;
+              list = list.map(c => {
+                if (c.id === callId || c.call_id === callId) {
+                  changed = true;
+                  return Object.assign({}, c, {
+                    status: "resolved",
+                    resolvedAt: Date.now(),
+                    updatedAt: Date.now()
+                  });
+                }
+                return c;
+              });
+              if (changed) {
+                await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
               }
-              return c;
-            });
-            if (changed) {
-              await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
             }
-          }
-        } catch(e) {}
-      };
-      updateDocCalls(db.collection("tournaments").doc(ev.id));
-      updateDocCalls(db.collection("events").doc(ev.id));
+          } catch(e) {}
+        };
+        updateDocCalls(db.collection("tournaments").doc(dId));
+        updateDocCalls(db.collection("events").doc(dId));
+      }
 
       // 3. Update table match room
       if (matchId) {
@@ -3436,44 +3525,52 @@ async function dismissJudgeCall(callId) {
 
   const call = (studioState.judgeCalls || []).find(c => c.id === callId);
   const matchId = call ? (call.matchId || call.match_id) : null;
+  const targetDocIds = [ev.id];
+  if (ev.id.toUpperCase() !== ev.id) targetDocIds.push(ev.id.toUpperCase());
+  if (call && (call.eventId || call.event_id)) {
+    const cEid = String(call.eventId || call.event_id).trim();
+    if (cEid && !targetDocIds.includes(cEid)) targetDocIds.push(cEid);
+  }
 
   const db = getStudioFirestoreDb();
   if (db) {
     try {
-      // 1. Update subcollection
-      await db.collection("tournaments").doc(ev.id).collection("judge_calls").doc(callId).set({
-        status: "cancelled",
-        resolvedAt: Date.now(),
-        updatedAt: Date.now()
-      }, { merge: true });
+      for (const dId of targetDocIds) {
+        // 1. Update subcollection
+        await db.collection("tournaments").doc(dId).collection("judge_calls").doc(callId).set({
+          status: "cancelled",
+          resolvedAt: Date.now(),
+          updatedAt: Date.now()
+        }, { merge: true });
 
-      // 2. Update main Event document arrays
-      const updateDocCalls = async (ref) => {
-        try {
-          const snap = await ref.get();
-          if (snap && snap.exists) {
-            const d = snap.data() || {};
-            let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
-            let changed = false;
-            list = list.map(c => {
-              if (c.id === callId || c.call_id === callId) {
-                changed = true;
-                return Object.assign({}, c, {
-                  status: "cancelled",
-                  resolvedAt: Date.now(),
-                  updatedAt: Date.now()
-                });
+        // 2. Update main Event document arrays
+        const updateDocCalls = async (ref) => {
+          try {
+            const snap = await ref.get();
+            if (snap && snap.exists) {
+              const d = snap.data() || {};
+              let list = Array.isArray(d.judge_calls) ? d.judge_calls.slice() : (Array.isArray(d.flags) ? d.flags.slice() : []);
+              let changed = false;
+              list = list.map(c => {
+                if (c.id === callId || c.call_id === callId) {
+                  changed = true;
+                  return Object.assign({}, c, {
+                    status: "cancelled",
+                    resolvedAt: Date.now(),
+                    updatedAt: Date.now()
+                  });
+                }
+                return c;
+              });
+              if (changed) {
+                await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
               }
-              return c;
-            });
-            if (changed) {
-              await ref.set({ judge_calls: list, flags: list, updatedAt: Date.now() }, { merge: true });
             }
-          }
-        } catch(e) {}
-      };
-      updateDocCalls(db.collection("tournaments").doc(ev.id));
-      updateDocCalls(db.collection("events").doc(ev.id));
+          } catch(e) {}
+        };
+        updateDocCalls(db.collection("tournaments").doc(dId));
+        updateDocCalls(db.collection("events").doc(dId));
+      }
 
       // 3. Clear match room call
       if (matchId) {
@@ -3712,6 +3809,26 @@ window.startStudioPolling = startStudioPolling;
 window.stopStudioPolling = stopStudioPolling;
 window.pollTournamentWorkspaceQuietly = pollTournamentWorkspaceQuietly;
 window.flashLiveSyncIndicator = flashLiveSyncIndicator;
+
+function openStudioPublicListing(event) {
+  if (event) {
+    try { event.preventDefault(); } catch(e) {}
+  }
+  const ev = studioState.activeTournament;
+  if (!ev) {
+    alert("No active tournament is currently loaded.");
+    return;
+  }
+  const bcpId = ev.bcp_id || ev.id;
+  if (!bcpId || String(bcpId).startsWith('ES-')) {
+    alert("This tournament was created locally in Event Studio and does not have an external Best Coast Pairings public listing.");
+    return;
+  }
+  const cleanId = String(bcpId).replace(/^event\//, '').trim();
+  const url = ev.bcp_url || `https://www.bestcoastpairings.com/event/${encodeURIComponent(cleanId)}`;
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+window.openStudioPublicListing = openStudioPublicListing;
 
 function toggleTeamOptions(context) {
   const typeEl = document.getElementById(`${context}-event-type`);

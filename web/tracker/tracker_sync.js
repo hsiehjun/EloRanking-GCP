@@ -973,7 +973,7 @@
         const evId = params.get('eventId') || params.get('event_id');
         const rNum = params.get('round') || params.get('round_num') || 1;
         const tNum = params.get('table') || params.get('table_num') || 1;
-        matchId = `BCP-${evId}-R${rNum}-T${tNum}`.toUpperCase();
+        matchId = `BCP-${evId}-R${rNum}-T${tNum}`;
       }
 
       let chkData = {};
@@ -4772,10 +4772,13 @@ Space Marines - Gladius Task Force (2000 pts)
           }
         };
 
-        updateMainEventDoc(db.collection('tournaments').doc(tournamentId));
-        updateMainEventDoc(db.collection('events').doc(tournamentId));
-
-        db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
+        const targetTournamentIds = [tournamentId];
+        if (tournamentId.toUpperCase() !== tournamentId) targetTournamentIds.push(tournamentId.toUpperCase());
+        targetTournamentIds.forEach(tid => {
+          updateMainEventDoc(db.collection('tournaments').doc(tid));
+          updateMainEventDoc(db.collection('events').doc(tid));
+          db.collection('tournaments').doc(tid).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
+        });
         if (clientState.matchId) {
           db.collection('rooms').doc(clientState.matchId).set({ active_judge_call: callData }, { merge: true }).catch(() => {});
         }
@@ -4849,14 +4852,17 @@ Space Marines - Gladius Task Force (2000 pts)
           } catch(e) {}
         };
 
-        cancelInDoc(db.collection('tournaments').doc(tournamentId));
-        cancelInDoc(db.collection('events').doc(tournamentId));
-
-        db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).update({
-          status: 'cancelled',
-          resolved_at: Date.now(),
-          resolvedAt: Date.now()
-        }).catch(() => {});
+        const targetTournamentIds = [tournamentId];
+        if (tournamentId.toUpperCase() !== tournamentId) targetTournamentIds.push(tournamentId.toUpperCase());
+        targetTournamentIds.forEach(tid => {
+          cancelInDoc(db.collection('tournaments').doc(tid));
+          cancelInDoc(db.collection('events').doc(tid));
+          db.collection('tournaments').doc(tid).collection('judge_calls').doc(callId).update({
+            status: 'cancelled',
+            resolved_at: Date.now(),
+            resolvedAt: Date.now()
+          }).catch(() => {});
+        });
 
         if (clientState.matchId) {
           db.collection('rooms').doc(clientState.matchId).update({

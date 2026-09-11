@@ -290,7 +290,7 @@ def _normalize_bcp_pairing(
         "p2_name": p2_name if not is_bye else "BYE",
         "p2_faction": str(p2_fac or "") if not is_bye else "",
         "p2_team": str(p2_team or "") if not is_bye else "",
-        "p2_elo": float(r2.get("elo") or 1500.0) if (r2 and not is_bye) else 0.0,
+        "p2_elo": 0.0 if is_bye else (float(r2.get("elo") or 1500.0) if r2 else 1500.0),
         "p2_win_prob": 50.0 if not is_bye else 0.0,
         "p2_score": int(p2_score or 0) if not is_bye else 0,
         "is_bye": is_bye,
@@ -3133,6 +3133,15 @@ async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
     call_id = payload.call_id or payload.callId or payload.id or f"JC-{_uuid.uuid4().hex[:8].upper()}"
     eid = payload.event_id or payload.eventId or ""
     mid = payload.match_id or payload.matchId or ""
+    if not eid and mid:
+        import re as _re
+        m_eid = _re.search(r'(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+', str(mid))
+        if m_eid:
+            eid = m_eid.group(1)
+    if eid:
+        canonical_eid = _resolve_canonical_event_id(eid)
+        if canonical_eid:
+            eid = canonical_eid
     p_name = payload.player_name or payload.playerName or payload.caller_name or payload.callerName or (payload.caller.get("playerName") if isinstance(payload.caller, dict) else (payload.caller if isinstance(payload.caller, str) else "Competitor"))
     c_note = payload.note or payload.notes or ""
     fs_engine = get_firestore_engine()
@@ -3189,8 +3198,9 @@ async def api_eventstudio_create_judge_call(payload: JudgeCallCreatePayload):
 @router.get("/api/eventstudio/judge_calls", summary="List active judge calls for a tournament")
 async def api_eventstudio_get_judge_calls(event_id: str, active_only: bool = False):
     fs_engine = get_firestore_engine()
-    calls = fs_engine.list_judge_calls(event_id=event_id, active_only=active_only)
-    return {"success": True, "event_id": event_id, "calls": calls}
+    canonical_eid = _resolve_canonical_event_id(event_id) if event_id else event_id
+    calls = fs_engine.list_judge_calls(event_id=canonical_eid or event_id, active_only=active_only)
+    return {"success": True, "event_id": canonical_eid or event_id, "calls": calls}
 
 @router.post("/api/eventstudio/judge_call/resolve", summary="Update judge call status (en_route, resolved, cancelled)")
 async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
@@ -3198,6 +3208,10 @@ async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
     event_id = payload.event_id or payload.eventId or ""
     call_id = payload.call_id or payload.callId or payload.id or ""
     
+    if event_id:
+        canonical_eid = _resolve_canonical_event_id(event_id)
+        if canonical_eid:
+            event_id = canonical_eid
     # Look up call if event_id not provided
     if not event_id:
         for eid, calls in fs_engine._fallback_judge_calls.items():

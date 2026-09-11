@@ -1797,7 +1797,7 @@ function renderEventPairingsRows() {
 }
 
 async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, pairingId = '') {
-  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
+  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
   
   let p1Fac = null;
   let p2Fac = null;
@@ -1841,11 +1841,11 @@ async function launchTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Na
   }
 
   const pParam = pairingId ? `&pairing_id=${encodeURIComponent(pairingId)}` : '';
-  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}${pParam}`;
+  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(eventId)}&table=${tableNum}${pParam}`;
 }
 
 async function spectateTournamentTracker(eventId, roundNum, tableNum, p1Name, p2Name, p1Id, p2Id, pairingId = '') {
-  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`.toUpperCase();
+  const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
   
   let p1Fac = null;
   let p2Fac = null;
@@ -1889,7 +1889,7 @@ async function spectateTournamentTracker(eventId, roundNum, tableNum, p1Name, p2
   }
 
   const pParam = pairingId ? `&pairing_id=${encodeURIComponent(pairingId)}` : '';
-  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}${pParam}&role=spectator`;
+  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(eventId)}&table=${tableNum}${pParam}&role=spectator`;
 }
 
 /* ==========================================================================

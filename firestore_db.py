@@ -609,49 +609,57 @@ class FirestoreRoomEngine:
             "resolvedAt": call_data.get("resolvedAt")
         }
 
+        target_event_ids = [event_id]
+        if event_id.upper() not in target_event_ids:
+            target_event_ids.append(event_id.upper())
+        if event_id.lower() not in target_event_ids:
+            target_event_ids.append(event_id.lower())
+
         if self._client:
-            # 1. Save to subcollection for backward compatibility
-            try:
-                ref = self._client.collection("tournaments").document(event_id).collection("judge_calls").document(call_id)
-                ref.set(record, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice saving judge call to Firestore subcollection: {e}")
-
-            # 2. Save directly into single Event document arrays (tournaments/{id} and events/{id})
-            for col_name in ("tournaments", "events"):
+            for target_eid in target_event_ids:
+                # 1. Save to subcollection for backward compatibility
                 try:
-                    doc_ref = self._client.collection(col_name).document(event_id)
-                    snap = doc_ref.get()
-                    curr_calls = []
-                    if snap.exists:
-                        d = snap.to_dict() or {}
-                        raw_list = d.get("judge_calls") or d.get("flags") or []
-                        if isinstance(raw_list, list):
-                            curr_calls = [c for c in raw_list if isinstance(c, dict) and c.get("id") != call_id and c.get("call_id") != call_id]
-                    curr_calls.insert(0, record)
-                    doc_ref.set({
-                        "id": event_id,
-                        "eventId": event_id,
-                        "type": "Event",
-                        "judge_calls": curr_calls,
-                        "flags": curr_calls,
-                        "updatedAt": now_ts
-                    }, merge=True)
+                    ref = self._client.collection("tournaments").document(target_eid).collection("judge_calls").document(call_id)
+                    ref.set(record, merge=True)
                 except Exception as e:
-                    logger.warning(f"Notice updating judge_calls array on Firestore {col_name}/{event_id}: {e}")
+                    logger.warning(f"Notice saving judge call to Firestore subcollection: {e}")
 
-        if event_id not in self._fallback_judge_calls:
-            self._fallback_judge_calls[event_id] = {}
-        self._fallback_judge_calls[event_id][call_id] = record
+                # 2. Save directly into single Event document arrays (tournaments/{id} and events/{id})
+                for col_name in ("tournaments", "events"):
+                    try:
+                        doc_ref = self._client.collection(col_name).document(target_eid)
+                        snap = doc_ref.get()
+                        curr_calls = []
+                        if snap.exists:
+                            d = snap.to_dict() or {}
+                            raw_list = d.get("judge_calls") or d.get("flags") or []
+                            if isinstance(raw_list, list):
+                                curr_calls = [c for c in raw_list if isinstance(c, dict) and c.get("id") != call_id and c.get("call_id") != call_id]
+                        curr_calls.insert(0, record)
+                        doc_ref.set({
+                            "id": target_eid,
+                            "eventId": target_eid,
+                            "type": "Event",
+                            "judge_calls": curr_calls,
+                            "flags": curr_calls,
+                            "updatedAt": now_ts
+                        }, merge=True)
+                    except Exception as e:
+                        logger.warning(f"Notice updating judge_calls array on Firestore {col_name}/{target_eid}: {e}")
 
-        if event_id not in self._fallback_tournaments:
-            self._fallback_tournaments[event_id] = {"id": event_id, "eventId": event_id, "type": "Event"}
-        fb_calls = self._fallback_tournaments[event_id].get("judge_calls", [])
-        fb_calls = [c for c in fb_calls if c.get("id") != call_id and c.get("call_id") != call_id]
-        fb_calls.insert(0, record)
-        self._fallback_tournaments[event_id]["judge_calls"] = fb_calls
-        self._fallback_tournaments[event_id]["flags"] = fb_calls
-        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        for target_eid in target_event_ids:
+            if target_eid not in self._fallback_judge_calls:
+                self._fallback_judge_calls[target_eid] = {}
+            self._fallback_judge_calls[target_eid][call_id] = record
+
+            if target_eid not in self._fallback_tournaments:
+                self._fallback_tournaments[target_eid] = {"id": target_eid, "eventId": target_eid, "type": "Event"}
+            fb_calls = self._fallback_tournaments[target_eid].get("judge_calls", [])
+            fb_calls = [c for c in fb_calls if c.get("id") != call_id and c.get("call_id") != call_id]
+            fb_calls.insert(0, record)
+            self._fallback_tournaments[target_eid]["judge_calls"] = fb_calls
+            self._fallback_tournaments[target_eid]["flags"] = fb_calls
+            self._fallback_tournaments[target_eid]["updatedAt"] = now_ts
         return record
 
     def update_judge_call_status(
@@ -679,47 +687,55 @@ class FirestoreRoomEngine:
         elif status == "resolved":
             updates["resolvedAt"] = now_ts
 
+        target_event_ids = [event_id]
+        if event_id.upper() not in target_event_ids:
+            target_event_ids.append(event_id.upper())
+        if event_id.lower() not in target_event_ids:
+            target_event_ids.append(event_id.lower())
+
         if self._client:
-            # 1. Subcollection update
-            try:
-                ref = self._client.collection("tournaments").document(event_id).collection("judge_calls").document(call_id)
-                ref.set(updates, merge=True)
-            except Exception as e:
-                logger.warning(f"Notice updating judge call in Firestore subcollection: {e}")
-
-            # 2. Main document arrays update (tournaments & events)
-            for col_name in ("tournaments", "events"):
+            for target_eid in target_event_ids:
+                # 1. Subcollection update
                 try:
-                    doc_ref = self._client.collection(col_name).document(event_id)
-                    snap = doc_ref.get()
-                    if snap.exists:
-                        d = snap.to_dict() or {}
-                        raw_list = d.get("judge_calls") or d.get("flags") or []
-                        if isinstance(raw_list, list):
-                            found = False
-                            for c in raw_list:
-                                if isinstance(c, dict) and (c.get("id") == call_id or c.get("call_id") == call_id):
-                                    c.update(updates)
-                                    found = True
-                            if found:
-                                doc_ref.set({
-                                    "judge_calls": raw_list,
-                                    "flags": raw_list,
-                                    "updatedAt": now_ts
-                                }, merge=True)
+                    ref = self._client.collection("tournaments").document(target_eid).collection("judge_calls").document(call_id)
+                    ref.set(updates, merge=True)
                 except Exception as e:
-                    logger.warning(f"Notice updating judge call status in {col_name}/{event_id}: {e}")
+                    logger.warning(f"Notice updating judge call in Firestore subcollection: {e}")
 
-        if event_id in self._fallback_judge_calls and call_id in self._fallback_judge_calls[event_id]:
-            self._fallback_judge_calls[event_id][call_id].update(updates)
+                # 2. Main document arrays update (tournaments & events)
+                for col_name in ("tournaments", "events"):
+                    try:
+                        doc_ref = self._client.collection(col_name).document(target_eid)
+                        snap = doc_ref.get()
+                        if snap.exists:
+                            d = snap.to_dict() or {}
+                            raw_list = d.get("judge_calls") or d.get("flags") or []
+                            if isinstance(raw_list, list):
+                                found = False
+                                for c in raw_list:
+                                    if isinstance(c, dict) and (c.get("id") == call_id or c.get("call_id") == call_id):
+                                        c.update(updates)
+                                        found = True
+                                if found:
+                                    doc_ref.set({
+                                        "judge_calls": raw_list,
+                                        "flags": raw_list,
+                                        "updatedAt": now_ts
+                                    }, merge=True)
+                    except Exception as e:
+                        logger.warning(f"Notice updating judge call status in {col_name}/{target_eid}: {e}")
 
-        if event_id in self._fallback_tournaments:
-            raw_list = self._fallback_tournaments[event_id].get("judge_calls", [])
-            for c in raw_list:
-                if c.get("id") == call_id or c.get("call_id") == call_id:
-                    c.update(updates)
-            self._fallback_tournaments[event_id]["flags"] = raw_list
-            self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+        for target_eid in target_event_ids:
+            if target_eid in self._fallback_judge_calls and call_id in self._fallback_judge_calls[target_eid]:
+                self._fallback_judge_calls[target_eid][call_id].update(updates)
+
+            if target_eid in self._fallback_tournaments:
+                raw_list = self._fallback_tournaments[target_eid].get("judge_calls", [])
+                for c in raw_list:
+                    if c.get("id") == call_id or c.get("call_id") == call_id:
+                        c.update(updates)
+                self._fallback_tournaments[target_eid]["flags"] = raw_list
+                self._fallback_tournaments[target_eid]["updatedAt"] = now_ts
 
         return True
 
@@ -729,59 +745,67 @@ class FirestoreRoomEngine:
         calls = []
         seen = set()
 
-        if self._client:
-            # 1. Check the main Event document arrays first (fastest, single-doc real-time source)
-            for col_name in ("tournaments", "events"):
-                try:
-                    doc_ref = self._client.collection(col_name).document(event_id)
-                    snap = doc_ref.get()
-                    if snap.exists:
-                        d = snap.to_dict() or {}
-                        arr = d.get("judge_calls") or d.get("flags") or []
-                        if isinstance(arr, list):
-                            for c in arr:
-                                if isinstance(c, dict):
-                                    cid = c.get("id") or c.get("call_id")
-                                    if cid and cid not in seen:
-                                        if active_only and c.get("status") not in ("pending", "en_route"):
-                                            continue
-                                        seen.add(cid)
-                                        calls.append(c)
-                except Exception as e:
-                    logger.warning(f"Notice reading judge_calls from {col_name}/{event_id}: {e}")
+        target_event_ids = [event_id]
+        if event_id.upper() not in target_event_ids:
+            target_event_ids.append(event_id.upper())
+        if event_id.lower() not in target_event_ids:
+            target_event_ids.append(event_id.lower())
 
-            # 2. Subcollection fallback
-            try:
-                col = self._client.collection("tournaments").document(event_id).collection("judge_calls")
-                for doc in col.stream():
-                    d = doc.to_dict() or {}
-                    cid = d.get("id") or doc.id
-                    if cid in seen:
+        if self._client:
+            for target_eid in target_event_ids:
+                # 1. Check the main Event document arrays first (fastest, single-doc real-time source)
+                for col_name in ("tournaments", "events"):
+                    try:
+                        doc_ref = self._client.collection(col_name).document(target_eid)
+                        snap = doc_ref.get()
+                        if snap.exists:
+                            d = snap.to_dict() or {}
+                            arr = d.get("judge_calls") or d.get("flags") or []
+                            if isinstance(arr, list):
+                                for c in arr:
+                                    if isinstance(c, dict):
+                                        cid = c.get("id") or c.get("call_id")
+                                        if cid and cid not in seen:
+                                            if active_only and c.get("status") not in ("pending", "en_route"):
+                                                continue
+                                            seen.add(cid)
+                                            calls.append(c)
+                    except Exception as e:
+                        logger.warning(f"Notice reading judge_calls from {col_name}/{target_eid}: {e}")
+
+                # 2. Subcollection fallback
+                try:
+                    col = self._client.collection("tournaments").document(target_eid).collection("judge_calls")
+                    for doc in col.stream():
+                        d = doc.to_dict() or {}
+                        cid = d.get("id") or doc.id
+                        if cid in seen:
+                            continue
+                        if active_only and d.get("status") not in ("pending", "en_route"):
+                            continue
+                        seen.add(cid)
+                        calls.append(d)
+                except Exception as e:
+                    logger.warning(f"Notice listing judge calls from Firestore: {e}")
+
+        for target_eid in target_event_ids:
+            # 3. Fallback tournaments doc
+            fb_tourn_calls = self._fallback_tournaments.get(target_eid, {}).get("judge_calls", [])
+            for c in fb_tourn_calls:
+                cid = c.get("id") or c.get("call_id")
+                if cid and cid not in seen:
+                    if active_only and c.get("status") not in ("pending", "en_route"):
                         continue
+                    seen.add(cid)
+                    calls.append(c)
+
+            # 4. Fallback judge calls dictionary
+            for cid, d in self._fallback_judge_calls.get(target_eid, {}).items():
+                if cid not in seen:
                     if active_only and d.get("status") not in ("pending", "en_route"):
                         continue
                     seen.add(cid)
                     calls.append(d)
-            except Exception as e:
-                logger.warning(f"Notice listing judge calls from Firestore: {e}")
-
-        # 3. Fallback tournaments doc
-        fb_tourn_calls = self._fallback_tournaments.get(event_id, {}).get("judge_calls", [])
-        for c in fb_tourn_calls:
-            cid = c.get("id") or c.get("call_id")
-            if cid and cid not in seen:
-                if active_only and c.get("status") not in ("pending", "en_route"):
-                    continue
-                seen.add(cid)
-                calls.append(c)
-
-        # 4. Fallback judge calls dictionary
-        for cid, d in self._fallback_judge_calls.get(event_id, {}).items():
-            if cid not in seen:
-                if active_only and d.get("status") not in ("pending", "en_route"):
-                    continue
-                seen.add(cid)
-                calls.append(d)
 
         calls.sort(key=lambda c: c.get("createdAt") or 0, reverse=True)
         return calls
