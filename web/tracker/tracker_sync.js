@@ -113,6 +113,9 @@
     if (typeof document !== 'undefined' && document.body) {
       if (clientState.role === 'spectator') {
         document.body.classList.add('is-spectator-mode');
+        if (isPlay && clientState.matchId) {
+          window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
+        }
       } else {
         document.body.classList.remove('is-spectator-mode');
       }
@@ -976,6 +979,12 @@
         matchId = `BCP-${evId}-R${rNum}-T${tNum}`;
       }
 
+      const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';
+      if (isSpectatorExplicit && matchId) {
+        window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
+        return;
+      }
+
       let chkData = {};
 
       if (matchId) {
@@ -1057,11 +1066,11 @@
         });
         if (resp.ok) {
           const joinData = await resp.json();
-          if (joinData.is_finished) {
-            window.location.href = `/scorecard/${encodeURIComponent(clientState.matchId)}`;
+          if (joinData.is_finished || joinData.role === 'spectator') {
+            window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
             return;
           }
-          clientState.role = joinData.role || 'spectator';
+          clientState.role = joinData.role || 'player2';
           updateSpectatorModeUI();
           if (joinData.state) {
             applyRemoteState(joinData.state);
@@ -1069,6 +1078,11 @@
           injectMultiplayerHUD(); // Update HUD with confirmed role!
         }
       } catch (e) {}
+
+      if (clientState.role === 'spectator') {
+        window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
+        return;
+      }
 
       injectPlayer2InviteWidget();
       attachDomActionInterceptors();
@@ -1142,11 +1156,13 @@
       }
 
       if (data.is_full) {
-        const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). Join as a Spectator (View Only)?`);
+        const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
         if (!proceed) {
           if (btn) { btn.disabled = false; btn.textContent = 'JOIN'; }
           return;
         }
+        window.location.href = `/scorecard/${encodeURIComponent(data.match_id || code)}`;
+        return;
       }
 
       window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id || code)}`;

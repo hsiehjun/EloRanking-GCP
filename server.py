@@ -187,6 +187,13 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
             return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
 
     is_play_page = "play" in path.lower()
+    if is_play_page:
+        role = request.query_params.get("role")
+        spectate = request.query_params.get("spectate")
+        match_id = request.query_params.get("match_id") or request.query_params.get("room") or request.query_params.get("id")
+        if (role == "spectator" or spectate == "true") and match_id:
+            return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
+
     local_html_file = (web_dir / "tracker" / "play.html") if is_play_page else (web_dir / "tracker" / "lobby.html")
 
     if local_html_file.is_file():
@@ -348,9 +355,14 @@ async def serve_tracker_alias(request: Request, token: Optional[str] = Query(Non
         match_id = f"BCP-{event_id}-R{round_num}-T{table_num}".upper()
         if not role:
             role = "spectator"
-        target = f"/11th/tracker/play?match_id={urllib.parse.quote_plus(match_id)}&role={urllib.parse.quote_plus(role)}"
-        if qp.get("pairing_id"):
+        if role == "spectator":
+            target = f"/scorecard/{urllib.parse.quote_plus(match_id)}"
+        else:
+            target = f"/11th/tracker/play?match_id={urllib.parse.quote_plus(match_id)}&role={urllib.parse.quote_plus(role)}"
+        if qp.get("pairing_id") and role != "spectator":
             target += f"&pairing_id={urllib.parse.quote_plus(qp['pairing_id'])}"
+    elif match_id and (role == "spectator" or qp.get("spectate") == "true"):
+        target = f"/scorecard/{urllib.parse.quote_plus(match_id)}"
     elif match_id or "play" in qp:
         query_str = f"?{request.url.query}" if request.url.query else ""
         target = f"/11th/tracker/play{query_str}"
@@ -364,6 +376,12 @@ async def serve_tracker_alias(request: Request, token: Optional[str] = Query(Non
 
 @app.get("/tracker/play", include_in_schema=False)
 async def serve_tracker_play_alias(request: Request):
+    qp = dict(request.query_params)
+    role = qp.get("role")
+    spectate = qp.get("spectate")
+    match_id = qp.get("match_id") or qp.get("room") or qp.get("id")
+    if (role == "spectator" or spectate == "true") and match_id:
+        return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
     query = f"?{request.url.query}" if request.url.query else ""
     return RedirectResponse(url=f"/11th/tracker/play{query}", status_code=303)
 

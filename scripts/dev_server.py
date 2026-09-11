@@ -712,6 +712,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/scorecard/"):
+            match_id = clean_path.replace("api/scorecard/", "").strip("/")
+            room_data = ROOMS_DB.get(match_id, {})
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "match_id": match_id,
+                    "game_record": None,
+                    "state": room_data.get("state"),
+                    "is_finished": bool(room_data.get("is_finished", False)),
+                    "status": room_data.get("status", "active")
+                }).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/tracker/"):
             room_id = clean_path.replace("api/tracker/", "").replace("room/", "").strip("/")
             data = ROOMS_DB.get(room_id, {})
@@ -726,6 +743,10 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(WEB_DIR / "app.html", is_head)
             return
 
+        if clean_path.startswith("scorecard"):
+            self._serve_html_with_auth(WEB_DIR / "scorecard.html", is_head)
+            return
+
         # 2. Redirects to /11th/tracker/play
         # Ensuring the URL has /play guarantees isPlay=true in tracker_sync.js
         if clean_path in ("", "login", "tracker", "11th/tracker"):
@@ -738,6 +759,20 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         # 3. Game Tracker Play SPA
         if clean_path in ("11th/tracker/play", "tracker/play"):
+            qp = urllib.parse.parse_qs(query_str)
+            role = qp.get("role", [None])[0]
+            spectate = qp.get("spectate", [None])[0]
+            match_id = qp.get("match_id", [None])[0] or qp.get("room", [None])[0] or qp.get("id", [None])[0]
+            if not match_id and qp.get("event_id", [None])[0] and qp.get("table", [None])[0]:
+                ev_id = qp.get("event_id", [None])[0]
+                r_num = qp.get("round", ["1"])[0]
+                t_num = qp.get("table", ["1"])[0]
+                match_id = f"BCP-{ev_id}-R{r_num}-T{t_num}"
+            if (role == "spectator" or spectate == "true") and match_id:
+                self.send_response(302)
+                self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")
+                self.end_headers()
+                return
             self._serve_html_with_auth(TRACKER_DIR / "play.html", is_head)
             return
 

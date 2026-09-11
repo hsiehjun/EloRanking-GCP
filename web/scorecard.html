@@ -9,6 +9,8 @@
   <link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
   <link rel="stylesheet" href="/css/main.css">
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
   <style>
     body {
       background: #070b14;
@@ -74,8 +76,27 @@
       border: 1px solid rgba(16, 185, 129, 0.3);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
+    .sc-badge-live {
+      background: rgba(239, 68, 68, 0.15) !important;
+      color: #ef4444 !important;
+      border: 1px solid rgba(239, 68, 68, 0.4) !important;
+    }
+    .sc-badge-pulse {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-right: 4px;
+      box-shadow: 0 0 6px #ef4444;
+      animation: scPulse 1.4s ease-in-out infinite;
+    }
+    @keyframes scPulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.35); opacity: 0.4; }
+    }
 
-    /* Winner Banner */
+    /* Winner Banner & Live Banner */
     .sc-winner-banner {
       background: linear-gradient(90deg, rgba(56,189,248,0.12) 0%, rgba(245,158,11,0.2) 50%, rgba(244,63,94,0.12) 100%);
       border-bottom: 1px solid rgba(245,158,11,0.35);
@@ -87,6 +108,20 @@
       font-weight: 800;
       font-size: 1.1rem;
       color: #fde68a;
+      letter-spacing: 0.02em;
+      text-align: center;
+    }
+    .sc-live-banner {
+      background: linear-gradient(90deg, rgba(239,68,68,0.15) 0%, rgba(56,189,248,0.15) 50%, rgba(239,68,68,0.15) 100%);
+      border-bottom: 1px solid rgba(239,68,68,0.35);
+      padding: 0.65rem 1.5rem;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 0.65rem;
+      font-weight: 800;
+      font-size: 0.95rem;
+      color: #fca5a5;
       letter-spacing: 0.02em;
       text-align: center;
     }
@@ -273,9 +308,12 @@
 <body>
 
   <div class="sc-container">
-    <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
-      <a href="/11th/tracker" class="btn-sc">🎲 Return to Tracker Lobby</a>
-      <div style="display: flex; gap: 0.5rem;">
+    <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <a href="/11th/tracker" class="btn-sc">🎲 Tracker Lobby</a>
+        <a href="/app" id="sc-event-back-btn" class="btn-sc" style="display:none; color: #f59e0b; border-color: rgba(245,158,11,0.3);">🏆 Tournament Overview</a>
+      </div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
         <a href="/" class="btn-sc">🏠 OmniTactica Hub</a>
         <button class="btn-sc" onclick="copyScorecardUrl()">🔗 Share Scorecard</button>
       </div>
@@ -490,6 +528,72 @@
 
     let globalScorecardData = null;
     let areSecondariesExpanded = false;
+    let liveTimer = null;
+    let isLivePolling = false;
+
+    async function pollLiveScorecardQuietly() {
+      if (isLivePolling || document.hidden) return;
+      const matchId = getMatchIdFromPath();
+      if (!matchId) return;
+      isLivePolling = true;
+      try {
+        const resp = await fetch(`/api/scorecard/${encodeURIComponent(matchId)}`);
+        if (resp.ok) {
+          const json = await resp.json();
+          globalScorecardData = json;
+          renderScorecardData(json);
+          if (json.is_finished) {
+            if (liveTimer) {
+              clearInterval(liveTimer);
+              liveTimer = null;
+            }
+          }
+        }
+      } catch (err) {
+        console.debug('Scorecard poll notice:', err);
+      } finally {
+        isLivePolling = false;
+      }
+    }
+
+    function setupLiveScorecardUpdates(isFinished) {
+      if (liveTimer) {
+        clearInterval(liveTimer);
+        liveTimer = null;
+      }
+      if (!isFinished) {
+        liveTimer = setInterval(pollLiveScorecardQuietly, 3500);
+      }
+    }
+
+    function initFirestoreLiveListener(matchId) {
+      if (typeof firebase === 'undefined' || !firebase.firestore) return;
+      try {
+        if (!firebase.apps || !firebase.apps.length) {
+          firebase.initializeApp({ projectId: "eloranking-506820" });
+        }
+        const db = firebase.firestore();
+        const candIds = [matchId, matchId.toUpperCase()];
+        candIds.forEach(cid => {
+          db.collection('rooms').doc(cid).onSnapshot(snap => {
+            if (snap && snap.exists) {
+              const rData = snap.data();
+              if (rData && rData.state) {
+                renderScorecardData({
+                  success: true,
+                  match_id: matchId,
+                  state: rData.state,
+                  is_finished: Boolean(rData.is_finished || rData.status === 'completed'),
+                  status: rData.status || 'active'
+                });
+              }
+            }
+          }, err => console.debug('Firestore scorecard notice:', err));
+        });
+      } catch (e) {
+        console.debug('Firestore live listener notice:', e);
+      }
+    }
 
     async function loadScorecard() {
       const matchId = getMatchIdFromPath();
@@ -505,6 +609,8 @@
         const json = await resp.json();
         globalScorecardData = json;
         renderScorecardData(json);
+        setupLiveScorecardUpdates(Boolean(json.is_finished));
+        initFirestoreLiveListener(matchId);
       } catch (err) {
         document.getElementById('sc-matrix-body').innerHTML = `<tr><td colspan="7" style="padding:2rem; color:#ef4444;">Error loading scorecard: ${err.message}</td></tr>`;
       }
@@ -556,26 +662,68 @@
       document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/50</span> • <span>SEC: ${p1SecTot}/40</span> • <span>PAINT: +${p1Paint}</span>`;
       document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/50</span> • <span>SEC: ${p2SecTot}/40</span> • <span>PAINT: +${p2Paint}</span>`;
 
-      // Winner Banner
-      const winnerBanner = document.getElementById('sc-winner-banner');
-      const winnerText = document.getElementById('sc-winner-text');
-      if (p1Score > p2Score) {
-        winnerBanner.style.display = 'flex';
-        winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score}`;
-      } else if (p2Score > p1Score) {
-        winnerBanner.style.display = 'flex';
-        winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score}`;
-      } else if (p1Score > 0 && p1Score === p2Score) {
-        winnerBanner.style.display = 'flex';
-        winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score}`;
-      }
-
       const roundNum = rec.round_num || game.roundNum || st.round_num || 1;
       const tableNum = rec.table_num || game.tableNum || st.table_num || null;
       const eventId = rec.event_id || game.eventId || null;
 
+      const isFinished = Boolean(
+        data.is_finished === true ||
+        data.status === 'completed' ||
+        (data.game_record && data.game_record.status === 'completed') ||
+        st.is_finished === true ||
+        st.status === 'completed'
+      );
+
+      const statusBadgeContainer = document.getElementById('sc-status-badges');
+      if (statusBadgeContainer) {
+        if (isFinished) {
+          statusBadgeContainer.innerHTML = `
+            <span class="sc-badge">
+              ✓ Verified Scorecard
+            </span>
+          `;
+        } else {
+          statusBadgeContainer.innerHTML = `
+            <span class="sc-badge sc-badge-live">
+              <span class="sc-badge-pulse"></span> LIVE IN PROGRESS
+            </span>
+            <span class="sc-badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.3);">
+              Round ${roundNum}
+            </span>
+          `;
+        }
+      }
+
+      // Winner Banner vs Live Status Banner
+      const winnerBanner = document.getElementById('sc-winner-banner');
+      const winnerText = document.getElementById('sc-winner-text');
+      if (isFinished) {
+        winnerBanner.className = 'sc-winner-banner';
+        if (p1Score > p2Score) {
+          winnerBanner.style.display = 'flex';
+          winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score}`;
+        } else if (p2Score > p1Score) {
+          winnerBanner.style.display = 'flex';
+          winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score}`;
+        } else if (p1Score > 0 && p1Score === p2Score) {
+          winnerBanner.style.display = 'flex';
+          winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score}`;
+        } else {
+          winnerBanner.style.display = 'none';
+        }
+      } else {
+        winnerBanner.className = 'sc-live-banner';
+        winnerBanner.style.display = 'flex';
+        winnerText.innerHTML = `<span class="sc-badge-pulse"></span> 🔴 LIVE SCORECARD • Battle Round ${roundNum} In Progress • Auto-updating`;
+      }
+
       if (eventId) {
         document.getElementById('sc-event-title').innerText = `🏆 Tournament Match (${eventId})`;
+        const backBtn = document.getElementById('sc-event-back-btn');
+        if (backBtn) {
+          backBtn.href = `/app`;
+          backBtn.style.display = 'inline-flex';
+        }
       }
       document.getElementById('sc-round-table').innerText = `Round ${roundNum} ${tableNum ? '• Table ' + tableNum : ''}`;
       document.getElementById('sc-mission-name').innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
@@ -688,6 +836,12 @@
       p1Rows.forEach(r => r.style.display = disp);
       p2Rows.forEach(r => r.style.display = disp);
     }
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && globalScorecardData && !globalScorecardData.is_finished) {
+        pollLiveScorecardQuietly();
+      }
+    });
 
     document.addEventListener('DOMContentLoaded', loadScorecard);
   </script>

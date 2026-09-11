@@ -1889,7 +1889,7 @@ async function spectateTournamentTracker(eventId, roundNum, tableNum, p1Name, p2
   }
 
   const pParam = pairingId ? `&pairing_id=${encodeURIComponent(pairingId)}` : '';
-  window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(eventId)}&table=${tableNum}${pParam}&role=spectator`;
+  window.location.href = `/scorecard/${encodeURIComponent(matchId)}`;
 }
 
 /* ==========================================================================

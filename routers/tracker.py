@@ -1621,8 +1621,11 @@ async def api_tracker_unhide_game(match_id: str, request: Request, payload: Opti
 
 @router.get("/api/scorecard/{match_id}", summary="Get verified tournament digital scorecard data")
 async def api_get_scorecard(match_id: str):
-    match_id = normalize_tracker_match_id(match_id)
-    db = get_database()
+    db = None
+    try:
+        db = get_database()
+    except Exception:
+        pass
     
     candidates = [match_id, match_id.upper(), match_id.lower()]
     if not match_id.startswith("BCP-"):
@@ -1643,6 +1646,7 @@ async def api_get_scorecard(match_id: str):
                 state = room.get("state")
                 break
     
+    fs_room = None
     if not state:
         try:
             fs_engine = get_firestore_engine()
@@ -1655,22 +1659,40 @@ async def api_get_scorecard(match_id: str):
             pass
             
     game_rec = None
-    for cand in candidates:
-        game_rec = db.get_tracker_game(cand)
-        if game_rec:
-            break
+    if db:
+        for cand in candidates:
+            try:
+                game_rec = db.get_tracker_game(cand)
+                if game_rec:
+                    break
+            except Exception:
+                pass
             
     if not state and game_rec:
         state = game_rec.get("state_json") or game_rec
         
     if not state and not game_rec:
         raise HTTPException(status_code=404, detail="Scorecard not found for this match ID")
-        
+
+    active_room = room or fs_room
+    is_finished = False
+    status = "active"
+    if active_room:
+        is_finished = bool(active_room.get("is_finished", False))
+        status = active_room.get("status", "active")
+        if status == "completed":
+            is_finished = True
+    elif game_rec:
+        is_finished = True
+        status = "completed"
+
     return {
         "success": True,
         "match_id": match_id,
         "game_record": game_rec,
-        "state": state
+        "state": state,
+        "is_finished": is_finished,
+        "status": status
     }
 
 @router.get("/scorecard/{match_id}", summary="View digital scorecard page")
