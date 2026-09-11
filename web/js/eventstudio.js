@@ -1451,7 +1451,7 @@ function renderPairingsSubtab() {
 
         <!-- Card Footer Actions -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
-          <a href="${trackerSpectateUrl}" target="_blank" onclick="ensureStudioTrackerRoom(event, '${escapeHtml(ev.id)}', ${currentRound}, ${table}, '${escapeHtml(p1Name)}', '${escapeHtml(p2Name)}', '${escapeHtml(match.p1_id || '')}', '${escapeHtml(match.p2_id || '')}', '${escapeHtml(p1Fac)}', '${escapeHtml(p2Fac)}', '${escapeHtml(cleanPid)}')" style="font-size: 0.75rem; color: #a5b4fc; text-decoration: underline; font-weight: 600;" title="Spectate Table ${table} as Spectator">👁️ Open Game Tracker ↗</a>
+          <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" onclick="ensureStudioTrackerRoom(event, '${escapeHtml(ev.id)}', ${currentRound}, ${table}, '${escapeHtml(p1Name)}', '${escapeHtml(p2Name)}', '${escapeHtml(match.p1_id || '')}', '${escapeHtml(match.p2_id || '')}', '${escapeHtml(p1Fac)}', '${escapeHtml(p2Fac)}', '${escapeHtml(cleanPid)}')" style="font-size: 0.75rem; color: #a5b4fc; text-decoration: underline; font-weight: 600;" title="Spectate Table ${table} via Verified Scorecard">👁️ View Scorecard ↗</a>
           <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.65rem;" onclick="saveTableScore(${table})">💾 Save Score</button>
         </div>
       </div>
@@ -2719,7 +2719,6 @@ async function toggleRoundTimer() {
           updatedAt: Date.now()
         };
         db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
-        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {
         console.warn("Notice saving clock to Firestore:", e);
       }
@@ -2765,7 +2764,6 @@ async function toggleRoundTimer() {
           updatedAt: Date.now()
         };
         db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
-        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {
         console.warn("Notice saving clock to Firestore:", e);
       }
@@ -2814,7 +2812,6 @@ async function adjustRoundTimer(deltaMinutes) {
           updatedAt: Date.now()
         };
         db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
-        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {}
     }
     propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
@@ -2861,7 +2858,6 @@ async function resetRoundTimer() {
           updatedAt: Date.now()
         };
         db.collection('tournaments').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
-        db.collection('events').doc(eventId).set(docPayload, { merge: true }).catch(() => {});
       } catch (e) {}
     }
     propagateMasterClockToFirestoreRoomsDirectly(eventId, clockPayload);
@@ -3229,7 +3225,7 @@ function renderJudgesSubtab() {
       const oppFaction = (c.opponent && c.opponent.faction) || "";
 
       const matchId = c.matchId || c.match_id || "";
-      const spectateUrl = matchId ? `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&role=spectator` : "#";
+      const spectateUrl = matchId ? `/scorecard/${encodeURIComponent(matchId)}` : "#";
 
       return `
         <div class="es-judge-call-card" style="background: var(--bg-card); border: 1px solid ${borderCol}; border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; box-shadow: 0 4px 20px rgba(0,0,0,0.35);">
@@ -3391,7 +3387,6 @@ async function markJudgeCallEnRoute(callId) {
           } catch(e) {}
         };
         updateDocCalls(db.collection("tournaments").doc(dId));
-        updateDocCalls(db.collection("events").doc(dId));
       }
 
       // 3. Update table match room
@@ -3476,18 +3471,12 @@ async function markJudgeCallResolved(callId) {
           } catch(e) {}
         };
         updateDocCalls(db.collection("tournaments").doc(dId));
-        updateDocCalls(db.collection("events").doc(dId));
       }
 
-      // 3. Update table match room
+      // 3. Clear active call from table match room so competitors can call judge again without alternating
       if (matchId) {
         await db.collection("rooms").doc(matchId).set({
-          active_judge_call: {
-            id: callId,
-            call_id: callId,
-            status: "resolved",
-            resolvedAt: Date.now()
-          }
+          active_judge_call: null
         }, { merge: true });
       }
     } catch (e) {
@@ -3557,7 +3546,6 @@ async function dismissJudgeCall(callId) {
           } catch(e) {}
         };
         updateDocCalls(db.collection("tournaments").doc(dId));
-        updateDocCalls(db.collection("events").doc(dId));
       }
 
       // 3. Clear match room call

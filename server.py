@@ -193,6 +193,8 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
         match_id = request.query_params.get("match_id") or request.query_params.get("room") or request.query_params.get("id")
         if (role == "spectator" or spectate == "true") and match_id:
             return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
+        if role == "referee" and match_id:
+            return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
 
     local_html_file = (web_dir / "tracker" / "play.html") if is_play_page else (web_dir / "tracker" / "lobby.html")
 
@@ -381,6 +383,8 @@ async def serve_tracker_play_alias(request: Request):
     spectate = qp.get("spectate")
     match_id = qp.get("match_id") or qp.get("room") or qp.get("id")
     if (role == "spectator" or spectate == "true") and match_id:
+        return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
+    if role == "referee" and match_id:
         return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
     query = f"?{request.url.query}" if request.url.query else ""
     return RedirectResponse(url=f"/11th/tracker/play{query}", status_code=303)

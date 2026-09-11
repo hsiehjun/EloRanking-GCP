@@ -3310,30 +3310,61 @@ async def api_eventstudio_resolve_judge_call(payload: JudgeCallResolvePayload):
         
     if match_id:
         mid = normalize_tracker_match_id(match_id)
-        room_judge_state = {
-            "id": call_id,
-            "call_id": call_id,
-            "status": status,
-            "assignedJudge": assigned,
-            "assigned_judge": payload.assigned_judge if isinstance(payload.assigned_judge, str) else (assigned.get("name") if isinstance(assigned, dict) else None)
-        }
-        if mid in TRACKER_ROOMS:
-            TRACKER_ROOMS[mid]["active_judge_call"] = room_judge_state
-        try:
-            fs_engine.update_room(mid, {"active_judge_call": room_judge_state})
-        except Exception:
-            pass
-        try:
-            from routers.tracker import TRACKER_LISTENERS
-            listeners = TRACKER_LISTENERS.get(mid, [])
-            j_msg = {"type": "judge_call_update", "active_judge_call": room_judge_state}
-            for q in list(listeners):
-                try:
-                    q.put_nowait(j_msg)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        if status in ("resolved", "cancelled"):
+            if mid in TRACKER_ROOMS:
+                TRACKER_ROOMS[mid]["active_judge_call"] = None
+            try:
+                fs_engine.update_room(mid, {"active_judge_call": None})
+            except Exception:
+                pass
+            try:
+                from routers.tracker import TRACKER_LISTENERS
+                listeners = TRACKER_LISTENERS.get(mid, [])
+                j_msg = {
+                    "type": "judge_call_update",
+                    "active_judge_call": None,
+                    "judge_call": None,
+                    "call_id": call_id,
+                    "status": status
+                }
+                for q in list(listeners):
+                    try:
+                        q.put_nowait(j_msg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        else:
+            room_judge_state = {
+                "id": call_id,
+                "call_id": call_id,
+                "status": status,
+                "assignedJudge": assigned,
+                "assigned_judge": payload.assigned_judge if isinstance(payload.assigned_judge, str) else (assigned.get("name") if isinstance(assigned, dict) else None)
+            }
+            if mid in TRACKER_ROOMS:
+                TRACKER_ROOMS[mid]["active_judge_call"] = room_judge_state
+            try:
+                fs_engine.update_room(mid, {"active_judge_call": room_judge_state})
+            except Exception:
+                pass
+            try:
+                from routers.tracker import TRACKER_LISTENERS
+                listeners = TRACKER_LISTENERS.get(mid, [])
+                j_msg = {
+                    "type": "judge_call_update",
+                    "active_judge_call": room_judge_state,
+                    "judge_call": room_judge_state,
+                    "call_id": call_id,
+                    "status": status
+                }
+                for q in list(listeners):
+                    try:
+                        q.put_nowait(j_msg)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
     return {"success": True, "call_id": call_id, "status": status, "assigned_judge": assigned}
 

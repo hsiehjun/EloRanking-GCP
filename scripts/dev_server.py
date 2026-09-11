@@ -773,6 +773,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")
                 self.end_headers()
                 return
+            if role == "referee" and match_id:
+                self.send_response(302)
+                self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")
+                self.end_headers()
+                return
             self._serve_html_with_auth(TRACKER_DIR / "play.html", is_head)
             return
 

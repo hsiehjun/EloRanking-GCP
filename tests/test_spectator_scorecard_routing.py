@@ -40,8 +40,9 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';", sync_js)
         self.assertIn("window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);", sync_js)
 
-        # 2. On join response role === 'spectator'
-        self.assertIn("if (joinData.is_finished || joinData.role === 'spectator')", sync_js)
+        # 2. On join response role === 'spectator' or 'referee'
+        self.assertIn("joinData.role === 'spectator'", sync_js)
+        self.assertIn("joinData.role === 'referee'", sync_js)
 
         # 3. Guard in updateSpectatorModeUI
         self.assertIn("if (isPlay && clientState.matchId)", sync_js)
@@ -134,6 +135,125 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn('id="sc-event-back-btn"', sc_html)
         print("✓ test_scorecard_html_live_badges_and_streaming passed")
 
+    def test_to_spectator_role_in_tournament_match(self):
+        """Verify John Hsieh (TO) entering John3 vs John4 room gets spectator role and is not interactive player."""
+        from routers.tracker import determine_existing_room_role
+
+        room = {
+            "match_id": "BCP-GT2026-R1-T1",
+            "is_tournament": True,
+            "tournament_id": "GT2026",
+            "table_num": 1,
+            "p1_uid": "uid_john3",
+            "p1_name": "John3 Hsieh3",
+            "p2_uid": "uid_john4",
+            "p2_name": "John4 Hsieh4",
+            "state": {
+                "game": {
+                    "p1Name": "John3 Hsieh3",
+                    "p2Name": "John4 Hsieh4",
+                    "tournament_id": "GT2026",
+                    "table_num": 1
+                }
+            }
+        }
+
+        # 1. John Hsieh (TO) with role 'to' or 'admin'
+        to_user = {"id": "uid_john_to", "name": "John Hsieh", "display_name": "John Hsieh", "role": "to"}
+        role, slot = determine_existing_room_role(to_user, room, "BCP-GT2026-R1-T1", None)
+        self.assertEqual(role, "spectator", f"Expected spectator for TO, got {role}")
+        self.assertIsNone(slot, f"Expected slot None for TO spectator, got {slot}")
+
+        # 2. Competitor John3 (p1)
+        p1_user = {"id": "uid_john3", "name": "John3 Hsieh3", "display_name": "John3 Hsieh3", "role": "user"}
+        p1_role, p1_slot = determine_existing_room_role(p1_user, room, "BCP-GT2026-R1-T1", None)
+        self.assertEqual(p1_role, "player1")
+        self.assertEqual(p1_slot, "user_id_p1")
+
+        # 3. Competitor John4 (p2)
+        p2_user = {"id": "uid_john4", "name": "John4 Hsieh4", "display_name": "John4 Hsieh4", "role": "user"}
+        p2_role, p2_slot = determine_existing_room_role(p2_user, room, "BCP-GT2026-R1-T1", None)
+        self.assertEqual(p2_role, "player2")
+        self.assertEqual(p2_slot, "user_id_p2")
+
+        # 4. Another spectator
+        random_user = {"id": "uid_random", "name": "Random Spectator", "role": "user"}
+        spec_role, spec_slot = determine_existing_room_role(random_user, room, "BCP-GT2026-R1-T1", None)
+        self.assertEqual(spec_role, "spectator")
+        self.assertIsNone(spec_slot)
+        print("✓ test_to_spectator_role_in_tournament_match passed")
+
+    def test_judge_call_resolution_clears_active_call(self):
+        """Verify resolving a judge call nullifies active_judge_call in room and does not leave stale call."""
+        import asyncio
+        from routers.eventstudio import api_eventstudio_resolve_judge_call, JudgeCallResolvePayload
+        from routers.tracker import TRACKER_ROOMS
+        from firestore_db import get_firestore_engine
+
+        fs_engine = get_firestore_engine()
+        test_mid = "BCP-JUDGE-TEST-R1-T1"
+        test_call_id = "call_test_123"
+        call_data = {
+            "id": test_call_id,
+            "call_id": test_call_id,
+            "status": "pending",
+            "table_num": 1,
+            "match_id": test_mid,
+            "event_id": "TEST_TOURNEY"
+        }
+
+        # Setup room in memory and firestore engine
+        TRACKER_ROOMS[test_mid] = {
+            "match_id": test_mid,
+            "active_judge_call": call_data,
+            "state": {}
+        }
+        fs_engine.update_room(test_mid, {"active_judge_call": call_data})
+
+        try:
+            # Resolve call via EventStudio API
+            payload = JudgeCallResolvePayload(
+                call_id=test_call_id,
+                status="resolved",
+                assigned_judge="Head Judge John",
+                match_id=test_mid,
+                event_id="TEST_TOURNEY"
+            )
+            res = asyncio.run(api_eventstudio_resolve_judge_call(payload))
+            self.assertTrue(res.get("success"))
+
+            # Verify TRACKER_ROOMS active_judge_call is cleared to None
+            self.assertIsNone(TRACKER_ROOMS[test_mid].get("active_judge_call"))
+
+            # Verify in Firestore engine room data
+            room_snap = fs_engine.get_room(test_mid)
+            self.assertIsNone(room_snap.get("active_judge_call"))
+        finally:
+            if test_mid in TRACKER_ROOMS:
+                del TRACKER_ROOMS[test_mid]
+
+        print("✓ test_judge_call_resolution_clears_active_call passed")
+
+    def test_unified_firestore_collections_no_events_collection(self):
+        """Verify no writes to Firestore 'events' collection exist across python and client js."""
+        fs_py = (ROOT_DIR / "firestore_db.py").read_text(encoding="utf-8")
+        self.assertNotIn("collection('events')", fs_py)
+        self.assertNotIn('collection("events")', fs_py)
+        self.assertIn('self._client.collection("tournaments")', fs_py)
+
+        es_js = (ROOT_DIR / "web" / "js" / "eventstudio.js").read_text(encoding="utf-8")
+        self.assertNotIn("collection('events')", es_js)
+        self.assertNotIn('collection("events")', es_js)
+
+        ts_js = (ROOT_DIR / "web" / "tracker" / "tracker_sync.js").read_text(encoding="utf-8")
+        self.assertNotIn("collection('events')", ts_js)
+        self.assertNotIn('collection("events")', ts_js)
+
+        print("✓ test_unified_firestore_collections_no_events_collection passed")
+
+        print("✓ test_unified_firestore_collections_no_events_collection passed")
+
 
 if __name__ == "__main__":
     unittest.main()
+

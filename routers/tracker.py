@@ -407,7 +407,12 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
             "display_name": getattr(payload, "player_name", None)
         }
 
-    u_id = candidate_user["id"] if candidate_user else None
+    u_id = None
+    if candidate_user:
+        if isinstance(candidate_user, dict):
+            u_id = candidate_user.get("id") or candidate_user.get("user_id")
+        else:
+            u_id = getattr(candidate_user, "id", None) or getattr(candidate_user, "user_id", None)
     p1_id = room_dict.get("user_id_p1")
     p2_id = room_dict.get("user_id_p2")
 
@@ -427,35 +432,38 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         bool(game.get("eventId"))
     )
 
+    user_role = candidate_user.get("role") if isinstance(candidate_user, dict) else getattr(candidate_user, "role", None) if candidate_user else None
+    is_admin = candidate_user.get("is_admin") if isinstance(candidate_user, dict) else getattr(candidate_user, "is_admin", False) if candidate_user else False
+    can_access_to = candidate_user.get("can_access_to") if isinstance(candidate_user, dict) else getattr(candidate_user, "can_access_to", False) if candidate_user else False
+
     is_staff = bool(candidate_user and (
         (u_id and u_id in room_dict.get("referee_ids", [])) or
-        candidate_user.get("role") in ("admin", "referee", "to", "organizer") or
-        candidate_user.get("is_admin") or
-        candidate_user.get("can_access_to")
+        user_role in ("admin", "referee", "to", "organizer") or
+        is_admin or
+        can_access_to
     ))
 
     claim_role = getattr(payload, "claim_role", None)
     if claim_role == "spectator":
         return ("spectator", None)
 
-    if u_id and p1_id == u_id:
-        return ("player1", None)
-    if u_id and p2_id == u_id:
-        return ("player2", None)
-
     if is_tournament:
         # Strict table pairings: ONLY the two matched competitors can claim player slots
         matches_p1 = bool(candidate_user and check_user_matches_player(candidate_user, p1_assigned_name, p1_target_id))
         matches_p2 = bool(candidate_user and check_user_matches_player(candidate_user, p2_assigned_name, p2_target_id))
 
-        if matches_p1 and not p1_id:
-            return ("player1", "user_id_p1")
-        if matches_p2 and not p2_id:
-            return ("player2", "user_id_p2")
-        if is_staff:
-            return ("referee", None)
+        if matches_p1:
+            return ("player1", None if p1_id == u_id else "user_id_p1")
+        if matches_p2:
+            return ("player2", None if p2_id == u_id else "user_id_p2")
+        # In tournament matches, everyone else (including TOs, staff, and spectators) is strictly a spectator!
         return ("spectator", None)
     else:
+        if u_id and p1_id == u_id:
+            return ("player1", None)
+        if u_id and p2_id == u_id:
+            return ("player2", None)
+
         # Casual match logic
         claim_role = getattr(payload, "claim_role", None)
         if claim_role == "player2" and not p2_id:
@@ -639,10 +647,6 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
             user_id_p1 = None
             user_id_p2 = user["id"] if user else None
             created_role = "player2"
-        elif is_staff:
-            user_id_p1 = None
-            user_id_p2 = None
-            created_role = "referee"
         else:
             user_id_p1 = None
             user_id_p2 = None
@@ -910,6 +914,7 @@ async def api_tracker_check_room(match_id: str, request: Request):
         is_open_for_p2 = bool(not is_finished and p2_id is None and not is_p1)
         is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2))
     
+    is_spectator = bool(is_tournament and not matches_p1 and not matches_p2)
     return {
         "exists": True,
         "match_id": match_id,
@@ -918,6 +923,8 @@ async def api_tracker_check_room(match_id: str, request: Request):
         "is_full": is_full,
         "is_open_for_p2": is_open_for_p2,
         "is_finished": is_finished,
+        "is_spectator": is_spectator,
+        "role": "spectator" if is_spectator else ("player1" if matches_p1 else ("player2" if matches_p2 else "player1")),
         "scorecard_url": f"/scorecard/{match_id}"
     }
 
@@ -1057,7 +1064,9 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
         "user_id_p1": room.get("user_id_p1"),
         "user_id_p2": room.get("user_id_p2"),
         "state": st,
-        "chess_clock": room.get("chess_clock")
+        "chess_clock": room.get("chess_clock"),
+        "is_finished": bool(room.get("is_finished") or (isinstance(st, dict) and st.get("is_finished"))),
+        "scorecard_url": f"/scorecard/{match_id}"
     }
 
 @router.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")

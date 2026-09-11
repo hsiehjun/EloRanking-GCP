@@ -111,7 +111,7 @@
 
   function updateSpectatorModeUI() {
     if (typeof document !== 'undefined' && document.body) {
-      if (clientState.role === 'spectator') {
+      if (clientState.role === 'spectator' || clientState.role === 'referee') {
         document.body.classList.add('is-spectator-mode');
         if (isPlay && clientState.matchId) {
           window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
@@ -994,9 +994,9 @@
             headers: { 'Authorization': `Bearer ${getAuthToken()}` }
           });
           chkData = await chk.json();
-          if (chk.ok && chkData.is_finished) {
-            // Concluded matches open Digital Scorecard directly
-            window.location.href = `/scorecard/${encodeURIComponent(matchId)}`;
+          if (chk.ok && (chkData.is_finished || chkData.is_spectator || (chkData.is_full && !chkData.is_open_for_p2))) {
+            // Concluded matches or spectator/non-competitor roles open Digital Scorecard directly
+            window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
           }
           if (!chk.ok || !chkData.exists) {
@@ -1066,7 +1066,7 @@
         });
         if (resp.ok) {
           const joinData = await resp.json();
-          if (joinData.is_finished || joinData.role === 'spectator') {
+          if (joinData.is_finished || joinData.role === 'spectator' || joinData.role === 'referee') {
             window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
             return;
           }
@@ -1079,7 +1079,7 @@
         }
       } catch (e) {}
 
-      if (clientState.role === 'spectator') {
+      if (clientState.role === 'spectator' || clientState.role === 'referee') {
         window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
         return;
       }
@@ -2035,8 +2035,10 @@
             if (data.broadcast) {
               applyRemoteBroadcast(data.broadcast);
             }
-            if (data.active_judge_call !== undefined) {
+            if (data.active_judge_call !== undefined && data.active_judge_call !== null) {
               applyRemoteJudgeCall(data.active_judge_call);
+            } else if (clientState.activeJudgeCall) {
+              applyRemoteJudgeCall(null);
             }
             const docTournId = data.eventId || data.event_id || data.tournament_id;
             if (docTournId && !clientState.tournamentId) {
@@ -2354,10 +2356,23 @@
   }
 
   function applyRemoteJudgeCall(remoteCall) {
-    if (!remoteCall) {
-      if (clientState.activeJudgeCall && clientState.activeJudgeCall.status !== 'resolved') {
-        clientState.activeJudgeCall = null;
+    if (!remoteCall || remoteCall.status === 'resolved' || remoteCall.status === 'cancelled') {
+      const wasActive = Boolean(clientState.activeJudgeCall);
+      clientState.activeJudgeCall = null;
+      if (wasActive) {
+        if (remoteCall && remoteCall.status === 'resolved') {
+          playBroadcastAudioChime();
+          const banner = document.getElementById('mp-broadcast-banner');
+          if (banner) {
+            banner.innerHTML = `<span style="font-size:18px;">✅</span> <strong>Judge Call Resolved</strong>: Floor judge marked this call as resolved.`;
+            banner.style.display = 'block';
+            banner.style.borderLeftColor = '#10b981';
+            banner.style.background = 'linear-gradient(90deg, rgba(16, 185, 129, 0.2) 0%, rgba(15, 23, 42, 0.95) 100%)';
+            setTimeout(() => { if (banner) banner.style.display = 'none'; }, 8000);
+          }
+        }
         injectMultiplayerHUD();
+        renderJudgeModal();
       }
       return;
     }
@@ -2367,13 +2382,6 @@
 
     if (remoteCall.status === 'en_route' && prevStatus === 'pending') {
       playBroadcastAudioChime();
-    } else if (remoteCall.status === 'resolved') {
-      setTimeout(() => {
-        if (clientState.activeJudgeCall && clientState.activeJudgeCall.status === 'resolved') {
-          clientState.activeJudgeCall = null;
-          injectMultiplayerHUD();
-        }
-      }, 8000);
     }
 
     injectMultiplayerHUD();
@@ -2587,8 +2595,10 @@
           if (data.broadcast) {
             applyRemoteBroadcast(data.broadcast);
           }
-          if (data.active_judge_call !== undefined) {
+          if (data.active_judge_call !== undefined && data.active_judge_call !== null) {
             applyRemoteJudgeCall(data.active_judge_call);
+          } else if (clientState.activeJudgeCall) {
+            applyRemoteJudgeCall(null);
           }
           const docTournId = data.eventId || data.event_id || data.tournament_id;
           if (docTournId && !clientState.tournamentId) {
@@ -2647,9 +2657,8 @@
               applyRemoteBroadcast(msg.broadcast);
             }
           } else if (msg.type === 'judge_call_update') {
-            if (msg.judge_call !== undefined) {
-              applyRemoteJudgeCall(msg.judge_call);
-            }
+            const callVal = (msg.active_judge_call !== undefined) ? msg.active_judge_call : msg.judge_call;
+            applyRemoteJudgeCall(callVal);
           } else if (msg.type === 'dice_roll') {
             if (msg.roll) {
               applyRemoteDiceRoll(msg.roll, msg.sender === clientState.clientId);
@@ -4535,6 +4544,10 @@ Space Marines - Gladius Task Force (2000 pts)
       return;
     }
 
+    if (clientState.activeJudgeCall && (clientState.activeJudgeCall.status === 'resolved' || clientState.activeJudgeCall.status === 'cancelled')) {
+      clientState.activeJudgeCall = null;
+    }
+
     let modal = document.getElementById('gt-judge-modal');
     if (!modal) {
       modal = document.createElement('div');
@@ -4792,7 +4805,6 @@ Space Marines - Gladius Task Force (2000 pts)
         if (tournamentId.toUpperCase() !== tournamentId) targetTournamentIds.push(tournamentId.toUpperCase());
         targetTournamentIds.forEach(tid => {
           updateMainEventDoc(db.collection('tournaments').doc(tid));
-          updateMainEventDoc(db.collection('events').doc(tid));
           db.collection('tournaments').doc(tid).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
         });
         if (clientState.matchId) {
@@ -4872,7 +4884,6 @@ Space Marines - Gladius Task Force (2000 pts)
         if (tournamentId.toUpperCase() !== tournamentId) targetTournamentIds.push(tournamentId.toUpperCase());
         targetTournamentIds.forEach(tid => {
           cancelInDoc(db.collection('tournaments').doc(tid));
-          cancelInDoc(db.collection('events').doc(tid));
           db.collection('tournaments').doc(tid).collection('judge_calls').doc(callId).update({
             status: 'cancelled',
             resolved_at: Date.now(),
