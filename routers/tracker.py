@@ -1036,7 +1036,7 @@ async def api_tracker_firestore_inspect(match_id: str):
     }
 
 @router.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
-async def api_tracker_check_room(match_id: str, request: Optional[Request] = None, user: Optional[Dict[str, Any]] = None):
+async def api_tracker_check_room(match_id: str, request: Request):
     match_id = normalize_tracker_match_id(match_id)
         
     db = None
@@ -1045,11 +1045,12 @@ async def api_tracker_check_room(match_id: str, request: Optional[Request] = Non
     except Exception:
         pass
     fs_engine = get_firestore_engine()
+    user = getattr(request, "_mock_user", None) if request else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
-            auth_header = request.headers.get("Authorization", "")
-            session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+            session_token = (request.cookies.get("session_token") if hasattr(request, "cookies") else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
             user = auth_mgr.get_session(session_token) if session_token else None
         except Exception:
             pass
@@ -1321,7 +1322,7 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     }
 
 @router.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")
-async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Optional[Request] = None, user: Optional[Dict[str, Any]] = None):
+async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
     db = None
@@ -1341,11 +1342,12 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
             "message": "Match has concluded and is locked."
         }
     
+    user = getattr(request, "_mock_user", None) if request else None
     if user is None and request:
         try:
             auth_mgr = get_auth_manager()
-            auth_header = request.headers.get("Authorization", "")
-            session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            auth_header = request.headers.get("Authorization", "") if hasattr(request, "headers") else ""
+            session_token = (payload.token if payload and payload.token else None) or (request.cookies.get("session_token") if hasattr(request, "cookies") else None) or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
             user = auth_mgr.get_session(session_token) if session_token else None
         except Exception:
             pass

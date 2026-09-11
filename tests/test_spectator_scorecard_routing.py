@@ -16,6 +16,7 @@ Verifies:
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
@@ -394,13 +395,21 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
             self.assertFalse(check_user_is_tournament_staff(competitor_p1, room, match_id=match_id))
             self.assertFalse(check_user_is_tournament_staff(random_spectator, room, match_id=match_id))
 
+            # Helper to create mock request with user attached
+            def _mock_req(u):
+                req = MagicMock()
+                req._mock_user = u
+                req.headers = {}
+                req.cookies = {}
+                return req
+
             # 2. Verify api_tracker_check_room (/check endpoint)
-            check_alice = asyncio.run(api_tracker_check_room(match_id, user=alice))
+            check_alice = asyncio.run(api_tracker_check_room(match_id, _mock_req(alice)))
             self.assertTrue(check_alice["is_referee"])
             self.assertFalse(check_alice["is_spectator"])
             self.assertEqual(check_alice["role"], "referee")
 
-            check_bob = asyncio.run(api_tracker_check_room(match_id, user=bob_other_to))
+            check_bob = asyncio.run(api_tracker_check_room(match_id, _mock_req(bob_other_to)))
             self.assertFalse(check_bob["is_referee"])
             self.assertTrue(check_bob["is_spectator"])
             self.assertEqual(check_bob["role"], "spectator")
@@ -410,12 +419,12 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
 
             # Bob (other TO) is blocked with 403
             with self.assertRaises(HTTPException) as cm:
-                asyncio.run(api_tracker_save_state(match_id, payload=save_payload, user=bob_other_to))
+                asyncio.run(api_tracker_save_state(match_id, payload=save_payload, request=_mock_req(bob_other_to)))
             self.assertEqual(cm.exception.status_code, 403)
             self.assertIn("Permission denied", cm.exception.detail)
 
             # Alice (actual TO) is authorized to save state
-            save_res = asyncio.run(api_tracker_save_state(match_id, payload=save_payload, user=alice))
+            save_res = asyncio.run(api_tracker_save_state(match_id, payload=save_payload, request=_mock_req(alice)))
             self.assertTrue(save_res["success"])
             self.assertEqual(save_res["version"], 2)
 
@@ -453,6 +462,22 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("try {", render_fn)
         self.assertIn("catch (rowErr)", render_fn)
         print("✓ test_tournaments_js_pairings_render_user_role_defined passed")
+
+    def test_tracker_route_signatures_valid_for_fastapi(self):
+        """Verify tracker route handlers do not use invalid Optional[Request] or raw un-injected parameters."""
+        import inspect
+        from routers.tracker import api_tracker_check_room, api_tracker_save_state
+        from core import Request
+
+        for fn in (api_tracker_check_room, api_tracker_save_state):
+            sig = inspect.signature(fn)
+            params = sig.parameters
+            self.assertIn("request", params, f"{fn.__name__} must include 'request' parameter")
+            req_param = params["request"]
+            self.assertEqual(req_param.annotation, Request, f"{fn.__name__} request annotation must be Request, not Optional[Request]")
+            self.assertEqual(req_param.default, inspect.Parameter.empty, f"{fn.__name__} request parameter must not have default value")
+            self.assertNotIn("user", params, f"{fn.__name__} must not expose unvalidated 'user' route parameter")
+        print("✓ test_tracker_route_signatures_valid_for_fastapi passed")
 
 
 if __name__ == "__main__":
