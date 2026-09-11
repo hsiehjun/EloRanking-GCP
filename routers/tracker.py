@@ -456,7 +456,9 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
             return ("player1", None if p1_id == u_id else "user_id_p1")
         if matches_p2:
             return ("player2", None if p2_id == u_id else "user_id_p2")
-        # In tournament matches, everyone else (including TOs, staff, and spectators) is strictly a spectator!
+        # Allow Tournament Organizers and Admins to enter and update the interactive tracker as referee
+        if is_staff:
+            return ("referee", None)
         return ("spectator", None)
     else:
         if u_id and p1_id == u_id:
@@ -647,6 +649,10 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
             user_id_p1 = None
             user_id_p2 = user["id"] if user else None
             created_role = "player2"
+        elif is_staff:
+            user_id_p1 = None
+            user_id_p2 = None
+            created_role = "referee"
         else:
             user_id_p1 = None
             user_id_p2 = None
@@ -905,16 +911,30 @@ async def api_tracker_check_room(match_id: str, request: Request):
         bool(game.get("eventId"))
     )
 
+    user_id = user["id"] if user else None
+    user_role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None) if user else None
+    is_admin = user.get("is_admin") if isinstance(user, dict) else getattr(user, "is_admin", False) if user else False
+    can_access_to = user.get("can_access_to") if isinstance(user, dict) else getattr(user, "can_access_to", False) if user else False
+
+    is_staff = bool(user and (
+        (user_id and user_id in room.get("referee_ids", [])) or
+        user_role in ("admin", "referee", "to", "organizer") or
+        is_admin or
+        can_access_to or
+        (user_id and (room.get("organizer_id") == user_id or (isinstance(st, dict) and st.get("organizer_id") == user_id)))
+    ))
+
     if is_tournament:
         matches_p1 = bool(user and check_user_matches_player(user, p1_assigned_name, p1_target_id))
         matches_p2 = bool(user and check_user_matches_player(user, p2_assigned_name, p2_target_id))
         is_open_for_p2 = bool(not is_finished and p2_id is None and matches_p2)
-        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2) or (not matches_p1 and not matches_p2 and not is_p1 and not is_p2))
+        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_staff) or (not matches_p1 and not matches_p2 and not is_p1 and not is_p2 and not is_staff))
     else:
         is_open_for_p2 = bool(not is_finished and p2_id is None and not is_p1)
-        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2))
+        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_staff))
     
-    is_spectator = bool(is_tournament and not matches_p1 and not matches_p2)
+    is_spectator = bool(is_tournament and not matches_p1 and not matches_p2 and not is_staff)
+    assigned_role = "player1" if matches_p1 else ("player2" if matches_p2 else ("referee" if is_staff else "spectator"))
     return {
         "exists": True,
         "match_id": match_id,
@@ -924,7 +944,8 @@ async def api_tracker_check_room(match_id: str, request: Request):
         "is_open_for_p2": is_open_for_p2,
         "is_finished": is_finished,
         "is_spectator": is_spectator,
-        "role": "spectator" if is_spectator else ("player1" if matches_p1 else ("player2" if matches_p2 else "player1")),
+        "is_referee": is_staff,
+        "role": assigned_role,
         "scorecard_url": f"/scorecard/{match_id}"
     }
 
@@ -1052,6 +1073,15 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
         for q in list(listeners):
             try:
                 await q.put(msg)
+            except Exception:
+                pass
+    elif role == "referee" and user_id:
+        if "referee_ids" not in room or not isinstance(room["referee_ids"], list):
+            room["referee_ids"] = []
+        if user_id not in room["referee_ids"]:
+            room["referee_ids"].append(user_id)
+            try:
+                fs_engine.update_room(match_id, {"referee_ids": room["referee_ids"]})
             except Exception:
                 pass
         

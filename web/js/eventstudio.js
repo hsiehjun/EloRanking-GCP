@@ -1363,7 +1363,7 @@ function renderPairingsSubtab() {
     const pid = match.id || match.bcp_pairing_id || '';
     const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : '';
     const pairingParam = cleanPid ? `&pairing_id=${encodeURIComponent(cleanPid)}` : '';
-    const trackerSpectateUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(ev.id)}&table=${table}&role=spectator${pairingParam}`;
+    const trackerUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(ev.id)}&table=${table}&role=referee${pairingParam}`;
 
     const activeJudgeCall = (studioState.judgeCalls || []).find(c => {
       const cTable = Number(c.tableNumber || c.table_num || c.table || 0);
@@ -1451,7 +1451,7 @@ function renderPairingsSubtab() {
 
         <!-- Card Footer Actions -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem; border-top: 1px dashed var(--border); padding-top: 0.5rem;">
-          <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" onclick="ensureStudioTrackerRoom(event, '${escapeHtml(ev.id)}', ${currentRound}, ${table}, '${escapeHtml(p1Name)}', '${escapeHtml(p2Name)}', '${escapeHtml(match.p1_id || '')}', '${escapeHtml(match.p2_id || '')}', '${escapeHtml(p1Fac)}', '${escapeHtml(p2Fac)}', '${escapeHtml(cleanPid)}')" style="font-size: 0.75rem; color: #a5b4fc; text-decoration: underline; font-weight: 600;" title="Spectate Table ${table} via Verified Scorecard">👁️ View Scorecard ↗</a>
+          <a href="${trackerUrl}" target="_blank" onclick="ensureStudioTrackerRoom(event, '${escapeHtml(ev.id)}', ${currentRound}, ${table}, '${escapeHtml(p1Name)}', '${escapeHtml(p2Name)}', '${escapeHtml(match.p1_id || '')}', '${escapeHtml(match.p2_id || '')}', '${escapeHtml(p1Fac)}', '${escapeHtml(p2Fac)}', '${escapeHtml(cleanPid)}')" style="font-size: 0.75rem; color: #a5b4fc; text-decoration: underline; font-weight: 600;" title="Open Game Tracker for Table ${table} as Referee/TO">🎲 Open Game Tracker ↗</a>
           <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.28rem 0.65rem;" onclick="saveTableScore(${table})">💾 Save Score</button>
         </div>
       </div>
@@ -3225,7 +3225,7 @@ function renderJudgesSubtab() {
       const oppFaction = (c.opponent && c.opponent.faction) || "";
 
       const matchId = c.matchId || c.match_id || "";
-      const spectateUrl = matchId ? `/scorecard/${encodeURIComponent(matchId)}` : "#";
+      const spectateUrl = matchId ? `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&role=referee` : "#";
 
       return `
         <div class="es-judge-call-card" style="background: var(--bg-card); border: 1px solid ${borderCol}; border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; box-shadow: 0 4px 20px rgba(0,0,0,0.35);">

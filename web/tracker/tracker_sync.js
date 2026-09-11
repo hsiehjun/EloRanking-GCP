@@ -111,7 +111,7 @@
 
   function updateSpectatorModeUI() {
     if (typeof document !== 'undefined' && document.body) {
-      if (clientState.role === 'spectator' || clientState.role === 'referee') {
+      if (clientState.role === 'spectator') {
         document.body.classList.add('is-spectator-mode');
         if (isPlay && clientState.matchId) {
           window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
@@ -994,7 +994,7 @@
             headers: { 'Authorization': `Bearer ${getAuthToken()}` }
           });
           chkData = await chk.json();
-          if (chk.ok && (chkData.is_finished || chkData.is_spectator || (chkData.is_full && !chkData.is_open_for_p2))) {
+          if (chk.ok && (chkData.is_finished || (!chkData.is_referee && chkData.role !== 'referee' && (chkData.is_spectator || (chkData.is_full && !chkData.is_open_for_p2))))) {
             // Concluded matches or spectator/non-competitor roles open Digital Scorecard directly
             window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);
             return;
@@ -1066,7 +1066,7 @@
         });
         if (resp.ok) {
           const joinData = await resp.json();
-          if (joinData.is_finished || joinData.role === 'spectator' || joinData.role === 'referee') {
+          if (joinData.is_finished || joinData.role === 'spectator') {
             window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
             return;
           }
@@ -1079,7 +1079,7 @@
         }
       } catch (e) {}
 
-      if (clientState.role === 'spectator' || clientState.role === 'referee') {
+      if (clientState.role === 'spectator') {
         window.location.replace(`/scorecard/${encodeURIComponent(clientState.matchId)}`);
         return;
       }
@@ -2844,6 +2844,11 @@
         ${isSpectator ? `
           <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
             👀 Spectator Mode (Read-Only)
+          </span>
+        ` : ''}
+        ${clientState.role === 'referee' ? `
+          <span style="font-family:'JetBrains Mono',monospace; color:#38bdf8; font-size:11px; background:rgba(56,189,248,0.18); border:1px solid rgba(56,189,248,0.4); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
+            ⚖️ Tournament Referee / TO
           </span>
         ` : ''}
         ${tournamentId ? `

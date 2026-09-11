@@ -1727,9 +1727,9 @@ function renderEventPairingsRows() {
       userRole === 'admin' || userRole === 'to' || userRole === 'referee' || userRole === 'organizer' ||
       Boolean(u.is_admin) || Boolean(u.can_access_to) || (typeof isUserTO === 'function' && isUserTO(u))
     ));
-    // In tournament matches, ONLY the two paired competitors can play and edit the match tracker.
-    // Tournament Organizers, staff, and all other competitors spectate via the live scorecard.
-    const canEdit = Boolean(isP1 || isP2);
+    // Paired competitors and Tournament Organizers/Admins/Staff can launch and update the match tracker.
+    // Non-staff competitors and casual spectators spectate via the live scorecard.
+    const canEdit = Boolean(isP1 || isP2 || isStaff);
 
     let actionBtn = '';
     if (!isBye) {

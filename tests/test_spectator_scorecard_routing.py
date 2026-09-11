@@ -40,9 +40,9 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn("const isSpectatorExplicit = params.get('role') === 'spectator' || params.get('spectate') === 'true';", sync_js)
         self.assertIn("window.location.replace(`/scorecard/${encodeURIComponent(matchId)}`);", sync_js)
 
-        # 2. On join response role === 'spectator' or 'referee'
+        # 2. On join response role === 'spectator'
         self.assertIn("joinData.role === 'spectator'", sync_js)
-        self.assertIn("joinData.role === 'referee'", sync_js)
+        self.assertNotIn("joinData.role === 'referee'", sync_js)
 
         # 3. Guard in updateSpectatorModeUI
         self.assertIn("if (isPlay && clientState.matchId)", sync_js)
@@ -161,8 +161,13 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         # 1. John Hsieh (TO) with role 'to' or 'admin'
         to_user = {"id": "uid_john_to", "name": "John Hsieh", "display_name": "John Hsieh", "role": "to"}
         role, slot = determine_existing_room_role(to_user, room, "BCP-GT2026-R1-T1", None)
-        self.assertEqual(role, "spectator", f"Expected spectator for TO, got {role}")
-        self.assertIsNone(slot, f"Expected slot None for TO spectator, got {slot}")
+        self.assertEqual(role, "referee", f"Expected referee for TO, got {role}")
+        self.assertIsNone(slot, f"Expected slot None for TO referee, got {slot}")
+
+        # 1b. Admin user
+        admin_user = {"id": "uid_admin", "name": "Admin User", "display_name": "Admin", "role": "admin"}
+        a_role, a_slot = determine_existing_room_role(admin_user, room, "BCP-GT2026-R1-T1", None)
+        self.assertEqual(a_role, "referee", f"Expected referee for admin, got {a_role}")
 
         # 2. Competitor John3 (p1)
         p1_user = {"id": "uid_john3", "name": "John3 Hsieh3", "display_name": "John3 Hsieh3", "role": "user"}
@@ -181,7 +186,7 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         spec_role, spec_slot = determine_existing_room_role(random_user, room, "BCP-GT2026-R1-T1", None)
         self.assertEqual(spec_role, "spectator")
         self.assertIsNone(spec_slot)
-        print("✓ test_to_spectator_role_in_tournament_match passed")
+        print("✓ test_to_and_admin_referee_role_in_tournament_match passed")
 
     def test_judge_call_resolution_clears_active_call(self):
         """Verify resolving a judge call nullifies active_judge_call in room and does not leave stale call."""
