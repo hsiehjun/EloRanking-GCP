@@ -275,8 +275,10 @@ def cmd_player_sync(args):
     from player_sync import sync_player_names_job
     res = sync_player_names_job(
         game_system=args.game_system,
-        max_bcp_calls=getattr(args, "max_calls", None),
-        dry_run=getattr(args, "dry_run", False)
+        max_bcp_calls=getattr(args, "limit", None) or getattr(args, "max_calls", None),
+        dry_run=getattr(args, "dry_run", False),
+        concurrency=getattr(args, "concurrency", 8),
+        batch_commit_size=getattr(args, "batch_commit", 100)
     )
     print("Player Name Sync Result:", json.dumps(res, indent=2))
 
@@ -401,7 +403,9 @@ def main():
     # Player name sync command
     p_psync = subparsers.add_parser("sync-players", aliases=["player-sync"], help="Sync and repair placeholder player names ('Player 1', 'Player 2') from BCP")
     p_psync.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
-    p_psync.add_argument("--max-calls", type=int, default=None, help="Maximum BCP API calls to perform")
+    p_psync.add_argument("--limit", "--max-calls", dest="limit", type=int, default=None, help="Maximum BCP API calls to perform (e.g. 500, 1000)")
+    p_psync.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=8, help="Number of concurrent worker threads (default: 8)")
+    p_psync.add_argument("--batch-commit", type=int, default=100, help="Commit to database every N resolved names (default: 100)")
     p_psync.add_argument("--dry-run", action="store_true", help="Scan and resolve names without writing to database")
 
     # Stats command

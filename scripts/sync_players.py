@@ -19,10 +19,25 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("elo.job.player_sync")
 
 
-def run_player_sync(game_system: str = "all", max_calls: int = None, dry_run: bool = False):
-    logger.info(f"🚀 Starting Cloud Run Job: BCP Player Name Sync (game_system={game_system}, dry_run={dry_run})")
+def run_player_sync(
+    game_system: str = "all",
+    limit: int = None,
+    dry_run: bool = False,
+    concurrency: int = 8,
+    batch_commit_size: int = 100
+):
+    logger.info(
+        f"🚀 Starting Cloud Run Job: BCP Player Name Sync (game_system={game_system}, "
+        f"dry_run={dry_run}, concurrency={concurrency}, limit={limit})"
+    )
     syncer = PlayerNameSync()
-    res = syncer.sync_names(game_system=game_system, max_bcp_calls=max_calls, dry_run=dry_run)
+    res = syncer.sync_names(
+        game_system=game_system,
+        max_bcp_calls=limit,
+        dry_run=dry_run,
+        concurrency=concurrency,
+        batch_commit_size=batch_commit_size
+    )
     logger.info(f"🎉 Player Name Sync Finished: {res}")
     return res
 
@@ -30,12 +45,20 @@ def run_player_sync(game_system: str = "all", max_calls: int = None, dry_run: bo
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BCP Player Name Sync Job")
     parser.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
-    parser.add_argument("--max-calls", type=int, default=None, help="Maximum BCP API calls")
+    parser.add_argument("--limit", "--max-calls", dest="limit", type=int, default=None, help="Maximum BCP API calls (e.g. 500, 1000)")
+    parser.add_argument("--concurrency", "--workers", dest="concurrency", type=int, default=8, help="Number of concurrent worker threads (default: 8)")
+    parser.add_argument("--batch-commit", type=int, default=100, help="Commit to database every N resolved names (default: 100)")
     parser.add_argument("--dry-run", action="store_true", default=os.getenv("DRY_RUN", "").lower() in ("true", "1", "yes"), help="Scan and resolve without writing")
     args = parser.parse_args()
 
     try:
-        run_player_sync(game_system=args.game_system, max_calls=args.max_calls, dry_run=args.dry_run)
+        run_player_sync(
+            game_system=args.game_system,
+            limit=args.limit,
+            dry_run=args.dry_run,
+            concurrency=args.concurrency,
+            batch_commit_size=args.batch_commit
+        )
     except Exception as e:
         logger.error(f"❌ Player Name Sync failed: {e}", exc_info=True)
         sys.exit(1)

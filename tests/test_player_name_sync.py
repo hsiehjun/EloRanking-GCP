@@ -255,6 +255,55 @@ def test_cloudbuild_includes_player_sync_job():
     print("✅ test_cloudbuild_includes_player_sync_job passed")
 
 
+def test_concurrent_bcp_sync_and_incremental_commit():
+    """Verify multi-threaded resolution, incremental batch commits, and limit parameter."""
+    mock_db = MagicMock()
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+
+    # 10 player IDs
+    test_ids = [f"p_{i}" for i in range(10)]
+    syncer.find_placeholder_player_ids = MagicMock(return_value=test_ids)
+    syncer.resolve_from_local_db = MagicMock(return_value={
+        "p_0": {"full_name": "Local Player Zero", "first_name": "Local", "last_name": "Player Zero"}
+    })
+
+    def mock_fetch(pid):
+        return {
+            "full_name": f"Resolved {pid}",
+            "first_name": "Resolved",
+            "last_name": pid,
+            "source": "bcp_test_api"
+        }
+
+    syncer.fetch_bcp_player_name = MagicMock(side_effect=mock_fetch)
+    applied_batches = []
+
+    def mock_apply(batch):
+        applied_batches.append(dict(batch))
+        return {"players": len(batch), "player_ratings": len(batch), "matches_p1": 0, "matches_p2": 0, "history": 0, "participants": 0, "tracker_games": 0}
+
+    syncer.apply_name_updates = MagicMock(side_effect=mock_apply)
+
+    # Run with limit=6, batch_commit_size=2, concurrency=3
+    res = syncer.sync_names(
+        game_system="aos",
+        max_bcp_calls=6,
+        dry_run=False,
+        concurrency=3,
+        batch_commit_size=2
+    )
+
+    assert res["status"] == "SUCCESS"
+    assert res["placeholders_found"] == 10
+    # 1 local + 6 BCP = 7 total resolved
+    assert res["resolved_total"] == 7
+    assert res["resolved_local"] == 1
+    assert res["resolved_bcp"] == 6
+    # Batch commits should have happened: 1 local batch + 3 batches of 2 = 4 apply calls
+    assert len(applied_batches) >= 3
+    print(f"✅ test_concurrent_bcp_sync_and_incremental_commit passed ({len(applied_batches)} commits executed)")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -264,5 +313,6 @@ if __name__ == "__main__":
     test_bcp_api_player_fallback()
     test_apply_name_updates_across_tables()
     test_find_placeholder_player_ids_and_parameter_safety()
+    test_concurrent_bcp_sync_and_incremental_commit()
     test_cloudbuild_includes_player_sync_job()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")
