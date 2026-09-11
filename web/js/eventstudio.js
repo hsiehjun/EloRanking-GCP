@@ -1538,7 +1538,10 @@ async function saveTableScore(tableNum) {
 
   const pairingsMap = ev.pairings || {};
   const roundPairings = pairingsMap[String(currentRound)] || [];
-  const match = roundPairings.find(m => m.table === tableNum);
+  const match = roundPairings.find(m => {
+    const t = m.table !== undefined ? m.table : (m.tableNumber !== undefined ? m.tableNumber : m.table_number);
+    return t == tableNum || Number(t) === Number(tableNum);
+  });
 
   if (match) {
     match.p1_score = p1Score;
@@ -1550,6 +1553,14 @@ async function saveTableScore(tableNum) {
     if (!String(ev.id).startsWith("ES-")) {
       const pid = match ? (match.id || match.bcp_pairing_id) : null;
       const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : null;
+      const p1Id = match ? (match.player1_id || match.player1Id || match.p1_id) : null;
+      const p2Id = match ? (match.player2_id || match.player2Id || match.p2_id) : null;
+      const p1Gid = match ? (match.player1GameId || match.p1_game_id) : null;
+      const p2Gid = match ? (match.player2GameId || match.p2_game_id) : null;
+      const p1Fac = match ? (match.player1_faction || match.player1Faction || match.p1_faction) : null;
+      const p2Fac = match ? (match.player2_faction || match.player2Faction || match.p2_faction) : null;
+      const winnerId = p1Score > p2Score ? p1Id : (p2Score > p1Score ? p2Id : null);
+
       const res = await window.api.submitStudioScore({
         event_id: ev.id,
         table: Number(tableNum) || 1,
@@ -1559,9 +1570,25 @@ async function saveTableScore(tableNum) {
         pairing_id: cleanPid,
         p1_name: match ? (match.p1_name || match.player1_name) : 'Player 1',
         p2_name: match ? (match.p2_name || match.player2_name) : 'Player 2',
+        p1_id: p1Id,
+        p2_id: p2Id,
+        player1_id: p1Id,
+        player2_id: p2Id,
+        p1_faction: p1Fac,
+        p2_faction: p2Fac,
+        winner_id: winnerId,
         game_details: {
-          p1_game_id: match ? (match.player1GameId || match.p1_game_id) : null,
-          p2_game_id: match ? (match.player2GameId || match.p2_game_id) : null,
+          p1_id: p1Id,
+          p2_id: p2Id,
+          player1_id: p1Id,
+          player2_id: p2Id,
+          p1_game_id: p1Gid,
+          p2_game_id: p2Gid,
+          player1GameId: p1Gid,
+          player2GameId: p2Gid,
+          p1_faction: p1Fac,
+          p2_faction: p2Fac,
+          winner_id: winnerId,
           metaData: match ? (match.metaData || {}) : {}
         },
         source_app: 'EventStudio'

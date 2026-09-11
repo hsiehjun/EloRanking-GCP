@@ -324,15 +324,21 @@ def _resolve_canonical_event_id(
         db = get_database()
         with db.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT id FROM tournaments WHERE LOWER(id) = %s OR LOWER(id) = %s LIMIT 1;", 
-                    (target_lower, f"event/{target_lower}")
-                )
-                row = cur.fetchone()
-                if row and row[0]:
-                    clean = str(row[0]).replace("event/", "").strip()
-                    if clean and clean.lower() == target_lower:
-                        return clean
+                # Primary PostgreSQL table for tournaments is events
+                for tbl in ("events", "tournaments"):
+                    try:
+                        cur.execute(
+                            f"SELECT id FROM {tbl} WHERE LOWER(id) = %s OR LOWER(id) = %s LIMIT 1;", 
+                            (target_lower, f"event/{target_lower}")
+                        )
+                        row = cur.fetchone()
+                        if row and row[0]:
+                            clean = str(row[0]).replace("event/", "").strip()
+                            if clean and clean.lower() == target_lower:
+                                return clean
+                    except Exception:
+                        pass
+
                 cur.execute(
                     "SELECT id FROM studio_events WHERE LOWER(id) = %s LIMIT 1;", 
                     (target_lower,)
@@ -344,6 +350,19 @@ def _resolve_canonical_event_id(
                         return clean
     except Exception as e:
         logger.debug(f"Notice resolving canonical event ID from DB: {e}")
+
+    # Check Firestore tournaments
+    try:
+        fs_engine = get_firestore_engine()
+        for fid in list(fs_engine._fallback_tournaments.keys()):
+            if fid.lower() == target_lower:
+                return fid
+        if fs_engine._client:
+            doc = fs_engine._client.collection("tournaments").document(clean_target).get()
+            if doc.exists:
+                return clean_target
+    except Exception as e:
+        logger.debug(f"Notice resolving canonical event ID from Firestore: {e}")
 
     # 2. Check organizer's active BCP events list
     try:
@@ -2876,10 +2895,18 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     if not bcp_token and not user and bearer_tok and bearer_tok.startswith("eyJ"):
         bcp_token = bearer_tok
 
+    # Canonicalize event ID right away so lookups and pairings use the exact case!
+    canonical_event_id = _resolve_canonical_event_id(payload.event_id, user=user, explicit_token=bcp_token)
+    event_id = canonical_event_id or payload.event_id
+
     # 3. Fallback to event organizer BCP token if caller has none
-    if not bcp_token and not payload.event_id.startswith("ES-"):
+    if not bcp_token and not event_id.startswith("ES-"):
         try:
-            ev_data, _ = bcp_adapter.fetch_event_details(payload.event_id)
+            ev_data, _ = bcp_adapter.fetch_event_details(event_id)
+            if not ev_data:
+                from scraper import BestCoastPairingsScraper
+                scraper = BestCoastPairingsScraper(db=db)
+                ev_data = scraper.fetch_event_details(event_id)
             if ev_data and ev_data.get("ownerId"):
                 with db.get_connection() as conn:
                     with conn.cursor() as cur:
@@ -2891,7 +2918,12 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
                             if not user_id:
                                 user_id = orow[0]
         except Exception as oe:
-            logger.debug(f"Notice resolving TO BCP token for event {payload.event_id}: {oe}")
+            logger.debug(f"Notice resolving TO BCP token for event {event_id}: {oe}")
+
+        if bcp_token and canonical_event_id == payload.event_id:
+            resolved_again = _resolve_canonical_event_id(payload.event_id, user=user, explicit_token=bcp_token)
+            if resolved_again:
+                event_id = resolved_again
 
     table_val = int(payload.table if payload.table is not None else (payload.table_num or 1))
     logger.info(f"EventStudio: Submitting Table {table_val} Round {payload.round_num} Score ({payload.p1_score} - {payload.p2_score}) Source: {payload.source_app}")
@@ -2914,11 +2946,17 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         if not p2_id:
             p2_id = payload.game_details.get("p2_id") or payload.game_details.get("player2Id")
 
-    if (not bcp_pairing_id or not p1_gid or not p2_gid or not p1_id or not p2_id) and not payload.event_id.startswith("ES-"):
-        canonical_event_id = _resolve_canonical_event_id(payload.event_id, user=user, explicit_token=bcp_token)
+    if (not bcp_pairing_id or not p1_gid or not p2_gid or not p1_id or not p2_id) and not event_id.startswith("ES-"):
         try:
-            res_p = bcp_adapter.fetch_event_pairings(canonical_event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
+            res_p = bcp_adapter.fetch_event_pairings(event_id, payload.round_num, user_id=user_id, explicit_token=bcp_token)
             p_list = res_p[2] if isinstance(res_p, tuple) and len(res_p) >= 3 else (res_p if isinstance(res_p, list) else [])
+            if not p_list:
+                try:
+                    from scraper import BestCoastPairingsScraper
+                    scraper = BestCoastPairingsScraper(db=db)
+                    p_list = scraper.fetch_event_pairings_for_round(event_id, payload.round_num) or []
+                except Exception:
+                    pass
             for p in p_list:
                 t_val = p.get("table") or p.get("tableNumber") or p.get("table_number")
                 p1_obj = p.get("player1") or {}
@@ -2927,7 +2965,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
                 u2 = p2_obj.get("user") if isinstance(p2_obj.get("user"), dict) else {}
 
                 pid_match = bool(bcp_pairing_id and (str(p.get("id") or "") == str(bcp_pairing_id) or str(p.get("bcp_pairing_id") or "") == str(bcp_pairing_id)))
-                table_matches = (t_val == table_val or str(t_val) == str(table_val))
+                table_matches = (t_val == table_val or str(t_val) == str(table_val) or (isinstance(t_val, (int, str)) and str(t_val).isdigit() and int(t_val) == table_val))
                 p1_name_match = bool(payload.p1_name and (payload.p1_name.lower() in (str(p1_obj.get("name") or "").lower(), str(p2_obj.get("name") or "").lower())))
 
                 if pid_match or table_matches or p1_name_match:
@@ -2958,10 +2996,10 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     loser_id = p2_id if (winner_id and winner_id == p1_id) else (p1_id if (winner_id and winner_id == p2_id) else None)
 
     # 5. Persist match scores immediately to OmniTactica database
-    match_id = bcp_pairing_id or f"BCP-{payload.event_id}-R{payload.round_num}-T{table_val}"
+    match_id = bcp_pairing_id or f"BCP-{event_id}-R{payload.round_num}-T{table_val}"
     match_record = {
         "id": match_id,
-        "event_id": payload.event_id,
+        "event_id": event_id,
         "round": int(payload.round_num),
         "table_number": int(table_val),
         "match_date": datetime.now(timezone.utc).isoformat(),
@@ -2985,7 +3023,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         }
     }
     # 5. Strictly for native EventStudio tournaments (ES-*), persist local match record
-    if payload.event_id.startswith("ES-"):
+    if event_id.startswith("ES-"):
         try:
             if hasattr(db, "upsert_match"):
                 db.upsert_match(match_record)
@@ -2996,11 +3034,14 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     fs_engine = get_firestore_engine()
     target_rooms = {
         match_id,
+        f"BCP-{event_id}-R{payload.round_num}-T{table_val}",
+        f"ES-{event_id}-R{payload.round_num}-T{table_val}",
+        f"WH40K-BCP-{event_id}-R{payload.round_num}-T{table_val}",
         f"BCP-{payload.event_id}-R{payload.round_num}-T{table_val}",
-        f"ES-{payload.event_id}-R{payload.round_num}-T{table_val}",
         f"WH40K-BCP-{payload.event_id}-R{payload.round_num}-T{table_val}"
     }
     if isinstance(payload.game_details, dict) and payload.game_details.get("match_id"):
+        target_rooms.add(str(payload.game_details["match_id"]).strip())
         target_rooms.add(str(payload.game_details["match_id"]).strip().upper())
 
     persisted_state = None
@@ -3014,7 +3055,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
 
     if not persisted_state:
         persisted_state = {
-            "event_id": payload.event_id,
+            "event_id": event_id,
             "round_num": int(payload.round_num),
             "table_num": int(table_val),
             "started": True,
@@ -3023,7 +3064,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
             "p1Score": int(payload.p1_score),
             "p2Score": int(payload.p2_score),
             "game": {
-                "eventId": payload.event_id,
+                "eventId": event_id,
                 "roundNum": int(payload.round_num),
                 "tableNum": int(table_val),
                 "p1Name": p1_name,
@@ -3055,7 +3096,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         persisted_state["is_finished"] = True
         persisted_state["started"] = True
         persisted_state["bcp_submitted"] = True
-        persisted_state["event_id"] = payload.event_id
+        persisted_state["event_id"] = event_id
         persisted_state["round_num"] = int(payload.round_num)
         persisted_state["table_num"] = int(table_val)
         if "game" in persisted_state and isinstance(persisted_state["game"], dict):
@@ -3108,8 +3149,8 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         pass
 
     # 6. Strictly for native EventStudio tournaments (ES-*), update local draft
-    if payload.event_id.startswith("ES-"):
-        ev = db.get_studio_event(payload.event_id)
+    if event_id.startswith("ES-"):
+        ev = db.get_studio_event(event_id)
         if ev:
             pairings_map = ev.get("pairings") or {}
             round_pairings = pairings_map.get(str(payload.round_num)) or []
@@ -3128,7 +3169,7 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
     # 7. Push to BCP via BcpAdapter if pairing ID is known
     bcp_synced = False
     bcp_notice = None
-    if bcp_pairing_id and not payload.event_id.startswith("ES-"):
+    if bcp_pairing_id and not event_id.startswith("ES-"):
         submit_game_data = dict(payload.game_details or {})
         if winner_id and "winner_id" not in submit_game_data:
             submit_game_data["winner_id"] = str(winner_id)
@@ -3160,13 +3201,13 @@ async def api_eventstudio_submit_score(payload: SubmitScorePayload, request: Req
         )
         if not bcp_synced:
             bcp_notice = bcp_err
-    elif not payload.event_id.startswith("ES-"):
+    elif not event_id.startswith("ES-"):
         bcp_notice = f"Could not resolve BCP pairing ID for table {table_val} round {payload.round_num}"
         logger.warning(f"⚠️ {bcp_notice}")
 
     return {
         "success": True,
-        "event_id": payload.event_id,
+        "event_id": event_id,
         "table": table_val,
         "round_num": payload.round_num,
         "p1_score": payload.p1_score,

@@ -33,6 +33,31 @@ def _apply_where(target: Any, field_path: str, op_string: str, value: Any) -> An
         return target.where(filter=FieldFilter(field_path, op_string, value))
     return target.where(field_path, op_string, value)
 
+
+import re
+
+def normalize_tracker_match_id(raw: str) -> str:
+    if not raw:
+        return ""
+    clean = str(raw).strip().replace(" ", "")
+    m = re.match(r"^(?:(WH40K-|AOS-))?(BCP|ES)-(.+)-R(\d+)-T(\d+)$", clean, re.IGNORECASE)
+    if m:
+        prefix = (m.group(1) or "").upper()
+        system = m.group(2).upper()
+        event_id = m.group(3).strip()
+        r_num = m.group(4)
+        t_num = m.group(5)
+        return f"{prefix}{system}-{event_id}-R{r_num}-T{t_num}"
+
+    s = clean.upper()
+    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-"):
+        return s
+    s_clean = s.replace("-", "")
+    if len(s_clean) == 8:
+        return f"WH40K-{s_clean[:4]}-{s_clean[4:]}"
+    return s
+
+
 class FirestoreRoomEngine:
     """Manages hot ephemeral match rooms in Cloud Firestore ('rooms/{match_id}')."""
 
@@ -62,17 +87,18 @@ class FirestoreRoomEngine:
     def get_room_doc_ref(self, match_id: str):
         if not match_id or not self._client:
             return None
-        return self._client.collection("rooms").document(match_id.strip().upper())
+        norm_mid = normalize_tracker_match_id(match_id)
+        return self._client.collection("rooms").document(norm_mid)
 
     def create_room(self, match_id: str, room_payload: Dict[str, Any]) -> Dict[str, Any]:
         """Creates or initializes a live match room document in Firestore."""
-        match_id = match_id.strip().upper()
+        norm_mid = normalize_tracker_match_id(match_id)
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         expires_ts = now_ts + (14 * 24 * 60 * 60 * 1000) # 14 days TTL
 
         data = {
-            "roomKey": match_id,
-            "matchId": match_id,
+            "roomKey": norm_mid,
+            "matchId": norm_mid,
             "status": "in_progress",
             "createdAt": now_ts,
             "updatedAt": now_ts,
@@ -82,34 +108,41 @@ class FirestoreRoomEngine:
 
         if self._client:
             try:
-                ref = self.get_room_doc_ref(match_id)
+                ref = self.get_room_doc_ref(norm_mid)
                 ref.set(data, merge=True)
-                logger.info(f"🔥 [FIRESTORE] Created/Set rooms/{match_id}")
+                logger.info(f"🔥 [FIRESTORE] Created/Set rooms/{norm_mid}")
             except Exception as e:
-                logger.error(f"❌ [FIRESTORE] Error creating room {match_id}: {e}")
+                logger.error(f"❌ [FIRESTORE] Error creating room {norm_mid}: {e}")
 
-        self._fallback_rooms[match_id] = data
+        self._fallback_rooms[norm_mid] = data
         return data
 
     def get_room(self, match_id: str) -> Optional[Dict[str, Any]]:
         """Fetches live match room state from Firestore."""
-        match_id = match_id.strip().upper()
+        norm_mid = normalize_tracker_match_id(match_id)
         if self._client:
             try:
-                ref = self.get_room_doc_ref(match_id)
+                ref = self.get_room_doc_ref(norm_mid)
                 snap = ref.get()
                 if snap.exists:
                     d = snap.to_dict()
-                    self._fallback_rooms[match_id] = d
+                    self._fallback_rooms[norm_mid] = d
                     return d
+                if norm_mid != match_id.strip().upper():
+                    ref_u = self._client.collection("rooms").document(match_id.strip().upper())
+                    snap_u = ref_u.get()
+                    if snap_u.exists:
+                        d = snap_u.to_dict()
+                        self._fallback_rooms[norm_mid] = d
+                        return d
             except Exception as e:
-                logger.error(f"❌ [FIRESTORE] Error getting room {match_id}: {e}")
+                logger.error(f"❌ [FIRESTORE] Error getting room {norm_mid}: {e}")
 
-        return self._fallback_rooms.get(match_id)
+        return self._fallback_rooms.get(norm_mid) or self._fallback_rooms.get(match_id.strip().upper())
 
     def update_room(self, match_id: str, updates: Dict[str, Any]) -> bool:
         """Applies field updates to live room in Firestore."""
-        match_id = match_id.strip().upper()
+        norm_mid = normalize_tracker_match_id(match_id)
         now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
         updates["updatedAt"] = now_ts
 
@@ -117,49 +150,49 @@ class FirestoreRoomEngine:
             try:
                 # Automatically prune legacy duplicate fields if present
                 for legacy_field in ("clock", "game"):
-                    if legacy_field not in updates:
+                    if legacy_field not in updates and hasattr(firestore, "DELETE_FIELD"):
                         updates[legacy_field] = firestore.DELETE_FIELD
-                if "active_judge_call" in updates and updates["active_judge_call"] is None:
+                if "active_judge_call" in updates and updates["active_judge_call"] is None and hasattr(firestore, "DELETE_FIELD"):
                     updates["active_judge_call"] = firestore.DELETE_FIELD
-                ref = self.get_room_doc_ref(match_id)
+                ref = self.get_room_doc_ref(norm_mid)
                 ref.set(updates, merge=True)
                 return True
             except Exception as e:
-                logger.error(f"❌ [FIRESTORE] Error updating room {match_id}: {e}")
+                logger.error(f"❌ [FIRESTORE] Error updating room {norm_mid}: {e}")
 
-        if match_id in self._fallback_rooms:
-            self._fallback_rooms[match_id].update(updates)
-            self._fallback_rooms[match_id].pop("clock", None)
-            self._fallback_rooms[match_id].pop("game", None)
+        if norm_mid in self._fallback_rooms:
+            self._fallback_rooms[norm_mid].update(updates)
+            self._fallback_rooms[norm_mid].pop("clock", None)
+            self._fallback_rooms[norm_mid].pop("game", None)
             if "active_judge_call" in updates and updates["active_judge_call"] is None:
-                self._fallback_rooms[match_id].pop("active_judge_call", None)
+                self._fallback_rooms[norm_mid].pop("active_judge_call", None)
+        elif match_id.strip().upper() in self._fallback_rooms:
+            self._fallback_rooms[match_id.strip().upper()].update(updates)
+            self._fallback_rooms[match_id.strip().upper()].pop("clock", None)
+            self._fallback_rooms[match_id.strip().upper()].pop("game", None)
+            if "active_judge_call" in updates and updates["active_judge_call"] is None:
+                self._fallback_rooms[match_id.strip().upper()].pop("active_judge_call", None)
         else:
-            self._fallback_rooms[match_id] = updates
+            self._fallback_rooms[norm_mid] = updates
         return True
 
     def discard_room(self, match_id: str) -> bool:
         """Deletes / discards a match room from Firestore."""
+        norm_mid = normalize_tracker_match_id(match_id)
         clean_id = match_id.strip().upper()
         short_id = clean_id.replace("WH40K-", "")
+        keys_to_clear = {norm_mid, clean_id, short_id}
         if self._client:
-            try:
-                ref1 = self.get_room_doc_ref(clean_id)
-                if ref1:
-                    ref1.delete()
-                if short_id != clean_id:
-                    ref2 = self.get_room_doc_ref(short_id)
-                    if ref2:
-                        ref2.delete()
-                logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{clean_id}")
-            except Exception as e:
-                logger.error(f"Error discarding Firestore room {clean_id}: {e}")
-
-        for key in (clean_id, short_id):
-            if key in self._fallback_rooms:
+            for k in keys_to_clear:
                 try:
-                    del self._fallback_rooms[key]
-                except KeyError:
+                    ref = self._client.collection("rooms").document(k)
+                    ref.delete()
+                except Exception:
                     pass
+            logger.info(f"🗑️ [FIRESTORE] Deleted discarded room rooms/{norm_mid}")
+
+        for key in keys_to_clear:
+            self._fallback_rooms.pop(key, None)
         return True
 
     def finalize_room(self, match_id: str) -> bool:
@@ -612,56 +645,50 @@ class FirestoreRoomEngine:
             "resolvedAt": call_data.get("resolvedAt")
         }
 
-        target_event_ids = [event_id]
-        if event_id.upper() not in target_event_ids:
-            target_event_ids.append(event_id.upper())
-        if event_id.lower() not in target_event_ids:
-            target_event_ids.append(event_id.lower())
+        target_eid = event_id
 
         if self._client:
-            for target_eid in target_event_ids:
-                # 1. Save to subcollection for backward compatibility
-                try:
-                    ref = self._client.collection("tournaments").document(target_eid).collection("judge_calls").document(call_id)
-                    ref.set(record, merge=True)
-                except Exception as e:
-                    logger.warning(f"Notice saving judge call to Firestore subcollection: {e}")
+            # 1. Save to subcollection for backward compatibility
+            try:
+                ref = self._client.collection("tournaments").document(target_eid).collection("judge_calls").document(call_id)
+                ref.set(record, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice saving judge call to Firestore subcollection: {e}")
 
-                # 2. Save directly into single Tournament document arrays (tournaments/{id})
-                try:
-                    doc_ref = self._client.collection("tournaments").document(target_eid)
-                    snap = doc_ref.get()
-                    curr_calls = []
-                    if snap.exists:
-                        d = snap.to_dict() or {}
-                        raw_list = d.get("judge_calls") or d.get("flags") or []
-                        if isinstance(raw_list, list):
-                            curr_calls = [c for c in raw_list if isinstance(c, dict) and c.get("id") != call_id and c.get("call_id") != call_id]
-                    curr_calls.insert(0, record)
-                    doc_ref.set({
-                        "id": target_eid,
-                        "eventId": target_eid,
-                        "type": "Event",
-                        "judge_calls": curr_calls,
-                        "flags": curr_calls,
-                        "updatedAt": now_ts
-                    }, merge=True)
-                except Exception as e:
-                    logger.warning(f"Notice updating judge_calls array on Firestore tournaments/{target_eid}: {e}")
+            # 2. Save directly into single Tournament document arrays (tournaments/{id})
+            try:
+                doc_ref = self._client.collection("tournaments").document(target_eid)
+                snap = doc_ref.get()
+                curr_calls = []
+                if snap.exists:
+                    d = snap.to_dict() or {}
+                    raw_list = d.get("judge_calls") or d.get("flags") or []
+                    if isinstance(raw_list, list):
+                        curr_calls = [c for c in raw_list if isinstance(c, dict) and c.get("id") != call_id and c.get("call_id") != call_id]
+                curr_calls.insert(0, record)
+                doc_ref.set({
+                    "id": target_eid,
+                    "eventId": target_eid,
+                    "type": "Event",
+                    "judge_calls": curr_calls,
+                    "flags": curr_calls,
+                    "updatedAt": now_ts
+                }, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice updating judge_calls array on Firestore tournaments/{target_eid}: {e}")
 
-        for target_eid in target_event_ids:
-            if target_eid not in self._fallback_judge_calls:
-                self._fallback_judge_calls[target_eid] = {}
-            self._fallback_judge_calls[target_eid][call_id] = record
+        if target_eid not in self._fallback_judge_calls:
+            self._fallback_judge_calls[target_eid] = {}
+        self._fallback_judge_calls[target_eid][call_id] = record
 
-            if target_eid not in self._fallback_tournaments:
-                self._fallback_tournaments[target_eid] = {"id": target_eid, "eventId": target_eid, "type": "Event"}
-            fb_calls = self._fallback_tournaments[target_eid].get("judge_calls", [])
-            fb_calls = [c for c in fb_calls if c.get("id") != call_id and c.get("call_id") != call_id]
-            fb_calls.insert(0, record)
-            self._fallback_tournaments[target_eid]["judge_calls"] = fb_calls
-            self._fallback_tournaments[target_eid]["flags"] = fb_calls
-            self._fallback_tournaments[target_eid]["updatedAt"] = now_ts
+        if target_eid not in self._fallback_tournaments:
+            self._fallback_tournaments[target_eid] = {"id": target_eid, "eventId": target_eid, "type": "Event"}
+        fb_calls = self._fallback_tournaments[target_eid].get("judge_calls", [])
+        fb_calls = [c for c in fb_calls if c.get("id") != call_id and c.get("call_id") != call_id]
+        fb_calls.insert(0, record)
+        self._fallback_tournaments[target_eid]["judge_calls"] = fb_calls
+        self._fallback_tournaments[target_eid]["flags"] = fb_calls
+        self._fallback_tournaments[target_eid]["updatedAt"] = now_ts
         return record
 
     def update_judge_call_status(
@@ -697,14 +724,16 @@ class FirestoreRoomEngine:
 
         if self._client:
             for target_eid in target_event_ids:
-                # 1. Subcollection update
+                # 1. Subcollection update - only if doc exists
                 try:
                     ref = self._client.collection("tournaments").document(target_eid).collection("judge_calls").document(call_id)
-                    ref.set(updates, merge=True)
+                    snap = ref.get()
+                    if snap.exists:
+                        ref.set(updates, merge=True)
                 except Exception as e:
                     logger.warning(f"Notice updating judge call in Firestore subcollection: {e}")
 
-                # 2. Main document arrays update (tournaments)
+                # 2. Main document arrays update (tournaments) - only if doc exists
                 try:
                     doc_ref = self._client.collection("tournaments").document(target_eid)
                     snap = doc_ref.get()

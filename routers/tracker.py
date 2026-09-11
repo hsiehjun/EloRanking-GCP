@@ -123,8 +123,20 @@ def check_user_matches_player(user: Optional[Dict[str, Any]], target_name: Optio
     return False
 
 def normalize_tracker_match_id(raw: str) -> str:
-    s = raw.strip().upper().replace(" ", "")
-    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-"):
+    if not raw:
+        return ""
+    clean = str(raw).strip().replace(" ", "")
+    m = re.match(r"^(?:(WH40K-|AOS-))?(BCP|ES)-(.+)-R(\d+)-T(\d+)$", clean, re.IGNORECASE)
+    if m:
+        prefix = (m.group(1) or "").upper()
+        system = m.group(2).upper()
+        event_id = m.group(3).strip()
+        r_num = m.group(4)
+        t_num = m.group(5)
+        return f"{prefix}{system}-{event_id}-R{r_num}-T{t_num}"
+
+    s = clean.upper()
+    if s.startswith("WH40K-") or s.startswith("BCP-") or s.startswith("ES-") or s.startswith("AOS-"):
         return s
     s_clean = s.replace("-", "")
     if len(s_clean) == 8:

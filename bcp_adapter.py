@@ -206,6 +206,26 @@ class BcpAdapter:
         return False, (err or "Failed to fetch pairings status"), None
 
     @classmethod
+    def fetch_event_details(
+        cls,
+        event_id: str,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """
+        Fetches full tournament details for a specific event from BCP API.
+        Returns: (event_dict, error_str)
+        """
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid:
+            return None, "Missing event_id"
+        url = f"{BCP_API_BASE}/events/{clean_eid}"
+        data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
+        if isinstance(data, dict):
+            return data, None
+        return None, err
+
+    @classmethod
     def fetch_event_pairings(
         cls,
         event_id: str,

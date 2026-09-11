@@ -359,11 +359,19 @@
     if (clientState && clientState.matchId) return clientState.matchId;
     const urlParams = new URLSearchParams(window.location.search);
     const m = urlParams.get('match_id') || urlParams.get('room') || urlParams.get('id');
-    if (m) return m.trim().toUpperCase();
+    if (m) {
+      const trimmed = m.trim();
+      const isTourn = (trimmed.startsWith('BCP-') || trimmed.startsWith('ES-') || /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(trimmed));
+      return isTourn ? trimmed : trimmed.toUpperCase();
+    }
     try {
       const raw = originalGetItem('gdm-11e-tracker-state');
       const st = JSON.parse(raw);
-      if (st && st.match_id) return st.match_id.trim().toUpperCase();
+      if (st && st.match_id) {
+        const trimmed = st.match_id.trim();
+        const isTourn = (trimmed.startsWith('BCP-') || trimmed.startsWith('ES-') || /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(trimmed));
+        return isTourn ? trimmed : trimmed.toUpperCase();
+      }
     } catch (e) {}
     return '';
   }
@@ -919,34 +927,6 @@
     alert('📋 Match Summary Copied to Clipboard!');
   };
 
-  window.__finalizeAndLockMatch = async function () {
-    const matchId = getActiveMatchId();
-    const raw = originalGetItem('gdm-11e-tracker-state');
-    let st = {};
-    try { st = JSON.parse(raw) || {}; } catch(e) {}
-    st.is_finished = true;
-    st.round = 5;
-    saveLocalState(st);
-    notifyStateChanged();
-
-    try {
-      const token = getAuthToken();
-      await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/finalize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({ token: token, match_id: matchId, state: st })
-      });
-    } catch (e) {}
-
-    alert('🔒 Match is now finalized and locked as completed.');
-    const m = document.getElementById('gt-complete-modal');
-    if (m) m.remove();
-    window.location.href = '/11th/tracker';
-  };
-
   window.__handleLogout = async function () {
     try {
       await fetch('/api/auth/logout', {
@@ -1035,7 +1015,12 @@
         return;
       }
 
-      clientState.matchId = matchId.toUpperCase();
+      const isTournMatch = (matchId.startsWith('BCP-') || matchId.startsWith('ES-') || /^(?:WH40K-|AOS-)?(?:BCP|ES)-/i.test(matchId));
+      if (isTournMatch) {
+        clientState.matchId = matchId;
+      } else {
+        clientState.matchId = matchId.toUpperCase();
+      }
       if (typeof diceRollerState !== 'undefined') {
         diceRollerState.history = [];
         diceRollerState.tray = [];
@@ -4806,12 +4791,8 @@ Space Marines - Gladius Task Force (2000 pts)
           }
         };
 
-        const targetTournamentIds = [tournamentId];
-        if (tournamentId.toUpperCase() !== tournamentId) targetTournamentIds.push(tournamentId.toUpperCase());
-        targetTournamentIds.forEach(tid => {
-          updateMainEventDoc(db.collection('tournaments').doc(tid));
-          db.collection('tournaments').doc(tid).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
-        });
+        updateMainEventDoc(db.collection('tournaments').doc(tournamentId));
+        db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).set(callData, { merge: true }).catch(() => {});
         if (clientState.matchId) {
           db.collection('rooms').doc(clientState.matchId).set({ active_judge_call: callData }, { merge: true }).catch(() => {});
         }
@@ -4885,16 +4866,12 @@ Space Marines - Gladius Task Force (2000 pts)
           } catch(e) {}
         };
 
-        const targetTournamentIds = [tournamentId];
-        if (tournamentId.toUpperCase() !== tournamentId) targetTournamentIds.push(tournamentId.toUpperCase());
-        targetTournamentIds.forEach(tid => {
-          cancelInDoc(db.collection('tournaments').doc(tid));
-          db.collection('tournaments').doc(tid).collection('judge_calls').doc(callId).update({
-            status: 'cancelled',
-            resolved_at: Date.now(),
-            resolvedAt: Date.now()
-          }).catch(() => {});
-        });
+        cancelInDoc(db.collection('tournaments').doc(tournamentId));
+        db.collection('tournaments').doc(tournamentId).collection('judge_calls').doc(callId).update({
+          status: 'cancelled',
+          resolved_at: Date.now(),
+          resolvedAt: Date.now()
+        }).catch(() => {});
 
         if (clientState.matchId) {
           db.collection('rooms').doc(clientState.matchId).update({
