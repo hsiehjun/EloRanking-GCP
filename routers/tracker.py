@@ -245,9 +245,173 @@ def init_tracker_room_from_chat(match_id: str, chat_info: Dict[str, Any], fs_eng
 
     return room
 
+def extract_event_id_from_match_id(match_id: str) -> Optional[str]:
+    """Extracts the event/tournament ID from standard match IDs like BCP-xyz-R1-T2 or ES-xyz-R1-T2."""
+    if not match_id:
+        return None
+    m = re.match(r"^(?:WH40K-)?(?:AOS-)?(?:BCP|ES)-(.+)-R\d+-T\d+$", str(match_id).strip(), re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return None
+
+TOURNAMENT_ORGANIZER_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def get_tournament_organizers(event_id: str) -> Dict[str, Any]:
+    """
+    Retrieves tournament organizer and referee IDs for a specific tournament event.
+    Results are cached in-memory with a short TTL to prevent repeated DB/Firestore lookups.
+    """
+    if not event_id:
+        return {}
+    event_id_str = str(event_id).strip()
+    now_ts = time.time()
+    cached = TOURNAMENT_ORGANIZER_CACHE.get(event_id_str)
+    if cached and (now_ts - cached.get("cached_at", 0) < 60.0):
+        return cached
+
+    org_id = None
+    org_bcp_id = None
+    referee_ids: List[str] = []
+
+    try:
+        db = get_database()
+        if hasattr(db, "get_event_details"):
+            ev = db.get_event_details(event_id_str)
+            if ev and isinstance(ev, dict):
+                org_id = ev.get("organizer_id") or org_id
+                org_bcp_id = ev.get("organizer_bcp_id") or org_bcp_id
+                raw_json = ev.get("raw_json") or {}
+                if not org_bcp_id and isinstance(raw_json, dict):
+                    org_bcp_id = raw_json.get("userId") or raw_json.get("organizerId") or raw_json.get("ownerId") or raw_json.get("owner_Id")
+        if (not org_id or not org_bcp_id) and hasattr(db, "get_studio_event"):
+            sev = db.get_studio_event(event_id_str)
+            if sev and isinstance(sev, dict):
+                org_id = org_id or sev.get("organizer_id")
+                org_bcp_id = org_bcp_id or sev.get("organizer_bcp_id")
+                raw_json = sev.get("raw_json") or {}
+                if not org_bcp_id and isinstance(raw_json, dict):
+                    org_bcp_id = raw_json.get("userId") or raw_json.get("organizerId") or raw_json.get("ownerId") or raw_json.get("owner_Id")
+    except Exception as e:
+        logger.debug(f"Notice looking up tournament organizer from DB for {event_id_str}: {e}")
+
+    try:
+        fs = get_firestore_engine()
+        tourn_doc = None
+        if hasattr(fs, "get_tournament_document"):
+            tourn_doc = fs.get_tournament_document(event_id_str)
+        elif hasattr(fs, "_fallback_tournaments"):
+            tourn_doc = fs._fallback_tournaments.get(event_id_str)
+        if tourn_doc and isinstance(tourn_doc, dict):
+            org_id = org_id or tourn_doc.get("organizer_id") or tourn_doc.get("organizerId") or tourn_doc.get("created_by")
+            org_bcp_id = org_bcp_id or tourn_doc.get("organizer_bcp_id") or tourn_doc.get("organizerBcpId")
+            if tourn_doc.get("referee_ids") and isinstance(tourn_doc["referee_ids"], list):
+                referee_ids.extend([str(r) for r in tourn_doc["referee_ids"] if r])
+            if tourn_doc.get("referees") and isinstance(tourn_doc["referees"], list):
+                for r in tourn_doc["referees"]:
+                    if isinstance(r, dict):
+                        rid = r.get("id") or r.get("user_id")
+                        if rid:
+                            referee_ids.append(str(rid))
+    except Exception as e:
+        logger.debug(f"Notice looking up tournament organizer from Firestore for {event_id_str}: {e}")
+
+    result = {
+        "organizer_id": str(org_id).strip() if org_id else None,
+        "organizer_bcp_id": str(org_bcp_id).strip() if org_bcp_id else None,
+        "referee_ids": [str(r).strip() for r in referee_ids if r],
+        "cached_at": now_ts
+    }
+    TOURNAMENT_ORGANIZER_CACHE[event_id_str] = result
+    return result
+
+def check_user_is_tournament_staff(
+    user: Optional[Dict[str, Any]],
+    room_dict: Optional[Dict[str, Any]] = None,
+    match_id: Optional[str] = None,
+    event_id: Optional[str] = None
+) -> bool:
+    """
+    Strict tournament staff authorization check:
+    ONLY the specific Tournament Organizer of this tournament, an assigned match/tournament referee,
+    or a global platform administrator/superuser can act as staff (referee role / score editor).
+    Possessing a generic 'to' or 'organizer' role does NOT grant access to other organizers' tournaments.
+    """
+    if not user:
+        return False
+
+    # 1. Global superuser / platform administrator
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    role_str = str(role or "").strip().lower()
+    is_admin = bool(
+        (user.get("is_admin") if isinstance(user, dict) else getattr(user, "is_admin", False)) or
+        role_str in ("admin", "superuser")
+    )
+    if is_admin:
+        return True
+
+    # 2. Gather user identifiers
+    u_ids = set()
+    for k in ("id", "user_id", "player_id", "bcp_user_id", "bcp_id", "sub", "userId"):
+        v = user.get(k) if isinstance(user, dict) else getattr(user, k, None)
+        if v is not None and str(v).strip():
+            u_ids.add(str(v).strip().lower())
+    if not u_ids:
+        return False
+
+    # 3. Check room-level assigned referees
+    if room_dict and isinstance(room_dict, dict):
+        room_referees = room_dict.get("referee_ids") or []
+        for r in room_referees:
+            if r and str(r).strip().lower() in u_ids:
+                return True
+
+    # 4. Check room-level organizer IDs
+    if room_dict and isinstance(room_dict, dict):
+        st = room_dict.get("state") if isinstance(room_dict.get("state"), dict) else {}
+        game = st.get("game") if isinstance(st.get("game"), dict) else {}
+        r_org_id = room_dict.get("organizer_id") or st.get("organizer_id") or game.get("organizer_id")
+        r_org_bcp_id = room_dict.get("organizer_bcp_id") or st.get("organizer_bcp_id") or game.get("organizer_bcp_id")
+        if r_org_id and str(r_org_id).strip().lower() in u_ids:
+            return True
+        if r_org_bcp_id and str(r_org_bcp_id).strip().lower() in u_ids:
+            return True
+
+    # 5. Check tournament event-level organizer and assigned referees
+    eid = event_id
+    if not eid and room_dict and isinstance(room_dict, dict):
+        st = room_dict.get("state") if isinstance(room_dict.get("state"), dict) else {}
+        game = st.get("game") if isinstance(st.get("game"), dict) else {}
+        eid = (
+            room_dict.get("event_id") or
+            room_dict.get("eventId") or
+            room_dict.get("tournament_id") or
+            st.get("event_id") or
+            st.get("tournament_id") or
+            game.get("eventId") or
+            game.get("tournament_id")
+        )
+    if not eid and match_id:
+        eid = extract_event_id_from_match_id(match_id)
+
+    if eid:
+        org_info = get_tournament_organizers(str(eid).strip())
+        ev_org_id = org_info.get("organizer_id")
+        ev_org_bcp_id = org_info.get("organizer_bcp_id")
+        ev_referees = org_info.get("referee_ids") or []
+
+        if ev_org_id and str(ev_org_id).strip().lower() in u_ids:
+            return True
+        if ev_org_bcp_id and str(ev_org_bcp_id).strip().lower() in u_ids:
+            return True
+        for r in ev_referees:
+            if r and str(r).strip().lower() in u_ids:
+                return True
+
+    return False
+
 def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str, Any]:
     """Auto-provisions a tournament match room when accessed directly via match_id."""
-    m = re.match(r"^(BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
+    m = re.match(r"^(?:WH40K-)?(?:AOS-)?(BCP|ES)-(.+)-R(\d+)-T(\d+)$", match_id, re.IGNORECASE)
     event_id = m.group(2) if m else None
     round_num = int(m.group(3)) if m else 1
     table_num = int(m.group(4)) if m else 1
@@ -259,6 +423,7 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
     p1_id = None
     p2_id = None
     pairing_id = None
+    details = None
 
     if event_id:
         try:
@@ -279,6 +444,11 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
         except Exception:
             pass
 
+    org_info = get_tournament_organizers(event_id) if event_id else {}
+    organizer_id = org_info.get("organizer_id") or (details.get("organizer_id") if details else None)
+    organizer_bcp_id = org_info.get("organizer_bcp_id") or (details.get("organizer_bcp_id") if details else None)
+    referee_ids = list(org_info.get("referee_ids") or [])
+
     initial_state = {
         "id": f"g-{secrets.token_hex(4)}-{secrets.token_hex(3)}",
         "match_id": match_id,
@@ -286,6 +456,8 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
         "round_num": round_num,
         "table_num": table_num,
         "pairing_id": pairing_id,
+        "organizer_id": organizer_id,
+        "organizer_bcp_id": organizer_bcp_id,
         "user_id_p1": None,
         "user_id_p2": None,
         "game": {
@@ -316,6 +488,7 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
             "roundNum": round_num,
             "tableNum": table_num,
             "pairingId": pairing_id,
+            "organizerId": organizer_id,
             "p1Id": p1_id,
             "p2Id": p2_id
         },
@@ -363,9 +536,11 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
         "round_num": round_num,
         "table_num": table_num,
         "pairing_id": pairing_id,
+        "organizer_id": organizer_id,
+        "organizer_bcp_id": organizer_bcp_id,
         "user_id_p1": None,
         "user_id_p2": None,
-        "referee_ids": [],
+        "referee_ids": referee_ids,
         "version": 1,
         "p1_name": p1_name,
         "p2_name": p2_name,
@@ -377,9 +552,15 @@ def init_tracker_room_from_tournament(match_id: str, fs_engine, db) -> Dict[str,
     TRACKER_ROOMS[match_id] = room
     try:
         fs_engine.create_room(match_id, {
+            "event_id": event_id,
+            "round_num": round_num,
+            "table_num": table_num,
+            "pairing_id": pairing_id,
+            "organizer_id": organizer_id,
+            "organizer_bcp_id": organizer_bcp_id,
             "user_id_p1": None,
             "user_id_p2": None,
-            "referee_ids": [],
+            "referee_ids": referee_ids,
             "version": 1,
             "p1_name": p1_name,
             "p2_name": p2_name,
@@ -398,7 +579,9 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
     """
     Determines role ('player1', 'player2', 'referee', 'spectator') and slot to claim ('user_id_p1', 'user_id_p2', or None).
     Ensures that for event matches (BCP-*, ES-*, or rooms with event_id), ONLY the assigned table competitors
-    can enter as player1 or player2. All other users (including players from different tables or byes) enter as spectator.
+    can enter as player1 or player2.
+    For referee role, ONLY the specific Tournament Organizer of this tournament (or platform superadmin / assigned referee)
+    can enter as referee. All other users enter as spectator.
     """
     candidate_user = user
     if not candidate_user and payload and (getattr(payload, "player_id", None) or getattr(payload, "player_name", None)):
@@ -428,20 +611,12 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
         bool(payload and getattr(payload, "event_id", None)) or
+        bool(room_dict.get("event_id")) or
+        bool(room_dict.get("eventId")) or
+        bool(room_dict.get("tournament_id")) or
         bool(st.get("event_id")) or
         bool(game.get("eventId"))
     )
-
-    user_role = candidate_user.get("role") if isinstance(candidate_user, dict) else getattr(candidate_user, "role", None) if candidate_user else None
-    is_admin = candidate_user.get("is_admin") if isinstance(candidate_user, dict) else getattr(candidate_user, "is_admin", False) if candidate_user else False
-    can_access_to = candidate_user.get("can_access_to") if isinstance(candidate_user, dict) else getattr(candidate_user, "can_access_to", False) if candidate_user else False
-
-    is_staff = bool(candidate_user and (
-        (u_id and u_id in room_dict.get("referee_ids", [])) or
-        user_role in ("admin", "referee", "to", "organizer") or
-        is_admin or
-        can_access_to
-    ))
 
     claim_role = getattr(payload, "claim_role", None)
     if claim_role == "spectator":
@@ -456,11 +631,28 @@ def determine_existing_room_role(user: Optional[Dict[str, Any]], room_dict: Dict
             return ("player1", None if p1_id == u_id else "user_id_p1")
         if matches_p2:
             return ("player2", None if p2_id == u_id else "user_id_p2")
-        # Allow Tournament Organizers and Admins to enter and update the interactive tracker as referee
-        if is_staff:
+        # Strict staff check: ONLY this specific tournament's TO (or platform admin) enters as referee
+        is_tournament_staff = check_user_is_tournament_staff(
+            candidate_user,
+            room_dict=room_dict,
+            match_id=match_id,
+            event_id=getattr(payload, "event_id", None) if payload else None
+        )
+        if is_tournament_staff:
             return ("referee", None)
         return ("spectator", None)
     else:
+        user_role = candidate_user.get("role") if isinstance(candidate_user, dict) else getattr(candidate_user, "role", None) if candidate_user else None
+        is_admin = candidate_user.get("is_admin") if isinstance(candidate_user, dict) else getattr(candidate_user, "is_admin", False) if candidate_user else False
+        can_access_to = candidate_user.get("can_access_to") if isinstance(candidate_user, dict) else getattr(candidate_user, "can_access_to", False) if candidate_user else False
+
+        is_staff = bool(candidate_user and (
+            (u_id and u_id in room_dict.get("referee_ids", [])) or
+            user_role in ("admin", "referee", "to", "organizer") or
+            is_admin or
+            can_access_to
+        ))
+
         if u_id and p1_id == u_id:
             return ("player1", None)
         if u_id and p2_id == u_id:
@@ -631,11 +823,12 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         bool(payload and payload.event_id)
     )
 
-    is_staff = bool(user and (
-        user.get("role") in ("admin", "referee", "to", "organizer") or
-        user.get("is_admin") or
-        user.get("can_access_to")
-    ))
+    is_tournament_staff = check_user_is_tournament_staff(
+        user,
+        room_dict=None,
+        match_id=match_id,
+        event_id=payload.event_id if payload else None
+    )
 
     is_p1_creator = bool(user and p1_target and check_user_matches_player(user, p1_target, p1_target_id))
     is_p2_creator = bool(user and p2_target and check_user_matches_player(user, p2_target, p2_target_id))
@@ -649,7 +842,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
             user_id_p1 = None
             user_id_p2 = user["id"] if user else None
             created_role = "player2"
-        elif is_staff:
+        elif is_tournament_staff:
             user_id_p1 = None
             user_id_p2 = None
             created_role = "referee"
@@ -757,12 +950,15 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "updated_at": int(datetime.now(timezone.utc).timestamp() * 1000)
     }
 
-    # Seed tournament master clock if available
+    # Seed tournament master clock and organizer metadata if available
     ev_id = (payload.event_id if payload else None)
     if not ev_id and match_id:
-        m_ev = re.match(r'^(?:WH40K-)?(?:BCP|ES)-([A-Za-z0-9_-]+)-R\d+', match_id, re.IGNORECASE)
-        if m_ev and m_ev.group(1):
-            ev_id = m_ev.group(1)
+        ev_id = extract_event_id_from_match_id(match_id)
+
+    org_info = get_tournament_organizers(ev_id) if ev_id else {}
+    organizer_id = org_info.get("organizer_id")
+    organizer_bcp_id = org_info.get("organizer_bcp_id")
+    referee_ids = list(org_info.get("referee_ids") or [])
 
     master_clock = None
     if ev_id:
@@ -777,10 +973,12 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
         "eventId": ev_id,
         "event_id": ev_id,
         "tournament_id": ev_id,
+        "organizer_id": organizer_id,
+        "organizer_bcp_id": organizer_bcp_id,
         "table_num": payload.table_num if payload else None,
         "user_id_p1": user_id_p1,
         "user_id_p2": user_id_p2,
-        "referee_ids": [],
+        "referee_ids": referee_ids,
         "version": 1,
         "state": initial_state,
         "chess_clock": initial_clock,
@@ -796,10 +994,12 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
             "eventId": ev_id,
             "event_id": ev_id,
             "tournament_id": ev_id,
+            "organizer_id": organizer_id,
+            "organizer_bcp_id": organizer_bcp_id,
             "table_num": payload.table_num if payload else None,
             "user_id_p1": user_id_p1,
             "user_id_p2": user_id_p2,
-            "referee_ids": [],
+            "referee_ids": referee_ids,
             "version": 1,
             "p1_name": p1_name,
             "p2_name": p2_name,
@@ -836,15 +1036,23 @@ async def api_tracker_firestore_inspect(match_id: str):
     }
 
 @router.get("/api/tracker/room/{match_id}/check", summary="Check if room exists and check player slots")
-async def api_tracker_check_room(match_id: str, request: Request):
+async def api_tracker_check_room(match_id: str, request: Optional[Request] = None, user: Optional[Dict[str, Any]] = None):
     match_id = normalize_tracker_match_id(match_id)
         
-    db = get_database()
+    db = None
+    try:
+        db = get_database()
+    except Exception:
+        pass
     fs_engine = get_firestore_engine()
-    auth_mgr = get_auth_manager()
-    auth_header = request.headers.get("Authorization", "")
-    session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    if user is None and request:
+        try:
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "")
+            session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+        except Exception:
+            pass
     user_id = user["id"] if user else None
     
     if match_id in TRACKER_ROOMS:
@@ -863,7 +1071,7 @@ async def api_tracker_check_room(match_id: str, request: Request):
             }
             TRACKER_ROOMS[match_id] = room
         else:
-            saved = db.get_tracker_game(match_id)
+            saved = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
             if saved and saved.get("state"):
                 is_fin = bool(saved.get("is_finished") or (isinstance(saved.get("state"), dict) and saved["state"].get("is_finished")))
                 room = {
@@ -884,7 +1092,7 @@ async def api_tracker_check_room(match_id: str, request: Request):
                     except Exception:
                         pass
             else:
-                chat_room = db.find_chat_room_key(match_id)
+                chat_room = db.find_chat_room_key(match_id) if (db and hasattr(db, "find_chat_room_key")) else None
                 if chat_room:
                     room = init_tracker_room_from_chat(match_id, chat_room, fs_engine)
                 elif match_id.startswith("BCP-") or match_id.startswith("ES-"):
@@ -912,42 +1120,55 @@ async def api_tracker_check_room(match_id: str, request: Request):
     )
 
     user_id = user["id"] if user else None
-    user_role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None) if user else None
-    is_admin = user.get("is_admin") if isinstance(user, dict) else getattr(user, "is_admin", False) if user else False
-    can_access_to = user.get("can_access_to") if isinstance(user, dict) else getattr(user, "can_access_to", False) if user else False
-
-    is_staff = bool(user and (
-        (user_id and user_id in room.get("referee_ids", [])) or
-        user_role in ("admin", "referee", "to", "organizer") or
-        is_admin or
-        can_access_to or
-        (user_id and (room.get("organizer_id") == user_id or (isinstance(st, dict) and st.get("organizer_id") == user_id)))
-    ))
 
     if is_tournament:
+        is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
         matches_p1 = bool(user and check_user_matches_player(user, p1_assigned_name, p1_target_id))
         matches_p2 = bool(user and check_user_matches_player(user, p2_assigned_name, p2_target_id))
         is_open_for_p2 = bool(not is_finished and p2_id is None and matches_p2)
-        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_staff) or (not matches_p1 and not matches_p2 and not is_p1 and not is_p2 and not is_staff))
+        is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_tournament_staff) or (not matches_p1 and not matches_p2 and not is_p1 and not is_p2 and not is_tournament_staff))
+        is_spectator = bool(not matches_p1 and not matches_p2 and not is_tournament_staff)
+        assigned_role = "player1" if matches_p1 else ("player2" if matches_p2 else ("referee" if is_tournament_staff else "spectator"))
+        return {
+            "exists": True,
+            "match_id": match_id,
+            "p1_name": p1_assigned_name,
+            "p2_name": p2_assigned_name,
+            "is_full": is_full,
+            "is_open_for_p2": is_open_for_p2,
+            "is_finished": is_finished,
+            "is_spectator": is_spectator,
+            "is_referee": is_tournament_staff,
+            "role": assigned_role,
+            "scorecard_url": f"/scorecard/{match_id}"
+        }
     else:
+        user_role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None) if user else None
+        is_admin = user.get("is_admin") if isinstance(user, dict) else getattr(user, "is_admin", False) if user else False
+        can_access_to = user.get("can_access_to") if isinstance(user, dict) else getattr(user, "can_access_to", False) if user else False
+        is_staff = bool(user and (
+            (user_id and user_id in room.get("referee_ids", [])) or
+            user_role in ("admin", "referee", "to", "organizer") or
+            is_admin or
+            can_access_to
+        ))
         is_open_for_p2 = bool(not is_finished and p2_id is None and not is_p1)
         is_full = bool(is_finished or (p1_id is not None and p2_id is not None and not is_p1 and not is_p2 and not is_staff))
-    
-    is_spectator = bool(is_tournament and not matches_p1 and not matches_p2 and not is_staff)
-    assigned_role = "player1" if matches_p1 else ("player2" if matches_p2 else ("referee" if is_staff else "spectator"))
-    return {
-        "exists": True,
-        "match_id": match_id,
-        "p1_name": p1_assigned_name,
-        "p2_name": p2_assigned_name,
-        "is_full": is_full,
-        "is_open_for_p2": is_open_for_p2,
-        "is_finished": is_finished,
-        "is_spectator": is_spectator,
-        "is_referee": is_staff,
-        "role": assigned_role,
-        "scorecard_url": f"/scorecard/{match_id}"
-    }
+        is_spectator = False
+        assigned_role = "player1" if (is_p1 or not p1_id) else ("player2" if (is_p2 or not p2_id) else ("referee" if is_staff else "spectator"))
+        return {
+            "exists": True,
+            "match_id": match_id,
+            "p1_name": p1_assigned_name,
+            "p2_name": p2_assigned_name,
+            "is_full": is_full,
+            "is_open_for_p2": is_open_for_p2,
+            "is_finished": is_finished,
+            "is_spectator": is_spectator,
+            "is_referee": is_staff,
+            "role": assigned_role,
+            "scorecard_url": f"/scorecard/{match_id}"
+        }
 
 @router.post("/api/tracker/room/{match_id}/join", summary="Join match room and claim Player 2 slot or Spectator")
 async def api_tracker_join_room(match_id: str, request: Request, payload: Optional[TrackerJoinPayload] = None):
@@ -1100,14 +1321,17 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
     }
 
 @router.post("/api/tracker/room/{match_id}/state", summary="Broadcast and persist multiplayer tracker state with role enforcement")
-async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Request):
+async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, request: Optional[Request] = None, user: Optional[Dict[str, Any]] = None):
     match_id = normalize_tracker_match_id(match_id)
     fs_engine = get_firestore_engine()
-    auth_mgr = get_auth_manager()
-    db = get_database()
+    db = None
+    try:
+        db = get_database()
+    except Exception:
+        pass
     
     # Hard Guard: If match is already concluded in PostgreSQL, reject state write and NEVER re-create Firestore room!
-    saved_rec = db.get_tracker_game(match_id)
+    saved_rec = db.get_tracker_game(match_id) if (db and hasattr(db, "get_tracker_game")) else None
     if saved_rec and (saved_rec.get("is_finished") or (isinstance(saved_rec.get("state_json"), dict) and saved_rec["state_json"].get("is_finished"))):
         return {
             "success": False,
@@ -1117,9 +1341,14 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
             "message": "Match has concluded and is locked."
         }
     
-    auth_header = request.headers.get("Authorization", "")
-    session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
-    user = auth_mgr.get_session(session_token) if session_token else None
+    if user is None and request:
+        try:
+            auth_mgr = get_auth_manager()
+            auth_header = request.headers.get("Authorization", "")
+            session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+            user = auth_mgr.get_session(session_token) if session_token else None
+        except Exception:
+            pass
     user_id = user["id"] if user else None
     
     if match_id not in TRACKER_ROOMS:
@@ -1159,18 +1388,22 @@ async def api_tracker_save_state(match_id: str, payload: TrackerStatePayload, re
     
     is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
     is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
-    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
+        bool(room.get("event_id")) or
+        bool(room.get("eventId")) or
+        bool(room.get("tournament_id")) or
         bool(room.get("state", {}).get("event_id")) or
         bool(room.get("state", {}).get("game", {}).get("eventId"))
     )
     
     if is_tournament:
-        if not (is_p1 or is_p2 or is_ref):
+        is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
+        if not (is_p1 or is_p2 or is_tournament_staff):
             raise HTTPException(status_code=403, detail="Permission denied: Only matched competitors or tournament organizers can edit this tournament match.")
     else:
+        is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
         if room.get("user_id_p1") or room.get("user_id_p2"):
             if not (is_p1 or is_p2 or is_ref or payload.role in ("player1", "player2", "referee", "editor")):
                 raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify match state")
@@ -1487,10 +1720,7 @@ async def api_tracker_discard_game(match_id: str, request: Request, payload: Opt
     )
 
     if is_event_room:
-        is_to_or_admin = False
-        if user:
-            role = str(user.get("role") or "").lower()
-            is_to_or_admin = role in ("admin", "superuser", "to", "organizer", "referee") or bool(user.get("is_admin")) or bool(user.get("can_access_to"))
+        is_to_or_admin = check_user_is_tournament_staff(user, room_doc, match_id=match_id)
         if not is_to_or_admin:
             raise HTTPException(
                 status_code=403,
@@ -1560,7 +1790,6 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     user_id = user["id"] if user else None
     is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
     is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
-    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
@@ -1578,9 +1807,11 @@ async def api_tracker_finalize_game(match_id: str, request: Request, payload: Op
     )
 
     if is_tournament:
-        if not (is_p1 or is_p2 or is_ref):
+        is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
+        if not (is_p1 or is_p2 or is_tournament_staff):
             raise HTTPException(status_code=403, detail="Permission denied: Only matched competitors or tournament organizers can finalize this tournament match.")
     else:
+        is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
         if room.get("user_id_p1") or room.get("user_id_p2"):
             if not (is_p1 or is_p2 or is_ref):
                 raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot finalize match")
@@ -1858,15 +2089,23 @@ async def api_tracker_attach_armylist(match_id: str, request: Request):
     room = TRACKER_ROOMS[match_id]
     is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
     is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
-    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
+        bool(room.get("event_id")) or
+        bool(room.get("eventId")) or
+        bool(room.get("tournament_id")) or
         bool(room.get("state", {}).get("event_id")) or
         bool(room.get("state", {}).get("game", {}).get("eventId"))
     )
-    if is_tournament and not (is_p1 or is_p2 or is_ref):
-        raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")
+    if is_tournament:
+        is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
+        if not (is_p1 or is_p2 or is_tournament_staff):
+            raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")
+    else:
+        is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+        if not (is_p1 or is_p2 or is_ref):
+            raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot attach army lists.")
 
     if role == "player1":
         TRACKER_ROOMS[match_id]["p1_army_list"] = army_list
@@ -1956,15 +2195,23 @@ async def api_tracker_update_clock(match_id: str, request: Request):
     room = TRACKER_ROOMS[match_id]
     is_p1 = bool(user_id and room.get("user_id_p1") == user_id)
     is_p2 = bool(user_id and room.get("user_id_p2") == user_id)
-    is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
     is_tournament = (
         match_id.startswith("BCP-") or
         match_id.startswith("ES-") or
+        bool(room.get("event_id")) or
+        bool(room.get("eventId")) or
+        bool(room.get("tournament_id")) or
         bool(room.get("state", {}).get("event_id")) or
         bool(room.get("state", {}).get("game", {}).get("eventId"))
     )
-    if is_tournament and not (is_p1 or is_p2 or is_ref):
-        raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify tournament clock.")
+    if is_tournament:
+        is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
+        if not (is_p1 or is_p2 or is_tournament_staff):
+            raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify tournament clock.")
+    else:
+        is_ref = bool(user and (user_id in room.get("referee_ids", []) or user.get("role") in ("admin", "referee", "to", "organizer") or user.get("is_admin") or user.get("can_access_to")))
+        if not (is_p1 or is_p2 or is_ref):
+            raise HTTPException(status_code=403, detail="Permission denied: Spectators cannot modify tournament clock.")
     clock_data = {
         "visible": bool(body.get("visible", True)),
         "running": bool(body.get("running", False)),

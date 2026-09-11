@@ -136,19 +136,21 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         print("✓ test_scorecard_html_live_badges_and_streaming passed")
 
     def test_to_spectator_role_in_tournament_match(self):
-        """Verify John Hsieh (TO) entering John3 vs John4 room gets spectator role and is not interactive player."""
-        from routers.tracker import determine_existing_room_role
+        """Verify only the specific TO of that tournament gets referee; other TOs get spectator."""
+        from routers.tracker import determine_existing_room_role, check_user_is_tournament_staff
 
         room = {
             "match_id": "BCP-GT2026-R1-T1",
             "is_tournament": True,
             "tournament_id": "GT2026",
+            "organizer_id": "uid_john_to",
             "table_num": 1,
             "p1_uid": "uid_john3",
             "p1_name": "John3 Hsieh3",
             "p2_uid": "uid_john4",
             "p2_name": "John4 Hsieh4",
             "state": {
+                "organizer_id": "uid_john_to",
                 "game": {
                     "p1Name": "John3 Hsieh3",
                     "p2Name": "John4 Hsieh4",
@@ -158,16 +160,25 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
             }
         }
 
-        # 1. John Hsieh (TO) with role 'to' or 'admin'
+        # 1. John Hsieh (the actual TO of this specific tournament)
         to_user = {"id": "uid_john_to", "name": "John Hsieh", "display_name": "John Hsieh", "role": "to"}
         role, slot = determine_existing_room_role(to_user, room, "BCP-GT2026-R1-T1", None)
-        self.assertEqual(role, "referee", f"Expected referee for TO, got {role}")
+        self.assertEqual(role, "referee", f"Expected referee for actual tournament TO, got {role}")
         self.assertIsNone(slot, f"Expected slot None for TO referee, got {slot}")
+        self.assertTrue(check_user_is_tournament_staff(to_user, room))
 
-        # 1b. Admin user
+        # 1b. Another user who is ALSO a TO, but NOT the organizer of this event
+        other_to_user = {"id": "uid_other_to", "name": "Other TO", "display_name": "Other TO", "role": "to", "can_access_to": True}
+        other_role, other_slot = determine_existing_room_role(other_to_user, room, "BCP-GT2026-R1-T1", None)
+        self.assertEqual(other_role, "spectator", f"Expected spectator for other tournament's TO, got {other_role}")
+        self.assertIsNone(other_slot)
+        self.assertFalse(check_user_is_tournament_staff(other_to_user, room))
+
+        # 1c. Platform Admin user (global superuser)
         admin_user = {"id": "uid_admin", "name": "Admin User", "display_name": "Admin", "role": "admin"}
         a_role, a_slot = determine_existing_room_role(admin_user, room, "BCP-GT2026-R1-T1", None)
-        self.assertEqual(a_role, "referee", f"Expected referee for admin, got {a_role}")
+        self.assertEqual(a_role, "referee", f"Expected referee for platform admin, got {a_role}")
+        self.assertTrue(check_user_is_tournament_staff(admin_user, room))
 
         # 2. Competitor John3 (p1)
         p1_user = {"id": "uid_john3", "name": "John3 Hsieh3", "display_name": "John3 Hsieh3", "role": "user"}
@@ -322,6 +333,110 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
         self.assertIn('term_msg = {"type": "match_finalized", "is_finished": True, "event_deleted": True}', es_py)
 
         print("✓ test_event_deletion_purges_firestore_tournaments_events_and_subcollections passed")
+
+    def test_strict_per_tournament_organizer_isolation(self):
+        """Verify strict TO isolation: only the organizer of THAT specific tournament gets referee rights."""
+        import asyncio
+        from routers.tracker import (
+            check_user_is_tournament_staff,
+            api_tracker_check_room,
+            api_tracker_save_state,
+            TrackerStatePayload,
+            TRACKER_ROOMS,
+            TOURNAMENT_ORGANIZER_CACHE
+        )
+        from core import HTTPException
+
+        event_id = "ISO-TEST-EV"
+        match_id = f"BCP-{event_id}-R1-T1"
+
+        TOURNAMENT_ORGANIZER_CACHE[event_id] = {
+            "organizer_id": "to_alice",
+            "organizer_bcp_id": "bcp_alice",
+            "referee_ids": ["ref_charlie"],
+            "cached_at": 9999999999.0
+        }
+
+        room = {
+            "match_id": match_id,
+            "event_id": event_id,
+            "organizer_id": "to_alice",
+            "organizer_bcp_id": "bcp_alice",
+            "referee_ids": ["ref_charlie"],
+            "user_id_p1": "p1_david",
+            "user_id_p2": "p2_emily",
+            "p1_name": "David",
+            "p2_name": "Emily",
+            "version": 1,
+            "state": {
+                "event_id": event_id,
+                "game": {"p1Name": "David", "p2Name": "Emily", "eventId": event_id}
+            }
+        }
+        TRACKER_ROOMS[match_id] = room
+
+        try:
+            alice = {"id": "to_alice", "name": "Alice", "role": "to"}
+            alice_bcp = {"bcp_id": "bcp_alice", "name": "Alice BCP", "role": "to"}
+            charlie = {"id": "ref_charlie", "name": "Charlie", "role": "referee"}
+            bob_other_to = {"id": "to_bob", "name": "Bob", "role": "to", "can_access_to": True}
+            superadmin = {"id": "admin_eve", "name": "Eve", "role": "admin"}
+            competitor_p1 = {"id": "p1_david", "name": "David", "role": "user"}
+            random_spectator = {"id": "user_frank", "name": "Frank", "role": "user"}
+
+            # 1. Verify check_user_is_tournament_staff
+            self.assertTrue(check_user_is_tournament_staff(alice, room, match_id=match_id))
+            self.assertTrue(check_user_is_tournament_staff(alice_bcp, room, match_id=match_id))
+            self.assertTrue(check_user_is_tournament_staff(charlie, room, match_id=match_id))
+            self.assertTrue(check_user_is_tournament_staff(superadmin, room, match_id=match_id))
+            # Bob is a TO for another event, NOT this one -> MUST be False!
+            self.assertFalse(check_user_is_tournament_staff(bob_other_to, room, match_id=match_id))
+            self.assertFalse(check_user_is_tournament_staff(competitor_p1, room, match_id=match_id))
+            self.assertFalse(check_user_is_tournament_staff(random_spectator, room, match_id=match_id))
+
+            # 2. Verify api_tracker_check_room (/check endpoint)
+            check_alice = asyncio.run(api_tracker_check_room(match_id, user=alice))
+            self.assertTrue(check_alice["is_referee"])
+            self.assertFalse(check_alice["is_spectator"])
+            self.assertEqual(check_alice["role"], "referee")
+
+            check_bob = asyncio.run(api_tracker_check_room(match_id, user=bob_other_to))
+            self.assertFalse(check_bob["is_referee"])
+            self.assertTrue(check_bob["is_spectator"])
+            self.assertEqual(check_bob["role"], "spectator")
+
+            # 3. Verify api_tracker_save_state (/save_state endpoint)
+            save_payload = TrackerStatePayload(match_id=match_id, state={"game": {"p1Name": "David", "p2Name": "Emily"}, "p1": {"score": 10}}, version=2)
+
+            # Bob (other TO) is blocked with 403
+            with self.assertRaises(HTTPException) as cm:
+                asyncio.run(api_tracker_save_state(match_id, payload=save_payload, user=bob_other_to))
+            self.assertEqual(cm.exception.status_code, 403)
+            self.assertIn("Permission denied", cm.exception.detail)
+
+            # Alice (actual TO) is authorized to save state
+            save_res = asyncio.run(api_tracker_save_state(match_id, payload=save_payload, user=alice))
+            self.assertTrue(save_res["success"])
+            self.assertEqual(save_res["version"], 2)
+
+        finally:
+            if match_id in TRACKER_ROOMS:
+                del TRACKER_ROOMS[match_id]
+            if event_id in TOURNAMENT_ORGANIZER_CACHE:
+                del TOURNAMENT_ORGANIZER_CACHE[event_id]
+
+        print("✓ test_strict_per_tournament_organizer_isolation passed")
+
+    def test_tournaments_js_strict_to_isolation(self):
+        """Verify web/js/tournaments.js restricts isStaff to eventOrganizerIds or global admins."""
+        js_content = (ROOT_DIR / "web" / "js" / "tournaments.js").read_text(encoding="utf-8")
+        self.assertIn("const eventOrganizerIds = [", js_content)
+        self.assertIn("currentEventData?.organizer_id", js_content)
+        self.assertIn("currentEventData?.organizer_bcp_id", js_content)
+        self.assertIn("const isEventOrganizer = Boolean(u && eventOrganizerIds.length > 0 && (", js_content)
+        self.assertIn("const isStaff = Boolean(isGlobalAdmin || isEventOrganizer);", js_content)
+        self.assertNotIn("userRole === 'to' || Boolean(u.can_access_to)", js_content)
+        print("✓ test_tournaments_js_strict_to_isolation passed")
 
 
 if __name__ == "__main__":

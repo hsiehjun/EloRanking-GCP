@@ -1723,11 +1723,23 @@ function renderEventPairingsRows() {
       recordMatchesUser(p2Record)
     ));
 
-    const isStaff = Boolean(u && (
-      userRole === 'admin' || userRole === 'to' || userRole === 'referee' || userRole === 'organizer' ||
-      Boolean(u.is_admin) || Boolean(u.can_access_to) || (typeof isUserTO === 'function' && isUserTO(u))
+    // Strict Tournament Organizer authorization: ONLY the specific TO of this tournament (or platform superadmin) is staff
+    const isGlobalAdmin = Boolean(u && (
+      Boolean(u.is_admin) || userRole === 'admin' || userRole === 'superuser'
     ));
-    // Paired competitors and Tournament Organizers/Admins/Staff can launch and update the match tracker.
+    const eventOrganizerIds = [
+      currentEventData?.organizer_id,
+      currentEventData?.organizer_bcp_id,
+      currentEventData?.raw_json?.userId,
+      currentEventData?.raw_json?.organizerId,
+      currentEventData?.raw_json?.ownerId,
+      currentEventData?.created_by
+    ].filter(Boolean).map(x => String(x).trim().toLowerCase());
+    const isEventOrganizer = Boolean(u && eventOrganizerIds.length > 0 && (
+      userIds.some(uid => eventOrganizerIds.includes(uid))
+    ));
+    const isStaff = Boolean(isGlobalAdmin || isEventOrganizer);
+    // Paired competitors and the specific Tournament Organizer/Admin can launch and update the match tracker.
     // Non-staff competitors and casual spectators spectate via the live scorecard.
     const canEdit = Boolean(isP1 || isP2 || isStaff);
 
