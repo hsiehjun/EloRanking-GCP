@@ -79,20 +79,20 @@ class PlayerNameSync:
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT DISTINCT player_id FROM player_ratings 
-                    WHERE (player_name ILIKE 'Player %' OR player_name ILIKE 'player' OR player_name = player_id)
+                    WHERE (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id)
                       AND COALESCE(game_system, '40k') = '40k';
-                    """)
+                    """, ('Player %',))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT DISTINCT player_id FROM player_ratings 
-                    WHERE (player_name ILIKE 'Player %' OR player_name ILIKE 'player' OR player_name = player_id)
+                    WHERE (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id)
                       AND COALESCE(game_system, '40k') = 'aos';
-                    """)
+                    """, ('Player %',))
                 else:
                     cur.execute("""
                     SELECT DISTINCT player_id FROM player_ratings 
-                    WHERE player_name ILIKE 'Player %' OR player_name ILIKE 'player' OR player_name = player_id;
-                    """)
+                    WHERE player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id;
+                    """, ('Player %',))
                 for r in cur.fetchall():
                     pid = str(r[0] or "").strip()
                     if pid and pid.lower() not in PLACEHOLDER_NAMES:
@@ -101,8 +101,8 @@ class PlayerNameSync:
                 # 2. From players table
                 cur.execute("""
                 SELECT DISTINCT id FROM players 
-                WHERE full_name ILIKE 'Player %' OR full_name ILIKE 'player' OR full_name IS NULL OR TRIM(full_name) = '';
-                """)
+                WHERE full_name ILIKE %s OR full_name ILIKE 'player' OR full_name IS NULL OR TRIM(full_name) = '';
+                """, ('Player %',))
                 for r in cur.fetchall():
                     pid = str(r[0] or "").strip()
                     if pid and pid.lower() not in PLACEHOLDER_NAMES:
@@ -110,7 +110,6 @@ class PlayerNameSync:
 
                 # 3. From matches table (player1 and player2)
                 sys_clause = ""
-                params = ()
                 if target_sys in ("40k", "wh40k"):
                     sys_clause = "AND COALESCE(game_system, '40k') = '40k'"
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
@@ -118,8 +117,8 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT DISTINCT player1_id FROM matches 
-                WHERE (player1_name ILIKE 'Player %' OR player1_name ILIKE 'player') {sys_clause};
-                """, params)
+                WHERE (player1_name ILIKE %s OR player1_name ILIKE 'player') {sys_clause};
+                """, ('Player %',))
                 for r in cur.fetchall():
                     pid = str(r[0] or "").strip()
                     if pid and pid.lower() not in PLACEHOLDER_NAMES:
@@ -127,8 +126,8 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT DISTINCT player2_id FROM matches 
-                WHERE (player2_name ILIKE 'Player %' OR player2_name ILIKE 'player') {sys_clause};
-                """, params)
+                WHERE (player2_name ILIKE %s OR player2_name ILIKE 'player') {sys_clause};
+                """, ('Player %',))
                 for r in cur.fetchall():
                     pid = str(r[0] or "").strip()
                     if pid and pid.lower() not in PLACEHOLDER_NAMES:
@@ -157,8 +156,8 @@ class PlayerNameSync:
                     FROM players
                     WHERE id = ANY(%s)
                       AND full_name IS NOT NULL
-                      AND NOT (full_name ILIKE 'Player %' OR full_name ILIKE 'player' OR full_name ILIKE 'BYE');
-                    """, (chunk,))
+                      AND NOT (full_name ILIKE %s OR full_name ILIKE 'player' OR full_name ILIKE 'BYE');
+                    """, (chunk, 'Player %'))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         fn, ln, full = r[1] or "", r[2] or "", clean_name(r[3])
@@ -176,9 +175,9 @@ class PlayerNameSync:
                     FROM event_participants
                     WHERE player_id = ANY(%s)
                       AND full_name IS NOT NULL
-                      AND NOT (full_name ILIKE 'Player %' OR full_name ILIKE 'player' OR full_name ILIKE 'BYE')
+                      AND NOT (full_name ILIKE %s OR full_name ILIKE 'player' OR full_name ILIKE 'BYE')
                     ORDER BY player_id;
-                    """, (chunk,))
+                    """, (chunk, 'Player %'))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
@@ -197,9 +196,9 @@ class PlayerNameSync:
                     FROM matches
                     WHERE player1_id = ANY(%s)
                       AND player1_name IS NOT NULL
-                      AND NOT (player1_name ILIKE 'Player %' OR player1_name ILIKE 'player' OR player1_name ILIKE 'BYE')
+                      AND NOT (player1_name ILIKE %s OR player1_name ILIKE 'player' OR player1_name ILIKE 'BYE')
                     ORDER BY player1_id, match_date DESC NULLS LAST;
-                    """, (chunk,))
+                    """, (chunk, 'Player %'))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
@@ -217,9 +216,9 @@ class PlayerNameSync:
                     FROM matches
                     WHERE player2_id = ANY(%s)
                       AND player2_name IS NOT NULL
-                      AND NOT (player2_name ILIKE 'Player %' OR player2_name ILIKE 'player' OR player2_name ILIKE 'BYE')
+                      AND NOT (player2_name ILIKE %s OR player2_name ILIKE 'player' OR player2_name ILIKE 'BYE')
                     ORDER BY player2_id, match_date DESC NULLS LAST;
-                    """, (chunk,))
+                    """, (chunk, 'Player %'))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
@@ -332,8 +331,8 @@ class PlayerNameSync:
                     UPDATE player_ratings
                     SET player_name = %s, updated_at = NOW()
                     WHERE player_id = %s
-                      AND (player_name ILIKE 'Player %' OR player_name ILIKE 'player' OR player_name = player_id);
-                    """, (full, pid))
+                      AND (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id);
+                    """, (full, pid, 'Player %'))
                     counts["player_ratings"] += cur.rowcount
 
                     # 3. Update matches table (both player1 and player2)
@@ -341,16 +340,16 @@ class PlayerNameSync:
                     UPDATE matches
                     SET player1_name = %s
                     WHERE player1_id = %s
-                      AND (player1_name ILIKE 'Player %' OR player1_name ILIKE 'player');
-                    """, (full, pid))
+                      AND (player1_name ILIKE %s OR player1_name ILIKE 'player');
+                    """, (full, pid, 'Player %'))
                     counts["matches_p1"] += cur.rowcount
 
                     cur.execute("""
                     UPDATE matches
                     SET player2_name = %s
                     WHERE player2_id = %s
-                      AND (player2_name ILIKE 'Player %' OR player2_name ILIKE 'player');
-                    """, (full, pid))
+                      AND (player2_name ILIKE %s OR player2_name ILIKE 'player');
+                    """, (full, pid, 'Player %'))
                     counts["matches_p2"] += cur.rowcount
 
                     # 4. Update rating_history (opponent_name for historical match timeline)
@@ -358,8 +357,8 @@ class PlayerNameSync:
                     UPDATE rating_history
                     SET opponent_name = %s
                     WHERE opponent_id = %s
-                      AND (opponent_name ILIKE 'Player %' OR opponent_name ILIKE 'player');
-                    """, (full, pid))
+                      AND (opponent_name ILIKE %s OR opponent_name ILIKE 'player');
+                    """, (full, pid, 'Player %'))
                     counts["history"] += cur.rowcount
 
                     # 5. Update event_participants table
@@ -369,21 +368,21 @@ class PlayerNameSync:
                         first_name = COALESCE(NULLIF(%s, ''), first_name),
                         last_name = COALESCE(NULLIF(%s, ''), last_name)
                     WHERE player_id = %s
-                      AND (full_name ILIKE 'Player %' OR full_name ILIKE 'player' OR full_name IS NULL OR full_name = '');
-                    """, (full, first, last, pid))
+                      AND (full_name ILIKE %s OR full_name ILIKE 'player' OR full_name IS NULL OR full_name = '');
+                    """, (full, first, last, pid, 'Player %'))
                     counts["participants"] += cur.rowcount
 
                     # 6. Update tracker_games (optional)
                     cur.execute("""
                     UPDATE tracker_games
                     SET p1_name = %s
-                    WHERE user_id_p1 = %s AND (p1_name ILIKE 'Player %' OR p1_name ILIKE 'player');
-                    """, (full, pid))
+                    WHERE user_id_p1 = %s AND (p1_name ILIKE %s OR p1_name ILIKE 'player');
+                    """, (full, pid, 'Player %'))
                     cur.execute("""
                     UPDATE tracker_games
                     SET p2_name = %s
-                    WHERE user_id_p2 = %s AND (p2_name ILIKE 'Player %' OR p2_name ILIKE 'player');
-                    """, (full, pid))
+                    WHERE user_id_p2 = %s AND (p2_name ILIKE %s OR p2_name ILIKE 'player');
+                    """, (full, pid, 'Player %'))
                     counts["tracker_games"] += cur.rowcount
 
             conn.commit()

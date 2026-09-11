@@ -251,16 +251,18 @@ def test_main_cli_multigame_support():
 
 
 def test_cloudbuild_deployment_pipeline():
-    """Verify cloudbuild.yaml has update steps for all 3 Cloud Run jobs: elo-tournament-sync-job, wahapedia-sync-job, and elo-historical-scrape."""
+    """Verify cloudbuild.yaml has update steps for all Cloud Run jobs: elo-tournament-sync-job, wahapedia-sync-job, elo-historical-scrape, and player-sync-job."""
     with open(ROOT_DIR / "cloudbuild.yaml", "r", encoding="utf-8") as f:
         cb_src = f.read()
 
     assert "elo-tournament-sync-job" in cb_src
     assert "wahapedia-sync-job" in cb_src
     assert "elo-historical-scrape" in cb_src
+    assert "player-sync-job" in cb_src
     assert "id: 'update-tournament-job'" in cb_src
     assert "id: 'update-wahapedia-job'" in cb_src
     assert "id: 'update-historical-scrape-job'" in cb_src
+    assert "id: 'update-player-sync-job'" in cb_src
 
     print("✅ test_cloudbuild_deployment_pipeline passed")
 

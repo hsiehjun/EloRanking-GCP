@@ -73,6 +73,20 @@ steps:
       - '--region'
       - 'us-central1'
 
+  # 7. Update Cloud Run Job: player-sync-job
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'update-player-sync-job'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'jobs'
+      - 'update'
+      - 'player-sync-job'
+      - '--image'
+      - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
+      - '--region'
+      - 'us-central1'
+
 images:
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:$COMMIT_SHA'
   - 'us-central1-docker.pkg.dev/eloranking-506820/elo-ranking/elo-ranking:latest'

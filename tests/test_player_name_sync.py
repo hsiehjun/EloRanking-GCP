@@ -189,6 +189,72 @@ def test_apply_name_updates_across_tables():
     print("✅ test_apply_name_updates_across_tables passed")
 
 
+def test_find_placeholder_player_ids_and_parameter_safety():
+    """Verify find_placeholder_player_ids queries are completely safe from psycopg2 formatting errors."""
+    import re
+    executed_queries = []
+
+    class StrictMockCursor:
+        def __init__(self):
+            self.rowcount = 1
+
+        def execute(self, sql, params=None):
+            executed_queries.append((sql, params))
+            if params is not None:
+                # Simulate strict psycopg2 % parsing
+                cleaned = sql.replace("%%", "")
+                placeholders = re.findall(r"%s", cleaned)
+                cleaned = re.sub(r"%s", "", cleaned)
+                remaining_pct = re.findall(r"%", cleaned)
+                if remaining_pct:
+                    raise IndexError(f"Found unescaped % in SQL query with params: {cleaned}")
+                if len(placeholders) != len(params):
+                    raise IndexError(f"Placeholder count {len(placeholders)} != param count {len(params)}")
+
+        def fetchall(self):
+            return [("player_123", "Sigmar", "Hero", "Sigmar Hero")]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = StrictMockCursor()
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+
+    syncer = PlayerNameSync(db=mock_db)
+
+    # Test for each game system (40k, aos, all)
+    for gs in ["40k", "aos", "all"]:
+        pids = syncer.find_placeholder_player_ids(game_system=gs)
+        assert len(pids) > 0
+
+    # Test resolve_from_local_db
+    syncer.resolve_from_local_db({"player_123", "player_456"})
+
+    # Test apply_name_updates
+    with patch("database.PostgresDatabase.invalidate_all_caches"):
+        syncer.apply_name_updates({
+            "player_123": {"full_name": "Sigmar Hero", "first_name": "Sigmar", "last_name": "Hero"}
+        })
+
+    print(f"✅ test_find_placeholder_player_ids_and_parameter_safety passed ({len(executed_queries)} queries validated)")
+
+
+def test_cloudbuild_includes_player_sync_job():
+    """Verify cloudbuild.yaml has update step for player-sync-job."""
+    cb_path = root_dir / "cloudbuild.yaml"
+    with open(cb_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    assert "player-sync-job" in content
+    assert "id: 'update-player-sync-job'" in content
+    print("✅ test_cloudbuild_includes_player_sync_job passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -197,4 +263,6 @@ if __name__ == "__main__":
     test_bcp_api_user_lookup()
     test_bcp_api_player_fallback()
     test_apply_name_updates_across_tables()
+    test_find_placeholder_player_ids_and_parameter_safety()
+    test_cloudbuild_includes_player_sync_job()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")
