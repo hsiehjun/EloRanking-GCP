@@ -270,6 +270,18 @@ def cmd_wahapedia(args):
     print("Wahapedia Sync Result:", res)
 
 
+def cmd_player_sync(args):
+    """Executes the BCP player name sync and data repair job."""
+    from player_sync import sync_player_names_job
+    res = sync_player_names_job(
+        game_system=args.game_system,
+        max_bcp_calls=getattr(args, "max_calls", None),
+        dry_run=getattr(args, "dry_run", False)
+    )
+    print("Player Name Sync Result:", json.dumps(res, indent=2))
+
+
+
 def cmd_stats(args):
     """Displays overall database statistics."""
     db = Database()
@@ -386,6 +398,12 @@ def main():
     p_waha.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
     p_waha.add_argument("--force", action="store_true", help="Force re-sync even if remote timestamps match")
 
+    # Player name sync command
+    p_psync = subparsers.add_parser("sync-players", aliases=["player-sync"], help="Sync and repair placeholder player names ('Player 1', 'Player 2') from BCP")
+    p_psync.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to check (default: all)")
+    p_psync.add_argument("--max-calls", type=int, default=None, help="Maximum BCP API calls to perform")
+    p_psync.add_argument("--dry-run", action="store_true", help="Scan and resolve names without writing to database")
+
     # Stats command
     p_stats = subparsers.add_parser("stats", help="View database statistics")
     p_stats.add_argument("--game-system", choices=["40k", "aos"], default="40k", help="Game system stats (default: 40k)")
@@ -420,6 +438,8 @@ def main():
         cmd_sync(args)
     elif args.command == "wahapedia":
         cmd_wahapedia(args)
+    elif args.command in ("sync-players", "player-sync"):
+        cmd_player_sync(args)
     elif args.command == "stats":
         cmd_stats(args)
     elif args.command == "export":
