@@ -3649,21 +3649,71 @@ async function deleteStudioTournament(eventId) {
   const db = getStudioFirestoreDb();
   if (db && eventId) {
     try {
-      db.collection('tournaments').doc(eventId).delete().catch(() => {});
-      const cleanEid = eventId.replace(/^bcp_/i, '').replace(/^es-/i, '').trim().toUpperCase();
-      const ev = studioState.activeTournament;
-      if (ev && (ev.id === eventId || cleanEid)) {
-        const totalRounds = ev.num_rounds || ev.rounds || 5;
-        for (let r = 1; r <= totalRounds; r++) {
-          const roundPairings = (ev.pairings || {})[String(r)] || [];
-          roundPairings.forEach(match => {
-            const table = match.table || 1;
-            db.collection('rooms').doc(`BCP-${eventId}-R${r}-T${table}`.toUpperCase()).delete().catch(() => {});
-            db.collection('rooms').doc(`ES-${eventId}-R${r}-T${table}`.toUpperCase()).delete().catch(() => {});
-            if (cleanEid) {
-              db.collection('rooms').doc(`BCP-${cleanEid}-R${r}-T${table}`).delete().catch(() => {});
-              db.collection('rooms').doc(`ES-${cleanEid}-R${r}-T${table}`).delete().catch(() => {});
+      const raw = String(eventId || '').trim();
+      const cleanEid = raw.replace(/^bcp_/i, '').replace(/^es-/i, '').replace(/^event\//i, '').trim();
+      const idVariants = Array.from(new Set([
+        raw,
+        raw.toUpperCase(),
+        raw.toLowerCase(),
+        cleanEid,
+        cleanEid.toUpperCase(),
+        cleanEid.toLowerCase(),
+        `ES-${cleanEid.toUpperCase()}`,
+        `es-${cleanEid.toLowerCase()}`,
+        `BCP-${cleanEid.toUpperCase()}`,
+        `bcp_${cleanEid}`,
+        `BCP_${cleanEid}`
+      ])).filter(Boolean);
+
+      // 1. Purge tournaments and legacy events documents and all their subcollections (e.g. judge_calls)
+      ['tournaments', 'events'].forEach(colName => {
+        idVariants.forEach(docId => {
+          const docRef = db.collection(colName).doc(docId);
+          ['judge_calls', 'pairings', 'rounds', 'messages', 'flags', 'players', 'participants'].forEach(subCol => {
+            docRef.collection(subCol).get().then(snap => {
+              if (snap && snap.forEach) {
+                snap.forEach(subDoc => subDoc.ref.delete().catch(() => {}));
+              }
+            }).catch(() => {});
+          });
+          docRef.delete().catch(() => {});
+        });
+      });
+
+      // 2. Query and delete all room documents referencing this event
+      ['eventId', 'event_id', 'tournament_id'].forEach(field => {
+        idVariants.forEach(varId => {
+          db.collection('rooms').where(field, '==', varId).get().then(snap => {
+            if (snap && snap.forEach) {
+              snap.forEach(roomDoc => {
+                ['messages', 'dice_history'].forEach(sc => {
+                  roomDoc.ref.collection(sc).get().then(subSnap => {
+                    if (subSnap && subSnap.forEach) subSnap.forEach(sd => sd.ref.delete().catch(() => {}));
+                  }).catch(() => {});
+                });
+                roomDoc.ref.delete().catch(() => {});
+              });
             }
+          }).catch(() => {});
+        });
+      });
+
+      // 3. Delete deterministic table room IDs across rounds and tables
+      const ev = (studioState.activeTournament && (
+        studioState.activeTournament.id === eventId || 
+        studioState.activeTournament.id === cleanEid ||
+        String(studioState.activeTournament.id || '').toLowerCase() === raw.toLowerCase()
+      )) ? studioState.activeTournament : null;
+      const totalRounds = ev ? (ev.num_rounds || ev.rounds || 5) : 6;
+      const maxTables = 32;
+      for (let r = 1; r <= totalRounds; r++) {
+        for (let t = 1; t <= maxTables; t++) {
+          idVariants.forEach(v => {
+            db.collection('rooms').doc(`BCP-${v}-R${r}-T${t}`.toUpperCase()).delete().catch(() => {});
+            db.collection('rooms').doc(`ES-${v}-R${r}-T${t}`.toUpperCase()).delete().catch(() => {});
+            db.collection('rooms').doc(`WH40K-BCP-${v}-R${r}-T${t}`.toUpperCase()).delete().catch(() => {});
+            db.collection('rooms').doc(`WH40K-ES-${v}-R${r}-T${t}`.toUpperCase()).delete().catch(() => {});
+            db.collection('rooms').doc(`${v}-R${r}-T${t}`.toUpperCase()).delete().catch(() => {});
           });
         }
       }

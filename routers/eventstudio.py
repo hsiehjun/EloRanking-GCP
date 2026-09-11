@@ -1507,17 +1507,56 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
     db.delete_studio_event(event_id, organizer_id=user_id)
 
     # 1. Cascade delete all corresponding table game rooms and tournament records in Firestore
+    canonical_eid = _resolve_canonical_event_id(event_id, user=user, explicit_token=bcp_token)
+    target_eids = {event_id}
+    if canonical_eid:
+        target_eids.add(canonical_eid)
+
     fs_engine = get_firestore_engine()
-    cascaded = fs_engine.delete_tournament_and_rooms(event_id)
+    total_rooms_deleted = 0
+    for eid in target_eids:
+        res = fs_engine.delete_tournament_and_rooms(eid)
+        total_rooms_deleted += res.get("rooms_deleted", 0)
 
     # 2. Clean up in-memory TRACKER_ROOMS and broadcast termination to connected table clients
-    clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
-    match_prefixes = (
-        f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
-        f"BCP-{clean_id}-", f"ES-{clean_id}-", f"WH40K-BCP-{clean_id}-", f"WH40K-ES-{clean_id}-",
-        f"{event_id}-R", f"{clean_id}-R",
+    clean_id = (
+        event_id.replace("bcp_", "")
+        .replace("BCP_", "")
+        .replace("ES-", "")
+        .replace("es-", "")
+        .replace("event/", "")
+        .strip()
     )
-    match_exacts = (f"BCP-{event_id}", f"ES-{event_id}", f"BCP-{clean_id}", f"ES-{clean_id}")
+    id_variants = {
+        event_id,
+        event_id.upper(),
+        event_id.lower(),
+        clean_id,
+        clean_id.upper(),
+        clean_id.lower(),
+        f"ES-{clean_id.upper()}",
+        f"es-{clean_id.lower()}",
+        f"BCP-{clean_id.upper()}",
+        f"bcp_{clean_id}",
+        f"BCP_{clean_id}",
+    }
+    if canonical_eid:
+        id_variants.update({canonical_eid, canonical_eid.upper(), canonical_eid.lower()})
+    id_variants.discard("")
+
+    match_prefixes = tuple(
+        [f"BCP-{v}-" for v in id_variants] +
+        [f"ES-{v}-" for v in id_variants] +
+        [f"WH40K-BCP-{v}-" for v in id_variants] +
+        [f"WH40K-ES-{v}-" for v in id_variants] +
+        [f"{v}-R" for v in id_variants] +
+        [f"MATCH-{v}-" for v in id_variants]
+    )
+    match_exacts = tuple(
+        [f"BCP-{v}" for v in id_variants] +
+        [f"ES-{v}" for v in id_variants] +
+        list(id_variants)
+    )
 
     try:
         from routers.tracker import TRACKER_LISTENERS
@@ -1526,13 +1565,18 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
 
     for mid in list(TRACKER_ROOMS.keys()):
         mid_u = str(mid).upper()
-        if (
+        room_data = TRACKER_ROOMS.get(mid) or {}
+        r_eid = str(room_data.get("eventId") or "").strip()
+        r_eid2 = str(room_data.get("event_id") or "").strip()
+        r_tid = str(room_data.get("tournament_id") or "").strip()
+        r_game_eid = str((room_data.get("state") or {}).get("game", {}).get("eventId") or "").strip()
+
+        matched = (
             any(mid_u.startswith(p.upper()) for p in match_prefixes) or
             any(mid_u == x.upper() for x in match_exacts) or
-            TRACKER_ROOMS[mid].get("eventId") in (event_id, clean_id) or
-            TRACKER_ROOMS[mid].get("event_id") in (event_id, clean_id) or
-            TRACKER_ROOMS[mid].get("tournament_id") in (event_id, clean_id)
-        ):
+            any(x in id_variants for x in (r_eid, r_eid2, r_tid, r_game_eid) if x)
+        )
+        if matched:
             # Notify any active listeners that the room has been closed / deleted
             listeners = TRACKER_LISTENERS.get(mid, [])
             term_msg = {"type": "match_finalized", "is_finished": True, "event_deleted": True}
@@ -1557,7 +1601,7 @@ async def api_eventstudio_delete_event(event_id: str, request: Request):
     return {
         "success": True,
         "event_id": event_id,
-        "rooms_deleted": cascaded.get("rooms_deleted", 0),
+        "rooms_deleted": total_rooms_deleted,
         "bcp_deleted": bcp_deleted,
         "message": "Tournament and corresponding table rooms deleted successfully."
     }

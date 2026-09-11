@@ -251,7 +251,72 @@ class TestSpectatorScorecardRouting(unittest.TestCase):
 
         print("✓ test_unified_firestore_collections_no_events_collection passed")
 
-        print("✓ test_unified_firestore_collections_no_events_collection passed")
+    def test_event_deletion_purges_firestore_tournaments_events_and_subcollections(self):
+        """Verify delete_tournament_and_rooms and delete_tournament_document purge Firestore tournaments, events, and room records."""
+        from firestore_db import get_firestore_engine
+        from unittest.mock import MagicMock
+
+        fs = get_firestore_engine()
+
+        # 1. Verify in-memory fallback purging for tournaments, judge calls, and rooms
+        test_eid = "ES-test-del-123"
+        clean_id = "test-del-123"
+        upper_eid = test_eid.upper()
+
+        fs._fallback_tournaments[test_eid] = {"id": test_eid, "name": "Deletion Test"}
+        fs._fallback_tournaments[clean_id] = {"id": clean_id, "name": "Deletion Test Clean"}
+        fs._fallback_judge_calls[test_eid] = [{"call_id": "call1"}]
+        fs._fallback_judge_calls[upper_eid] = [{"call_id": "call2"}]
+
+        test_room_1 = f"ES-{clean_id.upper()}-R1-T1"
+        test_room_2 = "CUSTOM_ROOM_MATCH"
+        fs._fallback_rooms[test_room_1] = {"eventId": test_eid, "match_id": test_room_1}
+        fs._fallback_rooms[test_room_2] = {"state": {"game": {"eventId": clean_id}}, "match_id": test_room_2}
+
+        result = fs.delete_tournament_and_rooms(test_eid)
+        self.assertTrue(result.get("tournament_deleted"))
+        self.assertEqual(result.get("event_id"), test_eid)
+        self.assertNotIn(test_eid, fs._fallback_tournaments)
+        self.assertNotIn(clean_id, fs._fallback_tournaments)
+        self.assertNotIn(test_eid, fs._fallback_judge_calls)
+        self.assertNotIn(upper_eid, fs._fallback_judge_calls)
+        self.assertNotIn(test_room_1, fs._fallback_rooms)
+        self.assertNotIn(test_room_2, fs._fallback_rooms)
+
+        # 2. Verify mock client interactions delete from both 'tournaments' and 'events' collections and subcollections
+        mock_client = MagicMock()
+        mock_collections = {}
+
+        def get_mock_col(col_name):
+            if col_name not in mock_collections:
+                mock_col = MagicMock()
+                mock_collections[col_name] = mock_col
+            return mock_collections[col_name]
+
+        mock_client.collection.side_effect = get_mock_col
+
+        old_client = fs._client
+        fs._client = mock_client
+        try:
+            fs.delete_tournament_document("bcp_abc999")
+            called_collections = [call[0][0] for call in mock_client.collection.call_args_list]
+            self.assertIn("tournaments", called_collections)
+            self.assertIn("events", called_collections)
+        finally:
+            fs._client = old_client
+
+        # 3. Verify eventstudio.js has client-side cleanup across tournaments and events
+        es_js = (ROOT_DIR / "web" / "js" / "eventstudio.js").read_text(encoding="utf-8")
+        self.assertIn("['tournaments', 'events'].forEach(colName =>", es_js)
+        self.assertIn("['judge_calls', 'pairings', 'rounds', 'messages', 'flags', 'players', 'participants']", es_js)
+        self.assertIn("['eventId', 'event_id', 'tournament_id'].forEach(field =>", es_js)
+
+        # 4. Verify routers/eventstudio.py calls delete_tournament_and_rooms on canonical and raw eids
+        es_py = (ROOT_DIR / "routers" / "eventstudio.py").read_text(encoding="utf-8")
+        self.assertIn("res = fs_engine.delete_tournament_and_rooms(eid)", es_py)
+        self.assertIn('term_msg = {"type": "match_finalized", "is_finished": True, "event_deleted": True}', es_py)
+
+        print("✓ test_event_deletion_purges_firestore_tournaments_events_and_subcollections passed")
 
 
 if __name__ == "__main__":

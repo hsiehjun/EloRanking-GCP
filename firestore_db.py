@@ -818,41 +818,102 @@ class FirestoreRoomEngine:
         if not event_id:
             return 0
         event_id = str(event_id).strip()
-        clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+        clean_id = (
+            event_id.replace("bcp_", "")
+            .replace("BCP_", "")
+            .replace("ES-", "")
+            .replace("es-", "")
+            .replace("event/", "")
+            .strip()
+        )
         deleted_count = 0
         seen_mids = set()
 
-        prefixes = (
-            f"BCP-{event_id}-", f"ES-{event_id}-", f"WH40K-BCP-{event_id}-", f"WH40K-ES-{event_id}-",
-            f"BCP-{clean_id}-", f"ES-{clean_id}-", f"WH40K-BCP-{clean_id}-", f"WH40K-ES-{clean_id}-",
-            f"{event_id}-R", f"{clean_id}-R",
-        )
-        exacts = (f"BCP-{event_id}", f"ES-{event_id}", f"BCP-{clean_id}", f"ES-{clean_id}")
+        id_variants = {
+            event_id,
+            event_id.upper(),
+            event_id.lower(),
+            clean_id,
+            clean_id.upper(),
+            clean_id.lower(),
+            f"ES-{clean_id.upper()}",
+            f"es-{clean_id.lower()}",
+            f"BCP-{clean_id.upper()}",
+            f"bcp_{clean_id}",
+            f"BCP_{clean_id}",
+            f"event/{clean_id}",
+            f"event/{clean_id.lower()}",
+        }
+        id_variants.discard("")
+
+        prefixes = []
+        exacts = []
+        for v in id_variants:
+            prefixes.extend([
+                f"BCP-{v}-", f"ES-{v}-", f"WH40K-BCP-{v}-", f"WH40K-ES-{v}-",
+                f"{v}-R", f"MATCH-{v}-"
+            ])
+            exacts.extend([f"BCP-{v}", f"ES-{v}"])
 
         if self._client:
             try:
                 col = self._client.collection("rooms")
                 for field in ("eventId", "event_id", "tournament_id"):
-                    for val in (event_id, clean_id):
-                        if not val:
-                            continue
+                    for val in id_variants:
                         try:
                             for doc in col.where(field, "==", val).stream():
                                 mid = doc.id
                                 if mid not in seen_mids:
                                     seen_mids.add(mid)
+                                    # Delete any subcollections of the room doc
+                                    for sub in ("messages", "dice_history"):
+                                        try:
+                                            for s_doc in doc.reference.collection(sub).stream():
+                                                s_doc.reference.delete()
+                                        except Exception:
+                                            pass
                                     doc.reference.delete()
                                     deleted_count += 1
                         except Exception:
                             pass
 
+                id_variants_lower = {v.lower() for v in id_variants}
                 for doc in col.stream():
                     mid = doc.id
                     if mid in seen_mids:
                         continue
                     mid_upper = mid.upper()
-                    if any(mid_upper.startswith(p.upper()) for p in prefixes) or any(mid_upper == x.upper() for x in exacts):
+                    is_match = any(mid_upper.startswith(p.upper()) for p in prefixes) or any(mid_upper == x.upper() for x in exacts)
+
+                    if not is_match:
+                        try:
+                            data = doc.to_dict() or {}
+                            st = data.get("state") if isinstance(data.get("state"), dict) else {}
+                            game = st.get("game") if isinstance(st.get("game"), dict) else {}
+                            doc_eids = {
+                                str(data.get("eventId") or "").strip().lower(),
+                                str(data.get("event_id") or "").strip().lower(),
+                                str(data.get("tournament_id") or "").strip().lower(),
+                                str(st.get("event_id") or "").strip().lower(),
+                                str(st.get("tournament_id") or "").strip().lower(),
+                                str(game.get("eventId") or "").strip().lower(),
+                                str(game.get("event_id") or "").strip().lower(),
+                                str(game.get("tournament_id") or "").strip().lower(),
+                            }
+                            doc_eids.discard("")
+                            if doc_eids.intersection(id_variants_lower):
+                                is_match = True
+                        except Exception:
+                            pass
+
+                    if is_match:
                         seen_mids.add(mid)
+                        for sub in ("messages", "dice_history"):
+                            try:
+                                for s_doc in doc.reference.collection(sub).stream():
+                                    s_doc.reference.delete()
+                            except Exception:
+                                pass
                         doc.reference.delete()
                         deleted_count += 1
             except Exception as e:
@@ -860,21 +921,31 @@ class FirestoreRoomEngine:
 
         # Clean fallback in-memory rooms
         fallback_to_delete = []
+        id_variants_lower = {v.lower() for v in id_variants}
         for mid, rdata in list(self._fallback_rooms.items()):
             mid_upper = str(mid).upper()
-            if (
+            is_match = (
                 mid in seen_mids or
                 any(mid_upper.startswith(p.upper()) for p in prefixes) or
-                any(mid_upper == x.upper() for x in exacts) or
-                rdata.get("eventId") in (event_id, clean_id) or
-                rdata.get("event_id") in (event_id, clean_id) or
-                rdata.get("tournament_id") in (event_id, clean_id) or
-                (isinstance(rdata.get("state"), dict) and (
-                    rdata["state"].get("event_id") in (event_id, clean_id) or
-                    rdata["state"].get("tournament_id") in (event_id, clean_id) or
-                    (isinstance(rdata["state"].get("game"), dict) and rdata["state"]["game"].get("eventId") in (event_id, clean_id))
-                ))
-            ):
+                any(mid_upper == x.upper() for x in exacts)
+            )
+            if not is_match and isinstance(rdata, dict):
+                st = rdata.get("state") if isinstance(rdata.get("state"), dict) else {}
+                game = st.get("game") if isinstance(st.get("game"), dict) else {}
+                doc_eids = {
+                    str(rdata.get("eventId") or "").strip().lower(),
+                    str(rdata.get("event_id") or "").strip().lower(),
+                    str(rdata.get("tournament_id") or "").strip().lower(),
+                    str(st.get("event_id") or "").strip().lower(),
+                    str(st.get("tournament_id") or "").strip().lower(),
+                    str(game.get("eventId") or "").strip().lower(),
+                    str(game.get("event_id") or "").strip().lower(),
+                    str(game.get("tournament_id") or "").strip().lower(),
+                }
+                doc_eids.discard("")
+                if doc_eids.intersection(id_variants_lower):
+                    is_match = True
+            if is_match:
                 fallback_to_delete.append(mid)
 
         for mid in fallback_to_delete:
@@ -884,37 +955,67 @@ class FirestoreRoomEngine:
         return deleted_count
 
     def delete_tournament_document(self, event_id: str) -> bool:
-        """Deletes tournaments/{event_id} and all its judge_calls from Firestore."""
+        """Deletes tournaments/{event_id} and events/{event_id} and all subcollections from Firestore."""
         if not event_id:
             return False
         event_id = str(event_id).strip()
-        clean_id = event_id.replace("bcp_", "").replace("ES-", "").replace("es-", "").strip()
+        clean_id = (
+            event_id.replace("bcp_", "")
+            .replace("BCP_", "")
+            .replace("ES-", "")
+            .replace("es-", "")
+            .replace("event/", "")
+            .strip()
+        )
+
+        id_variants = {
+            event_id,
+            event_id.upper(),
+            event_id.lower(),
+            clean_id,
+            clean_id.upper(),
+            clean_id.lower(),
+            f"ES-{clean_id.upper()}",
+            f"es-{clean_id.lower()}",
+            f"BCP-{clean_id.upper()}",
+            f"bcp_{clean_id}",
+            f"BCP_{clean_id}",
+            f"event/{clean_id}",
+            f"event/{clean_id.lower()}",
+        }
+        id_variants.discard("")
 
         if self._client:
-            for eid in set([event_id, clean_id]):
-                if not eid:
-                    continue
-                try:
-                    doc_ref = self.get_tournament_doc_ref(eid)
-                    if doc_ref:
-                        # Delete judge_calls subcollection
-                        for j_doc in doc_ref.collection("judge_calls").stream():
-                            j_doc.reference.delete()
+            for col_name in ("tournaments", "events"):
+                for eid in id_variants:
+                    try:
+                        doc_ref = self._client.collection(col_name).document(eid)
+                        # Delete all subcollections to prevent orphaned/ghost docs in Firestore
+                        for subcol in ("judge_calls", "pairings", "rounds", "messages", "flags", "players", "participants"):
+                            try:
+                                for s_doc in doc_ref.collection(subcol).stream():
+                                    s_doc.reference.delete()
+                            except Exception:
+                                pass
                         doc_ref.delete()
-                except Exception as e:
-                    logger.warning(f"Notice deleting tournament doc {eid} from Firestore: {e}")
+                    except Exception as e:
+                        logger.warning(f"Notice deleting {col_name}/{eid} from Firestore: {e}")
 
-        self._fallback_tournaments.pop(event_id, None)
-        self._fallback_tournaments.pop(clean_id, None)
-        self._fallback_judge_calls.pop(event_id, None)
-        self._fallback_judge_calls.pop(clean_id, None)
+        for v in id_variants:
+            self._fallback_tournaments.pop(v, None)
+            self._fallback_judge_calls.pop(v, None)
         return True
 
     def delete_tournament_and_rooms(self, event_id: str) -> Dict[str, Any]:
         """Cascades tournament deletion to all its table game rooms in Firestore."""
         rooms_deleted = self.delete_event_rooms(event_id)
-        self.delete_tournament_document(event_id)
-        return {"success": True, "event_id": event_id, "rooms_deleted": rooms_deleted}
+        doc_deleted = self.delete_tournament_document(event_id)
+        return {
+            "success": True,
+            "event_id": event_id,
+            "tournament_deleted": doc_deleted,
+            "rooms_deleted": rooms_deleted,
+        }
 
     def cleanup_expired_documents(self) -> Dict[str, int]:
         """
