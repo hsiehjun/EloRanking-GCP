@@ -42,11 +42,6 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
         total_events += e_40k
         total_matches += m_40k
         logger.info(f"✅ [40K] Scraped {e_40k} events, {m_40k} matches.")
-        try:
-            logger.info("📅 [40K] Syncing upcoming 40k tournaments...")
-            scraper.sync_upcoming_events(game_system_id=DEFAULT_GAME_SYSTEM_ID)
-        except Exception as up_err:
-            logger.warning(f"Notice during 40k upcoming events sync: {up_err}")
 
     if target_sys in ("aos", "warhammer_aos", "all"):
         logger.info(f"📅 [AOS] Scraping Age of Sigmar tournaments from {start_str} to {end_str}...")
@@ -56,11 +51,6 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
         total_events += e_aos
         total_matches += m_aos
         logger.info(f"✅ [AOS] Scraped {e_aos} events, {m_aos} matches.")
-        try:
-            logger.info("📅 [AOS] Syncing upcoming AoS tournaments...")
-            scraper.sync_upcoming_events(game_system_id=AOS_GAME_SYSTEM_ID)
-        except Exception as up_err:
-            logger.warning(f"Notice during AoS upcoming events sync: {up_err}")
 
     logger.info(f"📈 Recalculating Elo ratings incrementally for game system(s): {target_sys}...")
     engine = get_elo_engine()

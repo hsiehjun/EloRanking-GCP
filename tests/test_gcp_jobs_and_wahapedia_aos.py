@@ -157,10 +157,8 @@ def test_elo_tournament_sync_job():
             for call in mock_scraper.scrape_date_range.call_args_list
         ), "AoS events were not scraped with AOS_GAME_SYSTEM_ID"
 
-        # Upcoming events synced for both
-        upcoming_ids = [call.kwargs.get("game_system_id") for call in mock_scraper.sync_upcoming_events.call_args_list]
-        assert config.DEFAULT_GAME_SYSTEM_ID in upcoming_ids
-        assert config.AOS_GAME_SYSTEM_ID in upcoming_ids
+        # Upcoming events are not synced during elo-tournament-sync-job (queried live from BCP instead)
+        mock_scraper.sync_upcoming_events.assert_not_called()
 
         # Elo incremental recalculated for "all"
         mock_engine.reconstruct_incremental.assert_called_once_with(game_system="all")

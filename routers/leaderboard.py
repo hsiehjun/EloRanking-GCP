@@ -1455,19 +1455,11 @@ async def api_cron_sync_tournaments(
                 logger.info(f"⏰ [CRON SYNC] Scraping Warhammer 40k tournaments from {start_str} to {end_str}...")
                 res_40k = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=DEFAULT_GAME_SYSTEM_ID, max_events=None)
                 logger.info(f"⏰ [CRON SYNC] 40k Scraped {res_40k.get('events_scraped', 0)} events, {res_40k.get('matches_scraped', 0)} matches.")
-                try:
-                    scraper.sync_upcoming_events(game_system_id=DEFAULT_GAME_SYSTEM_ID)
-                except Exception as up_err:
-                    logger.warning(f"40k upcoming sync notice: {up_err}")
 
             if target_sys in ("aos", "warhammer_aos", "all"):
                 logger.info(f"⏰ [CRON SYNC] Scraping Age of Sigmar tournaments from {start_str} to {end_str}...")
                 res_aos = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=AOS_GAME_SYSTEM_ID, max_events=None)
                 logger.info(f"⏰ [CRON SYNC] AoS Scraped {res_aos.get('events_scraped', 0)} events, {res_aos.get('matches_scraped', 0)} matches.")
-                try:
-                    scraper.sync_upcoming_events(game_system_id=AOS_GAME_SYSTEM_ID)
-                except Exception as up_err:
-                    logger.warning(f"AoS upcoming sync notice: {up_err}")
             
             engine = get_elo_engine()
             recon_res = engine.reconstruct_incremental(game_system=target_sys)
