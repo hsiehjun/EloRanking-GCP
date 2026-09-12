@@ -305,7 +305,7 @@ class PostgresDatabase:
 
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SET lock_timeout = '2s';")
+                    cursor.execute("SET LOCAL lock_timeout = '2s';")
                     cursor.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     id VARCHAR(64) PRIMARY KEY,
@@ -452,7 +452,7 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_events_date ON events(event_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);
 
-                -- Additive multi-game partitioning columns (default '40k' preserves 100% backward compatibility)
+                -- Additive multi-game partitioning columns (default '40k' preserves full backward compatibility)
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
                 ALTER TABLE matches ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
                 ALTER TABLE rating_history ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';
@@ -475,6 +475,7 @@ class PostgresDatabase:
                 END $$;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_elo ON player_ratings(game_system, current_elo DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_team ON player_ratings(game_system, team, current_elo DESC) WHERE team IS NOT NULL AND team != '';
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_system_chrono ON matches(game_system, match_date ASC NULLS FIRST, round ASC);
                 CREATE INDEX IF NOT EXISTS idx_pg_events_system_date ON events(game_system, event_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_tracker_games_system ON tracker_games(game_system);
@@ -1002,7 +1003,7 @@ class PostgresDatabase:
                 for migration in migrations_list:
                     try:
                         with conn.cursor() as cursor:
-                            cursor.execute("SET lock_timeout = '2s';")
+                            cursor.execute("SET LOCAL lock_timeout = '2s';")
                             cursor.execute(migration)
                         conn.commit()
                     except Exception as e:
@@ -1178,7 +1179,7 @@ class PostgresDatabase:
                 for s in stmts:
                     try:
                         with conn.cursor() as cursor:
-                            cursor.execute("SET lock_timeout = '2s';")
+                            cursor.execute("SET LOCAL lock_timeout = '2s';")
                             cursor.execute(s)
                         conn.commit()
                     except Exception as e:
@@ -1192,7 +1193,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SET lock_timeout = '2s';")
+                    cursor.execute("SET LOCAL lock_timeout = '2s';")
                     cursor.execute("""
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS detachment TEXT;
                     ALTER TABLE event_participants ADD COLUMN IF NOT EXISTS army_list TEXT;
@@ -1220,6 +1221,7 @@ class PostgresDatabase:
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';",
             "ALTER TABLE player_lfg_profiles ADD COLUMN IF NOT EXISTS game_systems TEXT[] DEFAULT '{\"40k\"}';",
             "CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_elo ON player_ratings(game_system, current_elo DESC);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_ratings_system_team ON player_ratings(game_system, team, current_elo DESC) WHERE team IS NOT NULL AND team != '';",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_system_chrono ON matches(game_system, match_date ASC NULLS FIRST, round ASC);",
             "CREATE INDEX IF NOT EXISTS idx_pg_events_system_date ON events(game_system, event_date DESC);",
             "CREATE INDEX IF NOT EXISTS idx_tracker_games_system ON tracker_games(game_system);",
@@ -1229,7 +1231,7 @@ class PostgresDatabase:
                 for stmt in statements:
                     try:
                         with conn.cursor() as cursor:
-                            cursor.execute("SET lock_timeout = '5s';")
+                            cursor.execute("SET LOCAL lock_timeout = '5s';")
                             cursor.execute(stmt)
                         conn.commit()
                     except Exception as e:
@@ -1773,7 +1775,7 @@ class PostgresDatabase:
             try:
                 with self.get_connection() as conn:
                     with conn.cursor() as cur_persisted:
-                        cur_persisted.execute("SET statement_timeout = '2000ms';")
+                        cur_persisted.execute("SET LOCAL statement_timeout = '2000ms';")
                         cur_persisted.execute(
                             "SELECT value, EXTRACT(EPOCH FROM updated_at) FROM system_settings WHERE key = %s;",
                             (f"summary_stats_{cache_key}",)
@@ -1799,7 +1801,7 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                    cursor.execute("SET statement_timeout = '4000ms';")
+                    cursor.execute("SET LOCAL statement_timeout = '4000ms';")
 
                     where_pr = "WHERE matches_played > 0"
                     where_m = "WHERE is_done = TRUE"
@@ -1838,7 +1840,7 @@ class PostgresDatabase:
 
                     try:
                         with conn.cursor() as cur_store:
-                            cur_store.execute("SET statement_timeout = '2000ms';")
+                            cur_store.execute("SET LOCAL statement_timeout = '2000ms';")
                             cur_store.execute("""
                                 INSERT INTO system_settings (key, value, updated_at)
                                 VALUES (%s, %s, NOW())
@@ -2947,94 +2949,25 @@ class PostgresDatabase:
     def _get_all_teams_list(self, game_system: Optional[str] = "40k") -> List[Dict[str, Any]]:
         """Precomputes and caches all competitive teams in memory for instant filtering and search."""
         now = time.time()
-        cache_key = game_system or "40k"
+        cache_key = (game_system or "40k").lower()
         if not hasattr(PostgresDatabase, "_all_teams_cache_map"):
             PostgresDatabase._all_teams_cache_map = {}
         cached = PostgresDatabase._all_teams_cache_map.get(cache_key)
         if cached is not None and (now - cached[1]) < 600:
             return cached[0]
 
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                sys_clause = ""
-                sys_params = []
-                if game_system and game_system != "all":
-                    sys_clause = " AND COALESCE(game_system, '40k') = %s"
-                    sys_params = [(game_system or "40k").lower()]
+        rows = None
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    cursor.execute("SET LOCAL statement_timeout = '15000ms';")
+                    sys_clause = ""
+                    sys_params = []
+                    if game_system and game_system != "all":
+                        sys_clause = " AND COALESCE(game_system, '40k') = %s"
+                        sys_params = [(game_system or "40k").lower()]
 
-                sql = f"""
-                WITH team_players AS (
-                    SELECT 
-                        TRIM(team) as team_name,
-                        player_id,
-                        COALESCE(player_name, 'Player') as player_name,
-                        COALESCE(current_elo, 1500.0) as current_elo,
-                        COALESCE(wins, 0) as wins,
-                        COALESCE(losses, 0) as losses,
-                        COALESCE(draws, 0) as draws,
-                        COALESCE(matches_played, 0) as matches_played,
-                        COALESCE(last_active_date, CURRENT_DATE) as last_active_date,
-                        CASE 
-                            WHEN COALESCE(last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
-                            ELSE 0 
-                        END as is_active
-                    FROM player_ratings
-                    WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
-                    {sys_clause}
-                ),
-                ranked_active AS (
-                    SELECT 
-                        tp.*,
-                        ROW_NUMBER() OVER (PARTITION BY tp.team_name, tp.is_active ORDER BY tp.current_elo DESC) as active_rn
-                    FROM team_players tp
-                )
-                SELECT 
-                    tm.team_name as team,
-                    COUNT(DISTINCT tm.player_id) as roster_count,
-                    SUM(tm.is_active) as active_roster_count,
-                    ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
-                    ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
-                    ROUND(COALESCE(AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END), AVG(tm.current_elo))::numeric, 1) as active_avg_elo,
-                    (ARRAY_AGG(tm.player_name ORDER BY tm.current_elo DESC))[1] as top_player_name,
-                    (ARRAY_AGG(tm.player_id ORDER BY tm.current_elo DESC))[1] as top_player_id,
-                    SUM(tm.wins) as total_wins,
-                    SUM(tm.losses) as total_losses,
-                    SUM(tm.draws) as total_draws,
-                    SUM(tm.matches_played) as total_matches,
-                    ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
-                    ROUND((
-                        CASE 
-                            WHEN SUM(tm.is_active) <= 0 THEN 0.0
-                            ELSE (
-                                -- 1. Tri-Anchor Skill Baseline: 40% Top 5 Active + 40% Entire Active Avg + 20% Top Ace
-                                (
-                                    0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
-                                    + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
-                                    + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
-                                )
-                                *
-                                -- 2. Active Roster Maturity Curve (10% to 100% at 30 active members)
-                                CASE 
-                                    WHEN SUM(tm.is_active) <= 1 THEN 0.10
-                                    WHEN SUM(tm.is_active) >= 30 THEN 1.00
-                                    ELSE (0.10 + 0.90 * POWER(LOG(SUM(tm.is_active)::numeric) / LOG(30.0), 0.65))
-                                END
-                            )
-                        END
-                    )::numeric, 1) as power_rating,
-                    CASE WHEN SUM(tm.is_active) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
-                FROM ranked_active tm
-                GROUP BY tm.team_name
-                HAVING COUNT(DISTINCT tm.player_id) >= 1
-                ORDER BY power_rating DESC;
-                """
-                try:
-                    cursor.execute(sql, tuple(sys_params))
-                    rows = [dict(r) for r in cursor.fetchall()]
-                except Exception as e:
-                    conn.rollback()
-                    logger.warning(f"Fallback _get_all_teams_list notice: {e}")
-                    safe_sql = """
+                    sql = f"""
                     WITH team_players AS (
                         SELECT 
                             TRIM(team) as team_name,
@@ -3052,6 +2985,7 @@ class PostgresDatabase:
                             END as is_active
                         FROM player_ratings
                         WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                        {sys_clause}
                     ),
                     ranked_active AS (
                         SELECT 
@@ -3077,14 +3011,14 @@ class PostgresDatabase:
                             CASE 
                                 WHEN SUM(tm.is_active) <= 0 THEN 0.0
                                 ELSE (
-                                    -- 1. Tri-Anchor Skill Baseline: 40% Top 5 Active + 40% Entire Active Avg + 20% Top Ace
+                                    -- 1. Tri-Anchor Skill Baseline: 0.40 Top 5 Active + 0.40 Entire Active Avg + 0.20 Top Ace
                                     (
                                         0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
                                         + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
                                         + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
                                     )
                                     *
-                                    -- 2. Active Roster Maturity Curve (10% to 100% at 30 active members)
+                                    -- 2. Active Roster Maturity Curve (0.10 to 1.00 at 30 active members)
                                     CASE 
                                         WHEN SUM(tm.is_active) <= 1 THEN 0.10
                                         WHEN SUM(tm.is_active) >= 30 THEN 1.00
@@ -3099,15 +3033,97 @@ class PostgresDatabase:
                     HAVING COUNT(DISTINCT tm.player_id) >= 1
                     ORDER BY power_rating DESC;
                     """
-                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                        cur_safe.execute(safe_sql)
-                        rows = [dict(r) for r in cur_safe.fetchall()]
+                    try:
+                        cursor.execute(sql, tuple(sys_params))
+                        rows = [dict(r) for r in cursor.fetchall()]
+                    except Exception as e:
+                        conn.rollback()
+                        logger.warning(f"Fallback _get_all_teams_list notice: {e}")
+                        safe_sql = """
+                        WITH team_players AS (
+                            SELECT 
+                                TRIM(team) as team_name,
+                                player_id,
+                                COALESCE(player_name, 'Player') as player_name,
+                                COALESCE(current_elo, 1500.0) as current_elo,
+                                COALESCE(wins, 0) as wins,
+                                COALESCE(losses, 0) as losses,
+                                COALESCE(draws, 0) as draws,
+                                COALESCE(matches_played, 0) as matches_played,
+                                COALESCE(last_active_date, CURRENT_DATE) as last_active_date,
+                                CASE 
+                                    WHEN COALESCE(last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
+                                    ELSE 0 
+                                END as is_active
+                            FROM player_ratings
+                            WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                        ),
+                        ranked_active AS (
+                            SELECT 
+                                tp.*,
+                                ROW_NUMBER() OVER (PARTITION BY tp.team_name, tp.is_active ORDER BY tp.current_elo DESC) as active_rn
+                            FROM team_players tp
+                        )
+                        SELECT 
+                            tm.team_name as team,
+                            COUNT(DISTINCT tm.player_id) as roster_count,
+                            SUM(tm.is_active) as active_roster_count,
+                            ROUND(AVG(tm.current_elo)::numeric, 1) as avg_elo,
+                            ROUND(MAX(tm.current_elo)::numeric, 1) as top_player_elo,
+                            ROUND(COALESCE(AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END), AVG(tm.current_elo))::numeric, 1) as active_avg_elo,
+                            (ARRAY_AGG(tm.player_name ORDER BY tm.current_elo DESC))[1] as top_player_name,
+                            (ARRAY_AGG(tm.player_id ORDER BY tm.current_elo DESC))[1] as top_player_id,
+                            SUM(tm.wins) as total_wins,
+                            SUM(tm.losses) as total_losses,
+                            SUM(tm.draws) as total_draws,
+                            SUM(tm.matches_played) as total_matches,
+                            ROUND((SUM(tm.wins) * 100.0 / NULLIF(SUM(tm.matches_played), 0))::numeric, 1) as team_win_rate,
+                            ROUND((
+                                CASE 
+                                    WHEN SUM(tm.is_active) <= 0 THEN 0.0
+                                    ELSE (
+                                        -- 1. Tri-Anchor Skill Baseline: 0.40 Top 5 Active + 0.40 Entire Active Avg + 0.20 Top Ace
+                                        (
+                                            0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
+                                            + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
+                                            + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
+                                        )
+                                        *
+                                        -- 2. Active Roster Maturity Curve (0.10 to 1.00 at 30 active members)
+                                        CASE 
+                                            WHEN SUM(tm.is_active) <= 1 THEN 0.10
+                                            WHEN SUM(tm.is_active) >= 30 THEN 1.00
+                                            ELSE (0.10 + 0.90 * POWER(LOG(SUM(tm.is_active)::numeric) / LOG(30.0), 0.65))
+                                        END
+                                    )
+                                END
+                            )::numeric, 1) as power_rating,
+                            CASE WHEN SUM(tm.is_active) >= 5 AND SUM(tm.matches_played) >= 25 THEN TRUE ELSE FALSE END as is_qualified
+                        FROM ranked_active tm
+                        GROUP BY tm.team_name
+                        HAVING COUNT(DISTINCT tm.player_id) >= 1
+                        ORDER BY power_rating DESC;
+                        """
+                        with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
+                            cur_safe.execute("SET LOCAL statement_timeout = '15000ms';")
+                            cur_safe.execute(safe_sql)
+                            rows = [dict(r) for r in cur_safe.fetchall()]
+        except Exception as err:
+            logger.warning(f"Notice during _get_all_teams_list query ({cache_key}): {err}")
+            if cached is not None:
+                return cached[0]
+            return []
 
-                PostgresDatabase._all_teams_cache_map[cache_key] = (rows, now)
-                if cache_key == "40k":
-                    PostgresDatabase._all_teams_cache = rows
-                    PostgresDatabase._all_teams_cache_time = now
-                return rows
+        if rows is None:
+            if cached is not None:
+                return cached[0]
+            return []
+
+        PostgresDatabase._all_teams_cache_map[cache_key] = (rows, now)
+        if cache_key == "40k":
+            PostgresDatabase._all_teams_cache = rows
+            PostgresDatabase._all_teams_cache_time = now
+        return rows
 
     def get_teams_leaderboard(self, page=1, page_size=25, min_members=1, limit=None, query=None, sort_by="power_rating", order="DESC", game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Returns paginated power rankings of teams & gaming clubs (instant sub-millisecond in-memory)."""
@@ -8411,6 +8427,16 @@ class PostgresConnectionContext:
                     err_msg = str(exc_val).lower()
                     if "closed" in err_msg or "terminat" in err_msg or "broken" in err_msg or "ssl" in err_msg:
                         is_broken = True
+                    else:
+                        try:
+                            with self.conn.cursor() as _cur:
+                                _cur.execute("SET statement_timeout = 0; SET lock_timeout = 0;")
+                            self.conn.commit()
+                        except Exception:
+                            try:
+                                self.conn.rollback()
+                            except Exception:
+                                pass
             except Exception:
                 is_broken = True
             self.pool.putconn(self.conn, close=is_broken)

@@ -185,9 +185,69 @@ def test_get_team_roster_180_day_window():
     print("✅ test_get_team_roster_180_day_window passed!")
 
 
+def test_get_all_teams_list_psycopg2_sql_formatting_and_timeout():
+    """Verify _get_all_teams_list executes SQL with psycopg2 % parameter formatting without IndexError and uses SET LOCAL statement_timeout."""
+    db = make_test_db()
+    PostgresDatabase._all_teams_cache_map = {}
+
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    executed_queries = []
+
+    def simulate_psycopg2_execute(query, vars=None):
+        executed_queries.append((query, vars))
+        if vars is not None:
+            # Exact simulation of psycopg2's C string interpolation (query % vars)
+            # If any unescaped % (e.g. 40% or 100%) exists in SQL comments, this raises IndexError/TypeError
+            _ = query % tuple(repr(v) for v in vars)
+        return None
+
+    mock_cur.execute.side_effect = simulate_psycopg2_execute
+    mock_cur.fetchone.return_value = None
+    mock_cur.fetchall.return_value = [
+        {"team": "Art of War", "roster_count": 25, "active_roster_count": 23, "power_rating": 2207.7}
+    ]
+
+    with patch.object(db, "get_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock(return_value=False))):
+        teams = db._get_all_teams_list(game_system="40k")
+        assert len(teams) == 1
+        assert teams[0]["team"] == "Art of War"
+
+    # Verify SET LOCAL statement_timeout was used (never non-LOCAL SET statement_timeout)
+    set_stmts = [q for q, _ in executed_queries if "statement_timeout" in q]
+    assert len(set_stmts) >= 1
+    for stmt in set_stmts:
+        assert "SET LOCAL statement_timeout" in stmt, f"Expected SET LOCAL statement_timeout, got: {stmt}"
+
+    print("✅ test_get_all_teams_list_psycopg2_sql_formatting_and_timeout passed!")
+
+
+import unittest
+
+class TestTeamPowerRatingSuite(unittest.TestCase):
+    def test_recruitment_and_depth(self):
+        test_recruitment_and_depth_advantage()
+
+    def test_solo_vs_club(self):
+        test_solo_vs_club_power_rating()
+
+    def test_leaderboard_sorting(self):
+        test_get_teams_leaderboard_natural_sorting()
+
+    def test_roster_180_day_window(self):
+        test_get_team_roster_180_day_window()
+
+    def test_sql_formatting_and_timeout(self):
+        test_get_all_teams_list_psycopg2_sql_formatting_and_timeout()
+
+
 if __name__ == "__main__":
     test_recruitment_and_depth_advantage()
     test_solo_vs_club_power_rating()
     test_get_teams_leaderboard_natural_sorting()
     test_get_team_roster_180_day_window()
+    test_get_all_teams_list_psycopg2_sql_formatting_and_timeout()
     print("\n🎉 All Team Power Rating tests passed!")
+
