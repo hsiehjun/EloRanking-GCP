@@ -73,6 +73,7 @@ function renderTeamsDirectoryRows() {
   list.forEach((t, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openTeamModal(t.team);
+    const safeTopName = String(t.top_player_name || '').replace(/'/g, "\\'");
 
     tr.innerHTML = `
       <td>
@@ -88,7 +89,7 @@ function renderTeamsDirectoryRows() {
         ${Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1)}
       </td>
       <td>
-        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id}')">
+        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
           ${escapeHtml(t.top_player_name || 'Top Player')}
         </span>
         <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${Number(t.top_player_elo).toFixed(1)})</span>

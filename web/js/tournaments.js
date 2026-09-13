@@ -1346,7 +1346,7 @@ function renderEventResultsRows() {
   tbody.innerHTML = '';
   playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, p.full_name || ''); };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
@@ -1451,7 +1451,7 @@ function renderEventEloRows() {
   tbody.innerHTML = '';
   playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, p.full_name || ''); };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const teamHtml = p.team ? `<span style="font-size:0.75rem; color:var(--text-muted); margin-left:6px; font-weight:400;">• ${escapeHtml(p.team)}</span>` : '';
@@ -1720,8 +1720,8 @@ function renderEventPairingsRows() {
 
       const p1Record = allRosterPlayers.find(p => {
         if (!p) return false;
-        const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
-        if (p1IdClean && pid && pid === p1IdClean) return true;
+        const candidateIds = [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
+        if (p1IdClean && candidateIds.includes(p1IdClean)) return true;
         const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
         if (p1NameClean && pname && checkNameMatch(pname, p1NameClean)) return true;
         return false;
@@ -1729,8 +1729,8 @@ function renderEventPairingsRows() {
 
       const p2Record = allRosterPlayers.find(p => {
         if (!p) return false;
-        const pid = String(p.player_id || p.id || p.user_id || p.userId || '').trim().toLowerCase();
-        if (p2IdClean && pid && pid === p2IdClean) return true;
+        const candidateIds = [p.player_id, p.id, p.bcp_event_player_id, p.user_id, p.userId].filter(Boolean).map(x => String(x).trim().toLowerCase());
+        if (p2IdClean && candidateIds.includes(p2IdClean)) return true;
         const pname = String(p.full_name || p.name || p.player_name || '').trim().toLowerCase();
         if (p2NameClean && pname && checkNameMatch(pname, p2NameClean)) return true;
         return false;
@@ -1782,12 +1782,17 @@ function renderEventPairingsRows() {
         }
       }
 
+      const targetP1Id = String((p1Record && p1Record.player_id) || m.player1_id || '').replace(/'/g, "\\'");
+      const targetP1Name = String((p1Record && (p1Record.full_name || p1Record.name)) || m.player1_name || '').replace(/'/g, "\\'");
+      const targetP2Id = String((p2Record && p2Record.player_id) || m.player2_id || '').replace(/'/g, "\\'");
+      const targetP2Name = String((p2Record && (p2Record.full_name || p2Record.name)) || m.player2_name || '').replace(/'/g, "\\'");
+
       tr.innerHTML = `
         <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
         <td style="font-family:var(--font-mono); color:var(--text-muted);">T${m.table_number || 1}</td>
         <td>
           <div class="player-name-cell">
-            <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player1_id}')">
+            <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}')">
               ${escapeHtml(m.player1_name || 'Player 1')}
             </span>
             ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
@@ -1801,9 +1806,12 @@ function renderEventPairingsRows() {
         </td>
         <td>
           <div class="player-name-cell">
-            <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player2_id}')">
-              ${escapeHtml(m.player2_name || (m.is_bye ? 'BYE' : 'Player 2'))}
-            </span>
+            ${isBye
+              ? `<span style="color:var(--text-muted); font-weight:600;">BYE</span>`
+              : `<span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}')">
+                   ${escapeHtml(m.player2_name || 'Player 2')}
+                 </span>`
+            }
             ${(!isBye && p2Faction) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span></div>` : ''}
           </div>
         </td>

@@ -112,10 +112,14 @@ function togglePlayerEloChart() {
   }
 }
 
-async function openPlayerModal(playerId) {
+async function openPlayerModal(playerId, playerName = '') {
+  if (!playerId && !playerName) return;
   const modal = document.getElementById('player-modal');
   if (!modal) return;
   bringModalToFront(modal);
+
+  const nameEl = document.getElementById('modal-player-name');
+  if (nameEl && playerName) nameEl.innerText = playerName;
 
   // Reset chart to collapsed state by default
   isChartExpanded = false;
@@ -142,14 +146,15 @@ async function openPlayerModal(playerId) {
   if (chatContainer) chatContainer.innerHTML = '';
 
   try {
-    const data = await window.api.getPlayerProfile(playerId);
+    const data = await window.api.getPlayerProfile(playerId || 'unknown', '', playerName);
     const p = data.player || data || {};
-    document.getElementById('modal-player-name').innerText = p.player_name || p.full_name || 'Player Profile';
+    const resolvedName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || playerName || 'Player Profile');
+    if (nameEl) nameEl.innerText = resolvedName;
 
     // OmniTactica Registered User & Chat Request Handler
     if (chatContainer) {
       chatContainer.innerHTML = '';
-      const playerName = p.player_name || p.full_name || 'Player';
+      const chatPlayerName = resolvedName !== 'Player Profile' ? resolvedName : 'Player';
       const playerPid = p.player_id || playerId;
       const currentUserVal = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
 
@@ -164,9 +169,9 @@ async function openPlayerModal(playerId) {
         btn.type = 'button';
         btn.className = 'btn btn-outline';
         btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.65rem; border-color: rgba(239, 68, 68, 0.35); color: #f87171; background: rgba(239, 68, 68, 0.08); display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; border-radius: 6px;';
-        btn.title = `${playerName} has not registered an OmniTactica account yet. Direct chat requests are only available between registered OmniTactica players.`;
+        btn.title = `${chatPlayerName} has not registered an OmniTactica account yet. Direct chat requests are only available between registered OmniTactica players.`;
         btn.innerHTML = `🔒 Not on OmniTactica`;
-        btn.onclick = () => showUnregisteredPlayerAlert(playerName);
+        btn.onclick = () => showUnregisteredPlayerAlert(chatPlayerName);
         chatContainer.appendChild(btn);
       } else if (data.existing_request_status === 'accepted') {
         const btn = document.createElement('button');
@@ -208,7 +213,7 @@ async function openPlayerModal(playerId) {
         btn.className = 'btn btn-primary';
         btn.style.cssText = 'font-size: 0.78rem; padding: 0.35rem 0.75rem; display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700; border-radius: 6px; cursor: pointer;';
         btn.innerHTML = `💬 Send Chat Request`;
-        btn.title = `Send a direct chat and match request to ${playerName}`;
+        btn.title = `Send a direct chat and match request to ${chatPlayerName}`;
         btn.onclick = () => {
           const token = localStorage.getItem('elo_auth_token') || localStorage.getItem('native_session_token');
           if (!token) {
@@ -217,9 +222,9 @@ async function openPlayerModal(playerId) {
             return;
           }
           if (typeof openSendChatRequestModal === 'function') {
-            openSendChatRequestModal(playerPid, playerName, data.account_user_id);
+            openSendChatRequestModal(playerPid, chatPlayerName, data.account_user_id);
           } else if (typeof openProposeMatchModal === 'function') {
-            openProposeMatchModal(playerPid, playerName);
+            openProposeMatchModal(playerPid, chatPlayerName);
           }
         };
         chatContainer.appendChild(btn);

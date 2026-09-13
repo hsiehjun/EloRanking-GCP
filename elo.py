@@ -51,6 +51,16 @@ except ImportError:
 logger = logging.getLogger("EloEngine")
 
 
+def _max_date(d1, d2):
+    if not d1:
+        return d2
+    if not d2:
+        return d1
+    s1 = d1.isoformat() if hasattr(d1, "isoformat") else str(d1)
+    s2 = d2.isoformat() if hasattr(d2, "isoformat") else str(d2)
+    return d1 if s1 >= s2 else d2
+
+
 class EloEngine:
     """Reconstructs historical player trajectories, win paths, and post-constructed Elo ratings."""
 
@@ -257,30 +267,32 @@ class EloEngine:
 
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                # 1. Fetch latest active team from event_participants ordered by event recency
+                # 1. Fetch latest active team from event_participants ordered by event recency for this game system
                 cur.execute("""
                 SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as team
                 FROM event_participants ep
                 LEFT JOIN events e ON ep.event_id = e.id
                 WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
                   AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                  AND COALESCE(e.game_system, '40k') = %s
                 ORDER BY ep.player_id, e.event_date DESC NULLS LAST;
-                """)
+                """, (sys_target,))
                 for r in cur.fetchall():
                     if r.get("player_id") and r.get("team"):
                         existing_teams[r["player_id"]] = r["team"]
 
-                # 2. Fallback to players table
-                cur.execute("""
-                SELECT id as player_id, TRIM(team) as team
-                FROM players
-                WHERE team IS NOT NULL AND TRIM(team) != ''
-                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
-                """)
-                for r in cur.fetchall():
-                    pid = r.get("player_id")
-                    if pid and r.get("team") and pid not in existing_teams:
-                        existing_teams[pid] = r["team"]
+                # 2. Fallback to players table ONLY for 40k (to prevent 40k teams from polluting AoS)
+                if sys_target == "40k":
+                    cur.execute("""
+                    SELECT id as player_id, TRIM(team) as team
+                    FROM players
+                    WHERE team IS NOT NULL AND TRIM(team) != ''
+                      AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
+                    """)
+                    for r in cur.fetchall():
+                        pid = r.get("player_id")
+                        if pid and r.get("team") and pid not in existing_teams:
+                            existing_teams[pid] = r["team"]
 
                 cur.execute("""
                 SELECT player_id, player_name, current_elo, peak_elo,
@@ -382,7 +394,7 @@ class EloEngine:
                     if res1 == "W": s1["wins"] += 1
                     elif res1 == "L": s1["losses"] += 1
                     else: s1["draws"] += 1
-                    if m_date: s1["last_active_date"] = m_date
+                    if m_date: s1["last_active_date"] = _max_date(s1["last_active_date"], m_date)
                     if m.get("player1_faction"): player_factions[p1_id][m.get("player1_faction")] += 1
 
                     # Update player 2
@@ -392,7 +404,7 @@ class EloEngine:
                     if res2 == "W": s2["wins"] += 1
                     elif res2 == "L": s2["losses"] += 1
                     else: s2["draws"] += 1
-                    if m_date: s2["last_active_date"] = m_date
+                    if m_date: s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
                     if m.get("player2_faction"): player_factions[p2_id][m.get("player2_faction")] += 1
 
                     history_batch.append((
@@ -529,32 +541,21 @@ class EloEngine:
         # 1. Fetch existing teams from permanent players & participants tables
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
-                # 1. Most recent active team from event_participants by event_date
+                # 1. Most recent active team from event_participants by event_date for this game system
                 cur.execute("""
                 SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as team
                 FROM event_participants ep
                 LEFT JOIN events e ON ep.event_id = e.id
                 WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
                   AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                  AND COALESCE(e.game_system, '40k') = %s
                 ORDER BY ep.player_id, e.event_date DESC NULLS LAST;
-                """)
+                """, (sys_target,))
                 for r in cur.fetchall():
                     if r.get("player_id") and r.get("team"):
                         existing_teams[r["player_id"]] = r["team"]
 
-                # 2. Fallback to players table for players without event team
-                cur.execute("""
-                SELECT id as player_id, TRIM(team) as team
-                FROM players
-                WHERE team IS NOT NULL AND TRIM(team) != ''
-                  AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
-                """)
-                for r in cur.fetchall():
-                    pid = r.get("player_id")
-                    if pid and r.get("team") and pid not in existing_teams:
-                        existing_teams[pid] = r["team"]
-
-                # 3. Fallback to existing player_ratings for players not covered above
+                # 2. Fallback to existing player_ratings for players not covered above
                 cur.execute("""
                 SELECT player_id, TRIM(team) as team
                 FROM player_ratings
@@ -566,6 +567,19 @@ class EloEngine:
                     pid = r.get("player_id")
                     if pid and r.get("team") and pid not in existing_teams:
                         existing_teams[pid] = r["team"]
+
+                # 3. Fallback to players table ONLY for 40k (to prevent 40k teams from polluting AoS)
+                if sys_target == "40k":
+                    cur.execute("""
+                    SELECT id as player_id, TRIM(team) as team
+                    FROM players
+                    WHERE team IS NOT NULL AND TRIM(team) != ''
+                      AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
+                    """)
+                    for r in cur.fetchall():
+                        pid = r.get("player_id")
+                        if pid and r.get("team") and pid not in existing_teams:
+                            existing_teams[pid] = r["team"]
 
                 if not existing_teams:
                     print("      🔍 Scanning matches raw JSON for team affiliations...")
@@ -725,7 +739,7 @@ class EloEngine:
                             if res1 == "W": s1["wins"] += 1
                             elif res1 == "L": s1["losses"] += 1
                             else: s1["draws"] += 1
-                            if m_date: s1["last_active_date"] = m_date
+                            if m_date: s1["last_active_date"] = _max_date(s1["last_active_date"], m_date)
                             if m.get("player1_faction"): player_factions[p1_id][m.get("player1_faction")] += 1
 
                             # Update player 2
@@ -735,7 +749,7 @@ class EloEngine:
                             if res2 == "W": s2["wins"] += 1
                             elif res2 == "L": s2["losses"] += 1
                             else: s2["draws"] += 1
-                            if m_date: s2["last_active_date"] = m_date
+                            if m_date: s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
                             if m.get("player2_faction"): player_factions[p2_id][m.get("player2_faction")] += 1
 
                             # Row 1 (Player 1 perspective)
@@ -834,11 +848,97 @@ class EloEngine:
         }
 
 
-    def get_player_win_path(self, player_id: str, game_system: Optional[str] = "40k") -> Dict[str, Any]:
+    def get_player_win_path(self, player_id: str, game_system: Optional[str] = "40k", player_name: Optional[str] = None) -> Dict[str, Any]:
         """Returns structured win path, tournament progression, and Elo timeline for a player."""
         history = self.db.get_player_history(player_id, game_system=game_system)
         player_info = self.db.search_players(player_id, game_system=game_system)
         player_meta = player_info[0] if player_info else {}
+
+        # If player_id is an event registration ID or temporary ID not directly in player_ratings,
+        # resolve canonical player_id and metadata via event_participants or player_name search
+        if not player_meta:
+            target_sys = (game_system or "40k").strip().lower()
+            ep_fallback = None
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                            SELECT ep.player_id, ep.full_name, ep.faction, ep.team
+                            FROM event_participants ep
+                            LEFT JOIN events e ON ep.event_id = e.id
+                            WHERE (ep.player_id = %s OR ep.id::text = %s)
+                              AND COALESCE(e.game_system, '40k') = %s
+                            ORDER BY e.event_date DESC NULLS LAST
+                            LIMIT 1;
+                        """, (player_id, player_id, target_sys))
+                        ep_row = cur.fetchone()
+                        if not ep_row:
+                            cur.execute("""
+                                SELECT ep.player_id, ep.full_name, ep.faction, ep.team
+                                FROM event_participants ep
+                                LEFT JOIN events e ON ep.event_id = e.id
+                                WHERE (ep.player_id = %s OR ep.id::text = %s)
+                                ORDER BY e.event_date DESC NULLS LAST
+                                LIMIT 1;
+                            """, (player_id, player_id))
+                            ep_row = cur.fetchone()
+                        if ep_row:
+                            ep_fallback = {
+                                "player_id": ep_row[0] or player_id,
+                                "player_name": ep_row[1],
+                                "top_faction": ep_row[2],
+                                "team": ep_row[3]
+                            }
+            except Exception as e:
+                logger.debug(f"Fallback event_participants lookup notice: {e}")
+
+            search_name = player_name or (ep_fallback.get("player_name") if ep_fallback else None)
+            if search_name and search_name.strip():
+                name_matches = self.db.search_players(search_name.strip(), limit=5, game_system=game_system)
+                exact_match = next(
+                    (m for m in name_matches if str(m.get("player_name") or "").strip().lower() == search_name.strip().lower()),
+                    name_matches[0] if name_matches else None
+                )
+                if exact_match and exact_match.get("player_id"):
+                    player_id = str(exact_match["player_id"])
+                    player_meta = exact_match
+                    history = self.db.get_player_history(player_id, game_system=game_system)
+            elif ep_fallback and ep_fallback.get("player_id") and ep_fallback["player_id"] != player_id:
+                resolved_id = str(ep_fallback["player_id"])
+                id_matches = self.db.search_players(resolved_id, game_system=game_system)
+                if id_matches:
+                    player_id = resolved_id
+                    player_meta = id_matches[0]
+                    history = self.db.get_player_history(player_id, game_system=game_system)
+
+            if not player_meta and ep_fallback:
+                player_meta = {
+                    "player_id": ep_fallback.get("player_id") or player_id,
+                    "player_name": ep_fallback.get("player_name") or player_name or "Unknown",
+                    "current_elo": self.initial_elo,
+                    "peak_elo": self.initial_elo,
+                    "matches_played": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "win_rate": 0.0,
+                    "top_faction": ep_fallback.get("top_faction") or "Unknown",
+                    "team": ep_fallback.get("team")
+                }
+            elif not player_meta and player_name:
+                player_meta = {
+                    "player_id": player_id,
+                    "player_name": player_name,
+                    "current_elo": self.initial_elo,
+                    "peak_elo": self.initial_elo,
+                    "matches_played": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "draws": 0,
+                    "win_rate": 0.0,
+                    "top_faction": "Unknown",
+                    "team": None
+                }
 
         # Fallback to matches table if rating_history is empty
         if not history:

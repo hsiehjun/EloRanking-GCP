@@ -214,6 +214,7 @@ def test_get_all_teams_list_psycopg2_sql_formatting_and_timeout():
         teams = db._get_all_teams_list(game_system="40k")
         assert len(teams) == 1
         assert teams[0]["team"] == "Art of War"
+        assert teams[0]["rank"] == 1
 
     # Verify SET LOCAL statement_timeout was used (never non-LOCAL SET statement_timeout)
     set_stmts = [q for q, _ in executed_queries if "statement_timeout" in q]
@@ -222,6 +223,93 @@ def test_get_all_teams_list_psycopg2_sql_formatting_and_timeout():
         assert "SET LOCAL statement_timeout" in stmt, f"Expected SET LOCAL statement_timeout, got: {stmt}"
 
     print("✅ test_get_all_teams_list_psycopg2_sql_formatting_and_timeout passed!")
+
+
+def test_team_leaderboard_canonical_rank_and_column_sorting():
+    """Verify canonical rank is preserved on search/sort and UI columns sort by active_avg_elo / active_roster_count."""
+    db = make_test_db()
+    mock_teams = [
+        {"team": "Alpha Club", "rank": 1, "power_rating": 2100.0, "avg_elo": 1800.0, "active_avg_elo": 1950.0, "roster_count": 30, "active_roster_count": 15, "top_player_elo": 2300.0},
+        {"team": "Beta Squad", "rank": 2, "power_rating": 1900.0, "avg_elo": 2050.0, "active_avg_elo": 2050.0, "roster_count": 10, "active_roster_count": 10, "top_player_elo": 2250.0},
+        {"team": "Gamma Guild", "rank": 3, "power_rating": 1700.0, "avg_elo": 1750.0, "active_avg_elo": 1700.0, "roster_count": 20, "active_roster_count": 20, "top_player_elo": 2100.0},
+    ]
+
+    with patch.object(db, "_get_all_teams_list", return_value=mock_teams):
+        # 1. Search filter preserves true rank (#3 Gamma Guild stays rank 3)
+        res_search = db.get_teams_leaderboard(query="Gamma")
+        assert len(res_search["items"]) == 1
+        assert res_search["items"][0]["team"] == "Gamma Guild"
+        assert res_search["items"][0]["rank"] == 3
+
+        # 2. Sort by avg_elo sorts by active_avg_elo DESC (Beta 2050 > Alpha 1950 > Gamma 1700), preserving rank
+        res_avg = db.get_teams_leaderboard(sort_by="avg_elo", order="DESC")
+        assert [t["team"] for t in res_avg["items"]] == ["Beta Squad", "Alpha Club", "Gamma Guild"]
+        assert [t["rank"] for t in res_avg["items"]] == [2, 1, 3]
+
+        # 3. Sort by roster_count sorts by active_roster_count DESC (Gamma 20 > Alpha 15 > Beta 10)
+        res_roster = db.get_teams_leaderboard(sort_by="roster_count", order="DESC")
+        assert [t["team"] for t in res_roster["items"]] == ["Gamma Guild", "Alpha Club", "Beta Squad"]
+        assert [t["rank"] for t in res_roster["items"]] == [3, 1, 2]
+
+    print("✅ test_team_leaderboard_canonical_rank_and_column_sorting passed!")
+
+
+def test_bcp_roster_and_win_path_player_resolution():
+    """Verify format_bcp_roster_to_players maps canonical DB player_id and bcp_event_player_id, and get_player_win_path resolves via name/event_participants."""
+    from routers.leaderboard import format_bcp_roster_to_players
+    from elo import EloEngine
+
+    raw_bcp = [
+        {
+            "id": "event_reg_999",
+            "userId": "bcp_user_123",
+            "firstName": "John",
+            "lastName": "Lennon",
+            "faction": {"name": "Aeldari"},
+            "team": {"name": "Art of War"}
+        }
+    ]
+    mock_db = make_test_db()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    # Return canonical DB player rating row matched by name
+    mock_cur.fetchall.return_value = [
+        {
+            "player_id": "canonical_db_id_777",
+            "player_name": "John Lennon",
+            "current_elo": 1850.5,
+            "peak_elo": 1900.0,
+            "top_faction": "Aeldari",
+            "team": "Art of War"
+        }
+    ]
+
+    with patch.object(mock_db, "get_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock(return_value=False))):
+        formatted = format_bcp_roster_to_players(raw_bcp, db=mock_db, game_system="40k")
+        assert len(formatted) == 1
+        p = formatted[0]
+        assert p["player_id"] == "canonical_db_id_777", f"Expected canonical_db_id_777, got {p['player_id']}"
+        assert p["bcp_event_player_id"] == "event_reg_999"
+        assert p["user_id"] == "bcp_user_123"
+        assert p["current_elo"] == 1850.5
+
+    # Verify EloEngine.get_player_win_path resolves player when passed event_reg_999 + player_name
+    engine = EloEngine(db=mock_db)
+    with patch.object(mock_db, "get_player_history", return_value=[]), \
+         patch.object(mock_db, "get_player_matches", return_value=[]), \
+         patch.object(mock_db, "get_connection", return_value=MagicMock(__enter__=MagicMock(return_value=mock_conn), __exit__=MagicMock(return_value=False))), \
+         patch.object(mock_db, "search_players", side_effect=lambda q, limit=10, game_system="40k": (
+             [{"player_id": "canonical_db_id_777", "player_name": "John Lennon", "current_elo": 1850.5, "peak_elo": 1900.0, "matches_played": 12, "wins": 9, "losses": 3, "draws": 0, "win_rate": 75.0, "top_faction": "Aeldari", "team": "Art of War"}]
+             if q == "John Lennon" else []
+         )):
+        mock_cur.fetchone.return_value = None
+        wp = engine.get_player_win_path("event_reg_999", game_system="40k", player_name="John Lennon")
+        assert wp["player_id"] == "canonical_db_id_777"
+        assert wp["player_name"] == "John Lennon"
+        assert wp["current_elo"] == 1850.5
+
+    print("✅ test_bcp_roster_and_win_path_player_resolution passed!")
 
 
 import unittest
@@ -242,6 +330,12 @@ class TestTeamPowerRatingSuite(unittest.TestCase):
     def test_sql_formatting_and_timeout(self):
         test_get_all_teams_list_psycopg2_sql_formatting_and_timeout()
 
+    def test_canonical_rank_and_column_sorting(self):
+        test_team_leaderboard_canonical_rank_and_column_sorting()
+
+    def test_bcp_roster_and_win_path_resolution(self):
+        test_bcp_roster_and_win_path_player_resolution()
+
 
 if __name__ == "__main__":
     test_recruitment_and_depth_advantage()
@@ -249,5 +343,7 @@ if __name__ == "__main__":
     test_get_teams_leaderboard_natural_sorting()
     test_get_team_roster_180_day_window()
     test_get_all_teams_list_psycopg2_sql_formatting_and_timeout()
+    test_team_leaderboard_canonical_rank_and_column_sorting()
+    test_bcp_roster_and_win_path_player_resolution()
     print("\n🎉 All Team Power Rating tests passed!")
 

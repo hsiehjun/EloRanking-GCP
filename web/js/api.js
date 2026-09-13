@@ -504,10 +504,16 @@ window.api = {
   },
 
   // Single Player Profile & Win Path
-  async getPlayerProfile(playerId, gameSystem = '') {
+  async getPlayerProfile(playerId, gameSystem = '', playerName = '') {
     const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
-    return this._fetchJson(`/api/player/${encodeURIComponent(playerId)}${qs}`);
+    const params = new URLSearchParams();
+    if (currentSys) params.set('game_system', currentSys);
+    if (playerName && typeof playerName === 'string' && playerName.trim()) {
+      params.set('name', playerName.trim());
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const safePid = (playerId && String(playerId).trim()) ? String(playerId).trim() : 'unknown';
+    return this._fetchJson(`/api/player/${encodeURIComponent(safePid)}${qs}`);
   },
 
   // Single Team Roster

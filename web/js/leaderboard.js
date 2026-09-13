@@ -372,7 +372,7 @@ function renderLeaderboardTeamsRows() {
     const tr = document.createElement('tr');
     tr.onclick = (e) => { e.stopPropagation(); openTeamModal(t.team); };
 
-    const rank = offset + idx + 1;
+    const rank = t.rank != null ? Number(t.rank) : (offset + idx + 1);
     let rankClass = '';
     if (rank === 1) rankClass = 'rank-top-1';
     else if (rank === 2) rankClass = 'rank-top-2';
@@ -387,6 +387,7 @@ function renderLeaderboardTeamsRows() {
     const activeCount = t.active_roster_count !== undefined && t.active_roster_count !== null ? t.active_roster_count : (t.roster_count || 1);
     const totalCount = t.roster_count || activeCount || 1;
     const rosterTitle = `${totalCount} Total Registered Competitors (${activeCount} Active in last 180 days)`;
+    const safeTopName = String(t.top_player_name || '').replace(/'/g, "\\'");
 
     tr.innerHTML = `
       <td class="rank-cell ${rankClass}">#${rank}</td>
@@ -403,7 +404,7 @@ function renderLeaderboardTeamsRows() {
         ${activeAvg}
       </td>
       <td>
-        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}')">
+        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
           ${escapeHtml(t.top_player_name || 'Top Player')}
         </span>
         <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${topElo})</span>

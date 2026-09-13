@@ -2968,30 +2968,65 @@ class PostgresDatabase:
                         sys_params = [(game_system or "40k").lower()]
 
                     sql = f"""
-                    WITH team_players AS (
+                    WITH player_sys_teams AS (
+                        SELECT DISTINCT ON (ep.player_id, COALESCE(e.game_system, '40k'))
+                            ep.player_id,
+                            COALESCE(e.game_system, '40k') as gs,
+                            TRIM(ep.team) as ep_team
+                        FROM event_participants ep
+                        INNER JOIN events e ON ep.event_id = e.id
+                        WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                          AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                        ORDER BY ep.player_id, COALESCE(e.game_system, '40k'), e.event_date DESC NULLS LAST
+                    ),
+                    player_other_teams AS (
+                        SELECT DISTINCT ep.player_id, COALESCE(e.game_system, '40k') as gs, TRIM(ep.team) as ep_team
+                        FROM event_participants ep
+                        INNER JOIN events e ON ep.event_id = e.id
+                        WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                    ),
+                    team_players AS (
                         SELECT 
-                            TRIM(team) as team_name,
-                            player_id,
-                            COALESCE(player_name, 'Player') as player_name,
-                            COALESCE(current_elo, 1500.0) as current_elo,
-                            COALESCE(wins, 0) as wins,
-                            COALESCE(losses, 0) as losses,
-                            COALESCE(draws, 0) as draws,
-                            COALESCE(matches_played, 0) as matches_played,
-                            COALESCE(last_active_date, CURRENT_DATE) as last_active_date,
+                            COALESCE(
+                                pst.ep_team,
+                                CASE 
+                                    WHEN NOT EXISTS (
+                                        SELECT 1 FROM player_other_teams pot
+                                        WHERE pot.player_id = pr.player_id
+                                          AND pot.gs != COALESCE(pr.game_system, '40k')
+                                          AND pot.ep_team = TRIM(pr.team)
+                                    ) THEN TRIM(pr.team)
+                                    ELSE NULL
+                                END
+                            ) as team_name,
+                            pr.player_id,
+                            COALESCE(pr.player_name, 'Player') as player_name,
+                            COALESCE(pr.current_elo, 1500.0) as current_elo,
+                            COALESCE(pr.wins, 0) as wins,
+                            COALESCE(pr.losses, 0) as losses,
+                            COALESCE(pr.draws, 0) as draws,
+                            COALESCE(pr.matches_played, 0) as matches_played,
+                            pr.last_active_date,
                             CASE 
-                                WHEN COALESCE(last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
+                                WHEN pr.last_active_date IS NOT NULL AND pr.last_active_date >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
                                 ELSE 0 
                             END as is_active
-                        FROM player_ratings
-                        WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                        FROM player_ratings pr
+                        LEFT JOIN player_sys_teams pst 
+                            ON pr.player_id = pst.player_id AND pst.gs = COALESCE(pr.game_system, '40k')
+                        WHERE COALESCE(pr.matches_played, 0) > 0
                         {sys_clause}
+                    ),
+                    filtered_team_players AS (
+                        SELECT * FROM team_players
+                        WHERE team_name IS NOT NULL AND team_name != ''
+                          AND LOWER(team_name) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                     ),
                     ranked_active AS (
                         SELECT 
                             tp.*,
                             ROW_NUMBER() OVER (PARTITION BY tp.team_name, tp.is_active ORDER BY tp.current_elo DESC) as active_rn
-                        FROM team_players tp
+                        FROM filtered_team_players tp
                     )
                     SELECT 
                         tm.team_name as team,
@@ -3011,14 +3046,12 @@ class PostgresDatabase:
                             CASE 
                                 WHEN SUM(tm.is_active) <= 0 THEN 0.0
                                 ELSE (
-                                    -- 1. Tri-Anchor Skill Baseline: 0.40 Top 5 Active + 0.40 Entire Active Avg + 0.20 Top Ace
                                     (
                                         0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
                                         + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
                                         + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
                                     )
                                     *
-                                    -- 2. Active Roster Maturity Curve (0.10 to 1.00 at 30 active members)
                                     CASE 
                                         WHEN SUM(tm.is_active) <= 1 THEN 0.10
                                         WHEN SUM(tm.is_active) >= 30 THEN 1.00
@@ -3031,7 +3064,7 @@ class PostgresDatabase:
                     FROM ranked_active tm
                     GROUP BY tm.team_name
                     HAVING COUNT(DISTINCT tm.player_id) >= 1
-                    ORDER BY power_rating DESC;
+                    ORDER BY power_rating DESC, active_avg_elo DESC, top_player_elo DESC, roster_count DESC;
                     """
                     try:
                         cursor.execute(sql, tuple(sys_params))
@@ -3050,13 +3083,15 @@ class PostgresDatabase:
                                 COALESCE(losses, 0) as losses,
                                 COALESCE(draws, 0) as draws,
                                 COALESCE(matches_played, 0) as matches_played,
-                                COALESCE(last_active_date, CURRENT_DATE) as last_active_date,
+                                last_active_date,
                                 CASE 
-                                    WHEN COALESCE(last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
+                                    WHEN last_active_date IS NOT NULL AND last_active_date >= CURRENT_DATE - INTERVAL '180 days' THEN 1 
                                     ELSE 0 
                                 END as is_active
                             FROM player_ratings
-                            WHERE team IS NOT NULL AND TRIM(team) != '' AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null')
+                            WHERE COALESCE(matches_played, 0) > 0
+                              AND team IS NOT NULL AND TRIM(team) != ''
+                              AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                         ),
                         ranked_active AS (
                             SELECT 
@@ -3082,14 +3117,12 @@ class PostgresDatabase:
                                 CASE 
                                     WHEN SUM(tm.is_active) <= 0 THEN 0.0
                                     ELSE (
-                                        -- 1. Tri-Anchor Skill Baseline: 0.40 Top 5 Active + 0.40 Entire Active Avg + 0.20 Top Ace
                                         (
                                             0.40 * COALESCE(AVG(CASE WHEN tm.is_active = 1 AND tm.active_rn <= 5 THEN tm.current_elo END), AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END))
                                             + 0.40 * AVG(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
                                             + 0.20 * MAX(CASE WHEN tm.is_active = 1 THEN tm.current_elo END)
                                         )
                                         *
-                                        -- 2. Active Roster Maturity Curve (0.10 to 1.00 at 30 active members)
                                         CASE 
                                             WHEN SUM(tm.is_active) <= 1 THEN 0.10
                                             WHEN SUM(tm.is_active) >= 30 THEN 1.00
@@ -3102,7 +3135,7 @@ class PostgresDatabase:
                         FROM ranked_active tm
                         GROUP BY tm.team_name
                         HAVING COUNT(DISTINCT tm.player_id) >= 1
-                        ORDER BY power_rating DESC;
+                        ORDER BY power_rating DESC, active_avg_elo DESC, top_player_elo DESC, roster_count DESC;
                         """
                         with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
                             cur_safe.execute("SET LOCAL statement_timeout = '15000ms';")
@@ -3118,6 +3151,19 @@ class PostgresDatabase:
             if cached is not None:
                 return cached[0]
             return []
+
+        for idx, r in enumerate(rows, start=1):
+            r["rank"] = idx
+            if r.get("power_rating") is not None:
+                r["power_rating"] = float(r["power_rating"])
+            if r.get("avg_elo") is not None:
+                r["avg_elo"] = float(r["avg_elo"])
+            if r.get("active_avg_elo") is not None:
+                r["active_avg_elo"] = float(r["active_avg_elo"])
+            if r.get("top_player_elo") is not None:
+                r["top_player_elo"] = float(r["top_player_elo"])
+            if r.get("team_win_rate") is not None:
+                r["team_win_rate"] = float(r["team_win_rate"])
 
         PostgresDatabase._all_teams_cache_map[cache_key] = (rows, now)
         if cache_key == "40k":
@@ -3135,13 +3181,15 @@ class PostgresDatabase:
 
         all_teams = self._get_all_teams_list(game_system=game_system)
 
-        filtered = list(all_teams)
+        filtered = [dict(t) for t in all_teams]
         min_roster = int(min_members or 1)
         if min_roster > 1:
             filtered = [
                 t for t in filtered 
                 if int(t.get("active_roster_count") if t.get("active_roster_count") is not None else t.get("roster_count") or 0) >= min_roster
             ]
+            for idx, t in enumerate(filtered, start=1):
+                t["rank"] = idx
 
         if query:
             q = query.strip().lower()
@@ -3153,10 +3201,41 @@ class PostgresDatabase:
         
         if sort_by_col == "team":
             filtered = sorted(filtered, key=lambda x: str(x.get("team") or "").lower(), reverse=not reverse)
-        elif sort_by_col in ("roster_count", "active_roster_count", "total_matches", "total_wins", "total_losses", "total_draws"):
+        elif sort_by_col == "rank":
+            filtered = sorted(filtered, key=lambda x: int(x.get("rank") or 999999), reverse=reverse)
+        elif sort_by_col in ("roster_count", "active_roster_count"):
+            filtered = sorted(
+                filtered,
+                key=lambda x: (
+                    int(x.get("active_roster_count") if x.get("active_roster_count") is not None else x.get("roster_count") or 0),
+                    int(x.get("roster_count") or 0),
+                    float(x.get("power_rating") or 0)
+                ),
+                reverse=reverse
+            )
+        elif sort_by_col in ("avg_elo", "active_avg_elo"):
+            filtered = sorted(
+                filtered,
+                key=lambda x: (
+                    float(x.get("active_avg_elo") if x.get("active_avg_elo") is not None else x.get("avg_elo") or 0),
+                    float(x.get("avg_elo") or 0),
+                    float(x.get("power_rating") or 0)
+                ),
+                reverse=reverse
+            )
+        elif sort_by_col in ("total_matches", "total_wins", "total_losses", "total_draws"):
             filtered = sorted(filtered, key=lambda x: (int(x.get(sort_by_col) or 0), float(x.get("power_rating") or 0)), reverse=reverse)
         else:
-            filtered = sorted(filtered, key=lambda x: (float(x.get(sort_by_col) or 0), int(x.get("roster_count") or 0)), reverse=reverse)
+            filtered = sorted(
+                filtered,
+                key=lambda x: (
+                    float(x.get(sort_by_col) or 0),
+                    float(x.get("active_avg_elo") if x.get("active_avg_elo") is not None else x.get("avg_elo") or 0),
+                    float(x.get("top_player_elo") or 0),
+                    int(x.get("roster_count") or 0)
+                ),
+                reverse=reverse
+            )
 
         total_count = len(filtered)
         items = filtered[offset : offset + page_size]
@@ -3183,19 +3262,44 @@ class PostgresDatabase:
                 try:
                     cursor.execute("""
                     SELECT 
-                        player_id, 
-                        COALESCE(player_name, 'Player') as player_name,
-                        COALESCE(current_elo, 1500.0) as current_elo,
-                        COALESCE(peak_elo, 1500.0) as peak_elo,
-                        COALESCE(top_faction, 'Unknown') as top_faction,
-                        COALESCE(matches_played, 0) as matches_played,
-                        COALESCE(wins, 0) as wins,
-                        COALESCE(losses, 0) as losses,
-                        COALESCE(draws, 0) as draws,
-                        COALESCE(win_rate, 0.0) as win_rate,
-                        COALESCE(last_active_date, CURRENT_DATE) as last_active_date
-                    FROM player_ratings
-                    WHERE TRIM(team) ILIKE %s AND COALESCE(game_system, '40k') = %s
+                        pr.player_id, 
+                        COALESCE(pr.player_name, 'Player') as player_name,
+                        COALESCE(pr.current_elo, 1500.0) as current_elo,
+                        COALESCE(pr.peak_elo, 1500.0) as peak_elo,
+                        COALESCE(pr.top_faction, 'Unknown') as top_faction,
+                        COALESCE(pr.matches_played, 0) as matches_played,
+                        COALESCE(pr.wins, 0) as wins,
+                        COALESCE(pr.losses, 0) as losses,
+                        COALESCE(pr.draws, 0) as draws,
+                        COALESCE(pr.win_rate, 0.0) as win_rate,
+                        pr.last_active_date
+                    FROM player_ratings pr
+                    WHERE COALESCE(pr.matches_played, 0) > 0
+                      AND TRIM(COALESCE(
+                          (
+                              SELECT TRIM(ep.team)
+                              FROM event_participants ep
+                              INNER JOIN events e ON ep.event_id = e.id
+                              WHERE ep.player_id = pr.player_id
+                                AND ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                                AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                                AND COALESCE(e.game_system, '40k') = COALESCE(pr.game_system, '40k')
+                              ORDER BY e.event_date DESC NULLS LAST
+                              LIMIT 1
+                          ),
+                          CASE 
+                              WHEN NOT EXISTS (
+                                  SELECT 1
+                                  FROM event_participants ep2
+                                  INNER JOIN events e2 ON ep2.event_id = e2.id
+                                  WHERE ep2.player_id = pr.player_id
+                                    AND TRIM(ep2.team) = TRIM(pr.team)
+                                    AND COALESCE(e2.game_system, '40k') != COALESCE(pr.game_system, '40k')
+                              ) THEN TRIM(pr.team)
+                              ELSE NULL
+                          END
+                      )) ILIKE %s
+                      AND COALESCE(game_system, '40k') = %s
                     ORDER BY current_elo DESC NULLS LAST;
                     """, (team_name, system))
                     roster = [dict(r) for r in cursor.fetchall()]
@@ -3215,11 +3319,13 @@ class PostgresDatabase:
                             COALESCE(losses, 0) as losses,
                             COALESCE(draws, 0) as draws,
                             COALESCE(win_rate, 0.0) as win_rate,
-                            COALESCE(last_active_date, CURRENT_DATE) as last_active_date
+                            last_active_date
                         FROM player_ratings
-                        WHERE TRIM(team) ILIKE %s
+                        WHERE COALESCE(matches_played, 0) > 0
+                          AND TRIM(team) ILIKE %s
+                          AND COALESCE(game_system, '40k') = %s
                         ORDER BY current_elo DESC NULLS LAST;
-                        """, (team_name,))
+                        """, (team_name, system))
                         roster = [dict(r) for r in cur_safe.fetchall()]
                 if not roster:
                     res = {"team": team_name, "roster": [], "stats": {}, "game_system": system}
@@ -3241,9 +3347,11 @@ class PostgresDatabase:
                 cutoff_date = cutoff_180d.date()
 
                 def _is_active(p):
+                    if int(p.get("matches_played") or 0) <= 0:
+                        return False
                     val = p.get("last_active_date")
                     if val is None:
-                        return True
+                        return False
                     if isinstance(val, datetime):
                         if val.tzinfo is not None:
                             return val >= cutoff_180d
@@ -3255,8 +3363,8 @@ class PostgresDatabase:
                             d = datetime.fromisoformat(val[:10]).date()
                             return d >= cutoff_date
                         except Exception:
-                            return True
-                    return True
+                            return False
+                    return False
 
                 active_roster = [p for p in roster if _is_active(p)]
                 active_count = len(active_roster)
@@ -8174,38 +8282,92 @@ class PostgresDatabase:
                 local_teams = []
                 if all_event_ids:
                     cursor.execute("""
+                        WITH regional_team_members AS (
+                            SELECT DISTINCT ON (ep.player_id, TRIM(COALESCE(
+                                NULLIF(TRIM(ep.team), ''),
+                                CASE 
+                                    WHEN NOT EXISTS (
+                                        SELECT 1 FROM event_participants ep2
+                                        INNER JOIN events e2 ON ep2.event_id = e2.id
+                                        WHERE ep2.player_id = ep.player_id
+                                          AND TRIM(ep2.team) = TRIM(pr.team)
+                                          AND COALESCE(e2.game_system, '40k') != %s
+                                    ) THEN NULLIF(TRIM(pr.team), '')
+                                    ELSE NULL
+                                END
+                            )))
+                                TRIM(COALESCE(
+                                    NULLIF(TRIM(ep.team), ''),
+                                    CASE 
+                                        WHEN NOT EXISTS (
+                                            SELECT 1 FROM event_participants ep2
+                                            INNER JOIN events e2 ON ep2.event_id = e2.id
+                                            WHERE ep2.player_id = ep.player_id
+                                              AND TRIM(ep2.team) = TRIM(pr.team)
+                                              AND COALESCE(e2.game_system, '40k') != %s
+                                        ) THEN NULLIF(TRIM(pr.team), '')
+                                        ELSE NULL
+                                    END
+                                )) as team_name,
+                                ep.player_id,
+                                COALESCE(pr.player_name, ep.full_name, 'Player') as player_name,
+                                COALESCE(pr.current_elo, 1500.0) as current_elo,
+                                COALESCE(pr.wins, 0) as wins,
+                                COALESCE(pr.losses, 0) as losses,
+                                COALESCE(pr.draws, 0) as draws,
+                                COALESCE(pr.matches_played, 0) as matches_played,
+                                ep.event_id
+                            FROM event_participants ep
+                            LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
+                            WHERE ep.event_id = ANY(%s)
+                        ),
+                        valid_members AS (
+                            SELECT 
+                                rtm.*,
+                                ROW_NUMBER() OVER (PARTITION BY rtm.team_name ORDER BY rtm.current_elo DESC) as rn
+                            FROM regional_team_members rtm
+                            WHERE rtm.team_name IS NOT NULL AND rtm.team_name != ''
+                              AND LOWER(rtm.team_name) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
+                        )
                         SELECT 
-                            TRIM(COALESCE(NULLIF(TRIM(ep.team), ''), NULLIF(TRIM(pr.team), ''))) as team_name,
-                            COUNT(DISTINCT ep.player_id) as local_members_count,
-                            ROUND(AVG(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as avg_elo,
-                            ROUND(MAX(COALESCE(pr.current_elo, 1500.0))::numeric, 1) as top_player_elo,
-                            (ARRAY_AGG(COALESCE(pr.player_name, ep.full_name, 'Player') ORDER BY COALESCE(pr.current_elo, 1500.0) DESC))[1] as top_player_name,
-                            (ARRAY_AGG(ep.player_id ORDER BY COALESCE(pr.current_elo, 1500.0) DESC))[1] as top_player_id,
-                            COUNT(DISTINCT ep.event_id) as regional_events_count,
-                            SUM(COALESCE(pr.wins, 0)) as total_wins,
-                            SUM(COALESCE(pr.losses, 0)) as total_losses,
-                            SUM(COALESCE(pr.draws, 0)) as total_draws,
-                            SUM(COALESCE(pr.matches_played, 0)) as total_matches,
+                            vm.team_name,
+                            COUNT(DISTINCT vm.player_id) as local_members_count,
+                            ROUND(AVG(vm.current_elo)::numeric, 1) as avg_elo,
+                            ROUND(MAX(vm.current_elo)::numeric, 1) as top_player_elo,
+                            (ARRAY_AGG(vm.player_name ORDER BY vm.current_elo DESC))[1] as top_player_name,
+                            (ARRAY_AGG(vm.player_id ORDER BY vm.current_elo DESC))[1] as top_player_id,
+                            COUNT(DISTINCT vm.event_id) as regional_events_count,
+                            SUM(vm.wins) as total_wins,
+                            SUM(vm.losses) as total_losses,
+                            SUM(vm.draws) as total_draws,
+                            SUM(vm.matches_played) as total_matches,
                             ROUND((
-                                SUM(COALESCE(pr.wins, 0)) * 100.0 / NULLIF(SUM(COALESCE(pr.matches_played, 0)), 0)
-                            )::numeric, 1) as team_win_rate
-                        FROM event_participants ep
-                        LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
-                        WHERE ep.event_id = ANY(%s)
-                          AND (
-                              (ep.team IS NOT NULL AND TRIM(ep.team) != '' AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-'))
-                              OR
-                              (pr.team IS NOT NULL AND TRIM(pr.team) != '' AND LOWER(TRIM(pr.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-'))
-                          )
-                        GROUP BY TRIM(COALESCE(NULLIF(TRIM(ep.team), ''), NULLIF(TRIM(pr.team), '')))
-                        HAVING COUNT(DISTINCT ep.player_id) >= 1
-                        ORDER BY avg_elo DESC, local_members_count DESC
+                                SUM(vm.wins) * 100.0 / NULLIF(SUM(vm.matches_played), 0)
+                            )::numeric, 1) as team_win_rate,
+                            ROUND((
+                                (
+                                    0.40 * COALESCE(AVG(CASE WHEN vm.rn <= 5 THEN vm.current_elo END), AVG(vm.current_elo))
+                                    + 0.40 * AVG(vm.current_elo)
+                                    + 0.20 * MAX(vm.current_elo)
+                                )
+                                *
+                                CASE 
+                                    WHEN COUNT(DISTINCT vm.player_id) <= 1 THEN 0.10
+                                    WHEN COUNT(DISTINCT vm.player_id) >= 30 THEN 1.00
+                                    ELSE (0.10 + 0.90 * POWER(LOG(COUNT(DISTINCT vm.player_id)::numeric) / LOG(30.0), 0.65))
+                                END
+                            )::numeric, 1) as power_rating
+                        FROM valid_members vm
+                        GROUP BY vm.team_name
+                        HAVING COUNT(DISTINCT vm.player_id) >= 1
+                        ORDER BY power_rating DESC, avg_elo DESC, local_members_count DESC
                         LIMIT 50;
-                    """, (target_sys, all_event_ids,))
+                    """, (target_sys, target_sys, target_sys, all_event_ids,))
                     team_rows = cursor.fetchall()
                     for idx, tr in enumerate(team_rows, start=1):
                         td = dict(tr)
                         td["rank"] = idx
+                        if td.get("power_rating"): td["power_rating"] = float(td["power_rating"])
                         if td.get("avg_elo"): td["avg_elo"] = float(td["avg_elo"])
                         if td.get("top_player_elo"): td["top_player_elo"] = float(td["top_player_elo"])
                         if td.get("team_win_rate"): td["team_win_rate"] = float(td["team_win_rate"])

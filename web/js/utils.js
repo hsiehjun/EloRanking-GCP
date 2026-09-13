@@ -50,6 +50,7 @@ function sortClientArray(arr, field, asc = true) {
 const currentSort = {
   'events': { field: 'event_date', asc: false },
   'teams': { field: 'power_rating', asc: false },
+  'lead-teams': { field: 'power_rating', asc: false },
   'players-dir': { field: 'current_elo', asc: false },
   'factions': { field: 'win_rate', asc: false },
   'player-matches': { field: 'match_date', asc: false },
@@ -80,6 +81,10 @@ function sortTable(tableKey, field) {
   } else if (tableKey === 'teams') {
     if (typeof teamsSortState !== 'undefined') teamsSortState = config;
     loadTeamsDirectory();
+  } else if (tableKey === 'lead-teams') {
+    if (typeof leaderboardTeamsSortState !== 'undefined') leaderboardTeamsSortState = config;
+    if (typeof leaderboardTeamsPagination !== 'undefined') leaderboardTeamsPagination.page = 1;
+    loadLeaderboardTeams();
   } else if (tableKey === 'players-dir') {
     if (typeof playersSortState !== 'undefined') playersSortState = config;
     loadPlayersDirectory();
@@ -120,6 +125,7 @@ function updateHeaderIcons(tableKey, field, asc) {
     'team-roster': 'team-roster-table',
     'events': 'events-table',
     'teams': 'teams-table',
+    'lead-teams': 'lead-teams-table',
     'players-dir': 'players-table',
     'factions': 'faction-meta-table',
     'player-matches': 'player-matches-table',

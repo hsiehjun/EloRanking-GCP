@@ -134,18 +134,19 @@ async def api_players_search(q: str = Query("", min_length=1), limit: int = Quer
 
 # API: Player Profile & Historical Win Path
 @router.get("/api/player/{player_id}", summary="Get player profile, win path, and Elo trajectory")
-async def api_player_profile(player_id: str, request: Request, game_system: Optional[str] = Query("40k")):
+async def api_player_profile(player_id: str, request: Request, game_system: Optional[str] = Query("40k"), name: Optional[str] = Query(None)):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
     session_token = request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     current_user = auth_mgr.get_session(session_token) if session_token else None
 
     pid = player_id.strip()
-    data = get_elo_engine().get_player_win_path(pid, game_system=game_system)
+    data = get_elo_engine().get_player_win_path(pid, game_system=game_system, player_name=name)
 
     # Check if this player is registered on OmniTactica
     db = get_database()
-    user_row = db.get_user_for_player(pid, data.get("player_name"))
+    actual_pid = str(data.get("player_id") or pid)
+    user_row = db.get_user_for_player(actual_pid, data.get("player_name"))
     if user_row:
         data["has_account"] = True
         data["account_user_id"] = user_row["id"]
@@ -714,7 +715,7 @@ async def api_events_recommended(
 
 _active_event_syncs: set = set()
 
-def format_bcp_roster_to_players(raw_players: list, existing_players: list = None, db = None) -> list:
+def format_bcp_roster_to_players(raw_players: list, existing_players: list = None, db = None, game_system: Optional[str] = "40k") -> list:
     """Formats raw BCP competitors preserving exact BCP tournament placing order,
     pulling Elo ratings from player_ratings DB, and official placings strictly from BCP."""
     existing_by_id = {}
@@ -759,6 +760,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
 
     db_ratings_by_id = {}
     db_ratings_by_name = {}
+    target_sys = (game_system or "40k").strip().lower()
     if db and (candidate_pids or candidate_names):
         try:
             with db.get_connection() as conn:
@@ -768,8 +770,9 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                     cursor.execute("""
                         SELECT player_id, player_name, current_elo, peak_elo, win_rate, top_faction, team
                         FROM player_ratings
-                        WHERE player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s));
-                    """, (list(candidate_pids), list(candidate_names)))
+                        WHERE (player_id = ANY(%s) OR (player_name IS NOT NULL AND LOWER(player_name) = ANY(%s)))
+                          AND COALESCE(game_system, '40k') = %s;
+                    """, (list(candidate_pids), list(candidate_names), target_sys))
                     for row in cursor.fetchall():
                         if isinstance(row, dict) or hasattr(row, "keys"):
                             r = dict(row)
@@ -948,12 +951,16 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if not db_rating:
             db_rating = db_ratings_by_name.get(full_name.strip().lower())
 
+        bcp_event_player_id = str(p.get("id") or "")
+        canonical_pid = str(db_rating.get("player_id")) if (db_rating and db_rating.get("player_id")) else None
+
         if cached:
             player_dict = dict(cached)
             player_dict["placement"] = placing_num
             player_dict["official_placement"] = placing_num
             player_dict["rank"] = placing_num
-            player_dict["player_id"] = str(cached.get("player_id") or pid)
+            player_dict["player_id"] = str(canonical_pid or cached.get("player_id") or pid)
+            player_dict["bcp_event_player_id"] = bcp_event_player_id
             if db_rating:
                 player_dict["current_elo"] = float(db_rating.get("current_elo") or player_dict.get("current_elo") or 1500.0)
                 player_dict["peak_elo"] = float(db_rating.get("peak_elo") or player_dict.get("peak_elo") or 1500.0)
@@ -1008,7 +1015,8 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             user_id = str(u.get("id") or p.get("userId") or "")
 
             formatted.append({
-                "player_id": pid,
+                "player_id": canonical_pid or pid,
+                "bcp_event_player_id": bcp_event_player_id,
                 "user_id": user_id,
                 "team_player_id": team_player_id,
                 "teamPlayerId": team_player_id,
@@ -1130,7 +1138,8 @@ async def api_event_details(event_id: str, force_sync: bool = False):
 
         if bcp_players:
             existing_players = event_details.get("players", [])
-            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db)
+            ev_gs = event_details.get("game_system") or "40k"
+            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db, game_system=ev_gs)
             event_details["players"] = formatted_players
             event_details["total_players"] = len(formatted_players)
             elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]
@@ -1248,7 +1257,18 @@ async def api_event_details(event_id: str, force_sync: bool = False):
             if not has_db_matches or not is_ended or force_sync:
                 live_matches = []
                 players_list = event_details.get("players") or []
-                player_by_id = {str(p.get("id") or p.get("player_id")): p for p in players_list}
+                player_by_id = {}
+                player_by_name = {}
+                for pl in players_list:
+                    if not isinstance(pl, dict):
+                        continue
+                    for k in ("player_id", "id", "bcp_event_player_id", "user_id"):
+                        val = pl.get(k)
+                        if val:
+                            player_by_id[str(val)] = pl
+                    pname = str(pl.get("full_name") or pl.get("name") or "").strip().lower()
+                    if pname:
+                        player_by_name[pname] = pl
 
                 existing_matches_map = {}
                 for em in (event_details.get("matches") or []):
@@ -1292,19 +1312,35 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             u1 = p1.get("user") if isinstance(p1.get("user"), dict) else {}
                             u2 = p2.get("user") if isinstance(p2.get("user"), dict) else {}
 
-                            p1_id = str(p1.get("id") or p.get("player1Id") or u1.get("id") or "")
-                            p2_id = str(p2.get("id") or p.get("player2Id") or u2.get("id") or "")
-
-                            p1_reg = player_by_id.get(p1_id) or {}
-                            p2_reg = player_by_id.get(p2_id) or {}
-
                             p1_first = u1.get("firstName") or p1.get("firstName") or ""
                             p1_last = u1.get("lastName") or p1.get("lastName") or ""
-                            p1_name = p1.get("name") or f"{p1_first} {p1_last}".strip() or p1_reg.get("full_name") or p1_reg.get("name") or "Player 1"
+                            p1_raw_name = p1.get("name") or f"{p1_first} {p1_last}".strip()
 
                             p2_first = u2.get("firstName") or p2.get("firstName") or ""
                             p2_last = u2.get("lastName") or p2.get("lastName") or ""
-                            p2_name = p2.get("name") or f"{p2_first} {p2_last}".strip() or p2_reg.get("full_name") or p2_reg.get("name") or ("Player 2" if p2_id else "BYE")
+                            p2_raw_name = p2.get("name") or f"{p2_first} {p2_last}".strip()
+
+                            p1_reg = {}
+                            for cand in (u1.get("id"), p1.get("userId"), p1.get("id"), p.get("player1Id")):
+                                if cand and str(cand) in player_by_id:
+                                    p1_reg = player_by_id[str(cand)]
+                                    break
+                            if not p1_reg and p1_raw_name:
+                                p1_reg = player_by_name.get(p1_raw_name.lower(), {})
+
+                            p2_reg = {}
+                            for cand in (u2.get("id"), p2.get("userId"), p2.get("id"), p.get("player2Id")):
+                                if cand and str(cand) in player_by_id:
+                                    p2_reg = player_by_id[str(cand)]
+                                    break
+                            if not p2_reg and p2_raw_name:
+                                p2_reg = player_by_name.get(p2_raw_name.lower(), {})
+
+                            p1_id = str(p1_reg.get("player_id") or u1.get("id") or p1.get("userId") or p1.get("id") or p.get("player1Id") or "")
+                            p2_id = str(p2_reg.get("player_id") or u2.get("id") or p2.get("userId") or p2.get("id") or p.get("player2Id") or "")
+
+                            p1_name = p1_raw_name or p1_reg.get("full_name") or p1_reg.get("name") or "Player 1"
+                            p2_name = p2_raw_name or p2_reg.get("full_name") or p2_reg.get("name") or ("Player 2" if p2_id else "BYE")
 
                             p1_fac = p1.get("army") or p1.get("faction") or p1_reg.get("faction") or ""
                             if isinstance(p1_fac, dict): p1_fac = p1_fac.get("name") or ""

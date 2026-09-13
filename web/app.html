@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=fa7bd3c737">
-  <link rel="stylesheet" href="/css/styles.css?v=fa7bd3c737">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=fa7bd3c737">
+  <link rel="stylesheet" href="/css/theme.css?v=3c1219ecad">
+  <link rel="stylesheet" href="/css/styles.css?v=3c1219ecad">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=3c1219ecad">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -525,17 +525,17 @@
           <table id="lead-teams-table">
             <thead>
               <tr>
-                <th>Rank</th>
-                <th>Team / Gaming Club</th>
-                <th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'rank')">Rank</th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'team')">Team / Gaming Club</th>
+                <th class="sortable sorted-desc" onclick="sortTable('lead-teams', 'power_rating')">
                   Team Power Rating
                   <button class="info-circle-btn" onclick="openPowerRatingInfoModal(event)" title="How Team Power Rating is computed" aria-label="Team Power Rating explanation">ⓘ</button>
                 </th>
-                <th>Avg Elo</th>
-                <th>Top Rated Player</th>
-                <th>Roster</th>
-                <th>Total Record (W-L-D)</th>
-                <th>Win Rate</th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'avg_elo')">Avg Elo</th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'top_player_elo')">Top Rated Player</th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'roster_count')">Roster</th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'total_matches')">Total Record (W-L-D)</th>
+                <th class="sortable" onclick="sortTable('lead-teams', 'team_win_rate')">Win Rate</th>
               </tr>
             </thead>
             <tbody id="lead-teams-body">
@@ -2778,8 +2778,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "fa7bd3c737";</script>
-  <script src="/js/app.bundle.min.js?v=fa7bd3c737"></script>
+  <script>window.APP_VERSION = "3c1219ecad";</script>
+  <script src="/js/app.bundle.min.js?v=3c1219ecad"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
