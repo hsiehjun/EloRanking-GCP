@@ -815,8 +815,27 @@ function renderCommunityEvents() {
     setSubtabLoaderIfEmpty(container, getCommunitySubtabLoaderHtml('tournaments'));
     return;
   }
-  const upcoming = overview.events_upcoming || [];
-  const recent = overview.events_recent || [];
+  const rawUpcoming = overview.events_upcoming || [];
+  const rawRecent = overview.events_recent || [];
+
+  const upcoming = [];
+  const endedFromUpcoming = [];
+  rawUpcoming.forEach(ev => {
+    if (isTournamentEnded(ev)) {
+      endedFromUpcoming.push(ev);
+    } else {
+      upcoming.push(ev);
+    }
+  });
+
+  const seenRecentIds = new Set(rawRecent.map(e => e.id).filter(Boolean));
+  const recent = [...rawRecent];
+  endedFromUpcoming.forEach(ev => {
+    if (ev.id && !seenRecentIds.has(ev.id)) {
+      seenRecentIds.add(ev.id);
+      recent.unshift(ev);
+    }
+  });
 
   let displayedUpcoming = upcoming;
   let displayedRecent = recent;
@@ -969,7 +988,114 @@ function renderCommunityEvents() {
   }
 }
 
-function renderTournamentCard(ev, isUpcoming, userElo) {
+function getLocalIsoDateStr(d = new Date()) {
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${da}`;
+}
+
+function isTournamentEnded(ev) {
+  if (!ev) return false;
+  if (
+    ev.is_ended === true ||
+    ev.isEnded === true ||
+    ev.ended === true ||
+    ev.status?.ended === true ||
+    ev.status?.isEnded === true ||
+    ev.status === 'ended' ||
+    ev.status === 'completed' ||
+    ev.raw_json?.isEnded === true ||
+    ev.raw_json?.ended === true ||
+    ev.raw_json?.status?.ended === true
+  ) {
+    return true;
+  }
+  const todayStr = getLocalIsoDateStr();
+  const rawEnd = ev.end_date || ev.endDate || ev.raw_json?.endDate || '';
+  const endDateStr = String(rawEnd).slice(0, 10);
+  if (endDateStr && endDateStr < todayStr) {
+    return true;
+  }
+  const rawStart = ev.event_date || ev.eventDate || ev.start_date || ev.startDate || '';
+  const startDateStr = String(rawStart).slice(0, 10);
+  if (!endDateStr && startDateStr) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = getLocalIsoDateStr(yesterday);
+    if (startDateStr < yesterdayStr) {
+      return true;
+    }
+    const numRounds = Number(ev.num_rounds || ev.numberOfRounds || ev.raw_json?.numberOfRounds || 0);
+    if (startDateStr < todayStr && numRounds > 0 && numRounds <= 3) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isTournamentOngoing(ev) {
+  if (!ev || isTournamentEnded(ev)) return false;
+  if (
+    ev.is_started === true ||
+    ev.isStarted === true ||
+    ev.started === true ||
+    ev.is_ongoing === true ||
+    ev.active === true ||
+    ev.isActive === true ||
+    ev.status?.started === true ||
+    ev.status?.isStarted === true ||
+    ev.status?.active === true ||
+    ev.status === 'ongoing' ||
+    ev.status === 'in_progress' ||
+    ev.status === 'live' ||
+    ev.status === 'active' ||
+    ev.raw_json?.started === true ||
+    ev.raw_json?.isStarted === true ||
+    ev.raw_json?.active === true ||
+    ev.raw_json?.status?.started === true ||
+    ev.raw_json?.status?.active === true
+  ) {
+    return true;
+  }
+  const currentRound = Number(
+    ev.current_round || ev.currentRound || ev.activeRound ||
+    ev.raw_json?.currentRound || ev.raw_json?.current_round || 0
+  );
+  if (currentRound >= 1) {
+    return true;
+  }
+  const matchesCount = Number(ev.matches_count || ev.total_matches || 0);
+  if (matchesCount > 0 || (Array.isArray(ev.matches) && ev.matches.length > 0)) {
+    return true;
+  }
+  const todayStr = getLocalIsoDateStr();
+  const rawStart = ev.event_date || ev.eventDate || ev.start_date || ev.startDate || '';
+  const startDateStr = String(rawStart).slice(0, 10);
+  if (startDateStr) {
+    if (startDateStr < todayStr) {
+      return true;
+    }
+    if (startDateStr === todayStr) {
+      const sStr = String(rawStart);
+      if (sStr.includes('T') && !sStr.endsWith('T00:00:00.000Z') && !sStr.endsWith('T00:00:00Z') && !sStr.endsWith('T00:00:00')) {
+        const startMs = new Date(sStr).getTime();
+        if (!isNaN(startMs) && Date.now() >= startMs) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+window.isTournamentEnded = isTournamentEnded;
+window.isTournamentOngoing = isTournamentOngoing;
+
+function renderTournamentCard(ev, isUpcomingSection, userElo) {
+  const isEnded = isTournamentEnded(ev) || !isUpcomingSection;
+  const isOngoing = !isEnded && isTournamentOngoing(ev);
+  const isRegistrationOpen = isUpcomingSection && !isEnded && !isOngoing;
+
   const dateStr = ev.event_date ? ev.event_date.slice(0, 10) : 'TBD';
   const loc = [ev.venue, ev.city, ev.state].filter(Boolean).join(', ') || 'Unspecified Location';
   const fieldAvg = ev.avg_field_elo ? Math.round(Number(ev.avg_field_elo)) : null;
@@ -997,12 +1123,50 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
   if (ticketPrice >= 100) ticketPrice = ticketPrice / 100;
   const usingOnlineReg = ev.using_online_reg !== false;
   const externalUrl = ev.external_url || null;
-  const hasPrimaryGetTickets = isUpcoming && !isRegistered && !isSoldOut && !usingOnlineReg && Boolean(externalUrl);
+  const hasPrimaryGetTickets = isRegistrationOpen && !isRegistered && !isSoldOut && !usingOnlineReg && Boolean(externalUrl);
+  const currentRound = Number(ev.current_round || ev.currentRound || 0);
+
+  let statusBadgeHtml = '';
+  if (isOngoing) {
+    const roundLabel = currentRound > 0 ? `🔥 Round ${currentRound} Live` : '🔥 Live • In Progress';
+    statusBadgeHtml = `
+      <span class="badge" style="background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); font-size: 0.7rem; font-weight: 800;">
+        ${roundLabel}
+      </span>
+    `;
+  } else if (!isEnded) {
+    statusBadgeHtml = `
+      <span class="badge" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 0.7rem;">
+        ⚡ Upcoming
+      </span>
+    `;
+  } else {
+    statusBadgeHtml = `
+      <span class="badge" style="background: rgba(148,163,184,0.12); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.25); font-size: 0.7rem;">
+        ✓ Completed
+      </span>
+    `;
+  }
+
+  let fieldAvgFallbackHtml = '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>';
+  if (isRegistrationOpen) {
+    if (ev.total_players > 0) {
+      fieldAvgFallbackHtml = `<span class="field-avg-computing" style="color: #38bdf8; font-weight: 600; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;"><span class="spinner-mini" style="display: inline-block; width: 9px; height: 9px; border: 1.5px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span><span>Computing Field...</span></span>`;
+    } else {
+      fieldAvgFallbackHtml = '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>';
+    }
+  } else if (isOngoing) {
+    if (ev.total_players > 0) {
+      fieldAvgFallbackHtml = `<span class="field-avg-computing" style="color: #38bdf8; font-weight: 600; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;"><span class="spinner-mini" style="display: inline-block; width: 9px; height: 9px; border: 1.5px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span><span>Computing Field...</span></span>`;
+    } else {
+      fieldAvgFallbackHtml = '<span style="color: #f59e0b; font-weight: 600; font-size: 0.78rem;">In Progress</span>';
+    }
+  }
 
   return `
     <div class="comm-event-card">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.6rem;">
-        <span class="badge" style="background: ${isUpcoming ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${isUpcoming ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${isUpcoming ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.1)'}; font-size: 0.72rem; font-family: monospace;">
+        <span class="badge" style="background: ${!isEnded ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)'}; color: ${!isEnded ? '#38bdf8' : '#94a3b8'}; border: 1px solid ${!isEnded ? 'rgba(56,189,248,0.3)' : 'rgba(255,255,255,0.1)'}; font-size: 0.72rem; font-family: monospace;">
           📅 ${escapeHtml(dateStr)}
         </span>
         <div style="display: flex; gap: 4px; align-items: center;">
@@ -1011,9 +1175,7 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
               🚗 ${distance} mi
             </span>
           ` : ''}
-          <span class="badge" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 0.7rem;">
-            ${isUpcoming ? '⚡ Upcoming' : '✓ Completed'}
-          </span>
+          ${statusBadgeHtml}
         </div>
       </div>
 
@@ -1031,7 +1193,7 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; gap: 6px;">
           <span style="color: #94a3b8; white-space: nowrap;">⭐ Field Avg:</span>
           <span id="field-avg-${escapeHtml(ev.id)}" style="font-weight: 800; color: #fff; font-family: monospace; white-space: nowrap;">
-            ${fieldAvg ? `${fieldAvg} Elo ${deltaMarkup}` : (isUpcoming ? (ev.total_players > 0 ? `<span class="field-avg-computing" style="color: #38bdf8; font-weight: 600; font-size: 0.76rem; display: inline-flex; align-items: center; gap: 4px;"><span class="spinner-mini" style="display: inline-block; width: 9px; height: 9px; border: 1.5px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite;"></span><span>Computing Field...</span></span>` : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>') : '<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>')}
+            ${fieldAvg ? `${fieldAvg} Elo ${deltaMarkup}` : fieldAvgFallbackHtml}
           </span>
         </div>
         <div id="top-seed-container-${escapeHtml(ev.id)}" style="${topSeed ? '' : 'display: none;'}">
@@ -1048,7 +1210,7 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
 
       <!-- Actions -->
       <div style="margin-top: auto; display: flex; flex-direction: column;">
-        ${isUpcoming ? (() => {
+        ${isRegistrationOpen ? (() => {
           if (isRegistered) {
             return `
               <button class="btn" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); cursor: default; margin-bottom: 0.45rem;">
@@ -1088,10 +1250,24 @@ function renderTournamentCard(ev, isUpcoming, userElo) {
               </button>
             `;
           }
-        })() : ''}
+        })() : (isOngoing ? (() => {
+          if (isRegistered) {
+            return `
+              <button class="btn" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); cursor: default; margin-bottom: 0.45rem;">
+                ✅ Registered • Playing
+              </button>
+            `;
+          } else {
+            return `
+              <button class="btn btn-secondary" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); cursor: not-allowed; margin-bottom: 0.45rem;" title="Tournament has already started — registration is closed">
+                🔒 Registration Closed • In Progress
+              </button>
+            `;
+          }
+        })() : '')}
         <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false)">
-            📋 ${isUpcoming ? 'Roster & Details' : 'Results & Placings'}
+          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false${isOngoing ? ", 'matches'" : ''})">
+            ${isOngoing ? '⚔️ Live Pairings & Standings' : (isEnded ? '📋 Results & Placings' : '📋 Roster & Details')}
           </button>
           <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">
             🔗 BCP
@@ -1162,7 +1338,14 @@ async function hydrateUpcomingFieldStats(eventIds, userElo) {
         } else if (data.total_enrolled > 0) {
           avgEl.innerHTML = `<span style="color: #94a3b8; font-weight: 600; font-size: 0.78rem;">Provisional Field (${data.total_enrolled} ${data.total_enrolled === 1 ? 'player' : 'players'})</span>`;
         } else {
-          avgEl.innerHTML = `<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>`;
+          const evObj = (communityState.overview?.events_upcoming || []).find(e => String(e.id) === String(eid));
+          if (evObj && isTournamentOngoing(evObj)) {
+            avgEl.innerHTML = `<span style="color: #f59e0b; font-weight: 600; font-size: 0.78rem;">In Progress</span>`;
+          } else if (evObj && isTournamentEnded(evObj)) {
+            avgEl.innerHTML = `<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Unrated Field</span>`;
+          } else {
+            avgEl.innerHTML = `<span style="color: #64748b; font-weight: 500; font-size: 0.78rem;">Registration Open</span>`;
+          }
         }
       }
 
@@ -1227,6 +1410,14 @@ async function fetchAndMergeBcpUpcoming(lat, lng, radiusMiles) {
           }
           if (bEv.current_round && bEv.current_round !== cur.current_round) {
             cur.current_round = bEv.current_round;
+            updated = true;
+          }
+          if (bEv.is_started && !cur.is_started) {
+            cur.is_started = true;
+            updated = true;
+          }
+          if (bEv.is_ended && !cur.is_ended) {
+            cur.is_ended = true;
             updated = true;
           }
           if (bEv.distance_miles != null && cur.distance_miles == null) {
@@ -2929,11 +3120,34 @@ function renderStoreTournamentsModalList(tournaments) {
   let html = '';
   tournaments.forEach(ev => {
     const dateStr = ev.event_date ? ev.event_date.slice(0, 10) : 'Date TBD';
-    const isEnded = ev.is_ended || (ev.event_date && new Date(ev.event_date) < new Date());
+    const isEnded = isTournamentEnded(ev);
+    const isOngoing = !isEnded && isTournamentOngoing(ev);
     const winnerName = ev.winner_name;
     const winnerFaction = ev.winner_faction;
     const totalPlayers = ev.total_players || 0;
     const numRounds = ev.num_rounds || 0;
+    const currentRound = Number(ev.current_round || ev.currentRound || 0);
+
+    let storeBadgeHtml = '';
+    if (isOngoing) {
+      storeBadgeHtml = `
+        <span class="badge" style="background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.35); font-size: 0.7rem; font-weight: 800;">
+          ${currentRound > 0 ? `🔥 Round ${currentRound} Live` : '🔥 Live • In Progress'}
+        </span>
+      `;
+    } else if (isEnded) {
+      storeBadgeHtml = `
+        <span class="badge" style="background: rgba(16,185,129,0.1); color: #10b981; border: 1px solid rgba(16,185,129,0.25); font-size: 0.7rem; font-weight: 700;">
+          ✓ Completed
+        </span>
+      `;
+    } else {
+      storeBadgeHtml = `
+        <span class="badge" style="background: rgba(56,189,248,0.1); color: #38bdf8; border: 1px solid rgba(56,189,248,0.25); font-size: 0.7rem; font-weight: 700;">
+          ⚡ Upcoming
+        </span>
+      `;
+    }
 
     html += `
       <div class="comm-store-tourney-card" style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 0.9rem 1.15rem; transition: all 0.2s;" onmouseover="this.style.borderColor='rgba(56,189,248,0.4)'; this.style.background='rgba(15,23,42,0.85)';" onmouseout="this.style.borderColor='rgba(255,255,255,0.08)'; this.style.background='rgba(15,23,42,0.6)';">
@@ -2943,9 +3157,7 @@ function renderStoreTournamentsModalList(tournaments) {
             📅 ${escapeHtml(dateStr)}
           </span>
           <div style="display: flex; gap: 6px; align-items: center;">
-            <span class="badge" style="background: ${isEnded ? 'rgba(16,185,129,0.1)' : 'rgba(56,189,248,0.1)'}; color: ${isEnded ? '#10b981' : '#38bdf8'}; border: 1px solid ${isEnded ? 'rgba(16,185,129,0.25)' : 'rgba(56,189,248,0.25)'}; font-size: 0.7rem; font-weight: 700;">
-              ${isEnded ? '✓ Completed' : '⚡ Upcoming'}
-            </span>
+            ${storeBadgeHtml}
             <span class="badge" style="background: rgba(148,163,184,0.1); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.2); font-size: 0.7rem;">
               ${escapeHtml(ev.event_type || 'Singles')}
             </span>
@@ -3462,6 +3674,17 @@ window.syncRegistrationFullName = syncRegistrationFullName;
         statusEl.textContent = '✓ You are registered for this tournament. Updating details will sync to your roster.';
       }
       if (submitBtn) submitBtn.textContent = 'Update Registration Details';
+    } else if (data.is_started || data.is_ongoing || data.is_ended || isTournamentOngoing(data) || isTournamentEnded(data)) {
+      if (statusEl) {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = '🔒 Registration is closed because this tournament has already started or concluded.';
+      }
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Registration Closed (In Progress)';
+      }
     }
 
     // Data is completely populated - now reveal registration modal smoothly
@@ -3578,13 +3801,34 @@ async function submitEventRegistration() {
 
   const eventId = activeRegistrationEvent.event_id || activeRegistrationEvent.id;
   const submitBtn = document.getElementById('event-reg-submit-btn');
+  const statusEl = document.getElementById('event-reg-status');
+
+  if (!activeRegistrationEvent.is_registered && (
+    activeRegistrationEvent.is_started ||
+    activeRegistrationEvent.is_ongoing ||
+    activeRegistrationEvent.is_ended ||
+    isTournamentOngoing(activeRegistrationEvent) ||
+    isTournamentEnded(activeRegistrationEvent)
+  )) {
+    if (statusEl) {
+      statusEl.style.display = 'block';
+      statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = '🔒 Registration is closed because this tournament has already started or concluded.';
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Registration Closed (In Progress)';
+    }
+    return;
+  }
+
   const nameInput = document.getElementById('event-reg-name');
   const emailInput = document.getElementById('event-reg-email');
   const factionSelect = document.getElementById('event-reg-faction');
   const detachmentSelect = document.getElementById('event-reg-detachment');
   const armyListInput = document.getElementById('event-reg-army-list');
   const savedListSelect = document.getElementById('event-reg-saved-list');
-  const statusEl = document.getElementById('event-reg-status');
   const firstNameInput = document.getElementById('event-reg-first-name');
   const lastNameInput = document.getElementById('event-reg-last-name');
   const teamInput = document.getElementById('event-reg-team');

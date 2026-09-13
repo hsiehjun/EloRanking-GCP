@@ -19,6 +19,7 @@ Verifies:
 
 import sys
 import json
+import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -877,6 +878,85 @@ def test_optional_fields_faction_disposition_list_and_bcp_sync():
     print("✅ Optional registration fields strictly restricted to Faction, Disposition & List, and BCP sync verified!")
 
 
+def test_ongoing_and_ended_tournaments_block_registration():
+    """Verify ongoing and ended tournaments block registration on both backend and frontend Community Hub."""
+    import asyncio
+    from routers.community import _check_tournament_started_or_ended, api_community_event_registration, api_community_event_register, CommunityEventRegisterPayload
+    from core import HTTPException
+    from datetime import datetime, timezone, timedelta
+
+    now_utc = datetime.now(timezone.utc)
+    future_date = (now_utc + timedelta(days=7)).strftime("%Y-%m-%dT13:00:00.000Z")
+    yesterday_date = (now_utc - timedelta(days=1)).strftime("%Y-%m-%dT13:00:00.000Z")
+
+    # 1. Helper unit checks
+    assert _check_tournament_started_or_ended({"event_date": future_date, "current_round": 0}) == (False, False)
+    assert _check_tournament_started_or_ended({"event_date": future_date, "current_round": 1}) == (True, False)
+    assert _check_tournament_started_or_ended({"event_date": yesterday_date, "current_round": 0}) == (True, False)
+    assert _check_tournament_started_or_ended({"event_date": future_date, "is_ended": True}) == (True, True)
+
+    # 2. Backend GET /registration and POST /register checks for ongoing event
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "user_999", "email": "new@player.com", "name": "New Player"}
+    mock_db.get_user_registered_tournaments.return_value = []
+    mock_db.get_user_army_lists.return_value = []
+    mock_db.get_event_details.return_value = {
+        "id": "bcp_ongoing_gt",
+        "name": "Ongoing Major GT",
+        "event_date": yesterday_date,
+        "using_online_reg": True,
+        "ticket_price": 0.0,
+        "num_tickets": 64,
+        "total_players": 40,
+        "current_round": 3,
+        "is_ended": False
+    }
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer test_tok"}
+    mock_req.cookies = {}
+
+    with patch("routers.community.get_database", return_value=mock_db), \
+         patch("routers.community.get_auth_manager", return_value=mock_auth):
+        reg_info = asyncio.run(api_community_event_registration("bcp_ongoing_gt", mock_req))
+        assert reg_info["is_started"] is True
+        assert reg_info["is_ongoing"] is True
+        assert reg_info["can_register_free"] is False
+        assert reg_info["can_buy_ticket"] is False
+
+        # POST /register must reject registration attempt with 400
+        payload = CommunityEventRegisterPayload(first_name="New", last_name="Player", email="new@player.com")
+        try:
+            asyncio.run(api_community_event_register("bcp_ongoing_gt", payload, mock_req))
+            assert False, "Expected HTTPException when registering for ongoing tournament"
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "already started or concluded" in exc.detail
+
+    # 3. Frontend JS verification
+    comm_js = Path("web/js/community.js").read_text(encoding="utf-8")
+    assert "function isTournamentOngoing(" in comm_js
+    assert "function isTournamentEnded(" in comm_js
+    assert "const isRegistrationOpen = isUpcomingSection && !isEnded && !isOngoing;" in comm_js
+    assert "🔒 Registration Closed • In Progress" in comm_js
+    assert "⚔️ Live Pairings & Standings" in comm_js
+    print("✅ Ongoing and ended tournaments block registration verified!")
+
+
+class CommunityRegistrationTestSuite(unittest.TestCase):
+    def test_all_flows(self):
+        test_database_upcoming_events_normalization()
+        test_database_add_user_registered_tournament()
+        test_bcp_adapter_unauthenticated_and_system_id()
+        test_community_registration_endpoints()
+        test_frontend_card_and_modal_integrity()
+        test_community_sql_cte_column_integrity_and_error_handling()
+        test_streamlined_registration_fields_and_unauth_fallback()
+        test_access_code_registration_support()
+        test_optional_fields_faction_disposition_list_and_bcp_sync()
+        test_ongoing_and_ended_tournaments_block_registration()
+
+
 if __name__ == "__main__":
     print("🚀 Running Community Registration Automated Test Suite...")
     test_database_upcoming_events_normalization()
@@ -888,4 +968,5 @@ if __name__ == "__main__":
     test_streamlined_registration_fields_and_unauth_fallback()
     test_access_code_registration_support()
     test_optional_fields_faction_disposition_list_and_bcp_sync()
+    test_ongoing_and_ended_tournaments_block_registration()
     print("\n🎉 ALL COMMUNITY REGISTRATION FLOW TESTS PASSED SUCCESSFULLY!")

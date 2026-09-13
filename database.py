@@ -7357,7 +7357,33 @@ class PostgresDatabase:
             except (ValueError, TypeError):
                 current_round = 0
 
-            is_ended = bool(ev.get("isEnded") or ev.get("is_ended") or False)
+            status_obj = ev.get("status") if isinstance(ev.get("status"), dict) else {}
+            is_ended = bool(
+                ev.get("isEnded") or ev.get("is_ended") or ev.get("ended") or
+                status_obj.get("ended") or status_obj.get("isEnded") or False
+            )
+            today_utc_str = now_utc.strftime("%Y-%m-%d")
+            ev_date_str = str(event_date or "")[:10]
+            end_date_str = str(end_date or "")[:10]
+            if end_date_str and end_date_str < today_utc_str:
+                is_ended = True
+
+            is_started = bool(
+                is_ended or
+                ev.get("isStarted") or ev.get("is_started") or ev.get("started") or
+                ev.get("active") or ev.get("isActive") or
+                status_obj.get("started") or status_obj.get("isStarted") or status_obj.get("active") or
+                current_round >= 1 or
+                (ev_date_str and ev_date_str < today_utc_str)
+            )
+            if not is_started and event_date and "T" in str(event_date) and not str(event_date).endswith("T00:00:00.000Z") and not str(event_date).endswith("T00:00:00Z"):
+                try:
+                    dt_parsed = datetime.fromisoformat(str(event_date).replace("Z", "+00:00"))
+                    if dt_parsed <= now_utc:
+                        is_started = True
+                except Exception:
+                    pass
+
             circuits = ev.get("circuits") or []
 
             using_online_reg = bool(ev.get("usingOnlineReg", ev.get("using_online_reg", True)))
@@ -7387,6 +7413,7 @@ class PostgresDatabase:
                 "total_players": total_players,
                 "num_rounds": num_rounds,
                 "current_round": current_round,
+                "is_started": is_started,
                 "is_ended": is_ended,
                 "circuits": circuits,
                 "distance_miles": dist_miles,
@@ -7742,6 +7769,8 @@ class PostgresDatabase:
                 events_recent_all = [dict(r) for r in all_event_rows if r.get("event_group") == "recent"]
                 events_recent = events_recent_all[:25]
 
+                now_utc_ov = datetime.now(timezone.utc)
+                today_utc_ov_str = now_utc_ov.strftime("%Y-%m-%d")
                 for db_ev in events_upcoming_db:
                     raw_val = db_ev.get("raw_json")
                     if isinstance(raw_val, str):
@@ -7753,6 +7782,29 @@ class PostgresDatabase:
                         rj = raw_val
                     else:
                         rj = {}
+                    status_obj = rj.get("status") if isinstance(rj.get("status"), dict) else {}
+                    ev_dt_val = db_ev.get("event_date") or rj.get("eventDate") or rj.get("event_date")
+                    end_dt_val = db_ev.get("end_date") or rj.get("endDate") or rj.get("end_date")
+                    ev_dt_str = (ev_dt_val.isoformat() if hasattr(ev_dt_val, "isoformat") else str(ev_dt_val or ""))[:10]
+                    end_dt_str = (end_dt_val.isoformat() if hasattr(end_dt_val, "isoformat") else str(end_dt_val or ""))[:10]
+                    c_round = int(db_ev.get("current_round") or rj.get("currentRound") or 0)
+                    is_ended_val = bool(
+                        db_ev.get("is_ended") or
+                        rj.get("isEnded") or rj.get("is_ended") or rj.get("ended") or
+                        status_obj.get("ended") or status_obj.get("isEnded") or
+                        (end_dt_str and end_dt_str < today_utc_ov_str)
+                    )
+                    db_ev["is_ended"] = is_ended_val
+                    is_started_val = bool(
+                        is_ended_val or
+                        db_ev.get("is_started") or
+                        rj.get("isStarted") or rj.get("is_started") or rj.get("started") or
+                        rj.get("active") or rj.get("isActive") or
+                        status_obj.get("started") or status_obj.get("isStarted") or status_obj.get("active") or
+                        c_round >= 1 or
+                        (ev_dt_str and ev_dt_str < today_utc_ov_str)
+                    )
+                    db_ev.setdefault("is_started", is_started_val)
                     db_ev.setdefault("using_online_reg", bool(rj.get("usingOnlineReg", rj.get("using_online_reg", True))))
                     t_price = 0.0
                     try:
@@ -7818,6 +7870,8 @@ class PostgresDatabase:
                             combined["total_players"] = b_ev["total_players"]
                         if b_ev.get("current_round"):
                             combined["current_round"] = b_ev["current_round"]
+                        if b_ev.get("is_started"):
+                            combined["is_started"] = True
                         if b_ev.get("is_ended"):
                             combined["is_ended"] = b_ev["is_ended"]
                         if combined.get("distance_miles") is None and b_ev.get("distance_miles") is not None:

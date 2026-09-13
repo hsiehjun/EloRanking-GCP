@@ -438,6 +438,64 @@ class DropPlayerPayload(BaseModel):
     player_id: Optional[str] = None
 
 
+def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str, Any]] = None) -> Tuple[bool, bool]:
+    """Returns (is_started, is_ended) for a tournament based on status flags, round count, and event dates."""
+    if rj is None:
+        raw_val = ev.get("raw_json")
+        if isinstance(raw_val, dict):
+            rj = raw_val
+        elif isinstance(raw_val, str):
+            try:
+                rj = json.loads(raw_val)
+            except Exception:
+                rj = {}
+        else:
+            rj = {}
+    status_obj = ev.get("status") if isinstance(ev.get("status"), dict) else (rj.get("status") if isinstance(rj.get("status"), dict) else {})
+    now_utc = datetime.now(timezone.utc)
+    today_utc_str = now_utc.strftime("%Y-%m-%d")
+
+    ev_date_val = ev.get("event_date") or ev.get("eventDate") or rj.get("eventDate") or rj.get("startDate")
+    end_date_val = ev.get("end_date") or ev.get("endDate") or rj.get("endDate")
+    ev_date_str = (ev_date_val.isoformat() if hasattr(ev_date_val, "isoformat") else str(ev_date_val or ""))[:10]
+    end_date_str = (end_date_val.isoformat() if hasattr(end_date_val, "isoformat") else str(end_date_val or ""))[:10]
+
+    is_ended = bool(
+        ev.get("is_ended") or ev.get("isEnded") or ev.get("ended") or
+        rj.get("isEnded") or rj.get("is_ended") or rj.get("ended") or
+        status_obj.get("ended") or status_obj.get("isEnded") or
+        (end_date_str and end_date_str < today_utc_str)
+    )
+
+    c_round = 0
+    try:
+        c_round = int(ev.get("current_round") or ev.get("currentRound") or rj.get("currentRound") or 0)
+    except (ValueError, TypeError):
+        c_round = 0
+
+    is_started = bool(
+        is_ended or
+        ev.get("is_started") or ev.get("isStarted") or ev.get("started") or
+        ev.get("active") or ev.get("isActive") or
+        rj.get("isStarted") or rj.get("is_started") or rj.get("started") or
+        rj.get("active") or rj.get("isActive") or
+        status_obj.get("started") or status_obj.get("isStarted") or status_obj.get("active") or
+        c_round >= 1 or
+        (ev_date_str and ev_date_str < today_utc_str)
+    )
+    if not is_started and ev_date_val:
+        raw_s = ev_date_val.isoformat() if hasattr(ev_date_val, "isoformat") else str(ev_date_val)
+        if "T" in raw_s and not raw_s.endswith("T00:00:00.000Z") and not raw_s.endswith("T00:00:00Z"):
+            try:
+                dt_parsed = datetime.fromisoformat(raw_s.replace("Z", "+00:00"))
+                if dt_parsed <= now_utc:
+                    is_started = True
+            except Exception:
+                pass
+
+    return is_started, is_ended
+
+
 @router.get("/api/community/events/{event_id}/registration", summary="Get Event Registration Metadata, User Status & Saved Army Lists")
 async def api_community_event_registration(
     event_id: str,
@@ -532,8 +590,9 @@ async def api_community_event_registration(
     requires_access_code = bool(private_event or has_access_code or ev.get("requires_access_code") or ev.get("requireAccessCode") or rj.get("requireAccessCode") or (isinstance(rj.get("ticketing"), dict) and rj["ticketing"].get("requiresAccessCode")))
 
     is_sold_out = bool(num_tickets > 0 and total_players >= num_tickets)
-    can_register_free = bool(using_online_reg and ticket_price == 0.0 and not is_sold_out)
-    can_buy_ticket = bool(using_online_reg and ticket_price > 0.0 and not is_sold_out)
+    is_started, is_ended = _check_tournament_started_or_ended(ev, rj)
+    can_register_free = bool(using_online_reg and ticket_price == 0.0 and not is_sold_out and not is_started and not is_ended)
+    can_buy_ticket = bool(using_online_reg and ticket_price > 0.0 and not is_sold_out and not is_started and not is_ended)
 
     # Check user registration status and army lists
     is_registered = False
@@ -775,7 +834,9 @@ async def api_community_event_registration(
         "event_date": ev.get("event_date") if hasattr(ev.get("event_date"), "isoformat") else str(ev.get("event_date") or ""),
         "end_date": ev.get("end_date") if hasattr(ev.get("end_date"), "isoformat") else str(ev.get("end_date") or ""),
         "status": status_obj,
-        "is_ended": bool(status_obj.get("ended", ev.get("is_ended", False))),
+        "is_started": is_started,
+        "is_ongoing": bool(is_started and not is_ended),
+        "is_ended": is_ended,
         "city": ev.get("city") or "",
         "state": ev.get("state") or "",
         "country": ev.get("country") or "",
@@ -857,7 +918,25 @@ async def api_community_event_register(
 
     rj = ev.get("raw_json") if isinstance(ev.get("raw_json"), dict) else {}
     using_online_reg = bool(ev.get("using_online_reg", ev.get("usingOnlineReg", rj.get("usingOnlineReg", rj.get("using_online_reg", True)))))
-    
+
+    is_started, is_ended = _check_tournament_started_or_ended(ev, rj)
+    is_already_registered = False
+    if user_id:
+        try:
+            user_regs = db.get_user_registered_tournaments(user_id)
+            for r in (user_regs or []):
+                if str(r.get("id") or r.get("bcp_event_id") or "") == clean_eid:
+                    is_already_registered = True
+                    break
+        except Exception:
+            is_already_registered = False
+
+    if (is_started or is_ended) and not is_already_registered:
+        raise HTTPException(
+            status_code=400,
+            detail="Registration is closed because this tournament has already started or concluded."
+        )
+
     ticket_price = 0.0
     try:
         raw_price = ev.get("ticket_price") if ev.get("ticket_price") is not None else ev.get("ticketPrice", rj.get("ticketPrice", rj.get("ticket_price", 0.0)))
