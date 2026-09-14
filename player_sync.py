@@ -181,31 +181,25 @@ class PlayerNameSync:
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 3. Tier 3: Players table scoped by game system (check COALESCE of full_name and name)
+                # 3. Tier 3: Players table scoped by game system
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) ~* %s
-                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) IS NULL
-                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) = p.id)
+                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id)
                       AND COALESCE(pr.game_system, '40k') = '40k';
                     """, (placeholder_regex,))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) ~* %s
-                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) IS NULL
-                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) = p.id)
+                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id)
                       AND COALESCE(pr.game_system, '40k') = 'aos';
                     """, (placeholder_regex,))
                 else:
                     cur.execute("""
                     SELECT DISTINCT id FROM players 
-                    WHERE COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) ~* %s
-                       OR COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) IS NULL
-                       OR COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) = id;
+                    WHERE full_name ~* %s OR full_name IS NULL OR TRIM(full_name) = '' OR full_name = id;
                     """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
@@ -228,14 +222,13 @@ class PlayerNameSync:
                 for i in range(0, len(target_list), chunk_size):
                     chunk = target_list[i : i + chunk_size]
 
-                    # 1. Check players table (supporting both full_name and name columns)
+                    # 1. Check players table
                     cur.execute("""
-                    SELECT id, first_name, last_name, COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) AS full_name
+                    SELECT id, first_name, last_name, full_name
                     FROM players
                     WHERE id = ANY(%s)
-                      AND COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) IS NOT NULL
-                      AND NOT (COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) ~* %s
-                               OR COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) ILIKE 'BYE');
+                      AND full_name IS NOT NULL
+                      AND NOT (full_name ~* %s OR full_name ILIKE 'BYE');
                     """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
@@ -850,19 +843,22 @@ class PlayerNameSync:
                     with conn.cursor() as cur:
                         cur.execute("""
                         UPDATE players
-                        SET full_name = name
+                        SET full_name = TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
                         WHERE (full_name IS NULL OR TRIM(full_name) = '')
-                          AND name IS NOT NULL AND TRIM(name) != '';
+                          AND (first_name IS NOT NULL OR last_name IS NOT NULL)
+                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) != '';
                         """)
                         cur.execute("""
-                        UPDATE players
-                        SET name = full_name
-                        WHERE (name IS NULL OR TRIM(name) = '')
-                          AND full_name IS NOT NULL AND TRIM(full_name) != '';
+                        UPDATE players p
+                        SET full_name = pr.player_name
+                        FROM player_ratings pr
+                        WHERE p.id = pr.player_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '')
+                          AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != '';
                         """)
                     conn.commit()
             except Exception as sync_col_err:
-                logger.debug(f"Notice syncing players name/full_name columns: {sync_col_err}")
+                logger.debug(f"Notice syncing players full_name column: {sync_col_err}")
 
         # 1. Find all target IDs with placeholder names or non-10-char registration IDs (ordered by leaderboard priority)
         placeholder_ids = self.find_placeholder_player_ids(game_system=game_system)

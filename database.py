@@ -1421,7 +1421,7 @@ class PostgresDatabase:
                     ln = p.get("last_name", "")
                     name = p.get("full_name") or f"{fn} {ln}".strip() or "Player"
                     team = p.get("team") or ""
-                    player_rows.append((pid, fn, ln, name, name, team or None))
+                    player_rows.append((pid, fn, ln, name, team or None))
 
                     ep_rows.append((
                         event_id,
@@ -1443,13 +1443,12 @@ class PostgresDatabase:
                         extras.execute_values(
                             cursor,
                             """
-                            INSERT INTO players (id, first_name, last_name, name, full_name, team)
+                            INSERT INTO players (id, first_name, last_name, full_name, team)
                             VALUES %s
                             ON CONFLICT (id) DO UPDATE SET
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
-                                name = COALESCE(NULLIF(EXCLUDED.name, ''), players.name),
-                                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), players.full_name, EXCLUDED.name, players.name),
+                                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), players.full_name),
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team);
                             """,
                             player_rows,
@@ -1458,13 +1457,12 @@ class PostgresDatabase:
                     else:
                         for r in player_rows:
                             cursor.execute("""
-                            INSERT INTO players (id, first_name, last_name, name, full_name, team)
-                            VALUES (%s, %s, %s, %s, %s, %s)
+                            INSERT INTO players (id, first_name, last_name, full_name, team)
+                            VALUES (%s, %s, %s, %s, %s)
                             ON CONFLICT (id) DO UPDATE SET
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
-                                name = COALESCE(NULLIF(EXCLUDED.name, ''), players.name),
-                                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), players.full_name, EXCLUDED.name, players.name),
+                                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), players.full_name),
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team);
                             """, r)
 
