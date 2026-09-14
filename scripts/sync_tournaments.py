@@ -79,7 +79,7 @@ if __name__ == "__main__":
     parser.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
     parser.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
     parser.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     try:
         run_tournament_sync(game_system=args.game_system, days=args.days, max_events=args.max_events)
