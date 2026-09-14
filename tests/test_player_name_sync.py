@@ -588,6 +588,62 @@ def test_database_automatic_registration_id_remapping():
     print("✅ test_database_automatic_registration_id_remapping passed")
 
 
+def test_scraper_negative_cache_and_batch_upsert():
+    """Verify walk-in/404 registration IDs are cached negatively (0 repeat HTTP calls across rounds) and scrape_event batches DB writes."""
+    from scraper import BestCoastPairingsScraper
+
+    class DummyBatchDB:
+        def __init__(self):
+            self.batch_calls = []
+        def upsert_event(self, ev):
+            pass
+        def upsert_event_participants_batch(self, eid, parts):
+            pass
+        def prune_event_participants(self, eid, active):
+            pass
+        def upsert_matches_batch(self, matches):
+            self.batch_calls.append(matches)
+
+    dummy_db = DummyBatchDB()
+    scraper = BestCoastPairingsScraper(db=dummy_db, request_delay=0.0)
+
+    http_calls = []
+    def mock_request(endpoint, params=None, max_retries=2):
+        http_calls.append(endpoint)
+        if endpoint == "/events/ev_walkin":
+            return {"id": "ev_walkin", "name": "Walk-in GT", "numberOfRounds": 3, "totalPlayers": 4}
+        if endpoint == "/players" and params and params.get("eventId") == "ev_walkin":
+            # Walk-in player with no userId in roster
+            return [{"id": "walkin_reg_1", "firstName": "Walkin", "lastName": "Bob"}]
+        if endpoint == "/players/walkin_reg_1":
+            # Returns 404 or no userId
+            return None
+        if endpoint == "/pairings" and params:
+            r = params.get("round")
+            return [{
+                "id": f"m_r{r}",
+                "round": r,
+                "table": 1,
+                "player1": {"id": "walkin_reg_1", "name": "Walkin Bob"},
+                "player2": {"id": "usr_real_2", "userId": "usr_real_2", "name": "Real Alice"},
+                "player1Game": {"points": 50, "result": 2},
+                "player2Game": {"points": 40, "result": 0},
+                "isDone": True
+            }]
+        return None
+
+    with patch.object(scraper, "_make_request", side_effect=mock_request):
+        total = scraper.scrape_event("ev_walkin")
+        assert total == 3
+        # /players/walkin_reg_1 must only be requested ONCE (during roster map build), never again in rounds 1, 2, or 3!
+        walkin_lookups = [ep for ep in http_calls if ep == "/players/walkin_reg_1"]
+        assert len(walkin_lookups) == 1, f"Expected exactly 1 lookup for walk-in ID, got {len(walkin_lookups)}"
+        # Must have executed 3 batch DB commits (1 per round) instead of per-match commits
+        assert len(dummy_db.batch_calls) == 3
+        assert len(dummy_db.batch_calls[0]) == 1
+    print("✅ test_scraper_negative_cache_and_batch_upsert passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -606,4 +662,5 @@ if __name__ == "__main__":
     test_same_name_distinct_players_never_merged()
     test_verify_and_fix_same_name_matches_unmerges_corrupted_matches()
     test_database_automatic_registration_id_remapping()
+    test_scraper_negative_cache_and_batch_upsert()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")

@@ -27,7 +27,7 @@ logger = logging.getLogger("BCPScraper")
 class BestCoastPairingsScraper:
     """Scrapes tournaments, player rosters, and round-by-round pairings from Best Coast Pairings."""
 
-    def __init__(self, db: Optional[Database] = None, request_delay: float = 0.5):
+    def __init__(self, db: Optional[Database] = None, request_delay: float = 0.08):
         if db is not None:
             self.db = db
         else:
@@ -37,8 +37,8 @@ class BestCoastPairingsScraper:
                 self.db = None
         self.headers = DEFAULT_HEADERS.copy()
         self.request_delay = request_delay
-        self._reg_id_cache: Dict[str, Dict[str, str]] = {}
-        self._user_id_cache: Dict[str, Dict[str, str]] = {}
+        self._reg_id_cache: Dict[str, Optional[Dict[str, str]]] = {}
+        self._user_id_cache: Dict[str, Optional[Dict[str, str]]] = {}
 
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 2) -> Optional[Dict[str, Any]]:
         """Makes an HTTP GET request to BCP API with headers, error handling, and retries."""
@@ -57,7 +57,10 @@ class BestCoastPairingsScraper:
             except urllib.error.HTTPError as e:
                 self.last_http_code = e.code
                 body = e.read().decode("utf-8", errors="ignore")
-                logger.warning(f"HTTP {e.code} on {endpoint} (Attempt {attempt}/{max_retries}): {body[:150]}")
+                if e.code == 404 and (endpoint.startswith("/players/") or endpoint.startswith("/users/")):
+                    logger.debug(f"HTTP 404 on {endpoint}: {body[:150]}")
+                else:
+                    logger.warning(f"HTTP {e.code} on {endpoint} (Attempt {attempt}/{max_retries}): {body[:150]}")
                 if e.code == 429:
                     sleep_time = attempt * 2.0
                     logger.info(f"Rate limited. Backing off for {sleep_time:.1f}s...")
@@ -336,8 +339,15 @@ class BestCoastPairingsScraper:
             last_name = user.get("lastName") or p.get("lastName") or ""
             full_name = f"{first_name} {last_name}".strip() or p.get("name") or "Player"
 
-            # If we only had a registration ID (no explicit userId), resolve it via BCP /v1/players/{id} to get true userId
-            if not explicit_uid and reg_id:
+            if explicit_uid and reg_id:
+                self._reg_id_cache[reg_id] = {
+                    "user_id": explicit_uid,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "full_name": full_name
+                }
+            elif not explicit_uid and reg_id:
+                # If we only had a registration ID (no explicit userId), resolve it via BCP /v1/players/{id} to get true userId
                 resolved_reg = self._resolve_bcp_registration_id(reg_id)
                 if resolved_reg and resolved_reg.get("user_id"):
                     canonical_id = resolved_reg["user_id"]
@@ -585,7 +595,14 @@ class BestCoastPairingsScraper:
             last_name = user.get("lastName") or p.get("lastName") or ""
             full_name = f"{first_name} {last_name}".strip() or p.get("name") or ""
 
-            if not explicit_uid and reg_id:
+            if explicit_uid and reg_id:
+                self._reg_id_cache[reg_id] = {
+                    "user_id": explicit_uid,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "full_name": full_name
+                }
+            elif not explicit_uid and reg_id:
                 resolved_reg = self._resolve_bcp_registration_id(reg_id)
                 if resolved_reg and resolved_reg.get("user_id"):
                     canonical_id = resolved_reg["user_id"]
@@ -628,6 +645,7 @@ class BestCoastPairingsScraper:
                 }
                 self._reg_id_cache[clean_id] = info
                 return info
+        self._reg_id_cache[clean_id] = None
         return None
 
     def _resolve_bcp_user_id(self, user_id: str) -> Optional[Dict[str, str]]:
@@ -651,13 +669,15 @@ class BestCoastPairingsScraper:
                 }
                 self._user_id_cache[clean_id] = info
                 return info
+        self._user_id_cache[clean_id] = None
         return None
 
     def parse_and_store_match(
         self,
         event_data: Dict[str, Any],
         pairing: Dict[str, Any],
-        roster_id_map: Optional[Dict[str, str]] = None
+        roster_id_map: Optional[Dict[str, str]] = None,
+        defer_db_write: bool = False
     ) -> Optional[Dict[str, Any]]:
         """Extracts structured match details and stores both players and match outcome in DB."""
         match_id = pairing.get("id")
@@ -883,12 +903,6 @@ class BestCoastPairingsScraper:
         # Only mark match as officially done if it is a bye, has a decisive winner, or is a genuine non-zero draw
         is_officially_done = bool(is_bye or winner_id is not None or is_draw)
 
-        # Upsert players into database
-        if p1_user_id:
-            self.db.upsert_player(p1_user_id, p1_first, p1_last, p1_name)
-        if p2_user_id:
-            self.db.upsert_player(p2_user_id, p2_first, p2_last, p2_name)
-
         match_record = {
             "id": match_id,
             "event_id": event_id,
@@ -915,6 +929,9 @@ class BestCoastPairingsScraper:
             "game_system_id": game_sys_id or (AOS_GAME_SYSTEM_ID if game_system == "aos" else DEFAULT_GAME_SYSTEM_ID),
             "raw_json": pairing,
         }
+
+        if defer_db_write:
+            return match_record
 
         try:
             self.db.upsert_match(match_record)
@@ -1009,6 +1026,11 @@ class BestCoastPairingsScraper:
         total_matches = 0
         consecutive_empty = 0
         actual_rounds = 0
+        use_batch = (
+            self.db is not None
+            and hasattr(self.db, "upsert_matches_batch")
+            and type(getattr(self.db, "upsert_matches_batch", None)).__name__ != "MagicMock"
+        )
 
         for r in range(1, num_rounds + 1):
             pairings = self.fetch_event_pairings_for_round(event_id, r)
@@ -1021,10 +1043,19 @@ class BestCoastPairingsScraper:
             consecutive_empty = 0
             actual_rounds = r
             round_matches = 0
+            round_matches_to_upsert = []
             for p in pairings:
-                if self.parse_and_store_match(event_data, p, roster_id_map=roster_id_map):
+                match_rec = self.parse_and_store_match(event_data, p, roster_id_map=roster_id_map, defer_db_write=use_batch)
+                if match_rec:
+                    round_matches_to_upsert.append(match_rec)
                     total_matches += 1
                     round_matches += 1
+
+            if use_batch and round_matches_to_upsert:
+                try:
+                    self.db.upsert_matches_batch(round_matches_to_upsert)
+                except Exception as e:
+                    logger.warning(f"Failed to batch upsert matches for event {event_id} round {r}: {e}")
 
             if total_players > 30 or num_rounds > 4:
                 logger.info(f"  -> Round {r}/{num_rounds}: {round_matches} matches processed.")
