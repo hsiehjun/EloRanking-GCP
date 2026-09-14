@@ -129,7 +129,7 @@ class PlayerNameSync:
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 1b. Tier 1b: Non-canonical duplicate-name players on the leaderboard (checks BCP to resolve canonical userId)
+                # 1b. Tier 1b: Duplicate-name players across distinct IDs (queries BCP /v1/players/{id} to remap tournament player IDs to global userIds)
                 sys_pr_clause = ""
                 if target_sys in ("40k", "wh40k"):
                     sys_pr_clause = "AND COALESCE(game_system, '40k') = '40k'"
@@ -138,15 +138,14 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player_id FROM player_ratings
-                WHERE LENGTH(TRIM(player_id)) != 10
-                  AND LOWER(TRIM(player_name)) IN (
+                WHERE LOWER(TRIM(player_name)) IN (
                     SELECT LOWER(TRIM(player_name))
                     FROM player_ratings
                     WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
                       AND NOT (player_name ~* %s OR player_name ILIKE 'BYE')
                       {sys_pr_clause}
                     GROUP BY LOWER(TRIM(player_name)), COALESCE(game_system, '40k')
-                    HAVING COUNT(*) > 1
+                    HAVING COUNT(DISTINCT player_id) > 1
                 )
                   {sys_pr_clause}
                 ORDER BY matches_played DESC, current_elo DESC;
@@ -303,9 +302,8 @@ class PlayerNameSync:
                                     "source": "local_matches_p2"
                                 }
 
-                # 4. Only leave unresolved locally if pid is a non-10-char registration ID
-                # AND its name is shared by multiple IDs on player_ratings (so BCP API resolves its canonical userId).
-                # Never pop 10-character canonical BCP user IDs!
+                # 4. Leave unresolved locally if the player's name is shared by multiple distinct IDs (COUNT(DISTINCT player_id) > 1)
+                # so sync_names() queries BCP /v1/players/{id} to remap tournament-specific player IDs to global userIds.
                 if resolved:
                     cur.execute("""
                     SELECT player_id, LOWER(TRIM(player_name))
@@ -325,7 +323,7 @@ class PlayerNameSync:
 
                     for pid in list(resolved.keys()):
                         res_norm = resolved[pid]["full_name"].strip().lower()
-                        if len(pid) != 10 and (res_norm in dup_names):
+                        if res_norm in dup_names:
                             resolved.pop(pid, None)
 
         logger.info(f"⚡ Resolved {len(resolved)} / {len(player_ids)} player identities directly from local DB (0 network calls).")
@@ -855,6 +853,15 @@ class PlayerNameSync:
                         WHERE p.id = pr.player_id
                           AND (p.full_name IS NULL OR TRIM(p.full_name) = '')
                           AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != '';
+                        """)
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = ep.full_name
+                        FROM event_participants ep
+                        WHERE p.id = ep.player_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '')
+                          AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
+                          AND NOT (ep.full_name ~* '^player\\s*\\d*$' OR ep.full_name ILIKE 'BYE');
                         """)
                     conn.commit()
             except Exception as sync_col_err:
