@@ -497,6 +497,57 @@ def test_same_name_distinct_players_never_merged():
     print("✅ test_same_name_distinct_players_never_merged passed")
 
 
+def test_verify_and_fix_same_name_matches_unmerges_corrupted_matches():
+    """Verify verify_and_fix_same_name_matches checks BCP event data and fixes matches where two different players with the same name were falsely merged."""
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    # First query returns candidate name 'john smith'
+    # Second query returns matches across two events (evt_A and evt_B), both currently assigned to 'uJohnSmith1' in DB
+    def execute_side_effect(sql, params=None):
+        if "WITH player_event_names AS" in sql:
+            mock_cur.fetchall.return_value = [("john smith",)]
+        elif "SELECT id, event_id, player1_id" in sql:
+            mock_cur.fetchall.return_value = [
+                ("match_A1", "evt_A", "uJohnSmith1", "John Smith", "uOpponent1", "Opponent One", "uJohnSmith1"),
+                ("match_B1", "evt_B", "uJohnSmith1", "John Smith", "uOpponent2", "Opponent Two", "uJohnSmith1")
+            ]
+        else:
+            mock_cur.fetchall.return_value = []
+
+    mock_cur.execute.side_effect = execute_side_effect
+
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+
+    # Mock BCP responses: evt_A has John Smith = uJohnSmith1, evt_B has John Smith = uJohnSmith2
+    def fake_fetch_roster_and_pairings(event_id):
+        if event_id == "evt_A":
+            return (
+                {"john smith": ["uJohnSmith1"]},
+                {"regA": "uJohnSmith1"},
+                {"match_A1": {"p1_uid": "uJohnSmith1", "p2_uid": "uOpponent1"}}
+            )
+        elif event_id == "evt_B":
+            return (
+                {"john smith": ["uJohnSmith2"]},
+                {"regB": "uJohnSmith2"},
+                {"match_B1": {"p1_uid": "uJohnSmith2", "p2_uid": "uOpponent2"}}
+            )
+        return ({}, {}, {})
+
+    with patch.object(syncer, "_fetch_bcp_event_roster_and_pairings", side_effect=fake_fetch_roster_and_pairings):
+        res = syncer.verify_and_fix_same_name_matches(game_system="40k", dry_run=False)
+        assert res["events_checked"] == 2
+        assert res["matches_fixed"] == 1
+        # Verify UPDATE matches was executed to fix match_B1 from uJohnSmith1 -> uJohnSmith2
+        executed_sqls = [call[0][0] for call in mock_cur.execute.call_args_list]
+        assert any("UPDATE matches" in s for s in executed_sqls)
+    print("✅ test_verify_and_fix_same_name_matches_unmerges_corrupted_matches passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -513,4 +564,5 @@ if __name__ == "__main__":
     test_scraper_aos_registration_id_resolution()
     test_tournament_sync_job_invokes_player_sync()
     test_same_name_distinct_players_never_merged()
+    test_verify_and_fix_same_name_matches_unmerges_corrupted_matches()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")

@@ -138,7 +138,18 @@ class PlayerNameSync:
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 2. Tier 2: Recent match participants
+                # 1c. Tier 1c: Any remaining non-10-character registration IDs across player_ratings, matches, and event_participants
+                cur.execute(f"""
+                SELECT player_id FROM player_ratings
+                WHERE LENGTH(TRIM(player_id)) != 10
+                  AND NOT (player_id ILIKE 'BYE')
+                  {sys_pr_clause}
+                ORDER BY matches_played DESC, current_elo DESC;
+                """)
+                for r in cur.fetchall():
+                    add_id(r[0])
+
+                # 2. Tier 2: Recent match participants (placeholders & 12-char IDs)
                 sys_clause = ""
                 if target_sys in ("40k", "wh40k"):
                     sys_clause = "AND COALESCE(game_system, '40k') = '40k'"
@@ -147,7 +158,9 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player1_id FROM matches 
-                WHERE (player1_name ILIKE %s OR player1_name ILIKE 'player') {sys_clause}
+                WHERE (player1_name ILIKE %s OR player1_name ILIKE 'player' OR LENGTH(TRIM(player1_id)) != 10)
+                  AND NOT (player1_id ILIKE 'BYE')
+                  {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
                 """, ('Player %',))
                 for r in cur.fetchall():
@@ -155,7 +168,9 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player2_id FROM matches 
-                WHERE (player2_name ILIKE %s OR player2_name ILIKE 'player') {sys_clause}
+                WHERE (player2_name ILIKE %s OR player2_name ILIKE 'player' OR LENGTH(TRIM(player2_id)) != 10)
+                  AND NOT (player2_id ILIKE 'BYE')
+                  {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
                 """, ('Player %',))
                 for r in cur.fetchall():
@@ -522,6 +537,260 @@ class PlayerNameSync:
         )
         return counts
 
+    def _fetch_bcp_event_roster_and_pairings(self, event_id: str) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, Dict[str, str]]]:
+        """Fetches BCP event roster and pairings for an event_id to verify true player userIds."""
+        name_to_uids: Dict[str, List[str]] = {}
+        reg_to_uid: Dict[str, str] = {}
+        pairing_map: Dict[str, Dict[str, str]] = {}
+
+        # 1. Fetch event players roster
+        roster_url = f"{BCP_API_BASE}/events/{urllib.parse.quote(event_id)}/players?limit=2500"
+        req = urllib.request.Request(roster_url, headers=self.headers)
+        players_list = []
+        try:
+            time.sleep(self.request_delay)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if isinstance(data, dict):
+                        players_list = data.get("active") or data.get("data") or data.get("players") or []
+                    elif isinstance(data, list):
+                        players_list = data
+        except Exception as e:
+            logger.debug(f"Notice fetching BCP event roster for {event_id}: {e}")
+
+        for p in players_list:
+            if not isinstance(p, dict):
+                continue
+            reg_id = str(p.get("id") or "").strip()
+            user = p.get("user") or {}
+            uid = str(user.get("id") or p.get("userId") or p.get("user_id") or "").strip()
+            if not uid and len(reg_id) == 12:
+                bcp_info = self.fetch_bcp_player_name(reg_id)
+                if bcp_info and bcp_info.get("canonical_user_id"):
+                    uid = bcp_info["canonical_user_id"]
+            first = clean_name(user.get("firstName") or p.get("firstName"))
+            last = clean_name(user.get("lastName") or p.get("lastName"))
+            full = f"{first} {last}".strip() or clean_name(p.get("name"))
+            if uid and len(uid) != 12:
+                if reg_id:
+                    reg_to_uid[reg_id] = uid
+                if full and not is_placeholder_name(full):
+                    norm_n = full.lower()
+                    if norm_n not in name_to_uids:
+                        name_to_uids[norm_n] = []
+                    if uid not in name_to_uids[norm_n]:
+                        name_to_uids[norm_n].append(uid)
+
+        # 2. Fetch event pairings
+        pairings_url = f"{BCP_API_BASE}/pairings?eventId={urllib.parse.quote(event_id)}&limit=1000"
+        req_pair = urllib.request.Request(pairings_url, headers=self.headers)
+        pairings_list = []
+        try:
+            time.sleep(self.request_delay)
+            with urllib.request.urlopen(req_pair, timeout=10) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    if isinstance(data, dict):
+                        pairings_list = data.get("data") or data.get("active") or []
+                    elif isinstance(data, list):
+                        pairings_list = data
+        except Exception as e:
+            logger.debug(f"Notice fetching BCP pairings for {event_id}: {e}")
+
+        for pr in pairings_list:
+            if not isinstance(pr, dict):
+                continue
+            mid = str(pr.get("id") or "").strip()
+            if not mid:
+                continue
+            p1_obj = pr.get("player1") or {}
+            p2_obj = pr.get("player2") or {}
+            p1_u = p1_obj.get("user") or {}
+            p2_u = p2_obj.get("user") or {}
+            p1_uid = str(p1_u.get("id") or p1_obj.get("userId") or p1_obj.get("user_id") or "").strip()
+            p2_uid = str(p2_u.get("id") or p2_obj.get("userId") or p2_obj.get("user_id") or "").strip()
+            p1_reg = str(p1_obj.get("id") or pr.get("player1Id") or "").strip()
+            p2_reg = str(p2_obj.get("id") or pr.get("player2Id") or "").strip()
+            if not p1_uid and p1_reg in reg_to_uid:
+                p1_uid = reg_to_uid[p1_reg]
+            elif not p1_uid and len(p1_reg) == 12:
+                bcp_p1 = self.fetch_bcp_player_name(p1_reg)
+                if bcp_p1 and bcp_p1.get("canonical_user_id"):
+                    p1_uid = bcp_p1["canonical_user_id"]
+            if not p2_uid and p2_reg in reg_to_uid:
+                p2_uid = reg_to_uid[p2_reg]
+            elif not p2_uid and len(p2_reg) == 12:
+                bcp_p2 = self.fetch_bcp_player_name(p2_reg)
+                if bcp_p2 and bcp_p2.get("canonical_user_id"):
+                    p2_uid = bcp_p2["canonical_user_id"]
+            pairing_map[mid] = {"p1_uid": p1_uid, "p2_uid": p2_uid}
+
+        return name_to_uids, reg_to_uid, pairing_map
+
+    def verify_and_fix_same_name_matches(
+        self,
+        game_system: Optional[str] = None,
+        dry_run: bool = False,
+        max_events: Optional[int] = None
+    ) -> Dict[str, int]:
+        """Verifies all matches for players who share a name across multiple events or multiple IDs against BCP event data.
+        Ensures falsely merged players are separated back to their true BCP userId and same-person records use the same BCP userId.
+        """
+        target_sys = (game_system or "all").lower()
+        sys_clause = ""
+        if target_sys in ("40k", "wh40k"):
+            sys_clause = "AND COALESCE(game_system, '40k') = '40k'"
+        elif target_sys in ("aos", "warhammer_aos", "sigmar"):
+            sys_clause = "AND COALESCE(game_system, '40k') = 'aos'"
+
+        candidate_names: List[str] = []
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                WITH player_event_names AS (
+                    SELECT LOWER(TRIM(player1_name)) AS norm_name, player1_id AS pid, event_id
+                    FROM matches
+                    WHERE player1_name IS NOT NULL AND TRIM(player1_name) != ''
+                      AND NOT (player1_name ILIKE 'Player%%' OR player1_name ILIKE 'BYE')
+                      {sys_clause}
+                    UNION ALL
+                    SELECT LOWER(TRIM(player2_name)) AS norm_name, player2_id AS pid, event_id
+                    FROM matches
+                    WHERE player2_name IS NOT NULL AND TRIM(player2_name) != ''
+                      AND NOT (player2_name ILIKE 'Player%%' OR player2_name ILIKE 'BYE')
+                      {sys_clause}
+                )
+                SELECT norm_name
+                FROM player_event_names
+                GROUP BY norm_name
+                HAVING COUNT(DISTINCT event_id) > 1 OR COUNT(DISTINCT pid) > 1;
+                """)
+                candidate_names = [str(r[0]).strip() for r in cur.fetchall() if r and r[0]]
+
+        if not candidate_names:
+            logger.info("✅ No multi-event or multi-ID same-name players found requiring BCP match verification.")
+            return {"events_checked": 0, "matches_fixed": 0}
+
+        logger.info(f"🔍 [Same-Name Verification] Auditing {len(candidate_names)} shared player name(s) against BCP event rosters & pairings...")
+
+        events_to_matches: Dict[str, List[Tuple[str, str, str, str, str, str, str]]] = {}
+        with self.db.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(f"""
+                SELECT id, event_id, player1_id, player1_name, player2_id, player2_name, winner_id
+                FROM matches
+                WHERE (LOWER(TRIM(player1_name)) = ANY(%s) OR LOWER(TRIM(player2_name)) = ANY(%s))
+                  {sys_clause};
+                """, (candidate_names, candidate_names))
+                for r in cur.fetchall():
+                    if len(r) < 7:
+                        continue
+                    mid, eid, p1_id, p1_name, p2_id, p2_name, win_id = (
+                        str(r[0] or "").strip(),
+                        str(r[1] or "").strip(),
+                        str(r[2] or "").strip(),
+                        str(r[3] or "").strip(),
+                        str(r[4] or "").strip(),
+                        str(r[5] or "").strip(),
+                        str(r[6] or "").strip()
+                    )
+                    if eid and not eid.startswith("ES-"):
+                        if eid not in events_to_matches:
+                            events_to_matches[eid] = []
+                        events_to_matches[eid].append((mid, eid, p1_id, p1_name, p2_id, p2_name, win_id))
+
+        event_ids = list(events_to_matches.keys())
+        if max_events and max_events > 0:
+            event_ids = event_ids[:max_events]
+
+        candidate_set = set(candidate_names)
+        events_checked = 0
+        matches_fixed = 0
+
+        for eid in event_ids:
+            events_checked += 1
+            name_to_uids, reg_to_uid, pairing_map = self._fetch_bcp_event_roster_and_pairings(eid)
+            updates_for_event = []
+
+            for (mid, _, p1_id, p1_name, p2_id, p2_name, win_id) in events_to_matches[eid]:
+                # Check Player 1
+                norm_p1 = p1_name.lower()
+                if norm_p1 in candidate_set:
+                    true_p1_uid = pairing_map.get(mid, {}).get("p1_uid") or ""
+                    if not true_p1_uid:
+                        uids = name_to_uids.get(norm_p1, [])
+                        if len(uids) == 1:
+                            true_p1_uid = uids[0]
+                    if true_p1_uid and len(true_p1_uid) != 12 and true_p1_uid != p1_id:
+                        logger.info(f"   🔧 [Same-Name Fix] Match {mid} (Event {eid}): P1 '{p1_name}' DB ID {p1_id} -> BCP true userId {true_p1_uid}")
+                        updates_for_event.append(("p1", mid, eid, p1_id, true_p1_uid, p1_name))
+
+                # Check Player 2
+                norm_p2 = p2_name.lower()
+                if norm_p2 in candidate_set:
+                    true_p2_uid = pairing_map.get(mid, {}).get("p2_uid") or ""
+                    if not true_p2_uid:
+                        uids = name_to_uids.get(norm_p2, [])
+                        if len(uids) == 1:
+                            true_p2_uid = uids[0]
+                    if true_p2_uid and len(true_p2_uid) != 12 and true_p2_uid != p2_id:
+                        logger.info(f"   🔧 [Same-Name Fix] Match {mid} (Event {eid}): P2 '{p2_name}' DB ID {p2_id} -> BCP true userId {true_p2_uid}")
+                        updates_for_event.append(("p2", mid, eid, p2_id, true_p2_uid, p2_name))
+
+            if updates_for_event and not dry_run:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        for (side, mid, ev_id, old_id, true_uid, full_name) in updates_for_event:
+                            first = full_name.split()[0] if full_name else ""
+                            last = full_name.split()[-1] if len(full_name.split()) > 1 else ""
+                            # Ensure true_uid exists in players
+                            cur.execute("""
+                            INSERT INTO players (id, first_name, last_name, full_name)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (id) DO UPDATE
+                            SET full_name = EXCLUDED.full_name,
+                                first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
+                                last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name);
+                            """, (true_uid, first, last, full_name))
+
+                            if side == "p1":
+                                cur.execute("""
+                                UPDATE matches
+                                SET player1_id = %s,
+                                    winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END
+                                WHERE id = %s;
+                                """, (true_uid, old_id, true_uid, mid))
+                            else:
+                                cur.execute("""
+                                UPDATE matches
+                                SET player2_id = %s,
+                                    winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END
+                                WHERE id = %s;
+                                """, (true_uid, old_id, true_uid, mid))
+
+                            # Fix event_participants for this specific event
+                            cur.execute("""
+                            DELETE FROM event_participants ep_old
+                            WHERE ep_old.event_id = %s AND ep_old.player_id = %s
+                              AND EXISTS (
+                                  SELECT 1 FROM event_participants ep_new
+                                  WHERE ep_new.event_id = %s AND ep_new.player_id = %s
+                              );
+                            """, (ev_id, old_id, ev_id, true_uid))
+                            cur.execute("""
+                            UPDATE event_participants
+                            SET player_id = %s
+                            WHERE event_id = %s AND player_id = %s;
+                            """, (true_uid, ev_id, old_id))
+                            matches_fixed += 1
+                    conn.commit()
+            elif updates_for_event and dry_run:
+                matches_fixed += len(updates_for_event)
+
+        logger.info(f"✅ [Same-Name Verification] Checked {events_checked} event(s); fixed {matches_fixed} match player ID assignment(s).")
+        return {"events_checked": events_checked, "matches_fixed": matches_fixed}
+
     def sync_names(
         self,
         game_system: str = "all",
@@ -537,19 +806,9 @@ class PlayerNameSync:
             f"dry_run={dry_run}, concurrency={concurrency}, limit={max_bcp_calls})..."
         )
 
-        # 1. Find all target IDs with placeholder names or duplicate registration IDs (ordered by leaderboard priority)
+        # 1. Find all target IDs with placeholder names or non-10-char registration IDs (ordered by leaderboard priority)
         placeholder_ids = self.find_placeholder_player_ids(game_system=game_system)
-        if not placeholder_ids:
-            logger.info("✨ No placeholder or duplicate registration IDs found! Database is already clean.")
-            return {
-                "status": "CLEAN",
-                "placeholders_found": 0,
-                "resolved_total": 0,
-                "updated": {}
-            }
-
-        # 2. Local DB fast-resolution first
-        resolved_names = self.resolve_from_local_db(set(placeholder_ids))
+        resolved_names = self.resolve_from_local_db(set(placeholder_ids)) if placeholder_ids else {}
         local_resolved_count = len(resolved_names)
 
         updated_counts = {
@@ -560,7 +819,8 @@ class PlayerNameSync:
             "history": 0,
             "participants": 0,
             "tracker_games": 0,
-            "remapped_ids": 0
+            "remapped_ids": 0,
+            "same_name_matches_fixed": 0
         }
         if not dry_run:
             try:
@@ -644,20 +904,23 @@ class PlayerNameSync:
                 logger.info(f"💾 [Final Commit] Saved final batch of {len(uncommitted_batch)} resolved players to database.")
                 uncommitted_batch.clear()
 
-        # 4. If any canonical user IDs were merged, reconstruct Elo rankings so combined match counts & ratings reflect immediately
-        if not dry_run and updated_counts.get("remapped_ids", 0) > 0:
-            try:
-                logger.info(f"🏆 Reconstructing Elo rankings for game_system={game_system} after merging {updated_counts['remapped_ids']} duplicate registration ID(s)...")
-                from elo import get_elo_engine
-                get_elo_engine().reconstruct_all_rankings(game_system=game_system)
-                PostgresDatabase.invalidate_all_caches()
-            except Exception as e:
-                logger.warning(f"Notice during Elo reconstruction after player sync: {e}")
+        # 4. Verify all same-name players in matches against BCP event rosters/pairings (Part B)
+        max_events_for_audit = min(50, max_bcp_calls) if (max_bcp_calls and max_bcp_calls > 0) else None
+        same_name_res = self.verify_and_fix_same_name_matches(
+            game_system=game_system,
+            dry_run=dry_run,
+            max_events=max_events_for_audit
+        )
+        updated_counts["same_name_matches_fixed"] = same_name_res.get("matches_fixed", 0)
+
+        if not dry_run and (len(resolved_names) > 0 or updated_counts["same_name_matches_fixed"] > 0):
+            PostgresDatabase.invalidate_all_caches()
 
         total_resolved = len(resolved_names)
         logger.info(
             f"📊 Resolution Summary: {total_resolved} / {len(placeholder_ids)} resolved "
-            f"({local_resolved_count} local, {bcp_resolved_count} via BCP API, {updated_counts['remapped_ids']} IDs merged)."
+            f"({local_resolved_count} local, {bcp_resolved_count} via BCP API, {updated_counts['remapped_ids']} IDs merged, "
+            f"{updated_counts['same_name_matches_fixed']} same-name match IDs fixed)."
         )
 
         duration = time.time() - start_time
