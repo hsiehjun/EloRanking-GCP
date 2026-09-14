@@ -72,7 +72,9 @@ def test_local_db_resolution():
         [("p1", "John", "Doe", "John Doe")],  # players
         [("p2", "Alice", "Smith", "Alice Smith")],  # event_participants
         [("p3", "Bob Jones")],  # matches p1
-        []  # matches p2
+        [],  # matches p2
+        [],  # player_ratings name lookup
+        []   # player_ratings duplicate name check
     ]
 
     syncer = PlayerNameSync(db=mock_db)
@@ -95,9 +97,10 @@ def test_local_db_resolution():
 
 
 def test_bcp_api_user_lookup():
-    """Verify BCP API /v1/users/{id} resolution."""
+    """Verify BCP API /v1/users/{id} resolution when /v1/players/{id} returns 404."""
     syncer = PlayerNameSync(db=MagicMock(), request_delay=0.0)
 
+    http_404 = urllib.error.HTTPError("https://api/players/U123", 404, "Not Found", {}, None)
     user_resp_data = json.dumps({
         "id": "U123",
         "firstName": "Sigmar",
@@ -110,7 +113,15 @@ def test_bcp_api_user_lookup():
     mock_resp.read.return_value = user_resp_data
     mock_resp.__enter__.return_value = mock_resp
 
-    with patch("urllib.request.urlopen", return_value=mock_resp):
+    def side_effect(req, *args, **kwargs):
+        url = req.get_full_url() if hasattr(req, "get_full_url") else str(req)
+        if "/players/" in url:
+            raise http_404
+        elif "/users/" in url:
+            return mock_resp
+        raise Exception("Unexpected URL")
+
+    with patch("urllib.request.urlopen", side_effect=side_effect):
         info = syncer.fetch_bcp_player_name("U123")
         assert info is not None
         assert info["full_name"] == "Sigmar Hero"
@@ -437,13 +448,20 @@ def test_same_name_distinct_players_never_merged():
     mock_db.get_connection.return_value.__enter__.return_value = mock_conn
     mock_conn.cursor.return_value.__enter__.return_value = mock_cur
 
-    # Simulate local DB returning 'John Smith' for 'regJohnB_123'
-    mock_cur.fetchall.return_value = [("regJohnB_123", "John", "Smith", "John Smith")]
+    # Simulate local DB returning 'John Smith' for 'regJohnB_123' and identifying it as a duplicate name on player_ratings
+    mock_cur.fetchall.side_effect = [
+        [("regJohnB_123", "John", "Smith", "John Smith")],  # players
+        [],                                                 # event_participants
+        [],                                                 # matches p1
+        [],                                                 # matches p2
+        [("regJohnB_123", "john smith")],                  # player_ratings name lookup
+        [("john smith",)]                                   # duplicate name check on player_ratings
+    ]
 
     syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
     local_resolved = syncer.resolve_from_local_db({"regJohnB_123"})
-    # Must NOT resolve 12-char ID locally; must leave unresolved so BCP API is queried for true userId
-    assert "regJohnB_123" not in local_resolved, "12-char registration ID must not be resolved via local name matching!"
+    # Must NOT resolve duplicate-name ID locally; must leave unresolved so BCP API is queried for true userId
+    assert "regJohnB_123" not in local_resolved, "Duplicate-name player ID must not be resolved via local name matching!"
 
     # When BCP /players/regJohnB_123 is queried, it returns John Smith #2's unique 10-char userId 'uJohnSmith2'
     player_b_resp = json.dumps({

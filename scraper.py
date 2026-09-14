@@ -326,25 +326,27 @@ class BestCoastPairingsScraper:
 
         for p in enrolled_players:
             user = p.get("user") or {}
-            canonical_id = user.get("id") or p.get("userId") or p.get("user_id") or p.get("id")
+            explicit_uid = str(user.get("id") or p.get("userId") or p.get("user_id") or "").strip()
+            reg_id = str(p.get("id") or p.get("playerId") or "").strip()
+            canonical_id = explicit_uid or reg_id
             if not canonical_id:
                 continue
-            canonical_id = str(canonical_id).strip()
 
             first_name = user.get("firstName") or p.get("firstName") or ""
             last_name = user.get("lastName") or p.get("lastName") or ""
             full_name = f"{first_name} {last_name}".strip() or p.get("name") or "Player"
 
-            if len(canonical_id) == 12:
-                resolved_reg = self._resolve_bcp_registration_id(canonical_id)
+            # If we only had a registration ID (no explicit userId), resolve it via BCP /v1/players/{id} to get true userId
+            if not explicit_uid and reg_id:
+                resolved_reg = self._resolve_bcp_registration_id(reg_id)
                 if resolved_reg and resolved_reg.get("user_id"):
                     canonical_id = resolved_reg["user_id"]
-                    if (not full_name or full_name.lower() in ("player", "player 1", "player 2")) and resolved_reg.get("full_name"):
+                    if (not full_name or "player" in full_name.lower()) and resolved_reg.get("full_name"):
                         full_name = resolved_reg["full_name"]
                         first_name = resolved_reg.get("first_name") or first_name
                         last_name = resolved_reg.get("last_name") or last_name
 
-            if (not full_name or full_name.lower() in ("player", "player 1", "player 2")) and canonical_id:
+            if (not full_name or "player" in full_name.lower()) and canonical_id:
                 resolved_usr = self._resolve_bcp_user_id(canonical_id)
                 if resolved_usr and resolved_usr.get("full_name"):
                     full_name = resolved_usr["full_name"]
@@ -565,22 +567,24 @@ class BestCoastPairingsScraper:
         return self.ingest_event_roster(event_id, enrolled_players, teams=teams)
 
     def build_roster_id_map(self, enrolled_players: Optional[List[Dict[str, Any]]]) -> Dict[str, str]:
-        """Builds a mapping from per-tournament registration IDs (player1.id) and names to canonical global BCP userIds."""
+        """Builds a mapping from per-tournament registration IDs (player.id) to canonical global BCP userIds."""
         mapping: Dict[str, str] = {}
         for p in (enrolled_players or []):
             if not isinstance(p, dict):
                 continue
             user = p.get("user") or {}
-            canonical_id = user.get("id") or p.get("userId") or p.get("user_id") or p.get("id")
+            explicit_uid = str(user.get("id") or p.get("userId") or p.get("user_id") or "").strip()
+            reg_id = str(p.get("id") or p.get("playerId") or "").strip()
+            canonical_id = explicit_uid or reg_id
             if not canonical_id:
                 continue
-            canonical_id = str(canonical_id).strip()
+
             first_name = user.get("firstName") or p.get("firstName") or ""
             last_name = user.get("lastName") or p.get("lastName") or ""
             full_name = f"{first_name} {last_name}".strip() or p.get("name") or ""
 
-            if len(canonical_id) == 12:
-                resolved_reg = self._resolve_bcp_registration_id(canonical_id)
+            if not explicit_uid and reg_id:
+                resolved_reg = self._resolve_bcp_registration_id(reg_id)
                 if resolved_reg and resolved_reg.get("user_id"):
                     canonical_id = resolved_reg["user_id"]
                     if not full_name and resolved_reg.get("full_name"):
@@ -594,14 +598,12 @@ class BestCoastPairingsScraper:
         return mapping
 
     def _resolve_bcp_registration_id(self, reg_id: str) -> Optional[Dict[str, str]]:
-        """Resolves a 12-character BCP per-tournament registration ID via /v1/players/{id} to its global userId."""
+        """Resolves a BCP per-tournament registration ID via /v1/players/{id} to its global userId."""
         if not reg_id:
             return None
         clean_id = str(reg_id).strip()
         if clean_id in self._reg_id_cache:
             return self._reg_id_cache[clean_id]
-        if len(clean_id) != 12:
-            return None
         resp = self._make_request(f"/players/{clean_id}")
         if isinstance(resp, dict):
             user = resp.get("user") or {}
@@ -621,7 +623,7 @@ class BestCoastPairingsScraper:
         return None
 
     def _resolve_bcp_user_id(self, user_id: str) -> Optional[Dict[str, str]]:
-        """Resolves a 10-character global BCP userId via /v1/users/{id} (or /v1/players/{id}) to retrieve real player name."""
+        """Resolves a global BCP userId via /v1/users/{id} to retrieve real player name."""
         if not user_id:
             return None
         clean_id = str(user_id).strip()
@@ -675,49 +677,42 @@ class BestCoastPairingsScraper:
         p1_obj = pairing.get("player1") or {}
         p2_obj = pairing.get("player2") or {}
 
-        # Player 1 details
+        # Player 1 details: Always prioritize explicit global userId over registration id
         p1_user = p1_obj.get("user") or {}
-        raw_p1_id = (
+        p1_explicit_uid = str(
             p1_user.get("id")
             or p1_obj.get("userId")
             or p1_obj.get("user_id")
             or pairing.get("player1UserId")
-            or p1_obj.get("id")
-            or pairing.get("player1Id")
-        )
-        p1_user_id = str(raw_p1_id).strip() if raw_p1_id else None
+            or ""
+        ).strip()
         p1_reg_id = str(p1_obj.get("id") or pairing.get("player1Id") or "").strip()
+        p1_user_id = p1_explicit_uid or p1_reg_id or None
+
         p1_first = p1_user.get("firstName") or p1_obj.get("firstName") or ""
         p1_last = p1_user.get("lastName") or p1_obj.get("lastName") or ""
         p1_name = f"{p1_first} {p1_last}".strip() or p1_obj.get("name") or "Player 1"
 
         if roster_id_map:
-            if p1_user_id and p1_user_id in roster_id_map:
-                p1_user_id = roster_id_map[p1_user_id]
-            elif p1_reg_id and p1_reg_id in roster_id_map:
+            if p1_reg_id and p1_reg_id in roster_id_map:
                 p1_user_id = roster_id_map[p1_reg_id]
-            if p1_user_id and (not p1_name or p1_name.lower() in ("player 1", "player", "player 2")) and f"fullname:{p1_user_id}" in roster_id_map:
+            elif p1_user_id and p1_user_id in roster_id_map:
+                p1_user_id = roster_id_map[p1_user_id]
+            if p1_user_id and (not p1_name or "player" in p1_name.lower()) and f"fullname:{p1_user_id}" in roster_id_map:
                 p1_name = roster_id_map[f"fullname:{p1_user_id}"]
 
-        if p1_user_id and len(p1_user_id) == 12:
-            resolved_p1 = self._resolve_bcp_registration_id(p1_user_id)
-            if resolved_p1 and resolved_p1.get("user_id"):
-                p1_user_id = resolved_p1["user_id"]
-                if (not p1_name or p1_name.lower() in ("player 1", "player", "player 2")) and resolved_p1.get("full_name"):
-                    p1_name = resolved_p1["full_name"]
-                    p1_first = resolved_p1.get("first_name") or p1_first
-                    p1_last = resolved_p1.get("last_name") or p1_last
-
-        if (not p1_name or p1_name.lower() in ("player 1", "player", "player 2")):
-            if p1_reg_id and len(p1_reg_id) == 12:
+        # If we still don't have an explicit userId (or name is a placeholder), resolve via registration ID or user ID
+        if (not p1_explicit_uid and p1_reg_id and p1_user_id == p1_reg_id) or (not p1_name or "player" in p1_name.lower()):
+            if p1_reg_id:
                 resolved_reg = self._resolve_bcp_registration_id(p1_reg_id)
-                if resolved_reg and resolved_reg.get("full_name"):
-                    p1_name = resolved_reg["full_name"]
-                    p1_first = resolved_reg.get("first_name") or p1_first
-                    p1_last = resolved_reg.get("last_name") or p1_last
+                if resolved_reg:
                     if resolved_reg.get("user_id"):
                         p1_user_id = resolved_reg["user_id"]
-            if (not p1_name or p1_name.lower() in ("player 1", "player", "player 2")) and p1_user_id:
+                    if (not p1_name or "player" in p1_name.lower()) and resolved_reg.get("full_name"):
+                        p1_name = resolved_reg["full_name"]
+                        p1_first = resolved_reg.get("first_name") or p1_first
+                        p1_last = resolved_reg.get("last_name") or p1_last
+            if (not p1_name or "player" in p1_name.lower()) and p1_user_id:
                 resolved_usr = self._resolve_bcp_user_id(p1_user_id)
                 if resolved_usr and resolved_usr.get("full_name"):
                     p1_name = resolved_usr["full_name"]
@@ -728,49 +723,41 @@ class BestCoastPairingsScraper:
         if isinstance(p1_faction, dict):
             p1_faction = p1_faction.get("name", "")
 
-        # Player 2 details
+        # Player 2 details: Always prioritize explicit global userId over registration id
         p2_user = p2_obj.get("user") or {}
-        raw_p2_id = (
+        p2_explicit_uid = str(
             p2_user.get("id")
             or p2_obj.get("userId")
             or p2_obj.get("user_id")
             or pairing.get("player2UserId")
-            or p2_obj.get("id")
-            or pairing.get("player2Id")
-        )
-        p2_user_id = str(raw_p2_id).strip() if raw_p2_id else None
+            or ""
+        ).strip()
         p2_reg_id = str(p2_obj.get("id") or pairing.get("player2Id") or "").strip()
+        p2_user_id = p2_explicit_uid or p2_reg_id or None
+
         p2_first = p2_user.get("firstName") or p2_obj.get("firstName") or ""
         p2_last = p2_user.get("lastName") or p2_obj.get("lastName") or ""
         p2_name = f"{p2_first} {p2_last}".strip() or p2_obj.get("name") or ("Player 2" if p2_user_id else "BYE")
 
         if roster_id_map:
-            if p2_user_id and p2_user_id in roster_id_map:
-                p2_user_id = roster_id_map[p2_user_id]
-            elif p2_reg_id and p2_reg_id in roster_id_map:
+            if p2_reg_id and p2_reg_id in roster_id_map:
                 p2_user_id = roster_id_map[p2_reg_id]
-            if p2_user_id and (not p2_name or p2_name.lower() in ("player 2", "player", "player 1")) and f"fullname:{p2_user_id}" in roster_id_map:
+            elif p2_user_id and p2_user_id in roster_id_map:
+                p2_user_id = roster_id_map[p2_user_id]
+            if p2_user_id and (not p2_name or "player" in p2_name.lower()) and f"fullname:{p2_user_id}" in roster_id_map:
                 p2_name = roster_id_map[f"fullname:{p2_user_id}"]
 
-        if p2_user_id and len(p2_user_id) == 12:
-            resolved_p2 = self._resolve_bcp_registration_id(p2_user_id)
-            if resolved_p2 and resolved_p2.get("user_id"):
-                p2_user_id = resolved_p2["user_id"]
-                if (not p2_name or p2_name.lower() in ("player 2", "player", "player 1")) and resolved_p2.get("full_name"):
-                    p2_name = resolved_p2["full_name"]
-                    p2_first = resolved_p2.get("first_name") or p2_first
-                    p2_last = resolved_p2.get("last_name") or p2_last
-
-        if p2_user_id and (not p2_name or p2_name.lower() in ("player 2", "player", "player 1")):
-            if p2_reg_id and len(p2_reg_id) == 12:
+        if p2_user_id and ((not p2_explicit_uid and p2_reg_id and p2_user_id == p2_reg_id) or (not p2_name or "player" in p2_name.lower())):
+            if p2_reg_id:
                 resolved_reg = self._resolve_bcp_registration_id(p2_reg_id)
-                if resolved_reg and resolved_reg.get("full_name"):
-                    p2_name = resolved_reg["full_name"]
-                    p2_first = resolved_reg.get("first_name") or p2_first
-                    p2_last = resolved_reg.get("last_name") or p2_last
+                if resolved_reg:
                     if resolved_reg.get("user_id"):
                         p2_user_id = resolved_reg["user_id"]
-            if (not p2_name or p2_name.lower() in ("player 2", "player", "player 1")) and p2_user_id:
+                    if (not p2_name or "player" in p2_name.lower()) and resolved_reg.get("full_name"):
+                        p2_name = resolved_reg["full_name"]
+                        p2_first = resolved_reg.get("first_name") or p2_first
+                        p2_last = resolved_reg.get("last_name") or p2_last
+            if (not p2_name or "player" in p2_name.lower()) and p2_user_id:
                 resolved_usr = self._resolve_bcp_user_id(p2_user_id)
                 if resolved_usr and resolved_usr.get("full_name"):
                     p2_name = resolved_usr["full_name"]

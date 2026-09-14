@@ -41,13 +41,27 @@ PLACEHOLDER_NAMES = {
 
 
 def is_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -> bool:
-    """Checks if a name is a generic placeholder or equal to the player ID."""
+    """Checks if a name is a generic placeholder, contains 'player', or is equal to the player ID."""
     if not name:
         return True
     cleaned = str(name).strip().lower()
     if cleaned in PLACEHOLDER_NAMES:
         return True
-    if cleaned.startswith("player ") or cleaned.startswith("player_"):
+    if "player" in cleaned:
+        return True
+    if player_id and str(name).strip() == str(player_id).strip():
+        return True
+    return False
+
+
+def is_bcp_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -> bool:
+    """Checks if a name returned by BCP API is an unlinked placeholder (allows real surnames like 'Andy Player')."""
+    if not name:
+        return True
+    cleaned = str(name).strip().lower()
+    if cleaned in PLACEHOLDER_NAMES:
+        return True
+    if cleaned.startswith("player ") or cleaned.startswith("player_") or cleaned.startswith("fake player"):
         return True
     if player_id and str(name).strip() == str(player_id).strip():
         return True
@@ -70,12 +84,13 @@ class PlayerNameSync:
         self.headers = DEFAULT_HEADERS.copy()
 
     def find_placeholder_player_ids(self, game_system: Optional[str] = None) -> List[str]:
-        """Finds all player IDs where their name is currently a placeholder across database tables.
+        """Finds all player IDs where their name contains 'player' (or is empty/placeholder) or has duplicate names on leaderboard.
         
         Prioritizes:
-        1. Ranked & active players on the leaderboard (matches_played DESC, current_elo DESC).
-        2. Players in recent matches (match_date DESC).
-        3. Other placeholder players in the specified game system.
+        1. Ranked & active players on the leaderboard with 'player' in name (matches_played DESC, current_elo DESC).
+        1b. Duplicate-name players on the leaderboard (HAVING COUNT(*) > 1).
+        2. Players in recent matches with 'player' in name (match_date DESC).
+        3. Other players with 'player' in name in the specified game system.
         """
         target_sys = (game_system or "all").lower()
         seen: Set[str] = set()
@@ -89,31 +104,31 @@ class PlayerNameSync:
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
-                # 1. Tier 1: Ranked & active players on the Leaderboard (Highest Priority)
+                # 1. Tier 1: Ranked & active players on the Leaderboard with 'player' in name (Highest Priority)
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id)
+                    WHERE (player_name ILIKE %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
                       AND COALESCE(game_system, '40k') = '40k'
                     ORDER BY matches_played DESC, current_elo DESC;
-                    """, ('Player %',))
+                    """, ('%player%',))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id)
+                    WHERE (player_name ILIKE %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
                       AND COALESCE(game_system, '40k') = 'aos'
                     ORDER BY matches_played DESC, current_elo DESC;
-                    """, ('Player %',))
+                    """, ('%player%',))
                 else:
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id
+                    WHERE player_name ILIKE %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
                     ORDER BY matches_played DESC, current_elo DESC;
-                    """, ('Player %',))
+                    """, ('%player%',))
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 1b. Tier 1b: Duplicate-name registration IDs on the leaderboard (Highest Priority alongside Tier 1)
+                # 1b. Tier 1b: Duplicate-name players on the leaderboard (checks BCP to see if they share a userId)
                 sys_pr_clause = ""
                 if target_sys in ("40k", "wh40k"):
                     sys_pr_clause = "AND COALESCE(game_system, '40k') = '40k'"
@@ -126,30 +141,18 @@ class PlayerNameSync:
                     SELECT LOWER(TRIM(player_name))
                     FROM player_ratings
                     WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
-                      AND NOT (player_name ILIKE 'Player%%' OR player_name ILIKE 'BYE')
+                      AND NOT (player_name ILIKE '%%player%%' OR player_name ILIKE 'BYE')
                       {sys_pr_clause}
                     GROUP BY LOWER(TRIM(player_name)), COALESCE(game_system, '40k')
                     HAVING COUNT(*) > 1
                 )
-                  AND LENGTH(TRIM(player_id)) != 10
                   {sys_pr_clause}
                 ORDER BY matches_played DESC, current_elo DESC;
                 """)
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 1c. Tier 1c: Any remaining non-10-character registration IDs across player_ratings, matches, and event_participants
-                cur.execute(f"""
-                SELECT player_id FROM player_ratings
-                WHERE LENGTH(TRIM(player_id)) != 10
-                  AND NOT (player_id ILIKE 'BYE')
-                  {sys_pr_clause}
-                ORDER BY matches_played DESC, current_elo DESC;
-                """)
-                for r in cur.fetchall():
-                    add_id(r[0])
-
-                # 2. Tier 2: Recent match participants (placeholders & 12-char IDs)
+                # 2. Tier 2: Recent match participants with 'player' in name
                 sys_clause = ""
                 if target_sys in ("40k", "wh40k"):
                     sys_clause = "AND COALESCE(game_system, '40k') = '40k'"
@@ -158,21 +161,21 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player1_id FROM matches 
-                WHERE (player1_name ILIKE %s OR player1_name ILIKE 'player' OR LENGTH(TRIM(player1_id)) != 10)
+                WHERE player1_name ILIKE %s
                   AND NOT (player1_id ILIKE 'BYE')
                   {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
-                """, ('Player %',))
+                """, ('%player%',))
                 for r in cur.fetchall():
                     add_id(r[0])
 
                 cur.execute(f"""
                 SELECT player2_id FROM matches 
-                WHERE (player2_name ILIKE %s OR player2_name ILIKE 'player' OR LENGTH(TRIM(player2_id)) != 10)
+                WHERE player2_name ILIKE %s
                   AND NOT (player2_id ILIKE 'BYE')
                   {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
-                """, ('Player %',))
+                """, ('%player%',))
                 for r in cur.fetchall():
                     add_id(r[0])
 
@@ -181,21 +184,21 @@ class PlayerNameSync:
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (p.full_name ILIKE %s OR p.full_name ILIKE 'player' OR p.full_name IS NULL OR TRIM(p.full_name) = '')
+                    WHERE (p.full_name ILIKE %s OR p.full_name IS NULL OR TRIM(p.full_name) = '')
                       AND COALESCE(pr.game_system, '40k') = '40k';
-                    """, ('Player %',))
+                    """, ('%player%',))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (p.full_name ILIKE %s OR p.full_name ILIKE 'player' OR p.full_name IS NULL OR TRIM(p.full_name) = '')
+                    WHERE (p.full_name ILIKE %s OR p.full_name IS NULL OR TRIM(p.full_name) = '')
                       AND COALESCE(pr.game_system, '40k') = 'aos';
-                    """, ('Player %',))
+                    """, ('%player%',))
                 else:
                     cur.execute("""
                     SELECT DISTINCT id FROM players 
-                    WHERE full_name ILIKE %s OR full_name ILIKE 'player' OR full_name IS NULL OR TRIM(full_name) = '';
-                    """, ('Player %',))
+                    WHERE full_name ILIKE %s OR full_name IS NULL OR TRIM(full_name) = '';
+                    """, ('%player%',))
                 for r in cur.fetchall():
                     add_id(r[0])
 
@@ -297,13 +300,34 @@ class PlayerNameSync:
                                     "source": "local_matches_p2"
                                 }
 
-                # 4. Do NOT resolve 12-character registration IDs purely from local DB name matching.
-                # Two different people can share the exact same name (e.g., two different "John Smith"s).
-                # Leaving 12-char IDs unresolved locally ensures sync_names() queries BCP /v1/players/{id}
-                # to retrieve the true, globally unique 10-character canonical userId for that specific registration.
-                for pid in list(resolved.keys()):
-                    if len(pid) == 12:
-                        resolved.pop(pid, None)
+                # 4. Do NOT resolve IDs locally if their name is shared by multiple IDs on player_ratings
+                # or if they already had a non-placeholder name (Tier 1b duplicate-name records).
+                # Leaving them unresolved locally ensures sync_names() queries BCP /v1/players/{id}
+                # to retrieve their true canonical userId.
+                if resolved:
+                    cur.execute("""
+                    SELECT player_id, LOWER(TRIM(player_name))
+                    FROM player_ratings
+                    WHERE player_id = ANY(%s);
+                    """, (list(resolved.keys()),))
+                    pr_names = {str(r[0]).strip(): str(r[1] or "").strip() for r in cur.fetchall()}
+
+                    cur.execute("""
+                    SELECT LOWER(TRIM(player_name))
+                    FROM player_ratings
+                    WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
+                    GROUP BY LOWER(TRIM(player_name))
+                    HAVING COUNT(DISTINCT player_id) > 1;
+                    """)
+                    dup_names = {str(r[0]).strip() for r in cur.fetchall() if r and r[0]}
+
+                    for pid in list(resolved.keys()):
+                        res_norm = resolved[pid]["full_name"].strip().lower()
+                        existing_pr_name = pr_names.get(pid, "")
+                        # If pid was already a named record on player_ratings (selected via Tier 1b duplicate scan)
+                        # or its resolved name is a known duplicate name, pop it so BCP API is queried for canonical userId
+                        if (existing_pr_name and not is_placeholder_name(existing_pr_name, pid)) or (res_norm in dup_names):
+                            resolved.pop(pid, None)
 
         logger.info(f"⚡ Resolved {len(resolved)} / {len(player_ids)} player identities directly from local DB (0 network calls).")
         return resolved
@@ -320,7 +344,7 @@ class PlayerNameSync:
                         first = clean_name(data.get("firstName"))
                         last = clean_name(data.get("lastName"))
                         full = f"{first} {last}".strip() or clean_name(data.get("name"))
-                        if full and not is_placeholder_name(full, player_id):
+                        if full and not is_bcp_placeholder_name(full, player_id):
                             return {
                                 "full_name": full,
                                 "first_name": first,
@@ -348,7 +372,7 @@ class PlayerNameSync:
                         last = clean_name(u.get("lastName") or data.get("lastName"))
                         full = f"{first} {last}".strip() or clean_name(data.get("name") or data.get("playerName"))
                         canonical_uid = clean_name(u.get("id") or data.get("userId") or data.get("user_id"))
-                        if full and not is_placeholder_name(full, player_id):
+                        if full and not is_bcp_placeholder_name(full, player_id):
                             res_info = {
                                 "full_name": full,
                                 "first_name": first,
@@ -366,22 +390,15 @@ class PlayerNameSync:
         return None
 
     def fetch_bcp_player_name(self, player_id: str) -> Optional[Dict[str, str]]:
-        """Queries BCP public API (/v1/users/{id} or /v1/players/{id}) to retrieve player identity and canonical userId."""
-        if not player_id or is_placeholder_name(player_id):
+        """Queries BCP public API (/v1/players/{id} first to check for registration ID -> userId mapping, then /v1/users/{id})."""
+        if not player_id or player_id.lower() in PLACEHOLDER_NAMES:
             return None
 
-        # 12-character IDs are tournament registration IDs -> query /v1/players/{id} first
-        if len(player_id) == 12:
-            res = self._query_bcp_players_endpoint(player_id)
-            if res:
-                return res
-            return self._query_bcp_users_endpoint(player_id)
-
-        # 10-character IDs are global user IDs -> query /v1/users/{id} first
-        res = self._query_bcp_users_endpoint(player_id)
+        # Always check /v1/players/{id} first to see if this ID is a tournament registration ID with a canonical userId
+        res = self._query_bcp_players_endpoint(player_id)
         if res:
             return res
-        return self._query_bcp_players_endpoint(player_id)
+        return self._query_bcp_users_endpoint(player_id)
 
     def apply_name_updates(self, resolved_names: Dict[str, Dict[str, str]]) -> Dict[str, int]:
         """Applies name and canonical userId corrections across all database tables in transactional batches."""
@@ -570,14 +587,14 @@ class PlayerNameSync:
             reg_id = str(p.get("id") or "").strip()
             user = p.get("user") or {}
             uid = str(user.get("id") or p.get("userId") or p.get("user_id") or "").strip()
-            if not uid and len(reg_id) == 12:
+            if not uid and reg_id:
                 bcp_info = self.fetch_bcp_player_name(reg_id)
                 if bcp_info and bcp_info.get("canonical_user_id"):
                     uid = bcp_info["canonical_user_id"]
             first = clean_name(user.get("firstName") or p.get("firstName"))
             last = clean_name(user.get("lastName") or p.get("lastName"))
             full = f"{first} {last}".strip() or clean_name(p.get("name"))
-            if uid and len(uid) != 12:
+            if uid:
                 if reg_id:
                     reg_to_uid[reg_id] = uid
                 if full and not is_placeholder_name(full):
@@ -619,13 +636,13 @@ class PlayerNameSync:
             p2_reg = str(p2_obj.get("id") or pr.get("player2Id") or "").strip()
             if not p1_uid and p1_reg in reg_to_uid:
                 p1_uid = reg_to_uid[p1_reg]
-            elif not p1_uid and len(p1_reg) == 12:
+            elif not p1_uid and p1_reg:
                 bcp_p1 = self.fetch_bcp_player_name(p1_reg)
                 if bcp_p1 and bcp_p1.get("canonical_user_id"):
                     p1_uid = bcp_p1["canonical_user_id"]
             if not p2_uid and p2_reg in reg_to_uid:
                 p2_uid = reg_to_uid[p2_reg]
-            elif not p2_uid and len(p2_reg) == 12:
+            elif not p2_uid and p2_reg:
                 bcp_p2 = self.fetch_bcp_player_name(p2_reg)
                 if bcp_p2 and bcp_p2.get("canonical_user_id"):
                     p2_uid = bcp_p2["canonical_user_id"]
@@ -639,7 +656,7 @@ class PlayerNameSync:
         dry_run: bool = False,
         max_events: Optional[int] = None
     ) -> Dict[str, int]:
-        """Verifies all matches for players who share a name across multiple events or multiple IDs against BCP event data.
+        """Verifies all matches for players who share a name across multiple distinct IDs (COUNT(DISTINCT pid) > 1) against BCP event data.
         Ensures falsely merged players are separated back to their true BCP userId and same-person records use the same BCP userId.
         """
         target_sys = (game_system or "all").lower()
@@ -654,27 +671,33 @@ class PlayerNameSync:
             with conn.cursor() as cur:
                 cur.execute(f"""
                 WITH player_event_names AS (
-                    SELECT LOWER(TRIM(player1_name)) AS norm_name, player1_id AS pid, event_id
+                    SELECT LOWER(TRIM(player1_name)) AS norm_name, player1_id AS pid
                     FROM matches
                     WHERE player1_name IS NOT NULL AND TRIM(player1_name) != ''
                       AND NOT (player1_name ILIKE 'Player%%' OR player1_name ILIKE 'BYE')
                       {sys_clause}
                     UNION ALL
-                    SELECT LOWER(TRIM(player2_name)) AS norm_name, player2_id AS pid, event_id
+                    SELECT LOWER(TRIM(player2_name)) AS norm_name, player2_id AS pid
                     FROM matches
                     WHERE player2_name IS NOT NULL AND TRIM(player2_name) != ''
                       AND NOT (player2_name ILIKE 'Player%%' OR player2_name ILIKE 'BYE')
+                      {sys_clause}
+                    UNION ALL
+                    SELECT LOWER(TRIM(player_name)) AS norm_name, player_id AS pid
+                    FROM player_ratings
+                    WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
+                      AND NOT (player_name ILIKE 'Player%%' OR player_name ILIKE 'BYE')
                       {sys_clause}
                 )
                 SELECT norm_name
                 FROM player_event_names
                 GROUP BY norm_name
-                HAVING COUNT(DISTINCT event_id) > 1 OR COUNT(DISTINCT pid) > 1;
+                HAVING COUNT(DISTINCT pid) > 1;
                 """)
                 candidate_names = [str(r[0]).strip() for r in cur.fetchall() if r and r[0]]
 
         if not candidate_names:
-            logger.info("✅ No multi-event or multi-ID same-name players found requiring BCP match verification.")
+            logger.info("✅ No multi-ID same-name players found requiring BCP match verification.")
             return {"events_checked": 0, "matches_fixed": 0}
 
         logger.info(f"🔍 [Same-Name Verification] Auditing {len(candidate_names)} shared player name(s) against BCP event rosters & pairings...")
@@ -727,7 +750,7 @@ class PlayerNameSync:
                         uids = name_to_uids.get(norm_p1, [])
                         if len(uids) == 1:
                             true_p1_uid = uids[0]
-                    if true_p1_uid and len(true_p1_uid) != 12 and true_p1_uid != p1_id:
+                    if true_p1_uid and true_p1_uid != p1_id:
                         logger.info(f"   🔧 [Same-Name Fix] Match {mid} (Event {eid}): P1 '{p1_name}' DB ID {p1_id} -> BCP true userId {true_p1_uid}")
                         updates_for_event.append(("p1", mid, eid, p1_id, true_p1_uid, p1_name))
 
@@ -739,7 +762,7 @@ class PlayerNameSync:
                         uids = name_to_uids.get(norm_p2, [])
                         if len(uids) == 1:
                             true_p2_uid = uids[0]
-                    if true_p2_uid and len(true_p2_uid) != 12 and true_p2_uid != p2_id:
+                    if true_p2_uid and true_p2_uid != p2_id:
                         logger.info(f"   🔧 [Same-Name Fix] Match {mid} (Event {eid}): P2 '{p2_name}' DB ID {p2_id} -> BCP true userId {true_p2_uid}")
                         updates_for_event.append(("p2", mid, eid, p2_id, true_p2_uid, p2_name))
 
