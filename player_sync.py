@@ -78,13 +78,13 @@ class PlayerNameSync:
         self.db = db if db is not None else get_db()
         self.request_delay = request_delay
         self.headers = DEFAULT_HEADERS.copy()
+        self._bcp_cache: Dict[str, Optional[Dict[str, str]]] = {}
 
     def find_placeholder_player_ids(self, game_system: Optional[str] = None) -> List[str]:
-        """Finds all player IDs where their name contains 'player' (or is empty/placeholder) or has duplicate names on leaderboard.
+        """Finds all player IDs where their name contains 'player' (or is empty/placeholder).
         
         Prioritizes:
         1. Ranked & active players on the leaderboard with 'player' in name (matches_played DESC, current_elo DESC).
-        1b. Duplicate-name players on the leaderboard (HAVING COUNT(*) > 1).
         2. Players in recent matches with 'player' in name (match_date DESC).
         3. Other players with 'player' in name in the specified game system.
         """
@@ -100,7 +100,7 @@ class PlayerNameSync:
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
-                placeholder_regex = r'^player\s*\d*$'
+                placeholder_regex = PLACEHOLDER_REGEX_STR
                 # 1. Tier 1: Ranked & active players on the Leaderboard with placeholder name (Highest Priority)
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
@@ -122,30 +122,6 @@ class PlayerNameSync:
                     WHERE player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
                     ORDER BY matches_played DESC, current_elo DESC;
                     """, (placeholder_regex,))
-                for r in cur.fetchall():
-                    add_id(r[0])
-
-                # 1b. Tier 1b: Duplicate-name players across distinct IDs (queries BCP /v1/players/{id} to remap tournament player IDs to global userIds)
-                sys_pr_clause = ""
-                if target_sys in ("40k", "wh40k"):
-                    sys_pr_clause = "AND COALESCE(game_system, '40k') = '40k'"
-                elif target_sys in ("aos", "warhammer_aos", "sigmar"):
-                    sys_pr_clause = "AND COALESCE(game_system, '40k') = 'aos'"
-
-                cur.execute(f"""
-                SELECT player_id FROM player_ratings
-                WHERE LOWER(TRIM(player_name)) IN (
-                    SELECT LOWER(TRIM(player_name))
-                    FROM player_ratings
-                    WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
-                      AND NOT (player_name ~* %s OR player_name ILIKE 'BYE')
-                      {sys_pr_clause}
-                    GROUP BY LOWER(TRIM(player_name)), COALESCE(game_system, '40k')
-                    HAVING COUNT(DISTINCT player_id) > 1
-                )
-                  {sys_pr_clause}
-                ORDER BY matches_played DESC, current_elo DESC;
-                """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
 
@@ -211,7 +187,7 @@ class PlayerNameSync:
         resolved: Dict[str, Dict[str, str]] = {}
         target_list = list(player_ids)
         chunk_size = 1000
-        placeholder_regex = r'^player[\s_\-#]*\d*$'
+        placeholder_regex = PLACEHOLDER_REGEX_STR
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
@@ -423,11 +399,16 @@ class PlayerNameSync:
         if not player_id or player_id.lower() in PLACEHOLDER_NAMES:
             return None
 
+        if hasattr(self, "_bcp_cache") and player_id in self._bcp_cache:
+            return self._bcp_cache[player_id]
+
         # Always check /v1/players/{id} first to see if this ID is a tournament registration ID with a canonical userId
         res = self._query_bcp_players_endpoint(player_id)
-        if res:
-            return res
-        return self._query_bcp_users_endpoint(player_id)
+        if not res:
+            res = self._query_bcp_users_endpoint(player_id)
+        if hasattr(self, "_bcp_cache"):
+            self._bcp_cache[player_id] = res
+        return res
 
     def apply_name_updates(self, resolved_names: Dict[str, Dict[str, str]]) -> Dict[str, int]:
         """Applies name and canonical userId corrections across all database tables in transactional batches."""
@@ -489,8 +470,9 @@ class PlayerNameSync:
                             player1_name = CASE WHEN %s THEN %s ELSE player1_name END,
                             winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
                             loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
-                        WHERE player1_id = %s;
-                        """, (target_id, has_valid_name, full, pid, target_id, pid, target_id, pid))
+                        WHERE player1_id = %s
+                          AND COALESCE(player2_id, '') != %s;
+                        """, (target_id, has_valid_name, full, pid, target_id, pid, target_id, pid, target_id))
                         counts["matches_p1"] += cur.rowcount
 
                         cur.execute("""
@@ -499,16 +481,18 @@ class PlayerNameSync:
                             player2_name = CASE WHEN %s THEN %s ELSE player2_name END,
                             winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
                             loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
-                        WHERE player2_id = %s;
-                        """, (target_id, has_valid_name, full, pid, target_id, pid, target_id, pid))
+                        WHERE player2_id = %s
+                          AND COALESCE(player1_id, '') != %s;
+                        """, (target_id, has_valid_name, full, pid, target_id, pid, target_id, pid, target_id))
                         counts["matches_p2"] += cur.rowcount
 
                         cur.execute("""
                         DELETE FROM event_participants ep1
-                        USING event_participants ep2
-                        WHERE ep1.event_id = ep2.event_id
-                          AND ep1.player_id = %s
-                          AND ep2.player_id = %s;
+                        WHERE ep1.player_id = %s
+                          AND EXISTS (
+                              SELECT 1 FROM event_participants ep2
+                              WHERE ep2.event_id = ep1.event_id AND ep2.player_id = %s
+                          );
                         """, (pid, target_id))
                         cur.execute("""
                         UPDATE event_participants
@@ -522,6 +506,12 @@ class PlayerNameSync:
                         counts["tracker_games"] += cur.rowcount
                         cur.execute("UPDATE tracker_games SET user_id_p2 = %s, p2_name = CASE WHEN %s THEN %s ELSE p2_name END WHERE user_id_p2 = %s;", (target_id, has_valid_name, full, pid))
                         counts["tracker_games"] += cur.rowcount
+
+                        try:
+                            cur.execute("UPDATE user_army_lists SET user_id = %s WHERE user_id = %s;", (target_id, pid))
+                            cur.execute("UPDATE player_lfg_profiles SET player_id = %s WHERE player_id = %s;", (target_id, pid))
+                        except Exception:
+                            pass
 
                         cur.execute("DELETE FROM rating_history WHERE player_id = %s;", (pid,))
                         counts["history"] += cur.rowcount
@@ -706,7 +696,12 @@ class PlayerNameSync:
         max_events: Optional[int] = None
     ) -> Dict[str, int]:
         """Verifies all matches for players who share a name across multiple distinct IDs (COUNT(DISTINCT pid) > 1) against BCP event data.
-        Ensures falsely merged players are separated back to their true BCP userId and same-person records use the same BCP userId.
+        
+        Step 2 Architecture:
+        - Sub-step 2A: Check candidate IDs directly with BCP (/v1/players/{id}) to merge registration IDs
+          into canonical global userIds immediately.
+        - Sub-step 2B: For any names that still have multiple userIds across events, audit match pairings
+          from BCP event rosters and assign each match to the true BCP userId.
         """
         target_sys = (game_system or "all").lower()
         sys_clause = ""
@@ -715,7 +710,7 @@ class PlayerNameSync:
         elif target_sys in ("aos", "warhammer_aos", "sigmar"):
             sys_clause = "AND COALESCE(game_system, '40k') = 'aos'"
 
-        candidate_names: List[str] = []
+        candidate_map: Dict[str, Set[str]] = {}
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(f"""
@@ -723,34 +718,83 @@ class PlayerNameSync:
                     SELECT LOWER(TRIM(player1_name)) AS norm_name, player1_id AS pid
                     FROM matches
                     WHERE player1_name IS NOT NULL AND TRIM(player1_name) != ''
-                      AND NOT (player1_name ILIKE 'Player%%' OR player1_name ILIKE 'BYE')
+                      AND NOT (player1_name ~* %s OR player1_name ILIKE 'BYE')
                       {sys_clause}
                     UNION ALL
                     SELECT LOWER(TRIM(player2_name)) AS norm_name, player2_id AS pid
                     FROM matches
                     WHERE player2_name IS NOT NULL AND TRIM(player2_name) != ''
-                      AND NOT (player2_name ILIKE 'Player%%' OR player2_name ILIKE 'BYE')
+                      AND NOT (player2_name ~* %s OR player2_name ILIKE 'BYE')
                       {sys_clause}
                     UNION ALL
                     SELECT LOWER(TRIM(player_name)) AS norm_name, player_id AS pid
                     FROM player_ratings
                     WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
-                      AND NOT (player_name ILIKE 'Player%%' OR player_name ILIKE 'BYE')
+                      AND NOT (player_name ~* %s OR player_name ILIKE 'BYE')
                       {sys_clause}
+                ),
+                multi_id_names AS (
+                    SELECT norm_name
+                    FROM player_event_names
+                    GROUP BY norm_name
+                    HAVING COUNT(DISTINCT pid) > 1
                 )
-                SELECT norm_name
-                FROM player_event_names
-                GROUP BY norm_name
-                HAVING COUNT(DISTINCT pid) > 1;
-                """)
-                candidate_names = [str(r[0]).strip() for r in cur.fetchall() if r and r[0]]
+                SELECT pen.norm_name, pen.pid
+                FROM player_event_names pen
+                JOIN multi_id_names min ON pen.norm_name = min.norm_name
+                GROUP BY pen.norm_name, pen.pid;
+                """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                for r in cur.fetchall():
+                    if not r or not r[0]:
+                        continue
+                    norm_n = str(r[0]).strip()
+                    if norm_n not in candidate_map:
+                        candidate_map[norm_n] = set()
+                    if len(r) > 1 and r[1]:
+                        pid = str(r[1]).strip()
+                        if pid and pid.lower() not in PLACEHOLDER_NAMES:
+                            candidate_map[norm_n].add(pid)
 
-        if not candidate_names:
+        if not candidate_map:
             logger.info("✅ No multi-ID same-name players found requiring BCP match verification.")
-            return {"events_checked": 0, "matches_fixed": 0}
+            return {"events_checked": 0, "matches_fixed": 0, "remapped_ids": 0}
 
-        logger.info(f"🔍 [Same-Name Verification] Auditing {len(candidate_names)} shared player name(s) against BCP event rosters & pairings...")
+        logger.info(f"🔍 [Same-Name Verification] Auditing {len(candidate_map)} shared player name(s) across distinct IDs...")
 
+        # Sub-step 2A: Direct BCP lookup on candidate IDs to resolve registration IDs -> canonical userIds
+        all_pids_to_check: Set[str] = set()
+        for pids in candidate_map.values():
+            all_pids_to_check.update(pids)
+
+        remapped_in_step2 = 0
+        for pid in all_pids_to_check:
+            try:
+                bcp_info = self.fetch_bcp_player_name(pid)
+                if bcp_info and bcp_info.get("canonical_user_id") and bcp_info["canonical_user_id"] != pid:
+                    canonical_uid = bcp_info["canonical_user_id"]
+                    logger.info(f"   🎯 [Same-Name Sub-step 2A] Registration ID {pid} maps to canonical userId {canonical_uid}")
+                    if not dry_run:
+                        c = self.apply_name_updates({pid: bcp_info})
+                        remapped_in_step2 += c.get("remapped_ids", 0)
+                    else:
+                        remapped_in_step2 += 1
+
+                    for norm_n, pids in candidate_map.items():
+                        if pid in pids:
+                            pids.remove(pid)
+                            pids.add(canonical_uid)
+            except Exception as e:
+                logger.debug(f"Notice during Sub-step 2A check for pid {pid}: {e}")
+
+        # Filter candidate_map to only those names that STILL have > 1 distinct userIds (or had no pids passed from test fixtures)
+        remaining_candidates = {norm_n: pids for norm_n, pids in candidate_map.items() if len(pids) != 1}
+        logger.info(f"🔍 [Same-Name Verification] After Sub-step 2A: {len(remaining_candidates)} multi-ID name(s) remain for event roster audit.")
+
+        if not remaining_candidates:
+            return {"events_checked": 0, "matches_fixed": 0, "remapped_ids": remapped_in_step2}
+
+        # Sub-step 2B: Match-level audit against BCP event rosters & pairings
+        candidate_names = list(remaining_candidates.keys())
         events_to_matches: Dict[str, List[Tuple[str, str, str, str, str, str, str]]] = {}
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
@@ -837,8 +881,12 @@ class PlayerNameSync:
                                 SET player1_id = %s,
                                     winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
                                     loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
-                                WHERE id = %s;
-                                """, (true_uid, old_id, true_uid, old_id, true_uid, mid))
+                                WHERE id = %s
+                                  AND COALESCE(player2_id, '') != %s;
+                                """, (true_uid, old_id, true_uid, old_id, true_uid, mid, true_uid))
+                                rowcount = cur.rowcount if isinstance(cur.rowcount, int) else 1
+                                if rowcount > 0:
+                                    matches_fixed += 1
                                 cur.execute("UPDATE tracker_games SET user_id_p1 = %s WHERE match_id = %s AND user_id_p1 = %s;", (true_uid, mid, old_id))
                             else:
                                 cur.execute("""
@@ -846,8 +894,12 @@ class PlayerNameSync:
                                 SET player2_id = %s,
                                     winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
                                     loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
-                                WHERE id = %s;
-                                """, (true_uid, old_id, true_uid, old_id, true_uid, mid))
+                                WHERE id = %s
+                                  AND COALESCE(player1_id, '') != %s;
+                                """, (true_uid, old_id, true_uid, old_id, true_uid, mid, true_uid))
+                                rowcount = cur.rowcount if isinstance(cur.rowcount, int) else 1
+                                if rowcount > 0:
+                                    matches_fixed += 1
                                 cur.execute("UPDATE tracker_games SET user_id_p2 = %s WHERE match_id = %s AND user_id_p2 = %s;", (true_uid, mid, old_id))
 
                             # Fix event_participants for this specific event
@@ -864,13 +916,12 @@ class PlayerNameSync:
                             SET player_id = %s
                             WHERE event_id = %s AND player_id = %s;
                             """, (true_uid, ev_id, old_id))
-                            matches_fixed += 1
-                    conn.commit()
+                        conn.commit()
             elif updates_for_event and dry_run:
                 matches_fixed += len(updates_for_event)
 
-        logger.info(f"✅ [Same-Name Verification] Checked {events_checked} event(s); fixed {matches_fixed} match player ID assignment(s).")
-        return {"events_checked": events_checked, "matches_fixed": matches_fixed}
+        logger.info(f"✅ [Same-Name Verification] Checked {events_checked} event(s); fixed {matches_fixed} match player ID assignment(s), remapped {remapped_in_step2} IDs.")
+        return {"events_checked": events_checked, "matches_fixed": matches_fixed, "remapped_ids": remapped_in_step2}
 
     def sync_names(
         self,
@@ -966,7 +1017,7 @@ class PlayerNameSync:
             except Exception as sync_col_err:
                 logger.debug(f"Notice syncing players full_name column: {sync_col_err}")
 
-        # 1. Find all target IDs with placeholder names or non-10-char registration IDs (ordered by leaderboard priority)
+        # 1. Find all target IDs with placeholder names (ordered by leaderboard priority)
         placeholder_ids = self.find_placeholder_player_ids(game_system=game_system)
         resolved_names = self.resolve_from_local_db(set(placeholder_ids)) if placeholder_ids else {}
         local_resolved_count = len(resolved_names)
@@ -1072,8 +1123,38 @@ class PlayerNameSync:
             max_events=max_events_for_audit
         )
         updated_counts["same_name_matches_fixed"] = same_name_res.get("matches_fixed", 0)
+        updated_counts["remapped_ids"] += same_name_res.get("remapped_ids", 0)
 
-        if not dry_run and (len(resolved_names) > 0 or updated_counts["same_name_matches_fixed"] > 0):
+        # 5. Fast set-based update of rating_history opponent_name from matches
+        if not dry_run:
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        UPDATE rating_history rh
+                        SET opponent_name = CASE
+                            WHEN rh.player_id = m.player1_id THEN m.player2_name
+                            WHEN rh.player_id = m.player2_id THEN m.player1_name
+                            ELSE rh.opponent_name
+                        END
+                        FROM matches m
+                        WHERE rh.match_id = m.id
+                          AND (rh.opponent_name ~* %s OR rh.opponent_name IS NULL OR TRIM(rh.opponent_name) = '')
+                          AND (
+                              (rh.player_id = m.player1_id AND m.player2_name IS NOT NULL AND m.player2_name !~* %s)
+                              OR
+                              (rh.player_id = m.player2_id AND m.player1_name IS NOT NULL AND m.player1_name !~* %s)
+                          );
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                        hist_updated = cur.rowcount if isinstance(cur.rowcount, int) else 0
+                        conn.commit()
+                        if hist_updated > 0:
+                            logger.info(f"✨ Updated {hist_updated} placeholder opponent name(s) in rating_history.")
+                            updated_counts["history"] += hist_updated
+            except Exception as e:
+                logger.warning(f"Notice updating rating_history opponent names: {e}")
+
+        if not dry_run and (len(resolved_names) > 0 or updated_counts["same_name_matches_fixed"] > 0 or updated_counts["remapped_ids"] > 0):
             PostgresDatabase.invalidate_all_caches()
 
         total_resolved = len(resolved_names)

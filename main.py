@@ -392,8 +392,8 @@ def main():
     # Sync command (Cloud Run Job wrapper)
     p_sync = subparsers.add_parser("sync", help="Run automated tournament sync and Elo recalculation")
     p_sync.add_argument("--game-system", choices=["40k", "aos", "all"], default=os.getenv("GAME_SYSTEM", "all"), help="Game system to sync (default: all)")
-    p_sync.add_argument("--days", type=int, default=3, help="Days of past tournaments to scrape (default: 3)")
-    p_sync.add_argument("--max-events", type=int, default=50, help="Max tournaments to scrape per game system (default: 50)")
+    p_sync.add_argument("--days", type=int, default=int(os.getenv("DAYS", "3")), help="Days of past tournaments to scrape (default: 3)")
+    p_sync.add_argument("--max-events", type=int, default=int(os.getenv("MAX_EVENTS")) if os.getenv("MAX_EVENTS") else None, help="Max tournaments to scrape per game system (default: None for unlimited)")
 
     # Wahapedia sync command
     p_waha = subparsers.add_parser("wahapedia", help="Sync rules and points from Wahapedia into PostgreSQL")

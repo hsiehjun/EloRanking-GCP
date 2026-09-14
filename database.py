@@ -1396,8 +1396,8 @@ class PostgresDatabase:
         """, (canonical_id, reg_id))
 
         # Remap matches (Elo Engine reconstruct_incremental automatically detects player ID changes in rating_history)
-        cursor.execute("UPDATE matches SET player1_id = %s WHERE player1_id = %s;", (canonical_id, reg_id))
-        cursor.execute("UPDATE matches SET player2_id = %s WHERE player2_id = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE matches SET player1_id = %s WHERE player1_id = %s AND COALESCE(player2_id, '') != %s;", (canonical_id, reg_id, canonical_id))
+        cursor.execute("UPDATE matches SET player2_id = %s WHERE player2_id = %s AND COALESCE(player1_id, '') != %s;", (canonical_id, reg_id, canonical_id))
         cursor.execute("UPDATE matches SET winner_id = %s WHERE winner_id = %s;", (canonical_id, reg_id))
         cursor.execute("UPDATE matches SET loser_id = %s WHERE loser_id = %s;", (canonical_id, reg_id))
 
@@ -1416,7 +1416,15 @@ class PostgresDatabase:
         cursor.execute("UPDATE tracker_games SET user_id_p1 = %s WHERE user_id_p1 = %s;", (canonical_id, reg_id))
         cursor.execute("UPDATE tracker_games SET user_id_p2 = %s WHERE user_id_p2 = %s;", (canonical_id, reg_id))
 
-        # Remove orphan registration ID from players and player_ratings
+        # Remap secondary user tables
+        try:
+            cursor.execute("UPDATE user_army_lists SET user_id = %s WHERE user_id = %s;", (canonical_id, reg_id))
+            cursor.execute("UPDATE player_lfg_profiles SET player_id = %s WHERE player_id = %s;", (canonical_id, reg_id))
+        except Exception:
+            pass
+
+        # Remove orphan registration ID from players, player_ratings, and rating_history
+        cursor.execute("DELETE FROM rating_history WHERE player_id = %s;", (reg_id,))
         cursor.execute("DELETE FROM player_ratings WHERE player_id = %s;", (reg_id,))
         cursor.execute("DELETE FROM players WHERE id = %s;", (reg_id,))
 

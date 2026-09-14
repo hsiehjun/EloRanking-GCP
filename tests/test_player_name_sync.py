@@ -649,6 +649,149 @@ def test_scraper_negative_cache_and_batch_upsert():
     print("✅ test_scraper_negative_cache_and_batch_upsert passed")
 
 
+def test_same_name_substep_2a_remaps_registration_ids():
+    """Verify Sub-step 2A in verify_and_fix_same_name_matches directly queries BCP player IDs and collapses registration IDs."""
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_cur.rowcount = 1
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    # Query returns 'david miller' with 2 IDs: regDavid_999 and usrDavid_111
+    mock_cur.fetchall.return_value = [
+        ("david miller", "regDavid_999"),
+        ("david miller", "usrDavid_111")
+    ]
+
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+
+    # Mock BCP response: regDavid_999 is a registration ID mapping to canonical usrDavid_111
+    def mock_fetch_bcp(pid):
+        if pid == "regDavid_999":
+            return {
+                "full_name": "David Miller",
+                "canonical_user_id": "usrDavid_111",
+                "source": "bcp_players_api"
+            }
+        elif pid == "usrDavid_111":
+            return {
+                "full_name": "David Miller",
+                "source": "bcp_users_api"
+            }
+        return None
+
+    with patch.object(syncer, "fetch_bcp_player_name", side_effect=mock_fetch_bcp), \
+         patch.object(syncer, "apply_name_updates", return_value={"remapped_ids": 1}) as mock_apply, \
+         patch.object(syncer, "_fetch_bcp_event_roster_and_pairings") as mock_fetch_roster:
+        res = syncer.verify_and_fix_same_name_matches(game_system="40k", dry_run=False)
+        assert res["remapped_ids"] == 1
+        assert res["events_checked"] == 0, "All duplicate IDs collapsed in Sub-step 2A; no event rosters should have been fetched!"
+        mock_apply.assert_called_once()
+        mock_fetch_roster.assert_not_called()
+    print("✅ test_same_name_substep_2a_remaps_registration_ids passed")
+
+
+def test_same_name_substep_2b_self_match_prevention():
+    """Verify Sub-step 2B prevents self-matches via WHERE COALESCE(player2_id, '') != true_uid."""
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_cur.rowcount = 1
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    # Candidate 'sarah connor' with 2 IDs
+    mock_cur.fetchall.side_effect = [
+        [("sarah connor", "uSarah1"), ("sarah connor", "uSarah2")],  # candidate query
+        [("match_m1", "evt_1", "uSarah1", "Sarah Connor", "uSarah2", "Sarah Connor", "uSarah1")]  # matches query
+    ]
+
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+
+    # Both are real global user accounts (no registration ID remapping in 2A)
+    with patch.object(syncer, "fetch_bcp_player_name", return_value=None):
+        def fake_roster(eid):
+            return (
+                {"sarah connor": ["uSarah1", "uSarah2"]},
+                {},
+                {"match_m1": {"p1_uid": "uSarah2", "p2_uid": "uSarah2"}}  # BCP anomalous self-pairing
+            )
+
+        with patch.object(syncer, "_fetch_bcp_event_roster_and_pairings", side_effect=fake_roster):
+            res = syncer.verify_and_fix_same_name_matches(game_system="40k", dry_run=False)
+            executed_sqls = [call[0][0] for call in mock_cur.execute.call_args_list]
+            p1_updates = [s for s in executed_sqls if "UPDATE matches" in s and "player1_id = %s" in s]
+            assert len(p1_updates) > 0
+            assert "COALESCE(player2_id, '') != %s" in p1_updates[0]
+    print("✅ test_same_name_substep_2b_self_match_prevention passed")
+
+
+def test_sync_names_updates_rating_history_opponent_names():
+    """Verify sync_names runs fast set-based UPDATE on rating_history opponent_name."""
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_cur.rowcount = 5
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+    syncer.find_placeholder_player_ids = MagicMock(return_value=[])
+    syncer.verify_and_fix_same_name_matches = MagicMock(return_value={"events_checked": 0, "matches_fixed": 0, "remapped_ids": 0})
+
+    with patch("database.PostgresDatabase.invalidate_all_caches"):
+        res = syncer.sync_names(game_system="40k", dry_run=False)
+        executed_sqls = [call[0][0] for call in mock_cur.execute.call_args_list]
+        rh_updates = [s for s in executed_sqls if "UPDATE rating_history rh" in s]
+        assert len(rh_updates) > 0, "Expected fast set-based rating_history opponent_name update query!"
+        assert "rh.match_id = m.id" in rh_updates[0]
+        assert res["updated_rows"]["history"] == 5
+    print("✅ test_sync_names_updates_rating_history_opponent_names passed")
+
+
+def test_end_to_end_player_sync_two_step_workflow():
+    """Verify complete 2-step player sync workflow: Step 1 (placeholder healing) -> Step 2 (same-name audit)."""
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_cur.rowcount = 1
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+
+    # Step 1 finds 1 placeholder: 'reg_p14'
+    syncer.find_placeholder_player_ids = MagicMock(return_value=["reg_p14"])
+    syncer.resolve_from_local_db = MagicMock(return_value={})
+
+    # BCP mock for reg_p14: returns canonical userId 'usr_alice' and name 'Alice Wonder'
+    def mock_fetch(pid):
+        if pid == "reg_p14":
+            return {
+                "full_name": "Alice Wonder",
+                "first_name": "Alice",
+                "last_name": "Wonder",
+                "canonical_user_id": "usr_alice",
+                "source": "bcp_players_api"
+            }
+        return None
+
+    syncer.fetch_bcp_player_name = MagicMock(side_effect=mock_fetch)
+    # Step 2 verification mock
+    syncer.verify_and_fix_same_name_matches = MagicMock(return_value={"events_checked": 1, "matches_fixed": 1, "remapped_ids": 1})
+
+    with patch("database.PostgresDatabase.invalidate_all_caches") as mock_cache:
+        res = syncer.sync_names(game_system="40k", dry_run=False)
+        assert res["status"] == "SUCCESS"
+        assert res["placeholders_found"] == 1
+        assert res["resolved_bcp"] == 1
+        assert res["updated_rows"]["remapped_ids"] >= 2
+        assert res["updated_rows"]["same_name_matches_fixed"] == 1
+        mock_cache.assert_called()
+    print("✅ test_end_to_end_player_sync_two_step_workflow passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -666,6 +809,10 @@ if __name__ == "__main__":
     test_tournament_sync_job_does_not_invoke_player_sync()
     test_same_name_distinct_players_never_merged()
     test_verify_and_fix_same_name_matches_unmerges_corrupted_matches()
+    test_same_name_substep_2a_remaps_registration_ids()
+    test_same_name_substep_2b_self_match_prevention()
+    test_sync_names_updates_rating_history_opponent_names()
+    test_end_to_end_player_sync_two_step_workflow()
     test_database_automatic_registration_id_remapping()
     test_scraper_negative_cache_and_batch_upsert()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")
