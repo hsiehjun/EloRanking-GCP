@@ -1496,14 +1496,7 @@ async def api_cron_sync_tournaments(
                 logger.info(f"⏰ [CRON SYNC] Scraping Age of Sigmar tournaments from {start_str} to {end_str}...")
                 res_aos = scraper.scrape_date_range(start_date=start_str, end_date=end_str, game_system_id=AOS_GAME_SYSTEM_ID, max_events=None)
                 logger.info(f"⏰ [CRON SYNC] AoS Scraped {res_aos.get('events_scraped', 0)} events, {res_aos.get('matches_scraped', 0)} matches.")
-
-            try:
-                from player_sync import PlayerNameSync
-                logger.info(f"⏰ [CRON SYNC] Running PlayerNameSync for {target_sys}...")
-                PlayerNameSync(db=db).sync_names(game_system=target_sys, max_bcp_calls=500)
-            except Exception as ps_err:
-                logger.warning(f"Notice during scheduled player sync: {ps_err}")
-
+            
             engine = get_elo_engine()
             recon_res = engine.reconstruct_incremental(game_system=target_sys)
             logger.info(f"⏰ [CRON SYNC] Elo Reconstruction complete: {recon_res}")
