@@ -452,6 +452,11 @@ class PlayerNameSync:
                         cur.execute("UPDATE event_participants SET player_id = %s, full_name = %s WHERE player_id = %s;", (target_id, full, pid))
                         counts["participants"] += cur.rowcount
 
+                        cur.execute("UPDATE tracker_games SET user_id_p1 = %s, p1_name = %s WHERE user_id_p1 = %s;", (target_id, full, pid))
+                        counts["tracker_games"] += cur.rowcount
+                        cur.execute("UPDATE tracker_games SET user_id_p2 = %s, p2_name = %s WHERE user_id_p2 = %s;", (target_id, full, pid))
+                        counts["tracker_games"] += cur.rowcount
+
                         cur.execute("DELETE FROM rating_history WHERE player_id = %s;", (pid,))
                         counts["history"] += cur.rowcount
                         cur.execute("DELETE FROM player_ratings WHERE player_id = %s;", (pid,))
@@ -758,16 +763,20 @@ class PlayerNameSync:
                                 cur.execute("""
                                 UPDATE matches
                                 SET player1_id = %s,
-                                    winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END
+                                    winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
+                                    loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
                                 WHERE id = %s;
-                                """, (true_uid, old_id, true_uid, mid))
+                                """, (true_uid, old_id, true_uid, old_id, true_uid, mid))
+                                cur.execute("UPDATE tracker_games SET user_id_p1 = %s WHERE match_id = %s AND user_id_p1 = %s;", (true_uid, mid, old_id))
                             else:
                                 cur.execute("""
                                 UPDATE matches
                                 SET player2_id = %s,
-                                    winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END
+                                    winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
+                                    loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
                                 WHERE id = %s;
-                                """, (true_uid, old_id, true_uid, mid))
+                                """, (true_uid, old_id, true_uid, old_id, true_uid, mid))
+                                cur.execute("UPDATE tracker_games SET user_id_p2 = %s WHERE match_id = %s AND user_id_p2 = %s;", (true_uid, mid, old_id))
 
                             # Fix event_participants for this specific event
                             cur.execute("""
