@@ -37,6 +37,7 @@ class BestCoastPairingsScraper:
                 self.db = None
         self.headers = DEFAULT_HEADERS.copy()
         self.request_delay = request_delay
+        self._reg_id_cache: Dict[str, Dict[str, str]] = {}
 
     def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None, max_retries: int = 2) -> Optional[Dict[str, Any]]:
         """Makes an HTTP GET request to BCP API with headers, error handling, and retries."""
@@ -324,7 +325,7 @@ class BestCoastPairingsScraper:
 
         for p in enrolled_players:
             user = p.get("user") or {}
-            canonical_id = user.get("id") or p.get("userId") or p.get("id")
+            canonical_id = user.get("id") or p.get("userId") or p.get("user_id") or p.get("id")
             if not canonical_id:
                 continue
             canonical_id = str(canonical_id).strip()
@@ -332,6 +333,15 @@ class BestCoastPairingsScraper:
             first_name = user.get("firstName") or p.get("firstName") or ""
             last_name = user.get("lastName") or p.get("lastName") or ""
             full_name = f"{first_name} {last_name}".strip() or p.get("name") or "Player"
+
+            if len(canonical_id) == 12:
+                resolved_reg = self._resolve_bcp_registration_id(canonical_id)
+                if resolved_reg and resolved_reg.get("user_id"):
+                    canonical_id = resolved_reg["user_id"]
+                    if (not full_name or full_name in ("Player", "Player 1", "Player 2")) and resolved_reg.get("full_name"):
+                        full_name = resolved_reg["full_name"]
+                        first_name = resolved_reg.get("first_name") or first_name
+                        last_name = resolved_reg.get("last_name") or last_name
 
             faction_obj = p.get("faction") or p.get("parentFaction") or ""
             faction_name = ""
@@ -546,7 +556,69 @@ class BestCoastPairingsScraper:
         enrolled_players = self.fetch_event_players(event_id)
         return self.ingest_event_roster(event_id, enrolled_players, teams=teams)
 
-    def parse_and_store_match(self, event_data: Dict[str, Any], pairing: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def build_roster_id_map(self, enrolled_players: Optional[List[Dict[str, Any]]]) -> Dict[str, str]:
+        """Builds a mapping from per-tournament registration IDs (player1.id) and names to canonical global BCP userIds."""
+        mapping: Dict[str, str] = {}
+        for p in (enrolled_players or []):
+            if not isinstance(p, dict):
+                continue
+            user = p.get("user") or {}
+            canonical_id = user.get("id") or p.get("userId") or p.get("user_id") or p.get("id")
+            if not canonical_id:
+                continue
+            canonical_id = str(canonical_id).strip()
+            first_name = user.get("firstName") or p.get("firstName") or ""
+            last_name = user.get("lastName") or p.get("lastName") or ""
+            full_name = f"{first_name} {last_name}".strip() or p.get("name") or ""
+
+            if len(canonical_id) == 12:
+                resolved_reg = self._resolve_bcp_registration_id(canonical_id)
+                if resolved_reg and resolved_reg.get("user_id"):
+                    canonical_id = resolved_reg["user_id"]
+                    if not full_name and resolved_reg.get("full_name"):
+                        full_name = resolved_reg["full_name"]
+
+            for alias_id in (p.get("id"), p.get("playerId"), p.get("userId"), user.get("id")):
+                if alias_id:
+                    mapping[str(alias_id).strip()] = canonical_id
+            if full_name and full_name.lower() not in ("player", "player 1", "player 2", "bye"):
+                mapping[f"name:{full_name.lower()}"] = canonical_id
+                mapping[f"fullname:{canonical_id}"] = full_name
+        return mapping
+
+    def _resolve_bcp_registration_id(self, reg_id: str) -> Optional[Dict[str, str]]:
+        """Resolves a 12-character BCP per-tournament registration ID via /v1/players/{id} to its global userId."""
+        if not reg_id:
+            return None
+        clean_id = str(reg_id).strip()
+        if clean_id in self._reg_id_cache:
+            return self._reg_id_cache[clean_id]
+        if len(clean_id) != 12:
+            return None
+        resp = self._make_request(f"/players/{clean_id}")
+        if isinstance(resp, dict):
+            user = resp.get("user") or {}
+            canonical_uid = user.get("id") or resp.get("userId") or resp.get("user_id")
+            first = user.get("firstName") or resp.get("firstName") or ""
+            last = user.get("lastName") or resp.get("lastName") or ""
+            full = f"{first} {last}".strip() or resp.get("name") or ""
+            if canonical_uid:
+                info = {
+                    "user_id": str(canonical_uid).strip(),
+                    "first_name": first.strip(),
+                    "last_name": last.strip(),
+                    "full_name": full.strip()
+                }
+                self._reg_id_cache[clean_id] = info
+                return info
+        return None
+
+    def parse_and_store_match(
+        self,
+        event_data: Dict[str, Any],
+        pairing: Dict[str, Any],
+        roster_id_map: Optional[Dict[str, str]] = None
+    ) -> Optional[Dict[str, Any]]:
         """Extracts structured match details and stores both players and match outcome in DB."""
         match_id = pairing.get("id")
         if not match_id:
@@ -575,20 +647,72 @@ class BestCoastPairingsScraper:
 
         # Player 1 details
         p1_user = p1_obj.get("user") or {}
-        p1_user_id = p1_user.get("id") or p1_obj.get("id") or pairing.get("player1Id")
-        p1_first = p1_user.get("firstName") or ""
-        p1_last = p1_user.get("lastName") or ""
+        raw_p1_id = (
+            p1_user.get("id")
+            or p1_obj.get("userId")
+            or p1_obj.get("user_id")
+            or pairing.get("player1UserId")
+            or p1_obj.get("id")
+            or pairing.get("player1Id")
+        )
+        p1_user_id = str(raw_p1_id).strip() if raw_p1_id else None
+        p1_first = p1_user.get("firstName") or p1_obj.get("firstName") or ""
+        p1_last = p1_user.get("lastName") or p1_obj.get("lastName") or ""
         p1_name = f"{p1_first} {p1_last}".strip() or p1_obj.get("name") or "Player 1"
+
+        if roster_id_map:
+            if p1_user_id and p1_user_id in roster_id_map:
+                p1_user_id = roster_id_map[p1_user_id]
+            elif p1_name and p1_name.lower() not in ("player 1", "player", "bye") and f"name:{p1_name.lower()}" in roster_id_map:
+                p1_user_id = roster_id_map[f"name:{p1_name.lower()}"]
+            if p1_user_id and (not p1_name or p1_name in ("Player 1", "Player")) and f"fullname:{p1_user_id}" in roster_id_map:
+                p1_name = roster_id_map[f"fullname:{p1_user_id}"]
+
+        if p1_user_id and len(p1_user_id) == 12:
+            resolved_p1 = self._resolve_bcp_registration_id(p1_user_id)
+            if resolved_p1 and resolved_p1.get("user_id"):
+                p1_user_id = resolved_p1["user_id"]
+                if (not p1_name or p1_name in ("Player 1", "Player")) and resolved_p1.get("full_name"):
+                    p1_name = resolved_p1["full_name"]
+                    p1_first = resolved_p1.get("first_name") or p1_first
+                    p1_last = resolved_p1.get("last_name") or p1_last
+
         p1_faction = p1_obj.get("faction") or p1_obj.get("parentFaction") or ""
         if isinstance(p1_faction, dict):
             p1_faction = p1_faction.get("name", "")
 
         # Player 2 details
         p2_user = p2_obj.get("user") or {}
-        p2_user_id = p2_user.get("id") or p2_obj.get("id") or pairing.get("player2Id")
-        p2_first = p2_user.get("firstName") or ""
-        p2_last = p2_user.get("lastName") or ""
+        raw_p2_id = (
+            p2_user.get("id")
+            or p2_obj.get("userId")
+            or p2_obj.get("user_id")
+            or pairing.get("player2UserId")
+            or p2_obj.get("id")
+            or pairing.get("player2Id")
+        )
+        p2_user_id = str(raw_p2_id).strip() if raw_p2_id else None
+        p2_first = p2_user.get("firstName") or p2_obj.get("firstName") or ""
+        p2_last = p2_user.get("lastName") or p2_obj.get("lastName") or ""
         p2_name = f"{p2_first} {p2_last}".strip() or p2_obj.get("name") or ("Player 2" if p2_user_id else "BYE")
+
+        if roster_id_map:
+            if p2_user_id and p2_user_id in roster_id_map:
+                p2_user_id = roster_id_map[p2_user_id]
+            elif p2_name and p2_name.lower() not in ("player 2", "player", "bye") and f"name:{p2_name.lower()}" in roster_id_map:
+                p2_user_id = roster_id_map[f"name:{p2_name.lower()}"]
+            if p2_user_id and (not p2_name or p2_name in ("Player 2", "Player")) and f"fullname:{p2_user_id}" in roster_id_map:
+                p2_name = roster_id_map[f"fullname:{p2_user_id}"]
+
+        if p2_user_id and len(p2_user_id) == 12:
+            resolved_p2 = self._resolve_bcp_registration_id(p2_user_id)
+            if resolved_p2 and resolved_p2.get("user_id"):
+                p2_user_id = resolved_p2["user_id"]
+                if (not p2_name or p2_name in ("Player 2", "Player")) and resolved_p2.get("full_name"):
+                    p2_name = resolved_p2["full_name"]
+                    p2_first = resolved_p2.get("first_name") or p2_first
+                    p2_last = resolved_p2.get("last_name") or p2_last
+
         p2_faction = p2_obj.get("faction") or p2_obj.get("parentFaction") or ""
         if isinstance(p2_faction, dict):
             p2_faction = p2_faction.get("name", "")
@@ -763,8 +887,10 @@ class BestCoastPairingsScraper:
                 logger.debug(f"Could not fetch team standings for {event_id}: {te}")
 
         # Ingest registered participants roster (works even if 0 rounds played yet)
+        roster_id_map = {}
         try:
             enrolled_players = self.fetch_event_players(event_id)
+            roster_id_map = self.build_roster_id_map(enrolled_players)
             self.ingest_event_roster(event_id, enrolled_players, teams=teams)
         except Exception as e:
             logger.debug(f"Could not fetch roster for event {event_id}: {e}")
@@ -802,7 +928,7 @@ class BestCoastPairingsScraper:
             actual_rounds = r
             round_matches = 0
             for p in pairings:
-                if self.parse_and_store_match(event_data, p):
+                if self.parse_and_store_match(event_data, p, roster_id_map=roster_id_map):
                     total_matches += 1
                     round_matches += 1
 

@@ -52,6 +52,14 @@ def run_tournament_sync(game_system: str = "all", days: int = 3, max_events: Opt
         total_matches += m_aos
         logger.info(f"✅ [AOS] Scraped {e_aos} events, {m_aos} matches.")
 
+    try:
+        from player_sync import PlayerNameSync
+        logger.info(f"🔄 Running BCP Player Name & Canonical ID Sync for {target_sys}...")
+        player_sync_res = PlayerNameSync(db=db).sync_names(game_system=target_sys, max_bcp_calls=500)
+        logger.info(f"✅ Player Sync complete: {player_sync_res}")
+    except Exception as ps_err:
+        logger.warning(f"Notice during player name & canonical ID sync: {ps_err}")
+
     logger.info(f"📈 Recalculating Elo ratings incrementally for game system(s): {target_sys}...")
     engine = get_elo_engine()
     recon_res = engine.reconstruct_incremental(game_system=target_sys)

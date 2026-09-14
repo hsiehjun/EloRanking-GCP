@@ -451,6 +451,7 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_team ON player_ratings(team, current_elo DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_events_date ON events(event_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_participants_event ON event_participants(event_id);
+                CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);
 
                 -- Additive multi-game partitioning columns (default '40k' preserves full backward compatibility)
                 ALTER TABLE events ADD COLUMN IF NOT EXISTS game_system VARCHAR(16) DEFAULT '40k';

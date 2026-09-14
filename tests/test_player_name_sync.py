@@ -340,6 +340,92 @@ def test_cli_argument_parsing_resilience():
     print("✅ test_cli_argument_parsing_resilience passed")
 
 
+def test_canonical_user_id_remapping_in_apply_name_updates():
+    """Verify apply_name_updates remaps 12-char registration IDs to canonical 10-char userIds across tables."""
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+    mock_cur.rowcount = 1
+
+    syncer = PlayerNameSync(db=mock_db)
+    resolved = {
+        "yUtLR1H3fGE1": {
+            "full_name": "Bradford Fredrickson",
+            "first_name": "Bradford",
+            "last_name": "Fredrickson",
+            "canonical_user_id": "2BL51FT38A",
+            "source": "bcp_players_api"
+        }
+    }
+    counts = syncer.apply_name_updates(resolved)
+    assert counts["remapped_ids"] == 1
+    assert counts["matches_p1"] == 1
+    assert counts["matches_p2"] == 1
+    print("✅ test_canonical_user_id_remapping_in_apply_name_updates passed")
+
+
+def test_scraper_aos_registration_id_resolution():
+    """Verify BestCoastPairingsScraper resolves 12-character registration IDs to canonical 10-character userIds."""
+    from scraper import BestCoastPairingsScraper
+    mock_db = MagicMock()
+    scraper = BestCoastPairingsScraper(db=mock_db, request_delay=0.0)
+
+    # Mock /players/{id} response returning canonical userId
+    def mock_request(endpoint, *args, **kwargs):
+        if endpoint == "/players/pHbczW43wnCx":
+            return {
+                "id": "pHbczW43wnCx",
+                "userId": "2BL51FT38A",
+                "user": {"id": "2BL51FT38A", "firstName": "Bradford", "lastName": "Fredrickson"}
+            }
+        return None
+
+    with patch.object(scraper, "_make_request", side_effect=mock_request):
+        roster = [{"id": "pHbczW43wnCx", "firstName": "Bradford", "lastName": "Fredrickson"}]
+        roster_map = scraper.build_roster_id_map(roster)
+        assert roster_map.get("pHbczW43wnCx") == "2BL51FT38A"
+
+        pairing = {
+            "id": "match_001",
+            "round": 1,
+            "table": 1,
+            "player1": {"id": "pHbczW43wnCx", "name": "Bradford Fredrickson"},
+            "player2": {"id": "10CHARUSER", "name": "Opponent Player"},
+            "player1Game": {"points": 20, "result": 2},
+            "player2Game": {"points": 10, "result": 0},
+            "isDone": True
+        }
+        event_data = {"id": "evt_aos_1", "name": "AoS GT", "game_system": "aos"}
+        scraper.parse_and_store_match(event_data, pairing, roster_id_map=roster_map)
+        mock_db.upsert_match.assert_called_once()
+        saved_match = mock_db.upsert_match.call_args[0][0]
+        assert saved_match["player1_id"] == "2BL51FT38A"
+        assert saved_match["winner_id"] == "2BL51FT38A"
+    print("✅ test_scraper_aos_registration_id_resolution passed")
+
+
+def test_tournament_sync_job_invokes_player_sync():
+    """Verify run_tournament_sync in scripts/sync_tournaments.py invokes PlayerNameSync.sync_names."""
+    from scripts.sync_tournaments import run_tournament_sync
+    with patch("scripts.sync_tournaments.get_database") as mock_get_db, \
+         patch("scripts.sync_tournaments.BestCoastPairingsScraper") as mock_scraper_cls, \
+         patch("scripts.sync_tournaments.get_elo_engine") as mock_get_engine, \
+         patch("player_sync.PlayerNameSync") as mock_ps_cls:
+        mock_scraper = MagicMock()
+        mock_scraper.scrape_date_range.return_value = {"events_scraped": 2, "matches_scraped": 10}
+        mock_scraper_cls.return_value = mock_scraper
+        mock_ps = MagicMock()
+        mock_ps.sync_names.return_value = {"status": "SUCCESS", "remapped_ids": 3}
+        mock_ps_cls.return_value = mock_ps
+
+        res = run_tournament_sync(game_system="aos", days=1, max_events=2)
+        mock_ps.sync_names.assert_called_once_with(game_system="aos", max_bcp_calls=500)
+        assert res["events_scraped"] == 2
+    print("✅ test_tournament_sync_job_invokes_player_sync passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -352,4 +438,7 @@ if __name__ == "__main__":
     test_concurrent_bcp_sync_and_incremental_commit()
     test_cloudbuild_includes_player_sync_job()
     test_cli_argument_parsing_resilience()
+    test_canonical_user_id_remapping_in_apply_name_updates()
+    test_scraper_aos_registration_id_resolution()
+    test_tournament_sync_job_invokes_player_sync()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")

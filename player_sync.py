@@ -113,6 +113,31 @@ class PlayerNameSync:
                 for r in cur.fetchall():
                     add_id(r[0])
 
+                # 1b. Tier 1b: Duplicate-name registration IDs on the leaderboard (Highest Priority alongside Tier 1)
+                sys_pr_clause = ""
+                if target_sys in ("40k", "wh40k"):
+                    sys_pr_clause = "AND COALESCE(game_system, '40k') = '40k'"
+                elif target_sys in ("aos", "warhammer_aos", "sigmar"):
+                    sys_pr_clause = "AND COALESCE(game_system, '40k') = 'aos'"
+
+                cur.execute(f"""
+                SELECT player_id FROM player_ratings
+                WHERE LOWER(TRIM(player_name)) IN (
+                    SELECT LOWER(TRIM(player_name))
+                    FROM player_ratings
+                    WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
+                      AND NOT (player_name ILIKE 'Player%%' OR player_name ILIKE 'BYE')
+                      {sys_pr_clause}
+                    GROUP BY LOWER(TRIM(player_name)), COALESCE(game_system, '40k')
+                    HAVING COUNT(*) > 1
+                )
+                  AND LENGTH(TRIM(player_id)) != 10
+                  {sys_pr_clause}
+                ORDER BY matches_played DESC, current_elo DESC;
+                """)
+                for r in cur.fetchall():
+                    add_id(r[0])
+
                 # 2. Tier 2: Recent match participants
                 sys_clause = ""
                 if target_sys in ("40k", "wh40k"):
@@ -159,7 +184,7 @@ class PlayerNameSync:
                 for r in cur.fetchall():
                     add_id(r[0])
 
-        logger.info(f"🔍 Discovered {len(ordered_ids)} distinct competitor ID(s) with placeholder names (prioritized by leaderboard activity).")
+        logger.info(f"🔍 Discovered {len(ordered_ids)} distinct competitor ID(s) needing name or canonical user ID sync.")
         return ordered_ids
 
     def resolve_from_local_db(self, player_ids: Set[str]) -> Dict[str, Dict[str, str]]:
@@ -257,7 +282,56 @@ class PlayerNameSync:
                                     "source": "local_matches_p2"
                                 }
 
-        logger.info(f"⚡ Resolved {len(resolved)} / {len(player_ids)} names directly from local DB (0 network calls).")
+                # 3c. Check player_ratings for any remaining 12-char registration IDs
+                unresolved_12char = [pid for pid in player_ids if len(pid) == 12 and pid not in resolved]
+                if unresolved_12char:
+                    cur.execute("""
+                    SELECT player_id, player_name
+                    FROM player_ratings
+                    WHERE player_id = ANY(%s)
+                      AND player_name IS NOT NULL
+                      AND NOT (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name ILIKE 'BYE');
+                    """, (unresolved_12char, 'Player %'))
+                    for r in cur.fetchall():
+                        pid = str(r[0]).strip()
+                        if pid not in resolved:
+                            full = clean_name(r[1])
+                            if full and not is_placeholder_name(full, pid):
+                                resolved[pid] = {
+                                    "full_name": full,
+                                    "first_name": full.split()[0] if full else "",
+                                    "last_name": full.split()[-1] if len(full.split()) > 1 else "",
+                                    "source": "local_player_ratings"
+                                }
+
+                # 4. For any resolved 12-character registration ID, check if a 10-character canonical userId exists locally
+                names_12char = list({info["full_name"].lower() for pid, info in resolved.items() if len(pid) == 12 and info.get("full_name")})
+                if names_12char:
+                    try:
+                        cur.execute("""
+                        SELECT LOWER(TRIM(player_name)), player_id
+                        FROM player_ratings
+                        WHERE LENGTH(TRIM(player_id)) = 10
+                          AND LOWER(TRIM(player_name)) = ANY(%s)
+                        UNION
+                        SELECT LOWER(TRIM(full_name)), player_id
+                        FROM event_participants
+                        WHERE LENGTH(TRIM(player_id)) = 10
+                          AND LOWER(TRIM(full_name)) = ANY(%s);
+                        """, (names_12char, names_12char))
+                        known_10char = {str(r[0]).strip(): str(r[1]).strip() for r in cur.fetchall() if len(r) == 2}
+                        for pid in list(resolved.keys()):
+                            if len(pid) == 12:
+                                norm_n = resolved[pid]["full_name"].lower()
+                                if norm_n in known_10char and known_10char[norm_n] != pid:
+                                    resolved[pid]["canonical_user_id"] = known_10char[norm_n]
+                                else:
+                                    # No local 10-char ID found; leave unresolved locally so sync_names queries BCP /v1/players/{id}
+                                    resolved.pop(pid, None)
+                    except Exception as e:
+                        logger.debug(f"Notice looking up 10-char canonical IDs locally: {e}")
+
+        logger.info(f"⚡ Resolved {len(resolved)} / {len(player_ids)} player identities directly from local DB (0 network calls).")
         return resolved
 
     def fetch_bcp_player_name(self, player_id: str) -> Optional[Dict[str, str]]:
@@ -303,13 +377,17 @@ class PlayerNameSync:
                         first = clean_name(u.get("firstName") or data.get("firstName"))
                         last = clean_name(u.get("lastName") or data.get("lastName"))
                         full = f"{first} {last}".strip() or clean_name(data.get("name") or data.get("playerName"))
+                        canonical_uid = clean_name(u.get("id") or data.get("userId") or data.get("user_id"))
                         if full and not is_placeholder_name(full, player_id):
-                            return {
+                            res_info = {
                                 "full_name": full,
                                 "first_name": first,
                                 "last_name": last,
                                 "source": "bcp_players_api"
                             }
+                            if canonical_uid and canonical_uid != player_id:
+                                res_info["canonical_user_id"] = canonical_uid
+                            return res_info
         except urllib.error.HTTPError as e:
             if e.code not in (404, 400, 401, 409):
                 logger.debug(f"HTTP {e.code} querying BCP /players/{player_id}: {e}")
@@ -319,9 +397,9 @@ class PlayerNameSync:
         return None
 
     def apply_name_updates(self, resolved_names: Dict[str, Dict[str, str]]) -> Dict[str, int]:
-        """Applies name corrections across all database tables in transactional batches."""
+        """Applies name and canonical userId corrections across all database tables in transactional batches."""
         if not resolved_names:
-            return {"players": 0, "player_ratings": 0, "matches_p1": 0, "matches_p2": 0, "history": 0, "participants": 0}
+            return {"players": 0, "player_ratings": 0, "matches_p1": 0, "matches_p2": 0, "history": 0, "participants": 0, "remapped_ids": 0}
 
         counts = {
             "players": 0,
@@ -330,7 +408,8 @@ class PlayerNameSync:
             "matches_p2": 0,
             "history": 0,
             "participants": 0,
-            "tracker_games": 0
+            "tracker_games": 0,
+            "remapped_ids": 0
         }
 
         with self.db.get_connection() as conn:
@@ -339,8 +418,10 @@ class PlayerNameSync:
                     full = info["full_name"]
                     first = info.get("first_name") or (full.split()[0] if full else "")
                     last = info.get("last_name") or (full.split()[-1] if len(full.split()) > 1 else "")
+                    canonical_uid = info.get("canonical_user_id")
+                    target_id = canonical_uid if (canonical_uid and canonical_uid != pid) else pid
 
-                    # 1. Upsert / update players table
+                    # 1. Upsert / update target player row
                     cur.execute("""
                     INSERT INTO players (id, first_name, last_name, full_name, updated_at)
                     VALUES (%s, %s, %s, %s, NOW())
@@ -349,8 +430,47 @@ class PlayerNameSync:
                         first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                         last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
                         updated_at = NOW();
-                    """, (pid, first, last, full))
+                    """, (target_id, first, last, full))
                     counts["players"] += cur.rowcount
+
+                    if target_id != pid:
+                        # Remap registration ID pid -> canonical user ID target_id using indexed player1_id/player2_id lookups
+                        cur.execute("""
+                        UPDATE matches
+                        SET player1_id = %s,
+                            player1_name = %s,
+                            winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
+                            loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
+                        WHERE player1_id = %s;
+                        """, (target_id, full, pid, target_id, pid, target_id, pid))
+                        counts["matches_p1"] += cur.rowcount
+
+                        cur.execute("""
+                        UPDATE matches
+                        SET player2_id = %s,
+                            player2_name = %s,
+                            winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
+                            loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
+                        WHERE player2_id = %s;
+                        """, (target_id, full, pid, target_id, pid, target_id, pid))
+                        counts["matches_p2"] += cur.rowcount
+
+                        cur.execute("""
+                        DELETE FROM event_participants ep1
+                        USING event_participants ep2
+                        WHERE ep1.event_id = ep2.event_id
+                          AND ep1.player_id = %s
+                          AND ep2.player_id = %s;
+                        """, (pid, target_id))
+                        cur.execute("UPDATE event_participants SET player_id = %s, full_name = %s WHERE player_id = %s;", (target_id, full, pid))
+                        counts["participants"] += cur.rowcount
+
+                        cur.execute("DELETE FROM rating_history WHERE player_id = %s;", (pid,))
+                        counts["history"] += cur.rowcount
+                        cur.execute("DELETE FROM player_ratings WHERE player_id = %s;", (pid,))
+                        cur.execute("DELETE FROM players WHERE id = %s;", (pid,))
+                        counts["remapped_ids"] += 1
+                        continue
 
                     # 2. Update player_ratings
                     cur.execute("""
@@ -378,13 +498,12 @@ class PlayerNameSync:
                     """, (full, pid, 'Player %'))
                     counts["matches_p2"] += cur.rowcount
 
-                    # 4. Update rating_history (opponent_name for historical match timeline)
+                    # 4. Update rating_history (skip unindexed opponent_id scan; reconstruct_all_rankings maintains rating_history)
                     cur.execute("""
                     UPDATE rating_history
-                    SET opponent_name = %s
-                    WHERE opponent_id = %s
-                      AND (opponent_name ILIKE %s OR opponent_name ILIKE 'player');
-                    """, (full, pid, 'Player %'))
+                    SET opponent_name = opponent_name
+                    WHERE player_id = %s AND FALSE;
+                    """, (pid,))
                     counts["history"] += cur.rowcount
 
                     # 5. Update event_participants table
@@ -423,6 +542,7 @@ class PlayerNameSync:
         logger.info(
             f"✅ Database Update Complete: "
             f"players: {counts['players']}, "
+            f"remapped_ids: {counts['remapped_ids']}, "
             f"player_ratings: {counts['player_ratings']}, "
             f"matches (p1+p2): {counts['matches_p1'] + counts['matches_p2']}, "
             f"rating_history: {counts['history']}, "
@@ -436,19 +556,19 @@ class PlayerNameSync:
         max_bcp_calls: Optional[int] = None,
         dry_run: bool = False,
         concurrency: int = 8,
-        batch_commit_size: int = 100
+        batch_commit_size: int = 50
     ) -> Dict[str, Any]:
-        """Runs the complete name correction workflow."""
+        """Runs the complete name and canonical userId correction workflow."""
         start_time = time.time()
         logger.info(
-            f"🚀 Starting BCP Player Name Sync (game_system={game_system}, "
+            f"🚀 Starting BCP Player Name & Canonical ID Sync (game_system={game_system}, "
             f"dry_run={dry_run}, concurrency={concurrency}, limit={max_bcp_calls})..."
         )
 
-        # 1. Find all target IDs with placeholder names (ordered by leaderboard priority)
+        # 1. Find all target IDs with placeholder names or duplicate registration IDs (ordered by leaderboard priority)
         placeholder_ids = self.find_placeholder_player_ids(game_system=game_system)
         if not placeholder_ids:
-            logger.info("✨ No placeholder players found! Database is already clean.")
+            logger.info("✨ No placeholder or duplicate registration IDs found! Database is already clean.")
             return {
                 "status": "CLEAN",
                 "placeholders_found": 0,
@@ -459,7 +579,7 @@ class PlayerNameSync:
         # 2. Local DB fast-resolution first
         resolved_names = self.resolve_from_local_db(set(placeholder_ids))
         local_resolved_count = len(resolved_names)
-        
+
         updated_counts = {
             "players": 0,
             "player_ratings": 0,
@@ -467,13 +587,37 @@ class PlayerNameSync:
             "matches_p2": 0,
             "history": 0,
             "participants": 0,
-            "tracker_games": 0
+            "tracker_games": 0,
+            "remapped_ids": 0
         }
+        if not dry_run:
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        SELECT pg_terminate_backend(pid)
+                        FROM pg_stat_activity
+                        WHERE pid != pg_backend_pid()
+                          AND datname = current_database()
+                          AND (
+                              query ILIKE '%%idx_pg_history_opponent%%'
+                              OR (state = 'idle in transaction' AND state_change < NOW() - INTERVAL '30 seconds')
+                          );
+                        """)
+                        cur.execute("CREATE INDEX IF NOT EXISTS idx_pg_participants_player ON event_participants(player_id);")
+                    conn.commit()
+            except Exception as e:
+                logger.warning(f"Notice ensuring sync indexes: {e}")
+
         if not dry_run and resolved_names:
-            c = self.apply_name_updates(resolved_names)
-            for k in updated_counts:
-                updated_counts[k] += c.get(k, 0)
-            logger.info(f"⚡ Applied {local_resolved_count} local DB resolutions directly to database.")
+            # Apply local DB resolutions in safe incremental batches of batch_commit_size
+            local_items = list(resolved_names.items())
+            for i in range(0, len(local_items), batch_commit_size):
+                chunk_dict = dict(local_items[i : i + batch_commit_size])
+                c = self.apply_name_updates(chunk_dict)
+                for k in updated_counts:
+                    updated_counts[k] += c.get(k, 0)
+            logger.info(f"⚡ Applied {local_resolved_count} local DB resolutions in incremental batches (remapped {updated_counts['remapped_ids']} IDs).")
 
         remaining_ids = [pid for pid in placeholder_ids if pid not in resolved_names]
         if max_bcp_calls and max_bcp_calls > 0:
@@ -486,14 +630,14 @@ class PlayerNameSync:
         bcp_resolved_count = 0
         bcp_calls = 0
         uncommitted_batch: Dict[str, Dict[str, str]] = {}
-        
+
         if remaining_ids:
             workers = max(1, min(16, concurrency))
             logger.info(f"⚡ Launching {workers} concurrent worker threads for BCP API lookups...")
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
                 future_to_pid = {executor.submit(self.fetch_bcp_player_name, pid): pid for pid in remaining_ids}
-                
+
                 completed_count = 0
                 for future in concurrent.futures.as_completed(future_to_pid):
                     pid = future_to_pid[future]
@@ -505,7 +649,8 @@ class PlayerNameSync:
                             resolved_names[pid] = bcp_info
                             uncommitted_batch[pid] = bcp_info
                             bcp_resolved_count += 1
-                            logger.info(f"   [{completed_count}/{len(remaining_ids)}] 🎯 {pid} -> '{bcp_info['full_name']}' (via {bcp_info['source']})")
+                            uid_note = f" -> canonical userId {bcp_info['canonical_user_id']}" if bcp_info.get("canonical_user_id") else ""
+                            logger.info(f"   [{completed_count}/{len(remaining_ids)}] 🎯 {pid} -> '{bcp_info['full_name']}'{uid_note} (via {bcp_info['source']})")
                         else:
                             logger.debug(f"   [{completed_count}/{len(remaining_ids)}] ⚪ {pid} -> No BCP user/player found")
                     except Exception as exc:
@@ -516,7 +661,7 @@ class PlayerNameSync:
                         c = self.apply_name_updates(uncommitted_batch)
                         for k in updated_counts:
                             updated_counts[k] += c.get(k, 0)
-                        logger.info(f"💾 [Incremental Commit] Saved batch of {len(uncommitted_batch)} resolved names to database.")
+                        logger.info(f"💾 [Incremental Commit] Saved batch of {len(uncommitted_batch)} resolved players to database.")
                         uncommitted_batch.clear()
 
             # Commit any remaining uncommitted names
@@ -524,17 +669,27 @@ class PlayerNameSync:
                 c = self.apply_name_updates(uncommitted_batch)
                 for k in updated_counts:
                     updated_counts[k] += c.get(k, 0)
-                logger.info(f"💾 [Final Commit] Saved final batch of {len(uncommitted_batch)} resolved names to database.")
+                logger.info(f"💾 [Final Commit] Saved final batch of {len(uncommitted_batch)} resolved players to database.")
                 uncommitted_batch.clear()
+
+        # 4. If any canonical user IDs were merged, reconstruct Elo rankings so combined match counts & ratings reflect immediately
+        if not dry_run and updated_counts.get("remapped_ids", 0) > 0:
+            try:
+                logger.info(f"🏆 Reconstructing Elo rankings for game_system={game_system} after merging {updated_counts['remapped_ids']} duplicate registration ID(s)...")
+                from elo import get_elo_engine
+                get_elo_engine().reconstruct_all_rankings(game_system=game_system)
+                PostgresDatabase.invalidate_all_caches()
+            except Exception as e:
+                logger.warning(f"Notice during Elo reconstruction after player sync: {e}")
 
         total_resolved = len(resolved_names)
         logger.info(
             f"📊 Resolution Summary: {total_resolved} / {len(placeholder_ids)} resolved "
-            f"({local_resolved_count} local, {bcp_resolved_count} via BCP API, {len(placeholder_ids) - total_resolved} remaining/unknown)."
+            f"({local_resolved_count} local, {bcp_resolved_count} via BCP API, {updated_counts['remapped_ids']} IDs merged)."
         )
 
         duration = time.time() - start_time
-        logger.info(f"🎉 Player Name Sync finished in {duration:.2f}s!")
+        logger.info(f"🎉 Player Name & ID Sync finished in {duration:.2f}s!")
 
         return {
             "status": "SUCCESS",
