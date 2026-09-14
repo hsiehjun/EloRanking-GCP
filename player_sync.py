@@ -104,31 +104,32 @@ class PlayerNameSync:
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
-                # 1. Tier 1: Ranked & active players on the Leaderboard with 'player' in name (Highest Priority)
+                placeholder_regex = r'^player\s*\d*$'
+                # 1. Tier 1: Ranked & active players on the Leaderboard with placeholder name (Highest Priority)
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE (player_name ILIKE %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
+                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
                       AND COALESCE(game_system, '40k') = '40k'
                     ORDER BY matches_played DESC, current_elo DESC;
-                    """, ('%player%',))
+                    """, (placeholder_regex,))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE (player_name ILIKE %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
+                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
                       AND COALESCE(game_system, '40k') = 'aos'
                     ORDER BY matches_played DESC, current_elo DESC;
-                    """, ('%player%',))
+                    """, (placeholder_regex,))
                 else:
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE player_name ILIKE %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
+                    WHERE player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
                     ORDER BY matches_played DESC, current_elo DESC;
-                    """, ('%player%',))
+                    """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 1b. Tier 1b: Duplicate-name players on the leaderboard (checks BCP to see if they share a userId)
+                # 1b. Tier 1b: Non-canonical duplicate-name players on the leaderboard (checks BCP to resolve canonical userId)
                 sys_pr_clause = ""
                 if target_sys in ("40k", "wh40k"):
                     sys_pr_clause = "AND COALESCE(game_system, '40k') = '40k'"
@@ -137,22 +138,23 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player_id FROM player_ratings
-                WHERE LOWER(TRIM(player_name)) IN (
+                WHERE LENGTH(TRIM(player_id)) != 10
+                  AND LOWER(TRIM(player_name)) IN (
                     SELECT LOWER(TRIM(player_name))
                     FROM player_ratings
                     WHERE player_name IS NOT NULL AND TRIM(player_name) != ''
-                      AND NOT (player_name ILIKE '%%player%%' OR player_name ILIKE 'BYE')
+                      AND NOT (player_name ~* %s OR player_name ILIKE 'BYE')
                       {sys_pr_clause}
                     GROUP BY LOWER(TRIM(player_name)), COALESCE(game_system, '40k')
                     HAVING COUNT(*) > 1
                 )
                   {sys_pr_clause}
                 ORDER BY matches_played DESC, current_elo DESC;
-                """)
+                """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 2. Tier 2: Recent match participants with 'player' in name
+                # 2. Tier 2: Recent match participants with placeholder name
                 sys_clause = ""
                 if target_sys in ("40k", "wh40k"):
                     sys_clause = "AND COALESCE(game_system, '40k') = '40k'"
@@ -161,44 +163,50 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player1_id FROM matches 
-                WHERE player1_name ILIKE %s
+                WHERE (player1_name ~* %s OR player1_name IS NULL OR TRIM(player1_name) = '' OR player1_name = player1_id)
                   AND NOT (player1_id ILIKE 'BYE')
                   {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
-                """, ('%player%',))
+                """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
 
                 cur.execute(f"""
                 SELECT player2_id FROM matches 
-                WHERE player2_name ILIKE %s
+                WHERE (player2_name ~* %s OR player2_name IS NULL OR TRIM(player2_name) = '' OR player2_name = player2_id)
                   AND NOT (player2_id ILIKE 'BYE')
                   {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
-                """, ('%player%',))
+                """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 3. Tier 3: Players table scoped by game system
+                # 3. Tier 3: Players table scoped by game system (check COALESCE of full_name and name)
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (p.full_name ILIKE %s OR p.full_name IS NULL OR TRIM(p.full_name) = '')
+                    WHERE (COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) ~* %s
+                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) IS NULL
+                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) = p.id)
                       AND COALESCE(pr.game_system, '40k') = '40k';
-                    """, ('%player%',))
+                    """, (placeholder_regex,))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (p.full_name ILIKE %s OR p.full_name IS NULL OR TRIM(p.full_name) = '')
+                    WHERE (COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) ~* %s
+                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) IS NULL
+                           OR COALESCE(NULLIF(TRIM(p.full_name), ''), NULLIF(TRIM(p.name), '')) = p.id)
                       AND COALESCE(pr.game_system, '40k') = 'aos';
-                    """, ('%player%',))
+                    """, (placeholder_regex,))
                 else:
                     cur.execute("""
                     SELECT DISTINCT id FROM players 
-                    WHERE full_name ILIKE %s OR full_name IS NULL OR TRIM(full_name) = '';
-                    """, ('%player%',))
+                    WHERE COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) ~* %s
+                       OR COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) IS NULL
+                       OR COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) = id;
+                    """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
 
@@ -213,20 +221,22 @@ class PlayerNameSync:
         resolved: Dict[str, Dict[str, str]] = {}
         target_list = list(player_ids)
         chunk_size = 1000
+        placeholder_regex = r'^player\s*\d*$'
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 for i in range(0, len(target_list), chunk_size):
                     chunk = target_list[i : i + chunk_size]
 
-                    # 1. Check players table
+                    # 1. Check players table (supporting both full_name and name columns)
                     cur.execute("""
-                    SELECT id, first_name, last_name, full_name
+                    SELECT id, first_name, last_name, COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) AS full_name
                     FROM players
                     WHERE id = ANY(%s)
-                      AND full_name IS NOT NULL
-                      AND NOT (full_name ILIKE %s OR full_name ILIKE 'player' OR full_name ILIKE 'BYE');
-                    """, (chunk, 'Player %'))
+                      AND COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) IS NOT NULL
+                      AND NOT (COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) ~* %s
+                               OR COALESCE(NULLIF(TRIM(full_name), ''), NULLIF(TRIM(name), '')) ILIKE 'BYE');
+                    """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         fn, ln, full = r[1] or "", r[2] or "", clean_name(r[3])
@@ -244,9 +254,9 @@ class PlayerNameSync:
                     FROM event_participants
                     WHERE player_id = ANY(%s)
                       AND full_name IS NOT NULL
-                      AND NOT (full_name ILIKE %s OR full_name ILIKE 'player' OR full_name ILIKE 'BYE')
+                      AND NOT (full_name ~* %s OR full_name ILIKE 'BYE')
                     ORDER BY player_id;
-                    """, (chunk, 'Player %'))
+                    """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
@@ -265,9 +275,9 @@ class PlayerNameSync:
                     FROM matches
                     WHERE player1_id = ANY(%s)
                       AND player1_name IS NOT NULL
-                      AND NOT (player1_name ILIKE %s OR player1_name ILIKE 'player' OR player1_name ILIKE 'BYE')
+                      AND NOT (player1_name ~* %s OR player1_name ILIKE 'BYE')
                     ORDER BY player1_id, match_date DESC NULLS LAST;
-                    """, (chunk, 'Player %'))
+                    """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
@@ -285,9 +295,9 @@ class PlayerNameSync:
                     FROM matches
                     WHERE player2_id = ANY(%s)
                       AND player2_name IS NOT NULL
-                      AND NOT (player2_name ILIKE %s OR player2_name ILIKE 'player' OR player2_name ILIKE 'BYE')
+                      AND NOT (player2_name ~* %s OR player2_name ILIKE 'BYE')
                     ORDER BY player2_id, match_date DESC NULLS LAST;
-                    """, (chunk, 'Player %'))
+                    """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
@@ -300,10 +310,9 @@ class PlayerNameSync:
                                     "source": "local_matches_p2"
                                 }
 
-                # 4. Do NOT resolve IDs locally if their name is shared by multiple IDs on player_ratings
-                # or if they already had a non-placeholder name (Tier 1b duplicate-name records).
-                # Leaving them unresolved locally ensures sync_names() queries BCP /v1/players/{id}
-                # to retrieve their true canonical userId.
+                # 4. Only leave unresolved locally if pid is a non-10-char registration ID
+                # AND its name is shared by multiple IDs on player_ratings (so BCP API resolves its canonical userId).
+                # Never pop 10-character canonical BCP user IDs!
                 if resolved:
                     cur.execute("""
                     SELECT player_id, LOWER(TRIM(player_name))
@@ -323,10 +332,7 @@ class PlayerNameSync:
 
                     for pid in list(resolved.keys()):
                         res_norm = resolved[pid]["full_name"].strip().lower()
-                        existing_pr_name = pr_names.get(pid, "")
-                        # If pid was already a named record on player_ratings (selected via Tier 1b duplicate scan)
-                        # or its resolved name is a known duplicate name, pop it so BCP API is queried for canonical userId
-                        if (existing_pr_name and not is_placeholder_name(existing_pr_name, pid)) or (res_norm in dup_names):
+                        if len(pid) != 10 and (res_norm in dup_names):
                             resolved.pop(pid, None)
 
         logger.info(f"⚡ Resolved {len(resolved)} / {len(player_ids)} player identities directly from local DB (0 network calls).")
@@ -837,6 +843,26 @@ class PlayerNameSync:
             f"🚀 Starting BCP Player Name & Canonical ID Sync (game_system={game_system}, "
             f"dry_run={dry_run}, concurrency={concurrency}, limit={max_bcp_calls})..."
         )
+
+        if not dry_run:
+            try:
+                with self.db.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute("""
+                        UPDATE players
+                        SET full_name = name
+                        WHERE (full_name IS NULL OR TRIM(full_name) = '')
+                          AND name IS NOT NULL AND TRIM(name) != '';
+                        """)
+                        cur.execute("""
+                        UPDATE players
+                        SET name = full_name
+                        WHERE (name IS NULL OR TRIM(name) = '')
+                          AND full_name IS NOT NULL AND TRIM(full_name) != '';
+                        """)
+                    conn.commit()
+            except Exception as sync_col_err:
+                logger.debug(f"Notice syncing players name/full_name columns: {sync_col_err}")
 
         # 1. Find all target IDs with placeholder names or non-10-char registration IDs (ordered by leaderboard priority)
         placeholder_ids = self.find_placeholder_player_ids(game_system=game_system)
