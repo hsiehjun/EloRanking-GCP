@@ -1327,8 +1327,89 @@ class PostgresDatabase:
                 ))
             conn.commit()
 
+    def _remap_registration_id_cursor(self, cursor, reg_id: str, canonical_id: str):
+        """Remaps a tournament-specific registration ID to its canonical global user ID within an active transaction."""
+        reg_id = str(reg_id or "").strip()
+        canonical_id = str(canonical_id or "").strip()
+        if not reg_id or not canonical_id or reg_id == canonical_id:
+            return
+
+        cursor.execute("""
+            SELECT 1 FROM (
+                SELECT 1 FROM players WHERE id = %s
+                UNION ALL
+                SELECT 1 FROM matches WHERE player1_id = %s OR player2_id = %s
+                UNION ALL
+                SELECT 1 FROM event_participants WHERE player_id = %s
+                UNION ALL
+                SELECT 1 FROM rating_history WHERE player_id = %s
+            ) sub LIMIT 1;
+        """, (reg_id, reg_id, reg_id, reg_id, reg_id))
+        if not cursor.fetchone():
+            return
+
+        # Ensure canonical_id exists in players before remapping references
+        cursor.execute("""
+            INSERT INTO players (id, first_name, last_name, full_name, team, updated_at)
+            SELECT %s, first_name, last_name, full_name, team, NOW()
+            FROM players WHERE id = %s
+            ON CONFLICT (id) DO UPDATE SET
+                first_name = COALESCE(NULLIF(players.first_name, ''), EXCLUDED.first_name),
+                last_name = COALESCE(NULLIF(players.last_name, ''), EXCLUDED.last_name),
+                full_name = CASE
+                    WHEN players.full_name IS NOT NULL AND players.full_name !~* '^player\\s*\\d*$' AND players.full_name != 'Unknown Player'
+                    THEN players.full_name
+                    ELSE EXCLUDED.full_name
+                END,
+                team = COALESCE(NULLIF(players.team, ''), EXCLUDED.team),
+                updated_at = NOW();
+        """, (canonical_id, reg_id))
+
+        # Revert and remove any rating_history rows involving reg_id so incremental Elo re-ranks them under canonical_id
+        cursor.execute("""
+            UPDATE player_ratings pr
+            SET current_elo = pr.current_elo - COALESCE(rh.delta_elo, 0),
+                matches_played = GREATEST(0, pr.matches_played - 1),
+                wins = CASE WHEN rh.result = 'W' THEN GREATEST(0, pr.wins - 1) ELSE pr.wins END,
+                losses = CASE WHEN rh.result = 'L' THEN GREATEST(0, pr.losses - 1) ELSE pr.losses END,
+                draws = CASE WHEN rh.result = 'D' THEN GREATEST(0, pr.draws - 1) ELSE pr.draws END
+            FROM rating_history rh
+            WHERE rh.match_id IN (SELECT DISTINCT match_id FROM rating_history WHERE player_id = %s)
+              AND pr.player_id = rh.player_id
+              AND COALESCE(pr.game_system, '40k') = COALESCE(rh.game_system, '40k');
+        """, (reg_id,))
+        cursor.execute("""
+            DELETE FROM rating_history
+            WHERE match_id IN (SELECT DISTINCT match_id FROM rating_history WHERE player_id = %s);
+        """, (reg_id,))
+        cursor.execute("DELETE FROM player_ratings WHERE player_id = %s;", (reg_id,))
+
+        # Remap matches
+        cursor.execute("UPDATE matches SET player1_id = %s WHERE player1_id = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE matches SET player2_id = %s WHERE player2_id = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE matches SET winner_id = %s WHERE winner_id = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE matches SET loser_id = %s WHERE loser_id = %s;", (canonical_id, reg_id))
+
+        # Remap event_participants (deduplicating if both exist in the same event)
+        cursor.execute("""
+            DELETE FROM event_participants ep1
+            WHERE ep1.player_id = %s
+              AND EXISTS (
+                  SELECT 1 FROM event_participants ep2
+                  WHERE ep2.event_id = ep1.event_id AND ep2.player_id = %s
+              );
+        """, (reg_id, canonical_id))
+        cursor.execute("UPDATE event_participants SET player_id = %s WHERE player_id = %s;", (canonical_id, reg_id))
+
+        # Remap tracker_games
+        cursor.execute("UPDATE tracker_games SET user_id = %s WHERE user_id = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE tracker_games SET opponent_id = %s WHERE opponent_id = %s;", (canonical_id, reg_id))
+
+        # Remove orphan registration ID from players
+        cursor.execute("DELETE FROM players WHERE id = %s;", (reg_id,))
+
     def upsert_player(self, player_id: str, first_name: str = "", last_name: str = "", full_name: str = "", team: str = ""):
-        """Inserts or updates player metadata including team affiliation."""
+        """Inserts or updates player metadata including team affiliation without clobbering real names with placeholders."""
         if not player_id:
             return
         if not full_name:
@@ -1340,9 +1421,13 @@ class PostgresDatabase:
                 INSERT INTO players (id, first_name, last_name, full_name, team, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (id) DO UPDATE SET
-                    first_name = EXCLUDED.first_name,
-                    last_name = EXCLUDED.last_name,
-                    full_name = EXCLUDED.full_name,
+                    first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
+                    last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
+                    full_name = CASE
+                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                        THEN EXCLUDED.full_name
+                        ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                    END,
                     team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team),
                     updated_at = EXCLUDED.updated_at;
                 """, (player_id, first_name, last_name, full_name, team or None, datetime.now(timezone.utc)))
@@ -1361,19 +1446,26 @@ class PostgresDatabase:
         checked_in: bool = True,
         placement: Optional[int] = None,
         battle_points: Optional[int] = None,
-        pod_num: Optional[int] = None
+        pod_num: Optional[int] = None,
+        reg_id: Optional[str] = None
     ):
         """Inserts or updates a tournament participant with team affiliation, bracket pod, and official BCP placing."""
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
+                if reg_id and reg_id != player_id:
+                    self._remap_registration_id_cursor(cursor, reg_id, player_id)
                 cursor.execute("""
                 INSERT INTO event_participants (
                     event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points, pod_num
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (event_id, player_id) DO UPDATE SET
-                    first_name = EXCLUDED.first_name,
-                    last_name = EXCLUDED.last_name,
-                    full_name = EXCLUDED.full_name,
+                    first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE event_participants.first_name END,
+                    last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE event_participants.last_name END,
+                    full_name = CASE
+                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                        THEN EXCLUDED.full_name
+                        ELSE COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name)
+                    END,
                     faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
                     team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                     dropped = EXCLUDED.dropped,
@@ -1417,6 +1509,10 @@ class PostgresDatabase:
                     pid = str(p.get("player_id", "")).strip()
                     if not pid:
                         continue
+                    reg_id = str(p.get("reg_id") or "").strip()
+                    if reg_id and reg_id != pid:
+                        self._remap_registration_id_cursor(cursor, reg_id, pid)
+
                     fn = p.get("first_name", "")
                     ln = p.get("last_name", "")
                     name = p.get("full_name") or f"{fn} {ln}".strip() or "Player"
@@ -1448,7 +1544,11 @@ class PostgresDatabase:
                             ON CONFLICT (id) DO UPDATE SET
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
-                                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), players.full_name),
+                                full_name = CASE
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    THEN EXCLUDED.full_name
+                                    ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                                END,
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team);
                             """,
                             player_rows,
@@ -1462,7 +1562,11 @@ class PostgresDatabase:
                             ON CONFLICT (id) DO UPDATE SET
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
-                                full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), players.full_name),
+                                full_name = CASE
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    THEN EXCLUDED.full_name
+                                    ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                                END,
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), players.team);
                             """, r)
 
@@ -1475,9 +1579,13 @@ class PostgresDatabase:
                                 event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points, pod_num
                             ) VALUES %s
                             ON CONFLICT (event_id, player_id) DO UPDATE SET
-                                first_name = EXCLUDED.first_name,
-                                last_name = EXCLUDED.last_name,
-                                full_name = EXCLUDED.full_name,
+                                first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
+                                last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
+                                full_name = CASE
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    THEN EXCLUDED.full_name
+                                    ELSE COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name)
+                                END,
                                 faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                                 dropped = EXCLUDED.dropped,
@@ -1496,9 +1604,13 @@ class PostgresDatabase:
                                 event_id, player_id, first_name, last_name, full_name, faction, team, dropped, checked_in, placement, battle_points, pod_num
                             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             ON CONFLICT (event_id, player_id) DO UPDATE SET
-                                first_name = EXCLUDED.first_name,
-                                last_name = EXCLUDED.last_name,
-                                full_name = EXCLUDED.full_name,
+                                first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
+                                last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
+                                full_name = CASE
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    THEN EXCLUDED.full_name
+                                    ELSE COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name)
+                                END,
                                 faction = COALESCE(NULLIF(EXCLUDED.faction, ''), event_participants.faction),
                                 team = COALESCE(NULLIF(EXCLUDED.team, ''), event_participants.team),
                                 dropped = EXCLUDED.dropped,
@@ -1510,15 +1622,59 @@ class PostgresDatabase:
             conn.commit()
 
     def upsert_match(self, match_data: Dict[str, Any]):
-        """Inserts or updates a match pairing."""
+        """Inserts or updates a match pairing, healing registration IDs and ensuring players table rows exist."""
         event_id = match_data.get("event_id")
         if not event_id or not match_data.get("id"):
             return
 
         game_system = match_data.get("game_system") or "40k"
+        p1_id_val = match_data.get("player1_id")
+        p2_id_val = match_data.get("player2_id")
+        p1_name_val = match_data.get("player1_name") or "Player 1"
+        p2_name_val = match_data.get("player2_name") or ("Player 2" if p2_id_val else "BYE")
+        p1_reg_id = match_data.get("player1_reg_id")
+        p2_reg_id = match_data.get("player2_reg_id")
 
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
+                # Automatically remap any tournament-specific registration IDs to global user IDs
+                if p1_reg_id and p1_id_val and p1_reg_id != p1_id_val:
+                    self._remap_registration_id_cursor(cursor, p1_reg_id, p1_id_val)
+                if p2_reg_id and p2_id_val and p2_reg_id != p2_id_val:
+                    self._remap_registration_id_cursor(cursor, p2_reg_id, p2_id_val)
+
+                # Upsert both players into players table so full_name is never NULL, and resolve real name if incoming is placeholder
+                for pid, pname in ((p1_id_val, p1_name_val), (p2_id_val, p2_name_val)):
+                    if pid and pname != "BYE":
+                        parts = str(pname).strip().split(" ", 1)
+                        fn = parts[0] if len(parts) > 0 and not pname.lower().startswith("player") else ""
+                        ln = parts[1] if len(parts) > 1 and not pname.lower().startswith("player") else ""
+                        cursor.execute("""
+                            INSERT INTO players (id, first_name, last_name, full_name, updated_at)
+                            VALUES (%s, %s, %s, %s, %s)
+                            ON CONFLICT (id) DO UPDATE SET
+                                first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
+                                last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
+                                full_name = CASE
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    THEN EXCLUDED.full_name
+                                    ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                                END,
+                                updated_at = EXCLUDED.updated_at;
+                        """, (pid, fn, ln, pname, datetime.now(timezone.utc)))
+
+                # If p1_name_val or p2_name_val is a placeholder, look up real name from players table
+                if p1_id_val and (not p1_name_val or p1_name_val.lower().startswith("player") or p1_name_val == "Unknown Player"):
+                    cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player\\s*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p1_id_val,))
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        p1_name_val = row[0]
+                if p2_id_val and (not p2_name_val or p2_name_val.lower().startswith("player") or p2_name_val == "Unknown Player"):
+                    cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player\\s*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p2_id_val,))
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        p2_name_val = row[0]
+
                 cursor.execute("""
                 INSERT INTO events (id, name, event_date, scraped_at, game_system)
                 VALUES (%s, %s, %s, %s, %s)
@@ -1544,11 +1700,19 @@ class PostgresDatabase:
                     table_number = EXCLUDED.table_number,
                     match_date = EXCLUDED.match_date,
                     player1_id = EXCLUDED.player1_id,
-                    player1_name = EXCLUDED.player1_name,
+                    player1_name = CASE
+                        WHEN EXCLUDED.player1_name IS NOT NULL AND EXCLUDED.player1_name !~* '^player\\s*\\d*$' AND EXCLUDED.player1_name != 'Unknown Player'
+                        THEN EXCLUDED.player1_name
+                        ELSE COALESCE(NULLIF(matches.player1_name, ''), EXCLUDED.player1_name)
+                    END,
                     player1_faction = EXCLUDED.player1_faction,
                     player1_score = EXCLUDED.player1_score,
                     player2_id = EXCLUDED.player2_id,
-                    player2_name = EXCLUDED.player2_name,
+                    player2_name = CASE
+                        WHEN EXCLUDED.player2_name IS NOT NULL AND EXCLUDED.player2_name !~* '^player\\s*\\d*$' AND EXCLUDED.player2_name != 'Unknown Player'
+                        THEN EXCLUDED.player2_name
+                        ELSE COALESCE(NULLIF(matches.player2_name, ''), EXCLUDED.player2_name)
+                    END,
                     player2_faction = EXCLUDED.player2_faction,
                     player2_score = EXCLUDED.player2_score,
                     winner_id = EXCLUDED.winner_id,
@@ -1564,12 +1728,12 @@ class PostgresDatabase:
                     match_data.get("round", 1),
                     match_data.get("table_number", 1),
                     match_data.get("match_date"),
-                    match_data.get("player1_id"),
-                    match_data.get("player1_name"),
+                    p1_id_val,
+                    p1_name_val,
                     match_data.get("player1_faction"),
                     match_data.get("player1_score"),
-                    match_data.get("player2_id"),
-                    match_data.get("player2_name"),
+                    p2_id_val,
+                    p2_name_val,
                     match_data.get("player2_faction"),
                     match_data.get("player2_score"),
                     match_data.get("winner_id"),
@@ -1581,13 +1745,12 @@ class PostgresDatabase:
                     game_system
                 ))
 
-                # If match outcome changed or is not officially scored, revert stale rating_history from player_ratings so incremental Elo recalculates it cleanly
+                # If match outcome or player IDs changed, or match is not officially scored, revert stale rating_history from player_ratings so incremental Elo recalculates it cleanly
                 match_id = match_data.get("id")
                 is_done_val = bool(match_data.get("is_done", True))
                 winner_id_val = match_data.get("winner_id")
                 is_draw_val = bool(match_data.get("is_draw"))
                 is_bye_val = bool(match_data.get("is_bye"))
-                p1_id_val = match_data.get("player1_id")
                 p1_score_val = match_data.get("player1_score") or 0
                 p2_score_val = match_data.get("player2_score") or 0
                 is_real_draw = bool(is_draw_val and (p1_score_val > 0 or p2_score_val > 0))
@@ -1604,6 +1767,17 @@ class PostgresDatabase:
                         """, (match_id, p1_id_val, expected_p1_res))
                         if cursor.fetchone():
                             should_revert = True
+
+                    if not should_revert:
+                        valid_pids = [pid for pid in (p1_id_val, p2_id_val) if pid]
+                        if valid_pids:
+                            cursor.execute("""
+                                SELECT 1 FROM rating_history
+                                WHERE match_id = %s AND player_id != ALL(%s)
+                                LIMIT 1;
+                            """, (match_id, valid_pids))
+                            if cursor.fetchone():
+                                should_revert = True
 
                     if should_revert:
                         cursor.execute("""

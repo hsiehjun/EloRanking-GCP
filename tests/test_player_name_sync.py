@@ -413,12 +413,13 @@ def test_scraper_aos_registration_id_resolution():
         mock_db.upsert_match.assert_called_once()
         saved_match = mock_db.upsert_match.call_args[0][0]
         assert saved_match["player1_id"] == "2BL51FT38A"
+        assert saved_match["player1_reg_id"] == "pHbczW43wnCx"
         assert saved_match["winner_id"] == "2BL51FT38A"
     print("✅ test_scraper_aos_registration_id_resolution passed")
 
 
-def test_tournament_sync_job_invokes_player_sync():
-    """Verify run_tournament_sync in scripts/sync_tournaments.py invokes PlayerNameSync.sync_names."""
+def test_tournament_sync_job_does_not_invoke_player_sync():
+    """Verify run_tournament_sync in scripts/sync_tournaments.py does NOT invoke costly PlayerNameSync.sync_names."""
     from scripts.sync_tournaments import run_tournament_sync
     with patch("scripts.sync_tournaments.get_database") as mock_get_db, \
          patch("scripts.sync_tournaments.BestCoastPairingsScraper") as mock_scraper_cls, \
@@ -427,14 +428,11 @@ def test_tournament_sync_job_invokes_player_sync():
         mock_scraper = MagicMock()
         mock_scraper.scrape_date_range.return_value = {"events_scraped": 2, "matches_scraped": 10}
         mock_scraper_cls.return_value = mock_scraper
-        mock_ps = MagicMock()
-        mock_ps.sync_names.return_value = {"status": "SUCCESS", "remapped_ids": 3}
-        mock_ps_cls.return_value = mock_ps
 
         res = run_tournament_sync(game_system="aos", days=1, max_events=2)
-        mock_ps.sync_names.assert_called_once_with(game_system="aos", max_bcp_calls=500)
+        mock_ps_cls.assert_not_called()
         assert res["events_scraped"] == 2
-    print("✅ test_tournament_sync_job_invokes_player_sync passed")
+    print("✅ test_tournament_sync_job_does_not_invoke_player_sync passed")
 
 
 def test_same_name_distinct_players_never_merged():
@@ -566,6 +564,22 @@ def test_verify_and_fix_same_name_matches_unmerges_corrupted_matches():
     print("✅ test_verify_and_fix_same_name_matches_unmerges_corrupted_matches passed")
 
 
+def test_database_automatic_registration_id_remapping():
+    """Verify Database._remap_registration_id_cursor automatically heals registration IDs to global userIds during scraping."""
+    from database import Database
+    db = Database.__new__(Database)
+    mock_cur = MagicMock()
+    mock_cur.fetchone.return_value = (1,)
+
+    db._remap_registration_id_cursor(mock_cur, "reg_id_12345", "global_uid_999")
+    executed_sqls = [call[0][0] for call in mock_cur.execute.call_args_list]
+    assert any("UPDATE matches SET player1_id = %s WHERE player1_id = %s" in s for s in executed_sqls)
+    assert any("UPDATE event_participants SET player_id = %s WHERE player_id = %s" in s for s in executed_sqls)
+    assert any("DELETE FROM rating_history" in s for s in executed_sqls)
+    assert any("DELETE FROM players WHERE id = %s" in s for s in executed_sqls)
+    print("✅ test_database_automatic_registration_id_remapping passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -580,7 +594,8 @@ if __name__ == "__main__":
     test_cli_argument_parsing_resilience()
     test_canonical_user_id_remapping_in_apply_name_updates()
     test_scraper_aos_registration_id_resolution()
-    test_tournament_sync_job_invokes_player_sync()
+    test_tournament_sync_job_does_not_invoke_player_sync()
     test_same_name_distinct_players_never_merged()
     test_verify_and_fix_same_name_matches_unmerges_corrupted_matches()
+    test_database_automatic_registration_id_remapping()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")

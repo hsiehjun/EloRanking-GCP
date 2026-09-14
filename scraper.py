@@ -451,6 +451,7 @@ class BestCoastPairingsScraper:
             active_player_ids.add(canonical_id)
             participants_to_upsert.append({
                 "player_id": canonical_id,
+                "reg_id": reg_id if (reg_id and reg_id != canonical_id) else None,
                 "first_name": first_name,
                 "last_name": last_name,
                 "full_name": full_name,
@@ -481,7 +482,8 @@ class BestCoastPairingsScraper:
                     checked_in=part["checked_in"],
                     placement=part["placement"],
                     battle_points=part["battle_points"],
-                    pod_num=part["pod_num"]
+                    pod_num=part["pod_num"],
+                    reg_id=part.get("reg_id")
                 )
 
         # Prune dropped / unregistered participants and orphaned ghost IDs from DB
@@ -895,10 +897,12 @@ class BestCoastPairingsScraper:
             "table_number": table_num,
             "match_date": event_date,
             "player1_id": p1_user_id,
+            "player1_reg_id": p1_reg_id if (p1_reg_id and p1_user_id and p1_reg_id != p1_user_id) else None,
             "player1_name": p1_name,
             "player1_faction": p1_faction,
             "player1_score": p1_score,
             "player2_id": p2_user_id,
+            "player2_reg_id": p2_reg_id if (p2_reg_id and p2_user_id and p2_reg_id != p2_user_id) else None,
             "player2_name": p2_name,
             "player2_faction": p2_faction,
             "player2_score": p2_score,
