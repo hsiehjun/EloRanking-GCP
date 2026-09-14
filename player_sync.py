@@ -41,7 +41,7 @@ PLACEHOLDER_NAMES = {
     "bye", "unknown", "none", "null", "tbd", "unassigned", ""
 }
 
-PLACEHOLDER_REGEX_STR = r'^(player|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)[\s_\-#]*\d*$'
+PLACEHOLDER_REGEX_STR = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
 _PLACEHOLDER_RE = re.compile(PLACEHOLDER_REGEX_STR, re.IGNORECASE)
 
 
@@ -464,11 +464,15 @@ class PlayerNameSync:
                         INSERT INTO players (id, first_name, last_name, full_name, updated_at)
                         VALUES (%s, %s, %s, %s, NOW())
                         ON CONFLICT (id) DO UPDATE SET
-                            full_name = EXCLUDED.full_name,
+                            full_name = CASE
+                                WHEN EXCLUDED.full_name !~* %s
+                                THEN EXCLUDED.full_name
+                                ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                            END,
                             first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                             last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
                             updated_at = NOW();
-                        """, (target_id, first, last, full))
+                        """, (target_id, first, last, full, PLACEHOLDER_REGEX_STR))
                         counts["players"] += cur.rowcount
                     else:
                         cur.execute("""
@@ -531,8 +535,8 @@ class PlayerNameSync:
                     UPDATE player_ratings
                     SET player_name = %s, updated_at = NOW()
                     WHERE player_id = %s
-                      AND (player_name ~* '^player[\\s_\\-#]*\\d*$' OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id);
-                    """, (full, pid))
+                      AND (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id);
+                    """, (full, pid, PLACEHOLDER_REGEX_STR))
                     counts["player_ratings"] += cur.rowcount
 
                     # 3. Update matches table (both player1 and player2)
@@ -540,16 +544,16 @@ class PlayerNameSync:
                     UPDATE matches
                     SET player1_name = %s
                     WHERE player1_id = %s
-                      AND (player1_name ~* '^player[\\s_\\-#]*\\d*$' OR player1_name IS NULL OR TRIM(player1_name) = '');
-                    """, (full, pid))
+                      AND (player1_name ~* %s OR player1_name IS NULL OR TRIM(player1_name) = '');
+                    """, (full, pid, PLACEHOLDER_REGEX_STR))
                     counts["matches_p1"] += cur.rowcount
 
                     cur.execute("""
                     UPDATE matches
                     SET player2_name = %s
                     WHERE player2_id = %s
-                      AND (player2_name ~* '^player[\\s_\\-#]*\\d*$' OR player2_name IS NULL OR TRIM(player2_name) = '');
-                    """, (full, pid))
+                      AND (player2_name ~* %s OR player2_name IS NULL OR TRIM(player2_name) = '');
+                    """, (full, pid, PLACEHOLDER_REGEX_STR))
                     counts["matches_p2"] += cur.rowcount
 
                     # 4. Update rating_history (skip unindexed opponent_id scan; reconstruct_all_rankings maintains rating_history)
@@ -890,56 +894,74 @@ class PlayerNameSync:
                         cur.execute("""
                         UPDATE players
                         SET full_name = TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
-                        WHERE (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* '^player[\\s_\\-#]*\\d*$')
+                        WHERE (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* %s)
                           AND (first_name IS NOT NULL OR last_name IS NOT NULL)
                           AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) != ''
-                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) !~* '^player[\\s_\\-#]*\\d*$';
-                        """)
+                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) !~* %s;
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE players p
                         SET full_name = ep.full_name
                         FROM event_participants ep
                         WHERE p.id = ep.player_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
                           AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
-                          AND NOT (ep.full_name ~* '^player[\\s_\\-#]*\\d*$' OR ep.full_name ILIKE 'BYE');
-                        """)
+                          AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = m.player1_name
+                        FROM matches m
+                        WHERE p.id = m.player1_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+                          AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != ''
+                          AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = m.player2_name
+                        FROM matches m
+                        WHERE p.id = m.player2_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+                          AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != ''
+                          AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE players p
                         SET full_name = pr.player_name
                         FROM player_ratings pr
                         WHERE p.id = pr.player_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
                           AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != ''
-                          AND NOT (pr.player_name ~* '^player[\\s_\\-#]*\\d*$' OR pr.player_name ILIKE 'BYE');
-                        """)
+                          AND NOT (pr.player_name ~* %s OR pr.player_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE player_ratings pr
                         SET player_name = p.full_name
                         FROM players p
                         WHERE pr.player_id = p.id
-                          AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s)
                           AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
-                          AND NOT (p.full_name ~* '^player[\\s_\\-#]*\\d*$' OR p.full_name ILIKE 'BYE');
-                        """)
+                          AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE matches m
                         SET player1_name = p.full_name
                         FROM players p
                         WHERE m.player1_id = p.id
-                          AND (m.player1_name IS NULL OR TRIM(m.player1_name) = '' OR m.player1_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND (m.player1_name IS NULL OR TRIM(m.player1_name) = '' OR m.player1_name ~* %s)
                           AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
-                          AND NOT (p.full_name ~* '^player[\\s_\\-#]*\\d*$' OR p.full_name ILIKE 'BYE');
-                        """)
+                          AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE matches m
                         SET player2_name = p.full_name
                         FROM players p
                         WHERE m.player2_id = p.id
-                          AND (m.player2_name IS NULL OR TRIM(m.player2_name) = '' OR m.player2_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND (m.player2_name IS NULL OR TRIM(m.player2_name) = '' OR m.player2_name ~* %s)
                           AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
-                          AND NOT (p.full_name ~* '^player[\\s_\\-#]*\\d*$' OR p.full_name ILIKE 'BYE');
-                        """)
+                          AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+                        """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                     conn.commit()
             except Exception as sync_col_err:
                 logger.debug(f"Notice syncing players full_name column: {sync_col_err}")

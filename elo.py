@@ -3,8 +3,84 @@
 import collections
 import logging
 import math
+import re
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
+
+PLACEHOLDER_REGEX_STR = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
+_PLACEHOLDER_RE = re.compile(PLACEHOLDER_REGEX_STR, re.IGNORECASE)
+
+
+def _is_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -> bool:
+    if not name:
+        return True
+    cleaned = str(name).strip()
+    if not cleaned or _PLACEHOLDER_RE.match(cleaned):
+        return True
+    if player_id and cleaned == str(player_id).strip():
+        return True
+    return False
+
+
+def _heal_and_load_authoritative_names(conn: Any, sys_target: str) -> Dict[str, str]:
+    """Heals placeholder names across tables using real names from event_participants/matches/players and returns authoritative name map."""
+    auth_names: Dict[str, str] = {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+            UPDATE players p
+            SET full_name = ep.full_name
+            FROM event_participants ep
+            WHERE p.id = ep.player_id
+              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+              AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
+              AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
+            """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+            cur.execute("""
+            UPDATE players p
+            SET full_name = m.player1_name
+            FROM matches m
+            WHERE p.id = m.player1_id
+              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+              AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != ''
+              AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
+            """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+            cur.execute("""
+            UPDATE players p
+            SET full_name = m.player2_name
+            FROM matches m
+            WHERE p.id = m.player2_id
+              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+              AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != ''
+              AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
+            """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+            cur.execute("""
+            UPDATE player_ratings pr
+            SET player_name = p.full_name, updated_at = NOW()
+            FROM players p
+            WHERE pr.player_id = p.id
+              AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s)
+              AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+              AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+            """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
+            cur.execute("""
+            SELECT id, full_name FROM players
+            WHERE full_name IS NOT NULL AND TRIM(full_name) != ''
+              AND NOT (full_name ~* %s OR full_name ILIKE 'BYE');
+            """, (PLACEHOLDER_REGEX_STR,))
+            for row in cur.fetchall():
+                pid = row[0] if isinstance(row, tuple) else row.get("id")
+                fname = row[1] if isinstance(row, tuple) else row.get("full_name")
+                if pid and fname:
+                    auth_names[str(pid)] = str(fname).strip()
+        conn.commit()
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logging.getLogger("EloEngine").debug(f"Notice during _heal_and_load_authoritative_names: {e}")
+    return auth_names
 
 def _format_tsv_field(val: Any) -> str:
     if val is None:
@@ -287,6 +363,7 @@ class EloEngine:
             healed = 0
             try:
                 with self.db.get_connection() as conn:
+                    _heal_and_load_authoritative_names(conn, sys_target)
                     with conn.cursor() as cur:
                         cur.execute("""
                         WITH latest_rh AS (
@@ -326,8 +403,10 @@ class EloEngine:
         player_states: Dict[str, Dict[str, Any]] = {}
         player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
         existing_teams: Dict[str, str] = {}
+        authoritative_names: Dict[str, str] = {}
 
         with self.db.get_connection() as conn:
+            authoritative_names = _heal_and_load_authoritative_names(conn, sys_target)
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 # 1. Fetch latest active team from event_participants ordered by event recency for this game system
                 cur.execute("""
@@ -364,8 +443,11 @@ class EloEngine:
                 """, (sys_target, sys_target))
                 for r in cur.fetchall():
                     pid = r["player_id"]
+                    raw_name = r.get("player_name") or pid
+                    if _is_placeholder_name(raw_name, pid) and pid in authoritative_names:
+                        raw_name = authoritative_names[pid]
                     player_states[pid] = {
-                        "name": r.get("player_name") or pid,
+                        "name": raw_name,
                         "elo": float(r.get("current_elo") or self.initial_elo),
                         "peak_elo": float(r.get("peak_elo") or self.initial_elo),
                         "matches_played": int(r.get("matches_played") or 0),
@@ -402,27 +484,35 @@ class EloEngine:
                     if not p1_id or not p2_id:
                         continue
 
+                    p1_mname = m.get("player1_name")
+                    p1_best = authoritative_names.get(p1_id) or (p1_mname if not _is_placeholder_name(p1_mname, p1_id) else None)
                     s1 = player_states.get(p1_id)
                     if not s1:
                         s1 = {
-                            "name": m.get("player1_name") or p1_id,
+                            "name": p1_best or p1_mname or p1_id,
                             "elo": self.initial_elo,
                             "peak_elo": self.initial_elo,
                             "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
                             "last_active_date": None
                         }
                         player_states[p1_id] = s1
+                    elif _is_placeholder_name(s1["name"], p1_id) and p1_best:
+                        s1["name"] = p1_best
 
+                    p2_mname = m.get("player2_name")
+                    p2_best = authoritative_names.get(p2_id) or (p2_mname if not _is_placeholder_name(p2_mname, p2_id) else None)
                     s2 = player_states.get(p2_id)
                     if not s2:
                         s2 = {
-                            "name": m.get("player2_name") or p2_id,
+                            "name": p2_best or p2_mname or p2_id,
                             "elo": self.initial_elo,
                             "peak_elo": self.initial_elo,
                             "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
                             "last_active_date": None
                         }
                         player_states[p2_id] = s2
+                    elif _is_placeholder_name(s2["name"], p2_id) and p2_best:
+                        s2["name"] = p2_best
 
                     is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0))
                     has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
@@ -496,14 +586,18 @@ class EloEngine:
 
                 # Upsert updated player ratings for touched players only into composite PK (player_id, game_system)
                 now_iso = datetime.now(timezone.utc)
-                upsert_ratings_pg = """
+                upsert_ratings_pg = f"""
                 INSERT INTO player_ratings (
                     player_id, player_name, current_elo, peak_elo,
                     matches_played, wins, losses, draws, win_rate,
                     top_faction, team, last_active_date, updated_at, game_system
                 ) VALUES %s
                 ON CONFLICT (player_id, game_system) DO UPDATE SET
-                    player_name = EXCLUDED.player_name,
+                    player_name = CASE
+                        WHEN EXCLUDED.player_name !~* '{PLACEHOLDER_REGEX_STR}'
+                        THEN EXCLUDED.player_name
+                        ELSE COALESCE(NULLIF(player_ratings.player_name, ''), EXCLUDED.player_name)
+                    END,
                     current_elo = EXCLUDED.current_elo,
                     peak_elo = EXCLUDED.peak_elo,
                     matches_played = EXCLUDED.matches_played,
@@ -698,7 +792,8 @@ class EloEngine:
                     except Exception as e:
                         logger.debug(f"JSON team scan error: {e}")
 
-            # 2. Clear old history for target game_system
+            # 2. Clear old history for target game_system and load authoritative real names
+            authoritative_names = _heal_and_load_authoritative_names(conn, sys_target)
             with conn.cursor() as cursor:
                 print(f"[1/3] 💾 Clearing old {sys_target.upper()} history and optimizing table buffers...")
                 cursor.execute("SET LOCAL synchronous_commit = OFF;")
@@ -766,27 +861,35 @@ class EloEngine:
                             if not m.get("is_bye") and not has_valid_winner and not is_real_draw:
                                 continue
 
+                            p1_mname = m.get("player1_name")
+                            p1_best = authoritative_names.get(p1_id) or (p1_mname if not _is_placeholder_name(p1_mname, p1_id) else None)
                             s1 = player_states.get(p1_id)
                             if not s1:
                                 s1 = {
-                                    "name": m.get("player1_name") or p1_id,
+                                    "name": p1_best or p1_mname or p1_id,
                                     "elo": self.initial_elo,
                                     "peak_elo": self.initial_elo,
                                     "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
                                     "last_active_date": None
                                 }
                                 player_states[p1_id] = s1
+                            elif _is_placeholder_name(s1["name"], p1_id) and p1_best:
+                                s1["name"] = p1_best
 
+                            p2_mname = m.get("player2_name")
+                            p2_best = authoritative_names.get(p2_id) or (p2_mname if not _is_placeholder_name(p2_mname, p2_id) else None)
                             s2 = player_states.get(p2_id)
                             if not s2:
                                 s2 = {
-                                    "name": m.get("player2_name") or p2_id,
+                                    "name": p2_best or p2_mname or p2_id,
                                     "elo": self.initial_elo,
                                     "peak_elo": self.initial_elo,
                                     "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
                                     "last_active_date": None
                                 }
                                 player_states[p2_id] = s2
+                            elif _is_placeholder_name(s2["name"], p2_id) and p2_best:
+                                s2["name"] = p2_best
 
                             old_elo1 = s1["elo"]
                             old_elo2 = s2["elo"]

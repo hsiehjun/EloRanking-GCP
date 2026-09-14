@@ -29,12 +29,17 @@ from player_sync import (
 
 
 def test_is_placeholder_name():
-    """Verify placeholder detection including Player114 / Player<number> without spaces."""
+    """Verify placeholder detection including Player114 / Player<number> without spaces and word/code seats."""
     assert is_placeholder_name("Player 1") is True
     assert is_placeholder_name("Player 2") is True
+    assert is_placeholder_name("Player 16") is True
     assert is_placeholder_name("Player114") is True
     assert is_placeholder_name("Player249") is True
     assert is_placeholder_name("Player116") is True
+    assert is_placeholder_name("Player Four") is True
+    assert is_placeholder_name("Player C4") is True
+    assert is_placeholder_name("Player C2") is True
+    assert is_placeholder_name("PLAYER dabadidabada") is True
     assert is_placeholder_name("player") is True
     assert is_placeholder_name("PLAYER 9") is True
     assert is_placeholder_name("player_5") is True

@@ -1023,9 +1023,46 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v17_multigame_constraint_fix')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v18_placeholder_heal')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     """)
+                    placeholder_re = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
+                    cursor.execute("""
+                    UPDATE players p
+                    SET full_name = ep.full_name
+                    FROM event_participants ep
+                    WHERE p.id = ep.player_id
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+                      AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
+                      AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
+                    """, (placeholder_re, placeholder_re))
+                    cursor.execute("""
+                    UPDATE players p
+                    SET full_name = m.player1_name
+                    FROM matches m
+                    WHERE p.id = m.player1_id
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+                      AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != ''
+                      AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
+                    """, (placeholder_re, placeholder_re))
+                    cursor.execute("""
+                    UPDATE players p
+                    SET full_name = m.player2_name
+                    FROM matches m
+                    WHERE p.id = m.player2_id
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
+                      AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != ''
+                      AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
+                    """, (placeholder_re, placeholder_re))
+                    cursor.execute("""
+                    UPDATE player_ratings pr
+                    SET player_name = p.full_name, updated_at = NOW()
+                    FROM players p
+                    WHERE pr.player_id = p.id
+                      AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s)
+                      AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                      AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
+                    """, (placeholder_re, placeholder_re))
                 conn.commit()
         except Exception as err:
             logger.debug(f"init_db migrations notice: {err}")
@@ -1357,7 +1394,7 @@ class PostgresDatabase:
                 first_name = COALESCE(NULLIF(players.first_name, ''), EXCLUDED.first_name),
                 last_name = COALESCE(NULLIF(players.last_name, ''), EXCLUDED.last_name),
                 full_name = CASE
-                    WHEN players.full_name IS NOT NULL AND players.full_name !~* '^player[\\s_\\-#]*\\d*$' AND players.full_name != 'Unknown Player'
+                    WHEN players.full_name IS NOT NULL AND players.full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND players.full_name != 'Unknown Player'
                     THEN players.full_name
                     ELSE EXCLUDED.full_name
                 END,
@@ -1424,7 +1461,7 @@ class PostgresDatabase:
                     first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
                     last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
                     full_name = CASE
-                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.full_name != 'Unknown Player'
                         THEN EXCLUDED.full_name
                         ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
                     END,
@@ -1671,7 +1708,7 @@ class PostgresDatabase:
                             first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
                             last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
                             full_name = CASE
-                                WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.full_name != 'Unknown Player'
                                 THEN EXCLUDED.full_name
                                 ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
                             END,
@@ -1682,12 +1719,12 @@ class PostgresDatabase:
 
         # If p1_name_val or p2_name_val is a placeholder, look up real name from players table
         if p1_id_val and (not p1_name_val or p1_name_val.lower().startswith("player") or p1_name_val == "Unknown Player"):
-            cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player[\\s_\\-#]*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p1_id_val,))
+            cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND full_name != 'Unknown Player' LIMIT 1;", (p1_id_val,))
             row = cursor.fetchone()
             if row and row[0]:
                 p1_name_val = row[0]
         if p2_id_val and (not p2_name_val or p2_name_val.lower().startswith("player") or p2_name_val == "Unknown Player"):
-            cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player[\\s_\\-#]*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p2_id_val,))
+            cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND full_name != 'Unknown Player' LIMIT 1;", (p2_id_val,))
             row = cursor.fetchone()
             if row and row[0]:
                 p2_name_val = row[0]
@@ -2100,7 +2137,7 @@ class PostgresDatabase:
                 with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                     cursor.execute("SET LOCAL statement_timeout = '4000ms';")
 
-                    where_pr = "WHERE matches_played > 0"
+                    where_pr = r"WHERE matches_played > 0 AND player_name IS NOT NULL AND TRIM(player_name) != '' AND player_name !~* '^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'"
                     where_m = "WHERE is_done = TRUE"
                     where_e = "WHERE 1=1"
                     params_sys = []
@@ -2313,7 +2350,8 @@ class PostgresDatabase:
                     return res
 
                 # Global player ratings directory
-                where_clauses = ["r.matches_played >= %s"]
+                placeholder_filter = r"r.player_name IS NOT NULL AND TRIM(r.player_name) != '' AND r.player_name !~* '^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'"
+                where_clauses = ["r.matches_played >= %s", placeholder_filter]
                 params = [min_matches]
                 if active_only:
                     where_clauses.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
@@ -2364,7 +2402,7 @@ class PostgresDatabase:
                         conn.commit()
                     except Exception:
                         conn.rollback()
-                    safe_where = ["r.matches_played >= %s"]
+                    safe_where = ["r.matches_played >= %s", placeholder_filter]
                     safe_params = [min_matches]
                     if active_only:
                         safe_where.append("COALESCE(r.last_active_date, CURRENT_DATE) >= CURRENT_DATE - INTERVAL '180 days'")
