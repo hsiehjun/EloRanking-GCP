@@ -320,6 +320,10 @@ class EloEngine:
                                   AND m.winner_id IS NOT NULL AND m.winner_id != ''
                                   AND ((rh.player_id = m.winner_id AND rh.result != 'W') OR (rh.player_id != m.winner_id AND rh.result != 'L'))
                               )
+                              OR (
+                                  rh.player_id != COALESCE(m.player1_id, '')
+                                  AND rh.player_id != COALESCE(m.player2_id, '')
+                              )
                           )
                     ),
                     agg_revert AS (

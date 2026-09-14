@@ -446,6 +446,7 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);
+                CREATE INDEX IF NOT EXISTS idx_pg_history_match ON rating_history(match_id);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_elo ON player_ratings(current_elo DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_name ON player_ratings(player_name);
                 CREATE INDEX IF NOT EXISTS idx_pg_ratings_team ON player_ratings(team, current_elo DESC);
@@ -558,6 +559,7 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p1 ON matches (match_date DESC, player1_faction) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_history_match ON rating_history(match_id);",
             """CREATE TABLE IF NOT EXISTS user_army_lists (
                 id VARCHAR(64) PRIMARY KEY,
                 user_id VARCHAR(64),
@@ -1371,17 +1373,8 @@ class PostgresDatabase:
         if not reg_id or not canonical_id or reg_id == canonical_id:
             return
 
-        cursor.execute("""
-            SELECT 1 FROM (
-                SELECT 1 FROM players WHERE id = %s
-                UNION ALL
-                SELECT 1 FROM matches WHERE player1_id = %s OR player2_id = %s
-                UNION ALL
-                SELECT 1 FROM event_participants WHERE player_id = %s
-                UNION ALL
-                SELECT 1 FROM rating_history WHERE player_id = %s
-            ) sub LIMIT 1;
-        """, (reg_id, reg_id, reg_id, reg_id, reg_id))
+        # Fast primary-key check on players table (avoids multi-table UNION ALL scans)
+        cursor.execute("SELECT 1 FROM players WHERE id = %s LIMIT 1;", (reg_id,))
         if not cursor.fetchone():
             return
 
@@ -1402,26 +1395,7 @@ class PostgresDatabase:
                 updated_at = NOW();
         """, (canonical_id, reg_id))
 
-        # Revert and remove any rating_history rows involving reg_id so incremental Elo re-ranks them under canonical_id
-        cursor.execute("""
-            UPDATE player_ratings pr
-            SET current_elo = pr.current_elo - COALESCE(rh.delta_elo, 0),
-                matches_played = GREATEST(0, pr.matches_played - 1),
-                wins = CASE WHEN rh.result = 'W' THEN GREATEST(0, pr.wins - 1) ELSE pr.wins END,
-                losses = CASE WHEN rh.result = 'L' THEN GREATEST(0, pr.losses - 1) ELSE pr.losses END,
-                draws = CASE WHEN rh.result = 'D' THEN GREATEST(0, pr.draws - 1) ELSE pr.draws END
-            FROM rating_history rh
-            WHERE rh.match_id IN (SELECT DISTINCT match_id FROM rating_history WHERE player_id = %s)
-              AND pr.player_id = rh.player_id
-              AND COALESCE(pr.game_system, '40k') = COALESCE(rh.game_system, '40k');
-        """, (reg_id,))
-        cursor.execute("""
-            DELETE FROM rating_history
-            WHERE match_id IN (SELECT DISTINCT match_id FROM rating_history WHERE player_id = %s);
-        """, (reg_id,))
-        cursor.execute("DELETE FROM player_ratings WHERE player_id = %s;", (reg_id,))
-
-        # Remap matches
+        # Remap matches (Elo Engine reconstruct_incremental automatically detects player ID changes in rating_history)
         cursor.execute("UPDATE matches SET player1_id = %s WHERE player1_id = %s;", (canonical_id, reg_id))
         cursor.execute("UPDATE matches SET player2_id = %s WHERE player2_id = %s;", (canonical_id, reg_id))
         cursor.execute("UPDATE matches SET winner_id = %s WHERE winner_id = %s;", (canonical_id, reg_id))
@@ -1442,8 +1416,21 @@ class PostgresDatabase:
         cursor.execute("UPDATE tracker_games SET user_id_p1 = %s WHERE user_id_p1 = %s;", (canonical_id, reg_id))
         cursor.execute("UPDATE tracker_games SET user_id_p2 = %s WHERE user_id_p2 = %s;", (canonical_id, reg_id))
 
-        # Remove orphan registration ID from players
+        # Remove orphan registration ID from players and player_ratings
+        cursor.execute("DELETE FROM player_ratings WHERE player_id = %s;", (reg_id,))
         cursor.execute("DELETE FROM players WHERE id = %s;", (reg_id,))
+
+    def _remap_registration_ids_batch_cursor(self, cursor, reg_to_canonical: Dict[str, str]):
+        """Checks all registration IDs in a single primary-key query and remaps only those that exist in the DB."""
+        if not reg_to_canonical:
+            return
+        valid_map = {str(r).strip(): str(c).strip() for r, c in reg_to_canonical.items() if r and c and str(r).strip() != str(c).strip()}
+        if not valid_map:
+            return
+        cursor.execute("SELECT id FROM players WHERE id = ANY(%s);", (list(valid_map.keys()),))
+        existing_regs = [row[0] for row in cursor.fetchall() if row and row[0]]
+        for reg_id in existing_regs:
+            self._remap_registration_id_cursor(cursor, reg_id, valid_map[reg_id])
 
     def upsert_player(self, player_id: str, first_name: str = "", last_name: str = "", full_name: str = "", team: str = ""):
         """Inserts or updates player metadata including team affiliation without clobbering real names with placeholders."""
@@ -1540,23 +1527,24 @@ class PostgresDatabase:
             return
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                player_rows = []
-                ep_rows = []
+                reg_map: Dict[str, str] = {}
+                player_rows_dict: Dict[str, tuple] = {}
+                ep_rows_dict: Dict[str, tuple] = {}
                 for p in participants:
                     pid = str(p.get("player_id", "")).strip()
                     if not pid:
                         continue
                     reg_id = str(p.get("reg_id") or "").strip()
                     if reg_id and reg_id != pid:
-                        self._remap_registration_id_cursor(cursor, reg_id, pid)
+                        reg_map[reg_id] = pid
 
                     fn = p.get("first_name", "")
                     ln = p.get("last_name", "")
                     name = p.get("full_name") or f"{fn} {ln}".strip() or "Player"
                     team = p.get("team") or ""
-                    player_rows.append((pid, fn, ln, name, team or None))
+                    player_rows_dict[pid] = (pid, fn, ln, name, team or None)
 
-                    ep_rows.append((
+                    ep_rows_dict[pid] = (
                         event_id,
                         pid,
                         fn,
@@ -1569,7 +1557,13 @@ class PostgresDatabase:
                         p.get("placement"),
                         p.get("battle_points"),
                         p.get("pod_num")
-                    ))
+                    )
+
+                if reg_map:
+                    self._remap_registration_ids_batch_cursor(cursor, reg_map)
+
+                player_rows = list(player_rows_dict.values())
+                ep_rows = list(ep_rows_dict.values())
 
                 if player_rows:
                     if hasattr(extras, "execute_values") and extras.execute_values is not None:
@@ -1758,7 +1752,7 @@ class PostgresDatabase:
             match_date = EXCLUDED.match_date,
             player1_id = EXCLUDED.player1_id,
             player1_name = CASE
-                WHEN EXCLUDED.player1_name IS NOT NULL AND EXCLUDED.player1_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.player1_name != 'Unknown Player'
+                WHEN EXCLUDED.player1_name IS NOT NULL AND EXCLUDED.player1_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.player1_name != 'Unknown Player'
                 THEN EXCLUDED.player1_name
                 ELSE COALESCE(NULLIF(matches.player1_name, ''), EXCLUDED.player1_name)
             END,
@@ -1766,7 +1760,7 @@ class PostgresDatabase:
             player1_score = EXCLUDED.player1_score,
             player2_id = EXCLUDED.player2_id,
             player2_name = CASE
-                WHEN EXCLUDED.player2_name IS NOT NULL AND EXCLUDED.player2_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.player2_name != 'Unknown Player'
+                WHEN EXCLUDED.player2_name IS NOT NULL AND EXCLUDED.player2_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.player2_name != 'Unknown Player'
                 THEN EXCLUDED.player2_name
                 ELSE COALESCE(NULLIF(matches.player2_name, ''), EXCLUDED.player2_name)
             END,
@@ -1802,55 +1796,6 @@ class PostgresDatabase:
             game_system
         ))
 
-        # If match outcome or player IDs changed, or match is not officially scored, revert stale rating_history from player_ratings so incremental Elo recalculates it cleanly
-        match_id = match_data.get("id")
-        is_done_val = bool(match_data.get("is_done", True))
-        winner_id_val = match_data.get("winner_id")
-        is_draw_val = bool(match_data.get("is_draw"))
-        is_bye_val = bool(match_data.get("is_bye"))
-        p1_score_val = match_data.get("player1_score") or 0
-        p2_score_val = match_data.get("player2_score") or 0
-        is_real_draw = bool(is_draw_val and (p1_score_val > 0 or p2_score_val > 0))
-        if match_id:
-            should_revert = False
-            if not is_done_val or (not is_bye_val and not is_real_draw and not winner_id_val):
-                should_revert = True
-            elif p1_id_val:
-                expected_p1_res = "W" if is_bye_val else ("D" if is_real_draw else ("W" if winner_id_val == p1_id_val else "L"))
-                cursor.execute("""
-                    SELECT 1 FROM rating_history
-                    WHERE match_id = %s AND player_id = %s AND result != %s
-                    LIMIT 1;
-                """, (match_id, p1_id_val, expected_p1_res))
-                if cursor.fetchone():
-                    should_revert = True
-
-            if not should_revert:
-                valid_pids = [pid for pid in (p1_id_val, p2_id_val) if pid]
-                if valid_pids:
-                    cursor.execute("""
-                        SELECT 1 FROM rating_history
-                        WHERE match_id = %s AND player_id != ALL(%s)
-                        LIMIT 1;
-                    """, (match_id, valid_pids))
-                    if cursor.fetchone():
-                        should_revert = True
-
-            if should_revert:
-                cursor.execute("""
-                    UPDATE player_ratings pr
-                    SET current_elo = pr.current_elo - COALESCE(rh.delta_elo, 0),
-                        matches_played = GREATEST(0, pr.matches_played - 1),
-                        wins = CASE WHEN rh.result = 'W' THEN GREATEST(0, pr.wins - 1) ELSE pr.wins END,
-                        losses = CASE WHEN rh.result = 'L' THEN GREATEST(0, pr.losses - 1) ELSE pr.losses END,
-                        draws = CASE WHEN rh.result = 'D' THEN GREATEST(0, pr.draws - 1) ELSE pr.draws END
-                    FROM rating_history rh
-                    WHERE rh.match_id = %s
-                      AND pr.player_id = rh.player_id
-                      AND COALESCE(pr.game_system, '40k') = COALESCE(rh.game_system, '40k');
-                """, (match_id,))
-                cursor.execute("DELETE FROM rating_history WHERE match_id = %s;", (match_id,))
-
     def upsert_match(self, match_data: Dict[str, Any]):
         """Inserts or updates a single match pairing."""
         if not match_data or not match_data.get("event_id") or not match_data.get("id"):
@@ -1861,16 +1806,21 @@ class PostgresDatabase:
             conn.commit()
 
     def upsert_matches_batch(self, matches: List[Dict[str, Any]]):
-        """Batches all match upserts for a round or tournament into a single fast transaction."""
+        """Batches all match upserts for a round or tournament into fast bulk execute_values statements."""
         if not matches:
             return
-        known_events: Set[str] = set()
-        remapped_pairs: Set[Tuple[str, str]] = set()
-        upserted_players: Set[Tuple[str, str]] = set()
+        valid_matches = [m for m in matches if m and m.get("event_id") and m.get("id")]
+        if not valid_matches:
+            return
+
         with self.get_connection() as conn:
             with conn.cursor() as cursor:
-                for match_data in matches:
-                    if match_data and match_data.get("event_id") and match_data.get("id"):
+                # Fallback to cursor loop if execute_values is unavailable or mocked in unit tests
+                if not hasattr(extras, "execute_values") or extras.execute_values is None:
+                    known_events: Set[str] = set()
+                    remapped_pairs: Set[Tuple[str, str]] = set()
+                    upserted_players: Set[Tuple[str, str]] = set()
+                    for match_data in valid_matches:
                         self._upsert_match_cursor(
                             cursor,
                             match_data,
@@ -1878,6 +1828,184 @@ class PostgresDatabase:
                             remapped_pairs=remapped_pairs,
                             upserted_players=upserted_players
                         )
+                    conn.commit()
+                    return
+
+                now_utc = datetime.now(timezone.utc)
+
+                # 1. Single primary-key batch check for any registration IDs needing remapping
+                reg_map: Dict[str, str] = {}
+                for m in valid_matches:
+                    p1_id = str(m.get("player1_id") or "").strip()
+                    p1_reg = str(m.get("player1_reg_id") or "").strip()
+                    if p1_reg and p1_id and p1_reg != p1_id:
+                        reg_map[p1_reg] = p1_id
+                    p2_id = str(m.get("player2_id") or "").strip()
+                    p2_reg = str(m.get("player2_reg_id") or "").strip()
+                    if p2_reg and p2_id and p2_reg != p2_id:
+                        reg_map[p2_reg] = p2_id
+                if reg_map:
+                    self._remap_registration_ids_batch_cursor(cursor, reg_map)
+
+                # 2. Bulk ensure events exist
+                events_dict: Dict[str, tuple] = {}
+                for m in valid_matches:
+                    ev_id = str(m["event_id"]).strip()
+                    if ev_id not in events_dict:
+                        events_dict[ev_id] = (
+                            ev_id,
+                            m.get("event_name") or "Tournament",
+                            m.get("match_date"),
+                            now_utc,
+                            m.get("game_system") or "40k"
+                        )
+                if events_dict:
+                    extras.execute_values(
+                        cursor,
+                        """
+                        INSERT INTO events (id, name, event_date, scraped_at, game_system)
+                        VALUES %s
+                        ON CONFLICT (id) DO NOTHING;
+                        """,
+                        list(events_dict.values()),
+                        page_size=500
+                    )
+
+                # 3. Single bulk lookup for any placeholder names to substitute existing real names from players table
+                placeholder_pids: Set[str] = set()
+                for m in valid_matches:
+                    for pid_k, pname_k in (("player1_id", "player1_name"), ("player2_id", "player2_name")):
+                        pid = str(m.get(pid_k) or "").strip()
+                        pname = str(m.get(pname_k) or "").strip()
+                        if pid and (not pname or pname.lower().startswith("player") or pname == "Unknown Player"):
+                            placeholder_pids.add(pid)
+
+                resolved_names: Dict[str, str] = {}
+                if placeholder_pids:
+                    cursor.execute(
+                        """
+                        SELECT id, full_name FROM players
+                        WHERE id = ANY(%s)
+                          AND full_name IS NOT NULL
+                          AND full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)'
+                          AND full_name != 'Unknown Player';
+                        """,
+                        (list(placeholder_pids),)
+                    )
+                    for row in cursor.fetchall():
+                        if row and row[0] and row[1]:
+                            resolved_names[str(row[0])] = str(row[1])
+
+                # 4. Bulk upsert players
+                players_dict: Dict[str, tuple] = {}
+                for m in valid_matches:
+                    p1_id = str(m.get("player1_id") or "").strip()
+                    p1_name = resolved_names.get(p1_id) or m.get("player1_name") or "Player 1"
+                    m["_resolved_p1_name"] = p1_name
+                    if p1_id and p1_name != "BYE":
+                        parts = str(p1_name).strip().split(" ", 1)
+                        fn = parts[0] if len(parts) > 0 and not p1_name.lower().startswith("player") else ""
+                        ln = parts[1] if len(parts) > 1 and not p1_name.lower().startswith("player") else ""
+                        players_dict[p1_id] = (p1_id, fn, ln, p1_name, now_utc)
+
+                    p2_id = str(m.get("player2_id") or "").strip()
+                    p2_name = resolved_names.get(p2_id) or m.get("player2_name") or ("Player 2" if p2_id else "BYE")
+                    m["_resolved_p2_name"] = p2_name
+                    if p2_id and p2_name != "BYE":
+                        parts = str(p2_name).strip().split(" ", 1)
+                        fn = parts[0] if len(parts) > 0 and not p2_name.lower().startswith("player") else ""
+                        ln = parts[1] if len(parts) > 1 and not p2_name.lower().startswith("player") else ""
+                        players_dict[p2_id] = (p2_id, fn, ln, p2_name, now_utc)
+
+                if players_dict:
+                    extras.execute_values(
+                        cursor,
+                        """
+                        INSERT INTO players (id, first_name, last_name, full_name, updated_at)
+                        VALUES %s
+                        ON CONFLICT (id) DO UPDATE SET
+                            first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
+                            last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
+                            full_name = CASE
+                                WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.full_name != 'Unknown Player'
+                                THEN EXCLUDED.full_name
+                                ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
+                            END,
+                            updated_at = EXCLUDED.updated_at;
+                        """,
+                        list(players_dict.values()),
+                        page_size=500
+                    )
+
+                # 5. Bulk upsert matches
+                matches_dict: Dict[str, tuple] = {}
+                for m in valid_matches:
+                    mid = str(m["id"]).strip()
+                    matches_dict[mid] = (
+                        mid,
+                        str(m["event_id"]).strip(),
+                        m.get("round", 1),
+                        m.get("table_number", 1),
+                        m.get("match_date"),
+                        m.get("player1_id"),
+                        m.get("_resolved_p1_name") or m.get("player1_name") or "Player 1",
+                        m.get("player1_faction"),
+                        m.get("player1_score"),
+                        m.get("player2_id"),
+                        m.get("_resolved_p2_name") or m.get("player2_name") or ("Player 2" if m.get("player2_id") else "BYE"),
+                        m.get("player2_faction"),
+                        m.get("player2_score"),
+                        m.get("winner_id"),
+                        m.get("loser_id"),
+                        bool(m.get("is_draw")),
+                        bool(m.get("is_bye")),
+                        bool(m.get("is_done", True)),
+                        json.dumps(m.get("raw_json", {})),
+                        m.get("game_system") or "40k"
+                    )
+
+                if matches_dict:
+                    extras.execute_values(
+                        cursor,
+                        """
+                        INSERT INTO matches (
+                            id, event_id, round, table_number, match_date,
+                            player1_id, player1_name, player1_faction, player1_score,
+                            player2_id, player2_name, player2_faction, player2_score,
+                            winner_id, loser_id, is_draw, is_bye, is_done, raw_json, game_system
+                        ) VALUES %s
+                        ON CONFLICT (id) DO UPDATE SET
+                            event_id = EXCLUDED.event_id,
+                            round = EXCLUDED.round,
+                            table_number = EXCLUDED.table_number,
+                            match_date = EXCLUDED.match_date,
+                            player1_id = EXCLUDED.player1_id,
+                            player1_name = CASE
+                                WHEN EXCLUDED.player1_name IS NOT NULL AND EXCLUDED.player1_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.player1_name != 'Unknown Player'
+                                THEN EXCLUDED.player1_name
+                                ELSE COALESCE(NULLIF(matches.player1_name, ''), EXCLUDED.player1_name)
+                            END,
+                            player1_faction = EXCLUDED.player1_faction,
+                            player1_score = EXCLUDED.player1_score,
+                            player2_id = EXCLUDED.player2_id,
+                            player2_name = CASE
+                                WHEN EXCLUDED.player2_name IS NOT NULL AND EXCLUDED.player2_name !~* '^(player($|[^a-zA-Z])|fake\\s*player|unknown(\\s*player)?|bye|none|null|tbd|unassigned)' AND EXCLUDED.player2_name != 'Unknown Player'
+                                THEN EXCLUDED.player2_name
+                                ELSE COALESCE(NULLIF(matches.player2_name, ''), EXCLUDED.player2_name)
+                            END,
+                            player2_faction = EXCLUDED.player2_faction,
+                            player2_score = EXCLUDED.player2_score,
+                            winner_id = EXCLUDED.winner_id,
+                            loser_id = EXCLUDED.loser_id,
+                            is_draw = EXCLUDED.is_draw,
+                            is_bye = EXCLUDED.is_bye,
+                            is_done = EXCLUDED.is_done,
+                            raw_json = EXCLUDED.raw_json,
+                            game_system = COALESCE(EXCLUDED.game_system, matches.game_system, '40k');
+                        """,
+                        list(matches_dict.values()),
+                        page_size=500
+                    )
             conn.commit()
 
     def get_total_matches_count(self, game_system: Optional[str] = "40k") -> int:
