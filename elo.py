@@ -362,6 +362,11 @@ class EloEngine:
                         }
                         player_states[p2_id] = s2
 
+                    is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0))
+                    has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
+                    if not m.get("is_bye") and not has_valid_winner and not is_real_draw:
+                        continue
+
                     touched_players.add(p1_id)
                     touched_players.add(p2_id)
 
@@ -370,8 +375,8 @@ class EloEngine:
                     m_date = m.get("match_date")
                     match_sys = m.get("game_system") or sys_target
 
-                    if m.get("is_bye") or m.get("is_draw"):
-                        res1, res2 = ("D", "D") if m.get("is_draw") else ("W", "L")
+                    if m.get("is_bye") or is_real_draw:
+                        res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                         new_elo1, new_elo2 = old_elo1, old_elo2
                     else:
                         is_p1_win = (m.get("winner_id") == p1_id)
@@ -666,6 +671,11 @@ class EloEngine:
                 WHERE m.is_done = TRUE
                   AND m.player1_id IS NOT NULL AND m.player1_id != ''
                   AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                  AND (
+                      m.is_bye = TRUE
+                      OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                      OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                  )
                   AND COALESCE(m.game_system, '40k') = %s
                 ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
                 """, (sys_target,))
@@ -687,6 +697,11 @@ class EloEngine:
                         for m in chunk_matches:
                             p1_id, p2_id = m["player1_id"], m["player2_id"]
                             if not p1_id or not p2_id:
+                                continue
+
+                            is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0))
+                            has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
+                            if not m.get("is_bye") and not has_valid_winner and not is_real_draw:
                                 continue
 
                             s1 = player_states.get(p1_id)
@@ -715,8 +730,8 @@ class EloEngine:
                             old_elo2 = s2["elo"]
                             m_date = m.get("match_date")
 
-                            if m.get("is_bye") or m.get("is_draw"):
-                                res1, res2 = ("D", "D") if m.get("is_draw") else ("W", "L")
+                            if m.get("is_bye") or is_real_draw:
+                                res1, res2 = ("D", "D") if is_real_draw else ("W", "L")
                                 new_elo1, new_elo2 = old_elo1, old_elo2
                             else:
                                 is_p1_win = (m.get("winner_id") == p1_id)

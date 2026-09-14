@@ -1580,6 +1580,30 @@ class PostgresDatabase:
                     json.dumps(match_data.get("raw_json", {})),
                     game_system
                 ))
+
+                # If match outcome changed or is not officially scored, clear stale rating_history so incremental Elo recalculates it
+                match_id = match_data.get("id")
+                is_done_val = bool(match_data.get("is_done", True))
+                winner_id_val = match_data.get("winner_id")
+                is_draw_val = bool(match_data.get("is_draw"))
+                is_bye_val = bool(match_data.get("is_bye"))
+                p1_id_val = match_data.get("player1_id")
+                p1_score_val = match_data.get("player1_score") or 0
+                p2_score_val = match_data.get("player2_score") or 0
+                is_real_draw = bool(is_draw_val and (p1_score_val > 0 or p2_score_val > 0))
+                if match_id:
+                    if not is_done_val or (not is_bye_val and not is_real_draw and not winner_id_val):
+                        cursor.execute("DELETE FROM rating_history WHERE match_id = %s;", (match_id,))
+                    elif p1_id_val:
+                        expected_p1_res = "B" if is_bye_val else ("D" if is_real_draw else ("W" if winner_id_val == p1_id_val else "L"))
+                        cursor.execute("""
+                            DELETE FROM rating_history
+                            WHERE match_id = %s
+                              AND EXISTS (
+                                  SELECT 1 FROM rating_history rh2
+                                  WHERE rh2.match_id = %s AND rh2.player_id = %s AND rh2.result != %s
+                              );
+                        """, (match_id, match_id, p1_id_val, expected_p1_res))
             conn.commit()
 
     def get_total_matches_count(self, game_system: Optional[str] = "40k") -> int:
@@ -1597,6 +1621,11 @@ class PostgresDatabase:
                     WHERE is_done = TRUE
                       AND player1_id IS NOT NULL AND player1_id != ''
                       AND player2_id IS NOT NULL AND player2_id != ''
+                      AND (
+                          is_bye = TRUE
+                          OR (winner_id IS NOT NULL AND winner_id != '')
+                          OR (is_draw = TRUE AND (COALESCE(player1_score, 0) > 0 OR COALESCE(player2_score, 0) > 0))
+                      )
                       {where_extra};
                     """, tuple(params))
                     row = cursor.fetchone()
@@ -1607,7 +1636,12 @@ class PostgresDatabase:
                     SELECT COUNT(*) FROM matches
                     WHERE is_done = TRUE
                       AND player1_id IS NOT NULL AND player1_id != ''
-                      AND player2_id IS NOT NULL AND player2_id != '';
+                      AND player2_id IS NOT NULL AND player2_id != ''
+                      AND (
+                          is_bye = TRUE
+                          OR (winner_id IS NOT NULL AND winner_id != '')
+                          OR (is_draw = TRUE AND (COALESCE(player1_score, 0) > 0 OR COALESCE(player2_score, 0) > 0))
+                      );
                     """)
                     row = cursor.fetchone()
                     return row[0] if row else 0
@@ -1633,6 +1667,11 @@ class PostgresDatabase:
                     WHERE m.is_done = TRUE
                       AND m.player1_id IS NOT NULL AND m.player1_id != ''
                       AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND (
+                          m.is_bye = TRUE
+                          OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                          OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                      )
                       {where_extra}
                     ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
                     LIMIT %s OFFSET %s;
@@ -1652,6 +1691,11 @@ class PostgresDatabase:
                         WHERE m.is_done = TRUE
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
                           AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                          AND (
+                              m.is_bye = TRUE
+                              OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                              OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                          )
                         ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC
                         LIMIT %s OFFSET %s;
                         """, (limit, offset))
@@ -1678,6 +1722,11 @@ class PostgresDatabase:
                     WHERE m.is_done = TRUE
                       AND m.player1_id IS NOT NULL AND m.player1_id != ''
                       AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                      AND (
+                          m.is_bye = TRUE
+                          OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                          OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                      )
                       AND NOT EXISTS (
                           SELECT 1 FROM rating_history rh 
                           WHERE rh.match_id = m.id 
@@ -1703,6 +1752,11 @@ class PostgresDatabase:
                         WHERE m.is_done = TRUE
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
                           AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                          AND (
+                              m.is_bye = TRUE
+                              OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                              OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                          )
                           AND NOT EXISTS (
                               SELECT 1 FROM rating_history rh WHERE rh.match_id = m.id LIMIT 1
                           )
@@ -1715,7 +1769,7 @@ class PostgresDatabase:
         """Returns all completed matches ordered chronologically (optimized for low-memory GCP VMs)."""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                where_clause = "WHERE m.is_done = TRUE AND m.player1_id IS NOT NULL AND m.player1_id != '' AND m.player2_id IS NOT NULL AND m.player2_id != ''"
+                where_clause = "WHERE m.is_done = TRUE AND m.player1_id IS NOT NULL AND m.player1_id != '' AND m.player2_id IS NOT NULL AND m.player2_id != '' AND (m.is_bye = TRUE OR (m.winner_id IS NOT NULL AND m.winner_id != '') OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0)))"
                 params = []
                 if game_system and game_system != "all":
                     where_clause += " AND COALESCE(m.game_system, '40k') = %s"
@@ -1747,6 +1801,11 @@ class PostgresDatabase:
                         WHERE m.is_done = TRUE
                           AND m.player1_id IS NOT NULL AND m.player1_id != ''
                           AND m.player2_id IS NOT NULL AND m.player2_id != ''
+                          AND (
+                              m.is_bye = TRUE
+                              OR (m.winner_id IS NOT NULL AND m.winner_id != '')
+                              OR (m.is_draw = TRUE AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0))
+                          )
                         ORDER BY m.match_date ASC NULLS FIRST, m.round ASC, m.table_number ASC;
                         """)
                         return cur_safe.fetchall()

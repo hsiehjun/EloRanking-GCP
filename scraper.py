@@ -832,13 +832,14 @@ class BestCoastPairingsScraper:
                             except Exception: pass
                         break
 
-        is_done = bool(pairing.get("isDone", True))
+        is_done_flag = bool(pairing.get("isDone", True))
         has_scores = p1_score is not None and p2_score is not None
+        has_nonzero_scores = bool(has_scores and (p1_score > 0 or p2_score > 0))
         has_results = p1_result is not None and p2_result is not None
 
-        # Guard: if match is still in progress and no scores/results entered, avoid treating as premature draw
-        is_unplayed = (not is_done) and (
-            (not has_scores or (p1_score == 0 and p2_score == 0)) and
+        # Guard: if match has 0-0 or missing scores and no decisive winner, treat as unplayed / not started
+        is_unplayed = (
+            (not has_nonzero_scores) and
             (not has_results or (p1_result == 0 and p2_result == 0))
         )
 
@@ -863,17 +864,22 @@ class BestCoastPairingsScraper:
             elif p2_result == 2 and p1_result == 0:
                 winner_id = p2_user_id
                 loser_id = p1_user_id
-            elif p1_result == 1 or p2_result == 1 or (p1_result == p2_result and has_scores and p1_score == p2_score):
+            elif (p1_result == 1 or p2_result == 1) and (not has_scores or has_nonzero_scores):
                 is_draw = True
-        elif has_scores:
+            elif has_nonzero_scores and p1_score == p2_score:
+                is_draw = True
+        elif has_nonzero_scores:
             if p1_score > p2_score:
                 winner_id = p1_user_id
                 loser_id = p2_user_id
             elif p2_score > p1_score:
                 winner_id = p2_user_id
                 loser_id = p1_user_id
-            elif is_done and p1_score == p2_score:
+            elif is_done_flag and p1_score == p2_score:
                 is_draw = True
+
+        # Only mark match as officially done if it is a bye, has a decisive winner, or is a genuine non-zero draw
+        is_officially_done = bool(is_bye or winner_id is not None or is_draw)
 
         # Upsert players into database
         if p1_user_id:
@@ -900,7 +906,7 @@ class BestCoastPairingsScraper:
             "loser_id": loser_id,
             "is_draw": is_draw,
             "is_bye": is_bye,
-            "is_done": pairing.get("isDone", True),
+            "is_done": is_officially_done,
             "game_system": game_system,
             "game_system_id": game_sys_id or (AOS_GAME_SYSTEM_ID if game_system == "aos" else DEFAULT_GAME_SYSTEM_ID),
             "raw_json": pairing,

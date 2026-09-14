@@ -1332,7 +1332,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                         m["loser_id"] = m.get("player1_id")
                         m["is_draw"] = False
                     elif s1 == s2:
-                        m["is_draw"] = True
+                        m["is_draw"] = bool(s1 > 0 or s2 > 0)
                 elif not has_sc and not m.get("winner_id"):
                     m["is_draw"] = False
 
@@ -1467,24 +1467,28 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                     p2_score = local_tg.get("p2_score")
 
                             is_bye = bool(p.get("isBye") or not p2_id or p2_name == "BYE")
-                            has_local_done = bool((local_m and local_m.get("is_done")) or (local_tg and local_tg.get("tracker_is_done")))
-                            is_done = bool(p.get("isDone") or (p1_score is not None and p2_score is not None and not is_bye) or has_local_done)
+                            has_tracker_game = bool((local_m and local_m.get("has_tracker_game")) or (local_tg and local_tg.get("has_tracker_game")))
+                            tracker_is_done = bool((local_m and local_m.get("tracker_is_done")) or (local_tg and local_tg.get("tracker_is_done")))
+                            tracker_started = bool((local_m and local_m.get("tracker_started")) or (local_tg and local_tg.get("tracker_started")))
 
                             winner_id = None
-                            if is_done and p1_score is not None and p2_score is not None:
+                            is_real_draw = False
+                            if p1_score is not None and p2_score is not None:
                                 try:
                                     s1 = float(p1_score)
                                     s2 = float(p2_score)
-                                    if s1 > s2: winner_id = p1_id
-                                    elif s2 > s1: winner_id = p2_id
+                                    if s1 > s2:
+                                        winner_id = p1_id
+                                    elif s2 > s1:
+                                        winner_id = p2_id
+                                    elif s1 == s2 and (s1 > 0 or s2 > 0):
+                                        is_real_draw = True
                                 except (ValueError, TypeError):
                                     pass
                             elif is_bye:
                                 winner_id = p1_id
 
-                            has_tracker_game = bool((local_m and local_m.get("has_tracker_game")) or (local_tg and local_tg.get("has_tracker_game")))
-                            tracker_is_done = bool((local_m and local_m.get("tracker_is_done")) or (local_tg and local_tg.get("tracker_is_done")))
-                            tracker_started = bool((local_m and local_m.get("tracker_started")) or (local_tg and local_tg.get("tracker_started")))
+                            is_done = bool(is_bye or winner_id is not None or is_real_draw or tracker_is_done)
 
                             live_matches.append({
                                 "id": str(p.get("id") or f"pair-{r}-{idx+1}"),
@@ -1502,7 +1506,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 "player2_score": p2_score,
                                 "winner_id": winner_id,
                                 "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),
-                                "is_draw": bool(is_done and p1_score is not None and p2_score is not None and p1_score == p2_score and not is_bye),
+                                "is_draw": is_real_draw,
                                 "is_bye": is_bye,
                                 "is_done": is_done,
                                 "published": bool(p.get("published", True)),
