@@ -215,6 +215,68 @@ class EloEngine:
         print(f" ⚡ INCREMENTAL ELO UPDATE ENGINE [{sys_target.upper()}] (FAST-PATH)")
         print("=" * 68)
 
+        # 0. Self-healing: revert and purge any stale rating_history rows from unscored/0-0 matches or updated outcomes
+        try:
+            with self.db.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                    WITH stale_rh AS (
+                        SELECT rh.id, rh.match_id, rh.player_id, rh.delta_elo, rh.result, COALESCE(rh.game_system, '40k') as game_system
+                        FROM rating_history rh
+                        JOIN matches m ON rh.match_id = m.id
+                        WHERE COALESCE(rh.game_system, '40k') = %s
+                          AND (
+                              m.is_done = FALSE
+                              OR (
+                                  COALESCE(m.is_bye, FALSE) = FALSE
+                                  AND (m.winner_id IS NULL OR m.winner_id = '')
+                                  AND (COALESCE(m.is_draw, FALSE) = FALSE OR (COALESCE(m.player1_score, 0) = 0 AND COALESCE(m.player2_score, 0) = 0))
+                              )
+                              OR (
+                                  COALESCE(m.is_bye, FALSE) = FALSE
+                                  AND COALESCE(m.is_draw, FALSE) = TRUE
+                                  AND (COALESCE(m.player1_score, 0) > 0 OR COALESCE(m.player2_score, 0) > 0)
+                                  AND rh.result != 'D'
+                              )
+                              OR (
+                                  COALESCE(m.is_bye, FALSE) = FALSE
+                                  AND COALESCE(m.is_draw, FALSE) = FALSE
+                                  AND m.winner_id IS NOT NULL AND m.winner_id != ''
+                                  AND ((rh.player_id = m.winner_id AND rh.result != 'W') OR (rh.player_id != m.winner_id AND rh.result != 'L'))
+                              )
+                          )
+                    ),
+                    agg_revert AS (
+                        SELECT player_id, game_system,
+                               SUM(COALESCE(delta_elo, 0)) as total_delta,
+                               COUNT(*) as total_matches,
+                               COUNT(*) FILTER (WHERE result = 'W') as total_wins,
+                               COUNT(*) FILTER (WHERE result = 'L') as total_losses,
+                               COUNT(*) FILTER (WHERE result = 'D') as total_draws
+                        FROM stale_rh
+                        GROUP BY player_id, game_system
+                    ),
+                    reverted_pr AS (
+                        UPDATE player_ratings pr
+                        SET current_elo = pr.current_elo - ar.total_delta,
+                            matches_played = GREATEST(0, pr.matches_played - ar.total_matches),
+                            wins = GREATEST(0, pr.wins - ar.total_wins),
+                            losses = GREATEST(0, pr.losses - ar.total_losses),
+                            draws = GREATEST(0, pr.draws - ar.total_draws)
+                        FROM agg_revert ar
+                        WHERE pr.player_id = ar.player_id
+                          AND COALESCE(pr.game_system, '40k') = ar.game_system
+                    )
+                    DELETE FROM rating_history
+                    WHERE id IN (SELECT id FROM stale_rh);
+                    """, (sys_target,))
+                    purged = int(cur.rowcount or 0)
+                    conn.commit()
+                    if purged > 0:
+                        logger.info(f"🧹 Reverted and purged {purged} stale/unscored rating_history record(s) for {sys_target.upper()}.")
+        except Exception as cleanup_err:
+            logger.debug(f"Notice during stale rating_history cleanup: {cleanup_err}")
+
         # 1. Fetch unranked matches for this game system
         print(f"[1/3] 🔍 Checking for new unranked {sys_target.upper()} matches in PostgreSQL...")
         new_matches = self.db.get_unranked_matches(limit=batch_limit, game_system=sys_target)

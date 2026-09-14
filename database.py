@@ -1581,7 +1581,7 @@ class PostgresDatabase:
                     game_system
                 ))
 
-                # If match outcome changed or is not officially scored, clear stale rating_history so incremental Elo recalculates it
+                # If match outcome changed or is not officially scored, revert stale rating_history from player_ratings so incremental Elo recalculates it cleanly
                 match_id = match_data.get("id")
                 is_done_val = bool(match_data.get("is_done", True))
                 winner_id_val = match_data.get("winner_id")
@@ -1592,18 +1592,33 @@ class PostgresDatabase:
                 p2_score_val = match_data.get("player2_score") or 0
                 is_real_draw = bool(is_draw_val and (p1_score_val > 0 or p2_score_val > 0))
                 if match_id:
+                    should_revert = False
                     if not is_done_val or (not is_bye_val and not is_real_draw and not winner_id_val):
-                        cursor.execute("DELETE FROM rating_history WHERE match_id = %s;", (match_id,))
+                        should_revert = True
                     elif p1_id_val:
-                        expected_p1_res = "B" if is_bye_val else ("D" if is_real_draw else ("W" if winner_id_val == p1_id_val else "L"))
+                        expected_p1_res = "W" if is_bye_val else ("D" if is_real_draw else ("W" if winner_id_val == p1_id_val else "L"))
                         cursor.execute("""
-                            DELETE FROM rating_history
-                            WHERE match_id = %s
-                              AND EXISTS (
-                                  SELECT 1 FROM rating_history rh2
-                                  WHERE rh2.match_id = %s AND rh2.player_id = %s AND rh2.result != %s
-                              );
-                        """, (match_id, match_id, p1_id_val, expected_p1_res))
+                            SELECT 1 FROM rating_history
+                            WHERE match_id = %s AND player_id = %s AND result != %s
+                            LIMIT 1;
+                        """, (match_id, p1_id_val, expected_p1_res))
+                        if cursor.fetchone():
+                            should_revert = True
+
+                    if should_revert:
+                        cursor.execute("""
+                            UPDATE player_ratings pr
+                            SET current_elo = pr.current_elo - COALESCE(rh.delta_elo, 0),
+                                matches_played = GREATEST(0, pr.matches_played - 1),
+                                wins = CASE WHEN rh.result = 'W' THEN GREATEST(0, pr.wins - 1) ELSE pr.wins END,
+                                losses = CASE WHEN rh.result = 'L' THEN GREATEST(0, pr.losses - 1) ELSE pr.losses END,
+                                draws = CASE WHEN rh.result = 'D' THEN GREATEST(0, pr.draws - 1) ELSE pr.draws END
+                            FROM rating_history rh
+                            WHERE rh.match_id = %s
+                              AND pr.player_id = rh.player_id
+                              AND COALESCE(pr.game_system, '40k') = COALESCE(rh.game_system, '40k');
+                        """, (match_id,))
+                        cursor.execute("DELETE FROM rating_history WHERE match_id = %s;", (match_id,))
             conn.commit()
 
     def get_total_matches_count(self, game_system: Optional[str] = "40k") -> int:
