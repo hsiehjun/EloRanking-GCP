@@ -282,64 +282,18 @@ class PlayerNameSync:
                                     "source": "local_matches_p2"
                                 }
 
-                # 3c. Check player_ratings for any remaining 12-char registration IDs
-                unresolved_12char = [pid for pid in player_ids if len(pid) == 12 and pid not in resolved]
-                if unresolved_12char:
-                    cur.execute("""
-                    SELECT player_id, player_name
-                    FROM player_ratings
-                    WHERE player_id = ANY(%s)
-                      AND player_name IS NOT NULL
-                      AND NOT (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name ILIKE 'BYE');
-                    """, (unresolved_12char, 'Player %'))
-                    for r in cur.fetchall():
-                        pid = str(r[0]).strip()
-                        if pid not in resolved:
-                            full = clean_name(r[1])
-                            if full and not is_placeholder_name(full, pid):
-                                resolved[pid] = {
-                                    "full_name": full,
-                                    "first_name": full.split()[0] if full else "",
-                                    "last_name": full.split()[-1] if len(full.split()) > 1 else "",
-                                    "source": "local_player_ratings"
-                                }
-
-                # 4. For any resolved 12-character registration ID, check if a 10-character canonical userId exists locally
-                names_12char = list({info["full_name"].lower() for pid, info in resolved.items() if len(pid) == 12 and info.get("full_name")})
-                if names_12char:
-                    try:
-                        cur.execute("""
-                        SELECT LOWER(TRIM(player_name)), player_id
-                        FROM player_ratings
-                        WHERE LENGTH(TRIM(player_id)) = 10
-                          AND LOWER(TRIM(player_name)) = ANY(%s)
-                        UNION
-                        SELECT LOWER(TRIM(full_name)), player_id
-                        FROM event_participants
-                        WHERE LENGTH(TRIM(player_id)) = 10
-                          AND LOWER(TRIM(full_name)) = ANY(%s);
-                        """, (names_12char, names_12char))
-                        known_10char = {str(r[0]).strip(): str(r[1]).strip() for r in cur.fetchall() if len(r) == 2}
-                        for pid in list(resolved.keys()):
-                            if len(pid) == 12:
-                                norm_n = resolved[pid]["full_name"].lower()
-                                if norm_n in known_10char and known_10char[norm_n] != pid:
-                                    resolved[pid]["canonical_user_id"] = known_10char[norm_n]
-                                else:
-                                    # No local 10-char ID found; leave unresolved locally so sync_names queries BCP /v1/players/{id}
-                                    resolved.pop(pid, None)
-                    except Exception as e:
-                        logger.debug(f"Notice looking up 10-char canonical IDs locally: {e}")
+                # 4. Do NOT resolve 12-character registration IDs purely from local DB name matching.
+                # Two different people can share the exact same name (e.g., two different "John Smith"s).
+                # Leaving 12-char IDs unresolved locally ensures sync_names() queries BCP /v1/players/{id}
+                # to retrieve the true, globally unique 10-character canonical userId for that specific registration.
+                for pid in list(resolved.keys()):
+                    if len(pid) == 12:
+                        resolved.pop(pid, None)
 
         logger.info(f"⚡ Resolved {len(resolved)} / {len(player_ids)} player identities directly from local DB (0 network calls).")
         return resolved
 
-    def fetch_bcp_player_name(self, player_id: str) -> Optional[Dict[str, str]]:
-        """Queries BCP public API (/v1/users/{id} with fallback to /v1/players/{id}) to retrieve player identity."""
-        if not player_id or is_placeholder_name(player_id):
-            return None
-
-        # Step A: Query /v1/users/{id}
+    def _query_bcp_users_endpoint(self, player_id: str) -> Optional[Dict[str, str]]:
         user_url = f"{BCP_API_BASE}/users/{urllib.parse.quote(player_id)}"
         req_user = urllib.request.Request(user_url, headers=self.headers)
         try:
@@ -363,8 +317,9 @@ class PlayerNameSync:
                 logger.debug(f"HTTP {e.code} querying BCP /users/{player_id}: {e}")
         except Exception as e:
             logger.debug(f"Error querying BCP /users/{player_id}: {e}")
+        return None
 
-        # Step B: Fallback to /v1/players/{id}
+    def _query_bcp_players_endpoint(self, player_id: str) -> Optional[Dict[str, str]]:
         player_url = f"{BCP_API_BASE}/players/{urllib.parse.quote(player_id)}"
         req_player = urllib.request.Request(player_url, headers=self.headers)
         try:
@@ -393,8 +348,25 @@ class PlayerNameSync:
                 logger.debug(f"HTTP {e.code} querying BCP /players/{player_id}: {e}")
         except Exception as e:
             logger.debug(f"Error querying BCP /players/{player_id}: {e}")
-
         return None
+
+    def fetch_bcp_player_name(self, player_id: str) -> Optional[Dict[str, str]]:
+        """Queries BCP public API (/v1/users/{id} or /v1/players/{id}) to retrieve player identity and canonical userId."""
+        if not player_id or is_placeholder_name(player_id):
+            return None
+
+        # 12-character IDs are tournament registration IDs -> query /v1/players/{id} first
+        if len(player_id) == 12:
+            res = self._query_bcp_players_endpoint(player_id)
+            if res:
+                return res
+            return self._query_bcp_users_endpoint(player_id)
+
+        # 10-character IDs are global user IDs -> query /v1/users/{id} first
+        res = self._query_bcp_users_endpoint(player_id)
+        if res:
+            return res
+        return self._query_bcp_players_endpoint(player_id)
 
     def apply_name_updates(self, resolved_names: Dict[str, Dict[str, str]]) -> Dict[str, int]:
         """Applies name and canonical userId corrections across all database tables in transactional batches."""

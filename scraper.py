@@ -582,7 +582,6 @@ class BestCoastPairingsScraper:
                 if alias_id:
                     mapping[str(alias_id).strip()] = canonical_id
             if full_name and full_name.lower() not in ("player", "player 1", "player 2", "bye"):
-                mapping[f"name:{full_name.lower()}"] = canonical_id
                 mapping[f"fullname:{canonical_id}"] = full_name
         return mapping
 
@@ -663,8 +662,6 @@ class BestCoastPairingsScraper:
         if roster_id_map:
             if p1_user_id and p1_user_id in roster_id_map:
                 p1_user_id = roster_id_map[p1_user_id]
-            elif p1_name and p1_name.lower() not in ("player 1", "player", "bye") and f"name:{p1_name.lower()}" in roster_id_map:
-                p1_user_id = roster_id_map[f"name:{p1_name.lower()}"]
             if p1_user_id and (not p1_name or p1_name in ("Player 1", "Player")) and f"fullname:{p1_user_id}" in roster_id_map:
                 p1_name = roster_id_map[f"fullname:{p1_user_id}"]
 
@@ -699,8 +696,6 @@ class BestCoastPairingsScraper:
         if roster_id_map:
             if p2_user_id and p2_user_id in roster_id_map:
                 p2_user_id = roster_id_map[p2_user_id]
-            elif p2_name and p2_name.lower() not in ("player 2", "player", "bye") and f"name:{p2_name.lower()}" in roster_id_map:
-                p2_user_id = roster_id_map[f"name:{p2_name.lower()}"]
             if p2_user_id and (not p2_name or p2_name in ("Player 2", "Player")) and f"fullname:{p2_user_id}" in roster_id_map:
                 p2_name = roster_id_map[f"fullname:{p2_user_id}"]
 

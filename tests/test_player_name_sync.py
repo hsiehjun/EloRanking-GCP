@@ -426,6 +426,77 @@ def test_tournament_sync_job_invokes_player_sync():
     print("✅ test_tournament_sync_job_invokes_player_sync passed")
 
 
+def test_same_name_distinct_players_never_merged():
+    """Verify two different people with the exact same name ('John Smith') are never merged together by local name matching."""
+    from scraper import BestCoastPairingsScraper
+
+    # 1. Test PlayerNameSync: local DB has 'John Smith' (10-char 'uJohnSmith1'), and we have a 12-char reg ID 'regJohnB_123'
+    mock_db = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_db.get_connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.cursor.return_value.__enter__.return_value = mock_cur
+
+    # Simulate local DB returning 'John Smith' for 'regJohnB_123'
+    mock_cur.fetchall.return_value = [("regJohnB_123", "John", "Smith", "John Smith")]
+
+    syncer = PlayerNameSync(db=mock_db, request_delay=0.0)
+    local_resolved = syncer.resolve_from_local_db({"regJohnB_123"})
+    # Must NOT resolve 12-char ID locally; must leave unresolved so BCP API is queried for true userId
+    assert "regJohnB_123" not in local_resolved, "12-char registration ID must not be resolved via local name matching!"
+
+    # When BCP /players/regJohnB_123 is queried, it returns John Smith #2's unique 10-char userId 'uJohnSmith2'
+    player_b_resp = json.dumps({
+        "id": "regJohnB_123",
+        "userId": "uJohnSmith2",
+        "user": {
+            "id": "uJohnSmith2",
+            "firstName": "John",
+            "lastName": "Smith"
+        }
+    }).encode("utf-8")
+    mock_http_resp = MagicMock()
+    mock_http_resp.status = 200
+    mock_http_resp.read.return_value = player_b_resp
+    mock_http_resp.__enter__.return_value = mock_http_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_http_resp):
+        bcp_info = syncer.fetch_bcp_player_name("regJohnB_123")
+        assert bcp_info is not None
+        assert bcp_info["full_name"] == "John Smith"
+        assert bcp_info["canonical_user_id"] == "uJohnSmith2"
+        assert bcp_info["canonical_user_id"] != "uJohnSmith1"
+
+    # 2. Test Scraper: two different 'John Smith' players in the same tournament
+    scraper = BestCoastPairingsScraper(db=MagicMock(), request_delay=0.0)
+    roster = [
+        {"id": "regJohnA_111", "userId": "uJohnSmith1", "firstName": "John", "lastName": "Smith"},
+        {"id": "regJohnB_222", "userId": "uJohnSmith2", "firstName": "John", "lastName": "Smith"}
+    ]
+    roster_map = scraper.build_roster_id_map(roster)
+    assert roster_map["regJohnA_111"] == "uJohnSmith1"
+    assert roster_map["regJohnB_222"] == "uJohnSmith2"
+    assert f"name:john smith" not in roster_map, "Name-based key must not exist in roster_id_map!"
+
+    pairing = {
+        "id": "match_same_name_01",
+        "round": 1,
+        "table": 1,
+        "player1": {"id": "regJohnA_111", "name": "John Smith"},
+        "player2": {"id": "regJohnB_222", "name": "John Smith"},
+        "player1Game": {"points": 15, "result": 2},
+        "player2Game": {"points": 10, "result": 0},
+        "isDone": True
+    }
+    event_data = {"id": "evt_same_name", "name": "Twin Name GT", "game_system": "40k"}
+    scraper.parse_and_store_match(event_data, pairing, roster_id_map=roster_map)
+    saved_match = scraper.db.upsert_match.call_args[0][0]
+    assert saved_match["player1_id"] == "uJohnSmith1"
+    assert saved_match["player2_id"] == "uJohnSmith2"
+    assert saved_match["player1_id"] != saved_match["player2_id"]
+    print("✅ test_same_name_distinct_players_never_merged passed")
+
+
 if __name__ == "__main__":
     print("=== RUNNING BCP PLAYER NAME SYNC & HEALING TESTS ===")
     test_is_placeholder_name()
@@ -441,4 +512,5 @@ if __name__ == "__main__":
     test_canonical_user_id_remapping_in_apply_name_updates()
     test_scraper_aos_registration_id_resolution()
     test_tournament_sync_job_invokes_player_sync()
+    test_same_name_distinct_players_never_merged()
     print("\n🎉 ALL PLAYER NAME SYNC TESTS PASSED 100%!")
