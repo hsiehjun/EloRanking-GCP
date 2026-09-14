@@ -2176,18 +2176,23 @@ class PostgresDatabase:
                     p2_name = m.get("player2_name") or ("BYE" if m.get("is_bye") else "Player 2")
                     p1_fac = m.get("player1_faction") or "Unknown"
                     p2_fac = m.get("player2_faction") or "Unknown"
-                    p1_score = m.get("player1_score") or 0
-                    p2_score = m.get("player2_score") or 0
+                    raw_p1_score = m.get("player1_score")
+                    raw_p2_score = m.get("player2_score")
+                    has_scores = raw_p1_score is not None and raw_p2_score is not None
+                    p1_score = raw_p1_score or 0
+                    p2_score = raw_p2_score or 0
                     r_num = m.get("round", 1)
                     is_done = m.get("is_done", True)
 
-                    # Skip unplayed / in-progress pairings from Swiss match records and standings
+                    # Skip unplayed / unscored pairings from Swiss match records and standings
+                    if not m.get("winner_id") and not m.get("is_draw") and not has_scores:
+                        continue
                     if not is_done and not m.get("winner_id") and (p1_score == 0 and p2_score == 0):
                         continue
 
-                    is_p1_win = m.get("winner_id") == p1_id or (m.get("winner_id") is None and p1_score > p2_score)
-                    is_p2_win = m.get("winner_id") == p2_id or (m.get("winner_id") is None and p2_score > p1_score)
-                    is_draw = m.get("is_draw") or (p1_score == p2_score and not is_p1_win and not is_p2_win)
+                    is_p1_win = m.get("winner_id") == p1_id or (m.get("winner_id") is None and has_scores and p1_score > p2_score)
+                    is_p2_win = m.get("winner_id") == p2_id or (m.get("winner_id") is None and has_scores and p2_score > p1_score)
+                    is_draw = m.get("is_draw") or (has_scores and p1_score == p2_score and not is_p1_win and not is_p2_win)
 
                     if p1_id:
                         if p1_id not in player_stats:

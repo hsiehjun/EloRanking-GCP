@@ -906,6 +906,36 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                         has_bps_metric = True
                     except (ValueError, TypeError): pass
 
+        raw_games = p.get("games") or p.get("total_games") or []
+        if isinstance(raw_games, list) and raw_games:
+            g_wins = 0
+            g_losses = 0
+            g_draws = 0
+            g_bps = 0
+            for g in raw_games:
+                if isinstance(g, dict):
+                    res_val = g.get("gameResult")
+                    if res_val == 2:
+                        g_wins += 1
+                    elif res_val == 0:
+                        g_losses += 1
+                    elif res_val == 1:
+                        g_draws += 1
+                    if g.get("gamePoints") is not None:
+                        try:
+                            g_bps += int(g["gamePoints"])
+                        except Exception:
+                            pass
+            wins = g_wins
+            losses = g_losses
+            draws = g_draws
+            has_wins_metric = True
+            has_losses_metric = True
+            has_draws_metric = True
+            if not has_bps_metric and g_bps > 0:
+                bps = g_bps
+                has_bps_metric = True
+
         # Lookup candidate IDs in existing or DB ratings
         candidate_ids = [
             str(u.get("id")) if u.get("id") else None,
@@ -1001,6 +1031,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             if has_bps_metric or "event_battle_points" not in player_dict:
                 player_dict["event_battle_points"] = bps or p.get("points") or 0
 
+            player_dict["games"] = raw_games
             player_dict["team_player_id"] = str(p.get("teamPlayerId") or p.get("team_player_id") or "")
             player_dict["teamPlayerId"] = player_dict["team_player_id"]
             player_dict["user_id"] = str(u.get("id") or p.get("userId") or "")
@@ -1033,6 +1064,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 "event_losses": losses,
                 "event_draws": draws,
                 "event_matches_count": int(wins + losses + draws),
+                "games": raw_games,
                 "event_battle_points": bps or p.get("points") or 0,
                 "current_elo": current_elo,
                 "peak_elo": peak_elo,
@@ -1245,31 +1277,73 @@ async def api_event_details(event_id: str, force_sync: bool = False):
     except Exception as e:
         logger.warning(f"BCP placings fetch notice for {event_id_str}: {e}")
 
-    # 2. For BCP tournaments, fetch live round pairings if matches is empty or event is ongoing
+    # 2. For BCP tournaments, enrich any missing match scores in memory from players' games array
+    # and fetch live round pairings if matches is empty or event is ongoing (strictly read-only)
     if not is_native_studio:
         try:
-            cur_r = event_details.get("current_round") or raw_ev.get("currentRound") or raw_ev.get("activeRound") or 1
+            players_list = event_details.get("players") or []
+            player_by_id = {}
+            player_by_name = {}
+            for pl in players_list:
+                if not isinstance(pl, dict):
+                    continue
+                for k in ("player_id", "id", "bcp_event_player_id", "user_id"):
+                    val = pl.get(k)
+                    if val:
+                        player_by_id[str(val)] = pl
+                pname = str(pl.get("full_name") or pl.get("name") or "").strip().lower()
+                if pname:
+                    player_by_name[pname] = pl
+
+            # Enrich existing DB matches in memory if any scores were missing (e.g. stored only in BCP games array)
+            for m in (event_details.get("matches") or []):
+                if not isinstance(m, dict):
+                    continue
+                r_num = int(m.get("round") or 1)
+                p1_reg = player_by_id.get(str(m.get("player1_id") or "")) or player_by_name.get(str(m.get("player1_name") or "").strip().lower(), {})
+                p2_reg = player_by_id.get(str(m.get("player2_id") or "")) or player_by_name.get(str(m.get("player2_name") or "").strip().lower(), {})
+
+                if m.get("player1_score") is None and isinstance(p1_reg.get("games"), list):
+                    for g in p1_reg["games"]:
+                        if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == r_num:
+                            if g.get("gamePoints") is not None:
+                                try: m["player1_score"] = int(g["gamePoints"])
+                                except Exception: pass
+                            break
+
+                if m.get("player2_score") is None and isinstance(p2_reg.get("games"), list):
+                    for g in p2_reg["games"]:
+                        if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == r_num:
+                            if g.get("gamePoints") is not None:
+                                try: m["player2_score"] = int(g["gamePoints"])
+                                except Exception: pass
+                            break
+
+                s1 = m.get("player1_score")
+                s2 = m.get("player2_score")
+                has_sc = s1 is not None and s2 is not None
+                if has_sc and not m.get("winner_id") and not m.get("is_bye"):
+                    if s1 > s2:
+                        m["winner_id"] = m.get("player1_id")
+                        m["loser_id"] = m.get("player2_id")
+                        m["is_draw"] = False
+                    elif s2 > s1:
+                        m["winner_id"] = m.get("player2_id")
+                        m["loser_id"] = m.get("player1_id")
+                        m["is_draw"] = False
+                    elif s1 == s2:
+                        m["is_draw"] = True
+                elif not has_sc and not m.get("winner_id"):
+                    m["is_draw"] = False
+
+            cur_r = event_details.get("current_round") or raw_ev.get("currentRound") or raw_ev.get("activeRound") or event_details.get("num_rounds") or raw_ev.get("numberOfRounds") or 1
             max_r = max(1, int(cur_r))
 
-            # If matches in DB is empty or tournament is active/live, fetch live round pairings from BCP
+            # If matches in DB is empty or tournament is active/live or force_sync requested, fetch live round pairings from BCP
             has_db_matches = bool(event_details.get("matches"))
             is_ended = bool(event_details.get("is_ended"))
             if not has_db_matches or not is_ended or force_sync:
                 live_matches = []
-                players_list = event_details.get("players") or []
-                player_by_id = {}
-                player_by_name = {}
-                for pl in players_list:
-                    if not isinstance(pl, dict):
-                        continue
-                    for k in ("player_id", "id", "bcp_event_player_id", "user_id"):
-                        val = pl.get(k)
-                        if val:
-                            player_by_id[str(val)] = pl
-                    pname = str(pl.get("full_name") or pl.get("name") or "").strip().lower()
-                    if pname:
-                        player_by_name[pname] = pl
-
                 existing_matches_map = {}
                 for em in (event_details.get("matches") or []):
                     if isinstance(em, dict):
@@ -1359,10 +1433,25 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                             if p1_score is None and meta_p.get("p1-gamePoints") is not None:
                                 try: p1_score = int(meta_p.get("p1-gamePoints"))
                                 except Exception: pass
+                            if p1_score is None and isinstance(p1_reg.get("games"), list):
+                                for g in p1_reg["games"]:
+                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                        if g.get("gamePoints") is not None:
+                                            try: p1_score = int(g["gamePoints"])
+                                            except Exception: pass
+                                        break
+
                             p2_score = p2_game.get("points") if p2_game.get("points") is not None else p.get("player2Score")
                             if p2_score is None and meta_p.get("p2-gamePoints") is not None:
                                 try: p2_score = int(meta_p.get("p2-gamePoints"))
                                 except Exception: pass
+                            if p2_score is None and isinstance(p2_reg.get("games"), list):
+                                for g in p2_reg["games"]:
+                                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(r):
+                                        if g.get("gamePoints") is not None:
+                                            try: p2_score = int(g["gamePoints"])
+                                            except Exception: pass
+                                        break
 
                             # Seamlessly merge scores from local match or tracker game if BCP hasn't synced points yet
                             if p1_score is None:
@@ -1413,7 +1502,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                                 "player2_score": p2_score,
                                 "winner_id": winner_id,
                                 "loser_id": p2_id if winner_id == p1_id else (p1_id if winner_id == p2_id else None),
-                                "is_draw": bool(is_done and p1_score == p2_score and not is_bye),
+                                "is_draw": bool(is_done and p1_score is not None and p2_score is not None and p1_score == p2_score and not is_bye),
                                 "is_bye": is_bye,
                                 "is_done": is_done,
                                 "published": bool(p.get("published", True)),

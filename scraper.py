@@ -231,7 +231,7 @@ class BestCoastPairingsScraper:
                             matched = plc_map[str(kid).strip()]
                             break
                     if matched:
-                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "points", "battlePoints", "totalPoints", "metrics", "total_metrics", "podNum"):
+                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "points", "battlePoints", "totalPoints", "metrics", "total_metrics", "overall_metrics", "games", "total_games", "podNum"):
                             if matched.get(k) is not None:
                                 rp[k] = matched[k]
                 return roster_players
@@ -590,9 +590,15 @@ class BestCoastPairingsScraper:
                     if not full_name and resolved_reg.get("full_name"):
                         full_name = resolved_reg["full_name"]
 
+            games_list = p.get("games") or p.get("total_games")
             for alias_id in (p.get("id"), p.get("playerId"), p.get("userId"), user.get("id")):
                 if alias_id:
-                    mapping[str(alias_id).strip()] = canonical_id
+                    aid_str = str(alias_id).strip()
+                    mapping[aid_str] = canonical_id
+                    if isinstance(games_list, list) and games_list:
+                        mapping[f"games:{aid_str}"] = games_list
+            if isinstance(games_list, list) and games_list:
+                mapping[f"games:{canonical_id}"] = games_list
             if full_name and full_name.lower() not in ("player", "player 1", "player 2", "bye"):
                 mapping[f"fullname:{canonical_id}"] = full_name
         return mapping
@@ -799,6 +805,33 @@ class BestCoastPairingsScraper:
             try: p2_result = int(meta.get("p2-gameResult"))
             except Exception: pass
 
+        # Fallback to player's games array from roster_id_map if points/result missing in pairing
+        if roster_id_map and (p1_score is None or p1_result is None):
+            p1_games = roster_id_map.get(f"games:{p1_user_id}") or roster_id_map.get(f"games:{p1_reg_id}")
+            if isinstance(p1_games, list):
+                for g in p1_games:
+                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(round_num):
+                        if p1_score is None and g.get("gamePoints") is not None:
+                            try: p1_score = int(g.get("gamePoints"))
+                            except Exception: pass
+                        if p1_result is None and g.get("gameResult") is not None:
+                            try: p1_result = int(g.get("gameResult"))
+                            except Exception: pass
+                        break
+
+        if roster_id_map and (p2_score is None or p2_result is None):
+            p2_games = roster_id_map.get(f"games:{p2_user_id}") or roster_id_map.get(f"games:{p2_reg_id}")
+            if isinstance(p2_games, list):
+                for g in p2_games:
+                    if isinstance(g, dict) and int(g.get("gameNum") or g.get("gameNumber") or 0) == int(round_num):
+                        if p2_score is None and g.get("gamePoints") is not None:
+                            try: p2_score = int(g.get("gamePoints"))
+                            except Exception: pass
+                        if p2_result is None and g.get("gameResult") is not None:
+                            try: p2_result = int(g.get("gameResult"))
+                            except Exception: pass
+                        break
+
         is_done = bool(pairing.get("isDone", True))
         has_scores = p1_score is not None and p2_score is not None
         has_results = p1_result is not None and p2_result is not None
@@ -830,7 +863,7 @@ class BestCoastPairingsScraper:
             elif p2_result == 2 and p1_result == 0:
                 winner_id = p2_user_id
                 loser_id = p1_user_id
-            elif p1_result == 1 or p2_result == 1 or (p1_result == p2_result and (is_done or has_scores)):
+            elif p1_result == 1 or p2_result == 1 or (p1_result == p2_result and has_scores and p1_score == p2_score):
                 is_draw = True
         elif has_scores:
             if p1_score > p2_score:
@@ -839,7 +872,7 @@ class BestCoastPairingsScraper:
             elif p2_score > p1_score:
                 winner_id = p2_user_id
                 loser_id = p1_user_id
-            elif is_done:
+            elif is_done and p1_score == p2_score:
                 is_draw = True
 
         # Upsert players into database
