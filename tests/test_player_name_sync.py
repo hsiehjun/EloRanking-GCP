@@ -29,19 +29,25 @@ from player_sync import (
 
 
 def test_is_placeholder_name():
-    """Verify placeholder detection."""
+    """Verify placeholder detection including Player114 / Player<number> without spaces."""
     assert is_placeholder_name("Player 1") is True
     assert is_placeholder_name("Player 2") is True
+    assert is_placeholder_name("Player114") is True
+    assert is_placeholder_name("Player249") is True
+    assert is_placeholder_name("Player116") is True
     assert is_placeholder_name("player") is True
     assert is_placeholder_name("PLAYER 9") is True
     assert is_placeholder_name("player_5") is True
+    assert is_placeholder_name("Player #3") is True
     assert is_placeholder_name("BYE") is True
     assert is_placeholder_name("None") is True
     assert is_placeholder_name("") is True
     assert is_placeholder_name(None) is True
     assert is_placeholder_name("MEV83VFANA", player_id="MEV83VFANA") is True
 
-    # Real human names should NEVER be considered placeholders
+    # Real human names (including surname 'Player') should NEVER be considered placeholders
+    assert is_placeholder_name("Andy Player") is False
+    assert is_placeholder_name("Gary Player") is False
     assert is_placeholder_name("Fabien Barbusse") is False
     assert is_placeholder_name("Jake Seguin") is False
     assert is_placeholder_name("Camaron Hallford") is False
@@ -70,6 +76,7 @@ def test_local_db_resolution():
     # 1. players table has name for p1
     mock_cur.fetchall.side_effect = [
         [("p1", "John", "Doe", "John Doe")],  # players
+        [],  # player_ratings
         [("p2", "Alice", "Smith", "Alice Smith")],  # event_participants
         [("p3", "Bob Jones")],  # matches p1
         [],  # matches p2
@@ -449,6 +456,7 @@ def test_same_name_distinct_players_never_merged():
     # Simulate local DB returning 'John Smith' for 'regJohnB_123' and identifying it as a duplicate name on player_ratings
     mock_cur.fetchall.side_effect = [
         [("regJohnB_123", "John", "Smith", "John Smith")],  # players
+        [],                                                 # player_ratings
         [],                                                 # event_participants
         [],                                                 # matches p1
         [],                                                 # matches p2

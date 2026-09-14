@@ -1357,7 +1357,7 @@ class PostgresDatabase:
                 first_name = COALESCE(NULLIF(players.first_name, ''), EXCLUDED.first_name),
                 last_name = COALESCE(NULLIF(players.last_name, ''), EXCLUDED.last_name),
                 full_name = CASE
-                    WHEN players.full_name IS NOT NULL AND players.full_name !~* '^player\\s*\\d*$' AND players.full_name != 'Unknown Player'
+                    WHEN players.full_name IS NOT NULL AND players.full_name !~* '^player[\\s_\\-#]*\\d*$' AND players.full_name != 'Unknown Player'
                     THEN players.full_name
                     ELSE EXCLUDED.full_name
                 END,
@@ -1402,8 +1402,8 @@ class PostgresDatabase:
         cursor.execute("UPDATE event_participants SET player_id = %s WHERE player_id = %s;", (canonical_id, reg_id))
 
         # Remap tracker_games
-        cursor.execute("UPDATE tracker_games SET user_id = %s WHERE user_id = %s;", (canonical_id, reg_id))
-        cursor.execute("UPDATE tracker_games SET opponent_id = %s WHERE opponent_id = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE tracker_games SET user_id_p1 = %s WHERE user_id_p1 = %s;", (canonical_id, reg_id))
+        cursor.execute("UPDATE tracker_games SET user_id_p2 = %s WHERE user_id_p2 = %s;", (canonical_id, reg_id))
 
         # Remove orphan registration ID from players
         cursor.execute("DELETE FROM players WHERE id = %s;", (reg_id,))
@@ -1424,7 +1424,7 @@ class PostgresDatabase:
                     first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
                     last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
                     full_name = CASE
-                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                         THEN EXCLUDED.full_name
                         ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
                     END,
@@ -1462,7 +1462,7 @@ class PostgresDatabase:
                     first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE event_participants.first_name END,
                     last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE event_participants.last_name END,
                     full_name = CASE
-                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                        WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                         THEN EXCLUDED.full_name
                         ELSE COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name)
                     END,
@@ -1545,7 +1545,7 @@ class PostgresDatabase:
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
                                 full_name = CASE
-                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                                     THEN EXCLUDED.full_name
                                     ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
                                 END,
@@ -1563,7 +1563,7 @@ class PostgresDatabase:
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
                                 full_name = CASE
-                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                                     THEN EXCLUDED.full_name
                                     ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
                                 END,
@@ -1582,7 +1582,7 @@ class PostgresDatabase:
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
                                 full_name = CASE
-                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                                     THEN EXCLUDED.full_name
                                     ELSE COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name)
                                 END,
@@ -1607,7 +1607,7 @@ class PostgresDatabase:
                                 first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), event_participants.first_name),
                                 last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), event_participants.last_name),
                                 full_name = CASE
-                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                                     THEN EXCLUDED.full_name
                                     ELSE COALESCE(NULLIF(event_participants.full_name, ''), EXCLUDED.full_name)
                                 END,
@@ -1656,7 +1656,7 @@ class PostgresDatabase:
                                 first_name = CASE WHEN EXCLUDED.first_name != '' THEN EXCLUDED.first_name ELSE players.first_name END,
                                 last_name = CASE WHEN EXCLUDED.last_name != '' THEN EXCLUDED.last_name ELSE players.last_name END,
                                 full_name = CASE
-                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player\\s*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
+                                    WHEN EXCLUDED.full_name IS NOT NULL AND EXCLUDED.full_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.full_name != 'Unknown Player'
                                     THEN EXCLUDED.full_name
                                     ELSE COALESCE(NULLIF(players.full_name, ''), EXCLUDED.full_name)
                                 END,
@@ -1665,12 +1665,12 @@ class PostgresDatabase:
 
                 # If p1_name_val or p2_name_val is a placeholder, look up real name from players table
                 if p1_id_val and (not p1_name_val or p1_name_val.lower().startswith("player") or p1_name_val == "Unknown Player"):
-                    cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player\\s*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p1_id_val,))
+                    cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player[\\s_\\-#]*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p1_id_val,))
                     row = cursor.fetchone()
                     if row and row[0]:
                         p1_name_val = row[0]
                 if p2_id_val and (not p2_name_val or p2_name_val.lower().startswith("player") or p2_name_val == "Unknown Player"):
-                    cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player\\s*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p2_id_val,))
+                    cursor.execute("SELECT full_name FROM players WHERE id = %s AND full_name !~* '^player[\\s_\\-#]*\\d*$' AND full_name != 'Unknown Player' LIMIT 1;", (p2_id_val,))
                     row = cursor.fetchone()
                     if row and row[0]:
                         p2_name_val = row[0]
@@ -1701,7 +1701,7 @@ class PostgresDatabase:
                     match_date = EXCLUDED.match_date,
                     player1_id = EXCLUDED.player1_id,
                     player1_name = CASE
-                        WHEN EXCLUDED.player1_name IS NOT NULL AND EXCLUDED.player1_name !~* '^player\\s*\\d*$' AND EXCLUDED.player1_name != 'Unknown Player'
+                        WHEN EXCLUDED.player1_name IS NOT NULL AND EXCLUDED.player1_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.player1_name != 'Unknown Player'
                         THEN EXCLUDED.player1_name
                         ELSE COALESCE(NULLIF(matches.player1_name, ''), EXCLUDED.player1_name)
                     END,
@@ -1709,7 +1709,7 @@ class PostgresDatabase:
                     player1_score = EXCLUDED.player1_score,
                     player2_id = EXCLUDED.player2_id,
                     player2_name = CASE
-                        WHEN EXCLUDED.player2_name IS NOT NULL AND EXCLUDED.player2_name !~* '^player\\s*\\d*$' AND EXCLUDED.player2_name != 'Unknown Player'
+                        WHEN EXCLUDED.player2_name IS NOT NULL AND EXCLUDED.player2_name !~* '^player[\\s_\\-#]*\\d*$' AND EXCLUDED.player2_name != 'Unknown Player'
                         THEN EXCLUDED.player2_name
                         ELSE COALESCE(NULLIF(matches.player2_name, ''), EXCLUDED.player2_name)
                     END,

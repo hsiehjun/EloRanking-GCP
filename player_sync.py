@@ -33,39 +33,35 @@ from database import get_db, PostgresDatabase
 logger = logging.getLogger("elo.player_sync")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+import re
+
 PLACEHOLDER_NAMES = {
     "player", "player 1", "player 2", "player 3", "player 4", "player 5",
     "player 6", "player 7", "player 8", "player 9", "player 10",
     "bye", "unknown", "none", "null", "tbd", "unassigned", ""
 }
 
+PLACEHOLDER_REGEX_STR = r'^(player|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)[\s_\-#]*\d*$'
+_PLACEHOLDER_RE = re.compile(PLACEHOLDER_REGEX_STR, re.IGNORECASE)
+
 
 def is_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -> bool:
-    """Checks if a name is a generic placeholder, contains 'player', or is equal to the player ID."""
+    """Checks if a name is a generic placeholder (e.g. 'Player 1', 'Player114', 'Unknown Player') or equal to player ID."""
     if not name:
         return True
-    cleaned = str(name).strip().lower()
-    if cleaned in PLACEHOLDER_NAMES:
+    cleaned = str(name).strip()
+    if cleaned.lower() in PLACEHOLDER_NAMES:
         return True
-    if "player" in cleaned:
+    if _PLACEHOLDER_RE.match(cleaned):
         return True
-    if player_id and str(name).strip() == str(player_id).strip():
+    if player_id and cleaned == str(player_id).strip():
         return True
     return False
 
 
 def is_bcp_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -> bool:
-    """Checks if a name returned by BCP API is an unlinked placeholder (allows real surnames like 'Andy Player')."""
-    if not name:
-        return True
-    cleaned = str(name).strip().lower()
-    if cleaned in PLACEHOLDER_NAMES:
-        return True
-    if cleaned.startswith("player ") or cleaned.startswith("player_") or cleaned.startswith("fake player"):
-        return True
-    if player_id and str(name).strip() == str(player_id).strip():
-        return True
-    return False
+    """Checks if a name returned by BCP API is an unlinked placeholder (e.g. 'Player114', 'Player 1'), while preserving real surnames like 'Andy Player'."""
+    return is_placeholder_name(name, player_id)
 
 
 def clean_name(name: Optional[str]) -> str:
@@ -180,7 +176,7 @@ class PlayerNameSync:
                 for r in cur.fetchall():
                     add_id(r[0])
 
-                # 3. Tier 3: Players table scoped by game system
+                # 3. Tier 3: Players table scoped by game system (join player_ratings so orphan unranked IDs are not queued)
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
@@ -197,8 +193,9 @@ class PlayerNameSync:
                     """, (placeholder_regex,))
                 else:
                     cur.execute("""
-                    SELECT DISTINCT id FROM players 
-                    WHERE full_name ~* %s OR full_name IS NULL OR TRIM(full_name) = '' OR full_name = id;
+                    SELECT DISTINCT p.id FROM players p
+                    JOIN player_ratings pr ON p.id = pr.player_id
+                    WHERE p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id;
                     """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
@@ -214,7 +211,7 @@ class PlayerNameSync:
         resolved: Dict[str, Dict[str, str]] = {}
         target_list = list(player_ids)
         chunk_size = 1000
-        placeholder_regex = r'^player\s*\d*$'
+        placeholder_regex = r'^player[\s_\-#]*\d*$'
 
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
@@ -239,6 +236,27 @@ class PlayerNameSync:
                                 "last_name": clean_name(ln),
                                 "source": "local_players"
                             }
+
+                    # 1b. Check player_ratings table
+                    cur.execute("""
+                    SELECT DISTINCT ON (player_id) player_id, player_name
+                    FROM player_ratings
+                    WHERE player_id = ANY(%s)
+                      AND player_name IS NOT NULL
+                      AND NOT (player_name ~* %s OR player_name ILIKE 'BYE')
+                    ORDER BY player_id, matches_played DESC NULLS LAST;
+                    """, (chunk, placeholder_regex))
+                    for r in cur.fetchall():
+                        pid = str(r[0]).strip()
+                        if pid not in resolved:
+                            full = clean_name(r[1])
+                            if full and not is_placeholder_name(full, pid):
+                                resolved[pid] = {
+                                    "full_name": full,
+                                    "first_name": full.split()[0] if full else "",
+                                    "last_name": full.split()[-1] if len(full.split()) > 1 else "",
+                                    "source": "local_player_ratings"
+                                }
 
                     # 2. Check event_participants table
                     cur.execute("""
@@ -369,6 +387,12 @@ class PlayerNameSync:
                         last = clean_name(u.get("lastName") or data.get("lastName"))
                         full = f"{first} {last}".strip() or clean_name(data.get("name") or data.get("playerName"))
                         canonical_uid = clean_name(u.get("id") or data.get("userId") or data.get("user_id"))
+                        if canonical_uid and (not full or is_bcp_placeholder_name(full, player_id)):
+                            usr_res = self._query_bcp_users_endpoint(canonical_uid)
+                            if usr_res and usr_res.get("full_name"):
+                                full = usr_res["full_name"]
+                                first = usr_res.get("first_name") or first
+                                last = usr_res.get("last_name") or last
                         if full and not is_bcp_placeholder_name(full, player_id):
                             res_info = {
                                 "full_name": full,
@@ -379,6 +403,14 @@ class PlayerNameSync:
                             if canonical_uid and canonical_uid != player_id:
                                 res_info["canonical_user_id"] = canonical_uid
                             return res_info
+                        elif canonical_uid and canonical_uid != player_id:
+                            return {
+                                "full_name": "",
+                                "first_name": "",
+                                "last_name": "",
+                                "canonical_user_id": canonical_uid,
+                                "source": "bcp_players_api"
+                            }
         except urllib.error.HTTPError as e:
             if e.code not in (404, 400, 401, 409):
                 logger.debug(f"HTTP {e.code} querying BCP /players/{player_id}: {e}")
@@ -416,44 +448,55 @@ class PlayerNameSync:
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 for pid, info in resolved_names.items():
-                    full = info["full_name"]
+                    full = info.get("full_name") or ""
                     first = info.get("first_name") or (full.split()[0] if full else "")
                     last = info.get("last_name") or (full.split()[-1] if len(full.split()) > 1 else "")
                     canonical_uid = info.get("canonical_user_id")
                     target_id = canonical_uid if (canonical_uid and canonical_uid != pid) else pid
+                    has_valid_name = bool(full and not is_bcp_placeholder_name(full, target_id))
 
-                    # 1. Upsert / update target player row
-                    cur.execute("""
-                    INSERT INTO players (id, first_name, last_name, full_name, updated_at)
-                    VALUES (%s, %s, %s, %s, NOW())
-                    ON CONFLICT (id) DO UPDATE SET
-                        full_name = EXCLUDED.full_name,
-                        first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
-                        last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
-                        updated_at = NOW();
-                    """, (target_id, first, last, full))
-                    counts["players"] += cur.rowcount
+                    if not has_valid_name and target_id == pid:
+                        continue
+
+                    # 1. Upsert / update target player row without clobbering existing real names
+                    if has_valid_name:
+                        cur.execute("""
+                        INSERT INTO players (id, first_name, last_name, full_name, updated_at)
+                        VALUES (%s, %s, %s, %s, NOW())
+                        ON CONFLICT (id) DO UPDATE SET
+                            full_name = EXCLUDED.full_name,
+                            first_name = COALESCE(NULLIF(EXCLUDED.first_name, ''), players.first_name),
+                            last_name = COALESCE(NULLIF(EXCLUDED.last_name, ''), players.last_name),
+                            updated_at = NOW();
+                        """, (target_id, first, last, full))
+                        counts["players"] += cur.rowcount
+                    else:
+                        cur.execute("""
+                        INSERT INTO players (id, first_name, last_name, full_name, updated_at)
+                        SELECT %s, first_name, last_name, full_name, NOW() FROM players WHERE id = %s
+                        ON CONFLICT (id) DO NOTHING;
+                        """, (target_id, pid))
 
                     if target_id != pid:
                         # Remap registration ID pid -> canonical user ID target_id using indexed player1_id/player2_id lookups
                         cur.execute("""
                         UPDATE matches
                         SET player1_id = %s,
-                            player1_name = %s,
+                            player1_name = CASE WHEN %s THEN %s ELSE player1_name END,
                             winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
                             loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
                         WHERE player1_id = %s;
-                        """, (target_id, full, pid, target_id, pid, target_id, pid))
+                        """, (target_id, has_valid_name, full, pid, target_id, pid, target_id, pid))
                         counts["matches_p1"] += cur.rowcount
 
                         cur.execute("""
                         UPDATE matches
                         SET player2_id = %s,
-                            player2_name = %s,
+                            player2_name = CASE WHEN %s THEN %s ELSE player2_name END,
                             winner_id = CASE WHEN winner_id = %s THEN %s ELSE winner_id END,
                             loser_id  = CASE WHEN loser_id  = %s THEN %s ELSE loser_id  END
                         WHERE player2_id = %s;
-                        """, (target_id, full, pid, target_id, pid, target_id, pid))
+                        """, (target_id, has_valid_name, full, pid, target_id, pid, target_id, pid))
                         counts["matches_p2"] += cur.rowcount
 
                         cur.execute("""
@@ -463,12 +506,17 @@ class PlayerNameSync:
                           AND ep1.player_id = %s
                           AND ep2.player_id = %s;
                         """, (pid, target_id))
-                        cur.execute("UPDATE event_participants SET player_id = %s, full_name = %s WHERE player_id = %s;", (target_id, full, pid))
+                        cur.execute("""
+                        UPDATE event_participants
+                        SET player_id = %s,
+                            full_name = CASE WHEN %s THEN %s ELSE full_name END
+                        WHERE player_id = %s;
+                        """, (target_id, has_valid_name, full, pid))
                         counts["participants"] += cur.rowcount
 
-                        cur.execute("UPDATE tracker_games SET user_id_p1 = %s, p1_name = %s WHERE user_id_p1 = %s;", (target_id, full, pid))
+                        cur.execute("UPDATE tracker_games SET user_id_p1 = %s, p1_name = CASE WHEN %s THEN %s ELSE p1_name END WHERE user_id_p1 = %s;", (target_id, has_valid_name, full, pid))
                         counts["tracker_games"] += cur.rowcount
-                        cur.execute("UPDATE tracker_games SET user_id_p2 = %s, p2_name = %s WHERE user_id_p2 = %s;", (target_id, full, pid))
+                        cur.execute("UPDATE tracker_games SET user_id_p2 = %s, p2_name = CASE WHEN %s THEN %s ELSE p2_name END WHERE user_id_p2 = %s;", (target_id, has_valid_name, full, pid))
                         counts["tracker_games"] += cur.rowcount
 
                         cur.execute("DELETE FROM rating_history WHERE player_id = %s;", (pid,))
@@ -483,8 +531,8 @@ class PlayerNameSync:
                     UPDATE player_ratings
                     SET player_name = %s, updated_at = NOW()
                     WHERE player_id = %s
-                      AND (player_name ILIKE %s OR player_name ILIKE 'player' OR player_name = player_id);
-                    """, (full, pid, 'Player %'))
+                      AND (player_name ~* '^player[\\s_\\-#]*\\d*$' OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id);
+                    """, (full, pid))
                     counts["player_ratings"] += cur.rowcount
 
                     # 3. Update matches table (both player1 and player2)
@@ -492,16 +540,16 @@ class PlayerNameSync:
                     UPDATE matches
                     SET player1_name = %s
                     WHERE player1_id = %s
-                      AND (player1_name ILIKE %s OR player1_name ILIKE 'player');
-                    """, (full, pid, 'Player %'))
+                      AND (player1_name ~* '^player[\\s_\\-#]*\\d*$' OR player1_name IS NULL OR TRIM(player1_name) = '');
+                    """, (full, pid))
                     counts["matches_p1"] += cur.rowcount
 
                     cur.execute("""
                     UPDATE matches
                     SET player2_name = %s
                     WHERE player2_id = %s
-                      AND (player2_name ILIKE %s OR player2_name ILIKE 'player');
-                    """, (full, pid, 'Player %'))
+                      AND (player2_name ~* '^player[\\s_\\-#]*\\d*$' OR player2_name IS NULL OR TRIM(player2_name) = '');
+                    """, (full, pid))
                     counts["matches_p2"] += cur.rowcount
 
                     # 4. Update rating_history (skip unindexed opponent_id scan; reconstruct_all_rankings maintains rating_history)
@@ -842,26 +890,55 @@ class PlayerNameSync:
                         cur.execute("""
                         UPDATE players
                         SET full_name = TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
-                        WHERE (full_name IS NULL OR TRIM(full_name) = '')
+                        WHERE (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* '^player[\\s_\\-#]*\\d*$')
                           AND (first_name IS NOT NULL OR last_name IS NOT NULL)
-                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) != '';
-                        """)
-                        cur.execute("""
-                        UPDATE players p
-                        SET full_name = pr.player_name
-                        FROM player_ratings pr
-                        WHERE p.id = pr.player_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '')
-                          AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != '';
+                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) != ''
+                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) !~* '^player[\\s_\\-#]*\\d*$';
                         """)
                         cur.execute("""
                         UPDATE players p
                         SET full_name = ep.full_name
                         FROM event_participants ep
                         WHERE p.id = ep.player_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '')
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* '^player[\\s_\\-#]*\\d*$')
                           AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
-                          AND NOT (ep.full_name ~* '^player\\s*\\d*$' OR ep.full_name ILIKE 'BYE');
+                          AND NOT (ep.full_name ~* '^player[\\s_\\-#]*\\d*$' OR ep.full_name ILIKE 'BYE');
+                        """)
+                        cur.execute("""
+                        UPDATE players p
+                        SET full_name = pr.player_name
+                        FROM player_ratings pr
+                        WHERE p.id = pr.player_id
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != ''
+                          AND NOT (pr.player_name ~* '^player[\\s_\\-#]*\\d*$' OR pr.player_name ILIKE 'BYE');
+                        """)
+                        cur.execute("""
+                        UPDATE player_ratings pr
+                        SET player_name = p.full_name
+                        FROM players p
+                        WHERE pr.player_id = p.id
+                          AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                          AND NOT (p.full_name ~* '^player[\\s_\\-#]*\\d*$' OR p.full_name ILIKE 'BYE');
+                        """)
+                        cur.execute("""
+                        UPDATE matches m
+                        SET player1_name = p.full_name
+                        FROM players p
+                        WHERE m.player1_id = p.id
+                          AND (m.player1_name IS NULL OR TRIM(m.player1_name) = '' OR m.player1_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                          AND NOT (p.full_name ~* '^player[\\s_\\-#]*\\d*$' OR p.full_name ILIKE 'BYE');
+                        """)
+                        cur.execute("""
+                        UPDATE matches m
+                        SET player2_name = p.full_name
+                        FROM players p
+                        WHERE m.player2_id = p.id
+                          AND (m.player2_name IS NULL OR TRIM(m.player2_name) = '' OR m.player2_name ~* '^player[\\s_\\-#]*\\d*$')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                          AND NOT (p.full_name ~* '^player[\\s_\\-#]*\\d*$' OR p.full_name ILIKE 'BYE');
                         """)
                     conn.commit()
             except Exception as sync_col_err:
