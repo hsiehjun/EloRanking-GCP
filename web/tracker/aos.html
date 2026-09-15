@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Live Game Tracker • Age of Sigmar | OmniTactica</title>
+  <meta name="description" content="Set up and track a game of Warhammer: Age of Sigmar 4th edition (GHB 2024-2025): pick battleplans, roll priority, execute tactical gambits, and record victory points." />
+  <link rel="manifest" href="/manifest.json?v=3.0">
+  <meta name="theme-color" content="#070b14">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="OmniTactica AoS">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" sizes="16x16" />
+
+  <!-- Fonts & Styles -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/_next/static/css/664dc56ac1c88016.css" />
+  <link rel="stylesheet" href="/_next/static/css/9f99d55fbe42acec.css" />
+  <link rel="stylesheet" href="/_next/static/css/32ff1ff2177a7837.css" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              gold: '#f59e0b',
+              blue: '#38bdf8',
+              dark: '#070b14',
+              card: '#12161f',
+              tile: '#181d28',
+              border: '#273042'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <!-- Synchronous iOS Safe-Area Detector -->
+  <script>
+    (function() {
+      try {
+        var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (isIos) {
+          document.documentElement.classList.add('is-ios');
+          if (('standalone' in window.navigator && window.navigator.standalone) ||
+              (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)) {
+            document.documentElement.classList.add('is-ios-standalone');
+          }
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- DECOUPLED AOS REAL-TIME SYNC OVERLAY -->
+  <script src="/tracker/tracker_sync_aos.js?v=1.0"></script>
+
+  <style>
+    :root {
+      --gtk-accent: #f59e0b;
+      --gtk-panel: #12161f;
+      --gtk-tile: #181d28;
+      --gtk-line: #273042;
+      --gtk-text: #f0f4fc;
+      --gtk-muted: #94a3b8;
+      --bg-primary: #070b14;
+      --bg-secondary: #12161f;
+      --bg-card: #181d28;
+      --border: #273042;
+      --text-primary: #f0f4fc;
+      --text-secondary: #94a3b8;
+      --accent: #f59e0b;
+      --p1: #3b82f6;
+      --p2: #ef4444;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background-color: #070b14 !important;
+      color: #f0f4fc !important;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-image:
+        linear-gradient(to right, rgba(245, 158, 11, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(245, 158, 11, 0.02) 1px, transparent 1px) !important;
+      background-size: 40px 40px !important;
+    }
+  </style>
+</head>
+<body class="antialiased is-tracker-aos">
+  <div id="root"></div>
+  <script src="/tracker/bundle_aos.js?v=1.0"></script>
+</body>
+</html>

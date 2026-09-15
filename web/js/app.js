@@ -208,7 +208,7 @@ function closeAosTrackerModal() {
 function handleTrackerNavClick(e) {
   if (currentGameSystem === 'aos') {
     if (e && e.preventDefault) e.preventDefault();
-    openAosTrackerModal();
+    window.location.href = '/11th/tracker/aos';
     return false;
   }
   return true;
@@ -365,9 +365,7 @@ function handleMobileNavChange(val) {
   if (!val) return;
   if (val === 'tracker') {
     if (currentGameSystem === 'aos') {
-      openAosTrackerModal();
-      const mob = document.getElementById('mobile-nav-select');
-      if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+      window.location.href = '/11th/tracker/aos';
       return;
     }
     window.location.href = '/11th/tracker';

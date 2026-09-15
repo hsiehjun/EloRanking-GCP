@@ -822,17 +822,42 @@
       }
     }
 
+    function formatFactionName(f) {
+      if (!f) return '';
+      if (f.includes('-')) {
+        return f.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      }
+      return f.charAt(0).toUpperCase() + f.slice(1);
+    }
+
     function renderScorecardData(data) {
       const rec = data.game_record || {};
       const st = data.state || {};
       const game = st.game || rec.state_json?.game || {};
 
-      const p1Name = game.p1Name || rec.p1_name || 'Player 1';
-      const p2Name = game.p2Name || rec.p2_name || 'Player 2';
-      const p1Fac = game.p1Faction || rec.p1_faction || 'Warhammer 40k';
-      const p2Fac = game.p2Faction || rec.p2_faction || 'Warhammer 40k';
-      const p1Det = (Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment || '';
-      const p2Det = (Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment || '';
+      const isAos = Boolean(
+        data.game_system === 'aos' ||
+        st.gameSystem === 'aos' ||
+        String(data.match_id || '').startsWith('AOS-')
+      );
+
+      const p1Obj = st.p1 || {};
+      const p2Obj = st.p2 || {};
+
+      const p1Name = game.p1Name || rec.p1_name || p1Obj.name || 'Player 1';
+      const p2Name = game.p2Name || rec.p2_name || p2Obj.name || 'Player 2';
+      const p1Fac = isAos
+        ? formatFactionName(p1Obj.faction || rec.p1_faction || p1Obj.grandAlliance || 'Age of Sigmar')
+        : (game.p1Faction || rec.p1_faction || 'Warhammer 40k');
+      const p2Fac = isAos
+        ? formatFactionName(p2Obj.faction || rec.p2_faction || p2Obj.grandAlliance || 'Age of Sigmar')
+        : (game.p2Faction || rec.p2_faction || 'Warhammer 40k');
+      const p1Det = isAos
+        ? (p1Obj.battleFormation || rec.p1_detachment || (p1Obj.grandAlliance ? `Grand Alliance ${p1Obj.grandAlliance}` : ''))
+        : ((Array.isArray(game.p1Detachments) && game.p1Detachments[0]) || rec.p1_detachment || '');
+      const p2Det = isAos
+        ? (p2Obj.battleFormation || rec.p2_detachment || (p2Obj.grandAlliance ? `Grand Alliance ${p2Obj.grandAlliance}` : ''))
+        : ((Array.isArray(game.p2Detachments) && game.p2Detachments[0]) || rec.p2_detachment || '');
 
       document.getElementById('sc-p1-name').innerText = p1Name;
       document.getElementById('sc-p2-name').innerText = p2Name;
@@ -840,33 +865,51 @@
       document.getElementById('sc-p2-faction').innerText = p2Fac;
       document.getElementById('sc-p1-det').innerText = p1Det;
       document.getElementById('sc-p2-det').innerText = p2Det;
-
-      const p1Obj = st.p1 || {};
-      const p2Obj = st.p2 || {};
       const p1Rounds = p1Obj.rounds || [];
       const p2Rounds = p2Obj.rounds || [];
 
-      // Calculate Primary Totals (capped at 50)
-      const p1PriTot = Math.min(50, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
-      const p2PriTot = Math.min(50, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+      let p1Score = 0, p2Score = 0;
+      let p1PriTot = 0, p2PriTot = 0;
+      let p1SecTot = 0, p2SecTot = 0;
+      let p1Paint = 0, p2Paint = 0;
+      let p1TacticsCount = 0, p2TacticsCount = 0;
 
-      // Calculate Secondary Totals from hand (capped at 40)
-      const p1SecTot = getPlayerTotalSecondary(p1Obj);
-      const p2SecTot = getPlayerTotalSecondary(p2Obj);
+      if (isAos) {
+        // AoS 4th Edition 50 VP Scale (30 Primary, 20 Battle Tactics)
+        p1PriTot = Math.min(30, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+        p2PriTot = Math.min(30, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
 
-      // Paint (10 pts)
-      const p1Paint = p1Obj.battleReady !== false ? 10 : 0;
-      const p2Paint = p2Obj.battleReady !== false ? 10 : 0;
+        p1SecTot = Math.min(20, p1Rounds.reduce((s, r) => s + (r.tacticScore || 0), 0));
+        p2SecTot = Math.min(20, p2Rounds.reduce((s, r) => s + (r.tacticScore || 0), 0));
 
-      // Final Total Scores (capped at 100)
-      const p1Score = Math.min(100, p1PriTot + p1SecTot + p1Paint);
-      const p2Score = Math.min(100, p2PriTot + p2SecTot + p2Paint);
+        p1TacticsCount = p1Rounds.filter(r => r.tacticStatus === 'achieved').length;
+        p2TacticsCount = p2Rounds.filter(r => r.tacticStatus === 'achieved').length;
+
+        p1Score = Math.min(50, p1PriTot + p1SecTot);
+        p2Score = Math.min(50, p2PriTot + p2SecTot);
+
+        document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/30</span> • <span>TAC: ${p1SecTot}/20</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p1TacticsCount}/5</span>`;
+        document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/30</span> • <span>TAC: ${p2SecTot}/20</span> • <span style="color:#f59e0b; font-weight:700;">TACTICS: ${p2TacticsCount}/5</span>`;
+      } else {
+        // 40k 100 VP Scale (50 Primary, 40 Secondary, 10 Paint)
+        p1PriTot = Math.min(50, p1Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+        p2PriTot = Math.min(50, p2Rounds.reduce((s, r) => s + (r.primaryScore || 0), 0));
+
+        p1SecTot = getPlayerTotalSecondary(p1Obj);
+        p2SecTot = getPlayerTotalSecondary(p2Obj);
+
+        p1Paint = p1Obj.battleReady !== false ? 10 : 0;
+        p2Paint = p2Obj.battleReady !== false ? 10 : 0;
+
+        p1Score = Math.min(100, p1PriTot + p1SecTot + p1Paint);
+        p2Score = Math.min(100, p2PriTot + p2SecTot + p2Paint);
+
+        document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/50</span> • <span>SEC: ${p1SecTot}/40</span> • <span>PAINT: +${p1Paint}</span>`;
+        document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/50</span> • <span>SEC: ${p2SecTot}/40</span> • <span>PAINT: +${p2Paint}</span>`;
+      }
 
       document.getElementById('sc-p1-final-score').innerText = p1Score;
       document.getElementById('sc-p2-final-score').innerText = p2Score;
-
-      document.getElementById('sc-p1-sub-breakdown').innerHTML = `<span>PRI: ${p1PriTot}/50</span> • <span>SEC: ${p1SecTot}/40</span> • <span>PAINT: +${p1Paint}</span>`;
-      document.getElementById('sc-p2-sub-breakdown').innerHTML = `<span>PRI: ${p2PriTot}/50</span> • <span>SEC: ${p2SecTot}/40</span> • <span>PAINT: +${p2Paint}</span>`;
 
       const roundNum = rec.round_num || game.roundNum || st.round_num || 1;
       const tableNum = rec.table_num || game.tableNum || st.table_num || null;
@@ -905,15 +948,16 @@
       const winnerText = document.getElementById('sc-winner-text');
       if (isFinished) {
         winnerBanner.className = 'sc-winner-banner';
+        const tiebreakStr = isAos ? ` (Tactics: ${p1TacticsCount}/5 vs ${p2TacticsCount}/5)` : '';
         if (p1Score > p2Score) {
           winnerBanner.style.display = 'flex';
-          winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score}`;
+          winnerText.innerText = `🏆 ${p1Name.toUpperCase()} WINS • ${p1Score} to ${p2Score}${tiebreakStr}`;
         } else if (p2Score > p1Score) {
           winnerBanner.style.display = 'flex';
-          winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score}`;
+          winnerText.innerText = `🏆 ${p2Name.toUpperCase()} WINS • ${p2Score} to ${p1Score}${tiebreakStr}`;
         } else if (p1Score > 0 && p1Score === p2Score) {
           winnerBanner.style.display = 'flex';
-          winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score}`;
+          winnerText.innerText = `🤝 TIED MATCH • ${p1Score} - ${p2Score}${tiebreakStr}`;
         } else {
           winnerBanner.style.display = 'none';
         }
@@ -932,199 +976,390 @@
         }
       }
       document.getElementById('sc-round-table').innerText = `Round ${roundNum} ${tableNum ? '• Table ' + tableNum : ''}`;
-      document.getElementById('sc-mission-name').innerText = `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
+      document.getElementById('sc-mission-name').innerText = isAos
+        ? `🎯 Battleplan: ${game.battleplan?.name || st.battleplan?.name || rec.primary_mission || 'Border War'}`
+        : `🎯 Primary: ${game.primary || game.p1Primary || rec.primary_mission || 'Take & Hold'}`;
       document.getElementById('sc-date-time').innerText = `⏱️ ${new Date(rec.updated_at || Date.now()).toLocaleDateString()}`;
 
-      // Build Matrix Rows: Grouped as P1 Primary, P1 Secondaries, P2 Primary, P2 Secondaries
+      // Build Matrix Rows
       const tbody = document.getElementById('sc-matrix-body');
       tbody.innerHTML = '';
 
-      function buildPrimaryRow(title, color, roundsArr, maxVal, overrideTotal) {
-        let cells = '';
+      if (isAos) {
+        // --- AOS MATRIX ROWS ---
+        // Row 1: Priority Roll & Double Turn
+        let priorityCells = '';
         for (let i = 1; i <= 5; i++) {
-          const r = roundsArr && roundsArr.length >= i ? (roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {}) : {};
-          const val = typeof r.primaryScore === 'number' ? r.primaryScore : '-';
-          cells += `<td style="font-family:monospace; font-weight:600;">${val}</td>`;
+          const rInfo = (st.roundState && st.roundState[i]) || {};
+          const winnerStr = rInfo.firstTurn === 'p1' ? 'P1' : (rInfo.firstTurn === 'p2' ? 'P2' : '-');
+          const dTurn = rInfo.isDoubleTurn ? '<br><span style="color:#ef4444; font-size:10px;">⚡Double</span>' : '';
+          priorityCells += `<td style="font-family:monospace; font-size:11px; text-align:center;">${winnerStr}${dTurn}</td>`;
         }
-        return `
-          <tr>
-            <td style="color:${color}; font-weight:700;">${title}</td>
-            ${cells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${overrideTotal} / ${maxVal}</td>
+        tbody.innerHTML += `
+          <tr style="background:rgba(245,158,11,0.04);">
+            <td style="color:#f59e0b; font-weight:700;">🎲 Priority Roll & Initiative</td>
+            ${priorityCells}
+            <td style="font-family:monospace; font-weight:800; color:#f59e0b; text-align:center;">-</td>
           </tr>
         `;
-      }
 
-      function buildSecondaryMatrixRow(title, color, pObj, maxVal, overrideTotal, subClass) {
-        let cells = '';
+        // Row 2: P1 Primaries (Max 30)
+        let p1PriCells = '';
         for (let i = 1; i <= 5; i++) {
-          const secs = getPlayerRoundSecondaries(pObj, i);
-          const rTot = secs.reduce((acc, s) => acc + (s.score || 0), 0);
-          cells += `<td style="font-family:monospace; font-weight:600;">${rTot > 0 ? rTot : '-'}</td>`;
+          const r = p1Rounds.find(x => x.round === i) || {};
+          p1PriCells += `<td style="font-family:monospace; font-weight:600;">${typeof r.primaryScore === 'number' ? r.primaryScore : '-'}</td>`;
         }
-        return `
+        tbody.innerHTML += `
           <tr>
-            <td style="color:${color}; font-weight:700;">
-              ${title}
-              <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('${subClass}')">▼ Details</button>
+            <td style="color:#38bdf8; font-weight:700;">🟦 ${p1Name} Primaries</td>
+            ${p1PriCells}
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1PriTot} / 30</td>
+          </tr>
+        `;
+
+        // Row 3: P1 Battle Tactics (Max 20)
+        let p1TacCells = '';
+        for (let i = 1; i <= 5; i++) {
+          const r = p1Rounds.find(x => x.round === i) || {};
+          const val = r.tacticStatus === 'achieved' ? '+4' : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : '-'));
+          const col = r.tacticStatus === 'achieved' ? '#10b981' : (r.tacticStatus === 'failed' ? '#ef4444' : '#94a3b8');
+          p1TacCells += `<td style="font-family:monospace; font-weight:700; color:${col};">${val}</td>`;
+        }
+        tbody.innerHTML += `
+          <tr>
+            <td style="color:#7dd3fc; font-weight:700;">
+              🟦 ${p1Name} Battle Tactics
+              <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('p1-sec-sub')">▼ Details</button>
             </td>
-            ${cells}
-            <td style="font-family:monospace; font-weight:800; color:#fff;">${overrideTotal} / ${maxVal}</td>
+            ${p1TacCells}
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p1SecTot} / 20</td>
+          </tr>
+        `;
+        // P1 Tactics Subrows
+        p1Rounds.forEach(r => {
+          if (r.tacticId && r.tacticId !== 'none') {
+            tbody.innerHTML += `
+              <tr class="p1-sec-sub" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
+                <td style="padding-left:1.5rem; color:#cbd5e1;"><span style="color:#38bdf8; font-weight:700;">R${r.round}:</span> ⚡ ${r.tacticId}</td>
+                <td colspan="5" style="color:#94a3b8; font-size:11px;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${r.tacticStatus}</strong></td>
+                <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${r.tacticScore || 0}</td>
+              </tr>
+            `;
+          }
+        });
+
+        // Row 4: P2 Primaries (Max 30)
+        let p2PriCells = '';
+        for (let i = 1; i <= 5; i++) {
+          const r = p2Rounds.find(x => x.round === i) || {};
+          p2PriCells += `<td style="font-family:monospace; font-weight:600;">${typeof r.primaryScore === 'number' ? r.primaryScore : '-'}</td>`;
+        }
+        tbody.innerHTML += `
+          <tr>
+            <td style="color:#f43f5e; font-weight:700;">🟥 ${p2Name} Primaries</td>
+            ${p2PriCells}
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2PriTot} / 30</td>
+          </tr>
+        `;
+
+        // Row 5: P2 Battle Tactics (Max 20)
+        let p2TacCells = '';
+        for (let i = 1; i <= 5; i++) {
+          const r = p2Rounds.find(x => x.round === i) || {};
+          const val = r.tacticStatus === 'achieved' ? '+4' : (r.tacticStatus === 'failed' ? '0' : (r.tacticStatus === 'forfeited_double_turn' ? 'Forfeit' : '-'));
+          const col = r.tacticStatus === 'achieved' ? '#10b981' : (r.tacticStatus === 'failed' ? '#ef4444' : '#94a3b8');
+          p2TacCells += `<td style="font-family:monospace; font-weight:700; color:${col};">${val}</td>`;
+        }
+        tbody.innerHTML += `
+          <tr>
+            <td style="color:#fda4af; font-weight:700;">
+              🟥 ${p2Name} Battle Tactics
+              <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('p2-sec-sub')">▼ Details</button>
+            </td>
+            ${p2TacCells}
+            <td style="font-family:monospace; font-weight:800; color:#fff;">${p2SecTot} / 20</td>
+          </tr>
+        `;
+        // P2 Tactics Subrows
+        p2Rounds.forEach(r => {
+          if (r.tacticId && r.tacticId !== 'none') {
+            tbody.innerHTML += `
+              <tr class="p2-sec-sub" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
+                <td style="padding-left:1.5rem; color:#cbd5e1;"><span style="color:#f43f5e; font-weight:700;">R${r.round}:</span> ⚡ ${r.tacticId}</td>
+                <td colspan="5" style="color:#94a3b8; font-size:11px;">Status: <strong style="color:${r.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'}">${r.tacticStatus}</strong></td>
+                <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${r.tacticScore || 0}</td>
+              </tr>
+            `;
+          }
+        });
+
+      } else {
+        // --- 40K MATRIX ROWS (100 VP SCALE) ---
+        function buildPrimaryRow(title, color, roundsArr, maxVal, overrideTotal) {
+          let cells = '';
+          for (let i = 1; i <= 5; i++) {
+            const r = roundsArr && roundsArr.length >= i ? (roundsArr.find(x => (x.round === i || x.battleRound === i)) || roundsArr[i - 1] || {}) : {};
+            const val = typeof r.primaryScore === 'number' ? r.primaryScore : '-';
+            cells += `<td style="font-family:monospace; font-weight:600;">${val}</td>`;
+          }
+          return `
+            <tr>
+              <td style="color:${color}; font-weight:700;">${title}</td>
+              ${cells}
+              <td style="font-family:monospace; font-weight:800; color:#fff;">${overrideTotal} / ${maxVal}</td>
+            </tr>
+          `;
+        }
+
+        function buildSecondaryMatrixRow(title, color, pObj, maxVal, overrideTotal, subClass) {
+          let cells = '';
+          for (let i = 1; i <= 5; i++) {
+            const secs = getPlayerRoundSecondaries(pObj, i);
+            const rTot = secs.reduce((acc, s) => acc + (s.score || 0), 0);
+            cells += `<td style="font-family:monospace; font-weight:600;">${rTot > 0 ? rTot : '-'}</td>`;
+          }
+          return `
+            <tr>
+              <td style="color:${color}; font-weight:700;">
+                ${title}
+                <button class="btn-toggle-sec" onclick="togglePlayerSecondaries('${subClass}')">▼ Details</button>
+              </td>
+              ${cells}
+              <td style="font-family:monospace; font-weight:800; color:#fff;">${overrideTotal} / ${maxVal}</td>
+            </tr>
+          `;
+        }
+
+        function buildSecondaryBreakdownSubRows(playerName, playerColor, pObj, subClass) {
+          let rowsHtml = '';
+          for (let i = 1; i <= 5; i++) {
+            const secs = getPlayerRoundSecondaries(pObj, i);
+            if (secs.length > 0) {
+              secs.forEach(s => {
+                let roundCells = '';
+                for (let c = 1; c <= 5; c++) {
+                  if (c === i) {
+                    roundCells += `<td style="font-family:monospace; color:#38bdf8; font-weight:800; background:rgba(56,189,248,0.06);">+${s.score}</td>`;
+                  } else {
+                    roundCells += `<td style="color:#475569;">-</td>`;
+                  }
+                }
+                rowsHtml += `
+                  <tr class="${subClass}" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
+                    <td style="padding-left:1.5rem; color:#cbd5e1;">
+                      <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${s.name}
+                    </td>
+                    ${roundCells}
+                    <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${s.score}</td>
+                  </tr>
+                `;
+              });
+            }
+          }
+          return rowsHtml;
+        }
+
+        // Group 1: Player 1 Primary & Secondaries
+        tbody.innerHTML += buildPrimaryRow(`🟦 ${p1Name} Primary`, '#38bdf8', p1Rounds, 50, p1PriTot);
+        tbody.innerHTML += buildSecondaryMatrixRow(`🟦 ${p1Name} Secondaries`, '#7dd3fc', p1Obj, 40, p1SecTot, 'p1-sec-sub');
+        tbody.innerHTML += buildSecondaryBreakdownSubRows(p1Name, '#38bdf8', p1Obj, 'p1-sec-sub');
+
+        // Group 2: Player 2 Primary & Secondaries
+        tbody.innerHTML += buildPrimaryRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, 50, p2PriTot);
+        tbody.innerHTML += buildSecondaryMatrixRow(`🟥 ${p2Name} Secondaries`, '#fda4af', p2Obj, 40, p2SecTot, 'p2-sec-sub');
+        tbody.innerHTML += buildSecondaryBreakdownSubRows(p2Name, '#f43f5e', p2Obj, 'p2-sec-sub');
+        
+        // Paint Bonus Row
+        tbody.innerHTML += `
+          <tr style="background: rgba(255,255,255,0.02);">
+            <td style="color:#10b981; font-weight:700;">🎨 Battle Ready (+10)</td>
+            <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:#cbd5e1;">
+              ${p1Name}: ${p1Paint > 0 ? '✓ +10' : '0'} &nbsp;|&nbsp; ${p2Name}: ${p2Paint > 0 ? '✓ +10' : '0'}
+            </td>
+            <td style="font-family:monospace; font-weight:800; color:#10b981;">
+              ${p1Paint + p2Paint}
+            </td>
           </tr>
         `;
       }
 
-      function buildSecondaryBreakdownSubRows(playerName, playerColor, pObj, subClass) {
-        let rowsHtml = '';
-        for (let i = 1; i <= 5; i++) {
-          const secs = getPlayerRoundSecondaries(pObj, i);
-          if (secs.length > 0) {
-            secs.forEach(s => {
-              let roundCells = '';
-              for (let c = 1; c <= 5; c++) {
-                if (c === i) {
-                  roundCells += `<td style="font-family:monospace; color:#38bdf8; font-weight:800; background:rgba(56,189,248,0.06);">+${s.score}</td>`;
-                } else {
-                  roundCells += `<td style="color:#475569;">-</td>`;
-                }
-              }
-              rowsHtml += `
-                <tr class="${subClass}" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
-                  <td style="padding-left:1.5rem; color:#cbd5e1;">
-                    <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${s.name}
-                  </td>
-                  ${roundCells}
-                  <td style="font-family:monospace; font-weight:700; color:#cbd5e1;">+${s.score}</td>
-                </tr>
-              `;
-            });
-          }
-        }
-        return rowsHtml;
-      }
-
-      // Group 1: Player 1 Primary & Secondaries
-      tbody.innerHTML += buildPrimaryRow(`🟦 ${p1Name} Primary`, '#38bdf8', p1Rounds, 50, p1PriTot);
-      tbody.innerHTML += buildSecondaryMatrixRow(`🟦 ${p1Name} Secondaries`, '#7dd3fc', p1Obj, 40, p1SecTot, 'p1-sec-sub');
-      tbody.innerHTML += buildSecondaryBreakdownSubRows(p1Name, '#38bdf8', p1Obj, 'p1-sec-sub');
-
-      // Group 2: Player 2 Primary & Secondaries
-      tbody.innerHTML += buildPrimaryRow(`🟥 ${p2Name} Primary`, '#f43f5e', p2Rounds, 50, p2PriTot);
-      tbody.innerHTML += buildSecondaryMatrixRow(`🟥 ${p2Name} Secondaries`, '#fda4af', p2Obj, 40, p2SecTot, 'p2-sec-sub');
-      tbody.innerHTML += buildSecondaryBreakdownSubRows(p2Name, '#f43f5e', p2Obj, 'p2-sec-sub');
-      
-      // Paint Bonus Row
-      tbody.innerHTML += `
-        <tr style="background: rgba(255,255,255,0.02);">
-          <td style="color:#10b981; font-weight:700;">🎨 Battle Ready (+10)</td>
-          <td colspan="5" style="text-align:center; font-weight:600; font-size:0.8rem; color:#cbd5e1;">
-            ${p1Name}: ${p1Paint > 0 ? '✓ +10' : '0'} &nbsp;|&nbsp; ${p2Name}: ${p2Paint > 0 ? '✓ +10' : '0'}
-          </td>
-          <td style="font-family:monospace; font-weight:800; color:#10b981;">
-            ${p1Paint + p2Paint}
-          </td>
-        </tr>
-      `;
-
-      // Populate Mobile Vertical Round Cards Breakdown
+      // Populate Mobile Vertical Round Cards Breakdown (AoS or 40k)
       const mContainer = document.getElementById('sc-mobile-rounds-container');
       if (mContainer) {
         let mHtml = '';
-        for (let i = 1; i <= 5; i++) {
-          const p1R = p1Rounds && p1Rounds.length >= i ? (p1Rounds.find(x => (x.round === i || x.battleRound === i)) || p1Rounds[i - 1] || {}) : {};
-          const p2R = p2Rounds && p2Rounds.length >= i ? (p2Rounds.find(x => (x.round === i || x.battleRound === i)) || p2Rounds[i - 1] || {}) : {};
+        if (isAos) {
+          for (let i = 1; i <= 5; i++) {
+            const p1R = p1Rounds.find(x => x.round === i) || {};
+            const p2R = p2Rounds.find(x => x.round === i) || {};
+            const p1Pri = typeof p1R.primaryScore === 'number' ? p1R.primaryScore : 0;
+            const p2Pri = typeof p2R.primaryScore === 'number' ? p2R.primaryScore : 0;
+            const p1Tac = typeof p1R.tacticScore === 'number' ? p1R.tacticScore : 0;
+            const p2Tac = typeof p2R.tacticScore === 'number' ? p2R.tacticScore : 0;
+            const p1RoundTotal = p1Pri + p1Tac;
+            const p2RoundTotal = p2Pri + p2Tac;
+            const rInfo = (st.roundState && st.roundState[i]) || {};
+            const winnerText = rInfo.firstTurn === 'p1' ? `${escapeHtml(p1Name)} (1st)` : (rInfo.firstTurn === 'p2' ? `${escapeHtml(p2Name)} (1st)` : '-');
+            const dTurnBadge = rInfo.isDoubleTurn ? '<span style="color:#ef4444; font-weight:800; font-size:0.75rem; margin-left:6px;">⚡ Double Turn</span>' : '';
+            const hasTacDetails = (p1R.tacticId && p1R.tacticId !== 'none') || (p2R.tacticId && p2R.tacticId !== 'none');
 
-          const p1Pri = typeof p1R.primaryScore === 'number' ? p1R.primaryScore : 0;
-          const p2Pri = typeof p2R.primaryScore === 'number' ? p2R.primaryScore : 0;
-
-          const p1SecList = getPlayerRoundSecondaries(p1Obj, i);
-          const p2SecList = getPlayerRoundSecondaries(p2Obj, i);
-
-          const p1Sec = p1SecList.reduce((acc, s) => acc + (s.score || 0), 0);
-          const p2Sec = p2SecList.reduce((acc, s) => acc + (s.score || 0), 0);
-
-          const p1RoundTotal = p1Pri + p1Sec;
-          const p2RoundTotal = p2Pri + p2Sec;
-
-          const hasSecDetails = p1SecList.length > 0 || p2SecList.length > 0;
-
-          mHtml += `
-            <div class="sc-m-card">
-              <div class="sc-m-card-header" onclick="toggleMobileRoundDrawer(${i})">
-                <div class="sc-m-round-title">
-                  <span>⚔️ Round ${i}</span>
+            mHtml += `
+              <div class="sc-m-card">
+                <div class="sc-m-card-header" onclick="toggleMobileRoundDrawer(${i})">
+                  <div class="sc-m-round-title">
+                    <span>⚔️ Round ${i}</span>
+                    <span style="font-size:0.75rem; color:#f59e0b; font-family:monospace; margin-left:6px;">🎲 ${winnerText}</span>
+                    ${dTurnBadge}
+                  </div>
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="sc-m-round-score-chip" style="color:#38bdf8;">${p1RoundTotal} VP</span>
+                    <span style="color:#64748b; font-size:0.75rem;">vs</span>
+                    <span class="sc-m-round-score-chip" style="color:#f43f5e;">${p2RoundTotal} VP</span>
+                  </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                  <span class="sc-m-round-score-chip" style="color:#38bdf8;">${p1RoundTotal} VP</span>
-                  <span style="color:#64748b; font-size:0.75rem;">vs</span>
-                  <span class="sc-m-round-score-chip" style="color:#f43f5e;">${p2RoundTotal} VP</span>
+                <div class="sc-m-card-body">
+                  <div class="sc-m-player-row">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span style="width:8px; height:8px; border-radius:50%; background:#38bdf8; display:inline-block;"></span>
+                      <span style="font-weight:700; color:#38bdf8; font-size:0.85rem;">${escapeHtml(p1Name)}</span>
+                    </div>
+                    <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
+                      <span title="Primary Objectives VP">Pri: <b>${p1Pri}</b></span> • <span title="Battle Tactic VP">Tac: <b>${p1Tac}</b></span>
+                    </div>
+                  </div>
+                  <div class="sc-m-player-row">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span style="width:8px; height:8px; border-radius:50%; background:#f43f5e; display:inline-block;"></span>
+                      <span style="font-weight:700; color:#f43f5e; font-size:0.85rem;">${escapeHtml(p2Name)}</span>
+                    </div>
+                    <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
+                      <span title="Primary Objectives VP">Pri: <b>${p2Pri}</b></span> • <span title="Battle Tactic VP">Tac: <b>${p2Tac}</b></span>
+                    </div>
+                  </div>
+
+                  ${hasTacDetails ? `
+                    <div id="sc-m-sec-drawer-${i}" class="sc-m-sec-drawer" style="display:block;">
+                      <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#94a3b8; margin-bottom:0.35rem;">
+                        Battle Tactics (Round ${i})
+                      </div>
+                      ${p1R.tacticId && p1R.tacticId !== 'none' ? `
+                        <div class="sc-m-sec-item">
+                          <span style="color:#7dd3fc; font-weight:600;">🟦 ${escapeHtml(p1Name)}: ${escapeHtml(p1R.tacticId)}</span>
+                          <span style="font-family:monospace; font-weight:800; color:${p1R.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'};">
+                            ${p1R.tacticStatus === 'achieved' ? '+4 VP' : (p1R.tacticStatus === 'failed' ? '0 VP' : p1R.tacticStatus)}
+                          </span>
+                        </div>
+                      ` : ''}
+                      ${p2R.tacticId && p2R.tacticId !== 'none' ? `
+                        <div class="sc-m-sec-item">
+                          <span style="color:#fda4af; font-weight:600;">🟥 ${escapeHtml(p2Name)}: ${escapeHtml(p2R.tacticId)}</span>
+                          <span style="font-family:monospace; font-weight:800; color:${p2R.tacticStatus === 'achieved' ? '#10b981' : '#ef4444'};">
+                            ${p2R.tacticStatus === 'achieved' ? '+4 VP' : (p2R.tacticStatus === 'failed' ? '0 VP' : p2R.tacticStatus)}
+                          </span>
+                        </div>
+                      ` : ''}
+                    </div>
+                  ` : ''}
                 </div>
               </div>
-              <div class="sc-m-card-body">
-                <div class="sc-m-player-row">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="width:8px; height:8px; border-radius:50%; background:#38bdf8; display:inline-block;"></span>
-                    <span style="font-weight:700; color:#38bdf8; font-size:0.85rem;">${escapeHtml(p1Name)}</span>
-                  </div>
-                  <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
-                    <span title="Primary Mission VP">Pri: <b>${p1Pri}</b></span> • <span title="Secondary Mission VP">Sec: <b>${p1Sec}</b></span>
-                  </div>
-                </div>
-                <div class="sc-m-player-row">
-                  <div style="display:flex; align-items:center; gap:6px;">
-                    <span style="width:8px; height:8px; border-radius:50%; background:#f43f5e; display:inline-block;"></span>
-                    <span style="font-weight:700; color:#f43f5e; font-size:0.85rem;">${escapeHtml(p2Name)}</span>
-                  </div>
-                  <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
-                    <span title="Primary Mission VP">Pri: <b>${p2Pri}</b></span> • <span title="Secondary Mission VP">Sec: <b>${p2Sec}</b></span>
-                  </div>
-                </div>
+            `;
+          }
+        } else {
+          for (let i = 1; i <= 5; i++) {
+            const p1R = p1Rounds && p1Rounds.length >= i ? (p1Rounds.find(x => (x.round === i || x.battleRound === i)) || p1Rounds[i - 1] || {}) : {};
+            const p2R = p2Rounds && p2Rounds.length >= i ? (p2Rounds.find(x => (x.round === i || x.battleRound === i)) || p2Rounds[i - 1] || {}) : {};
 
-                ${hasSecDetails ? `
-                  <div id="sc-m-sec-drawer-${i}" class="sc-m-sec-drawer" style="display:block;">
-                    <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#94a3b8; margin-bottom:0.35rem;">
-                      Secondary Missions Drawn / Scored (Round ${i})
-                    </div>
-                    ${p1SecList.map(s => `
-                      <div class="sc-m-sec-item">
-                        <span style="color:#7dd3fc; font-weight:600;">🟦 ${escapeHtml(p1Name)}: ${escapeHtml(s.name)}</span>
-                        <span style="font-family:monospace; font-weight:800; color:#fff;">+${s.score} VP</span>
-                      </div>
-                    `).join('')}
-                    ${p2SecList.map(s => `
-                      <div class="sc-m-sec-item">
-                        <span style="color:#fda4af; font-weight:600;">🟥 ${escapeHtml(p2Name)}: ${escapeHtml(s.name)}</span>
-                        <span style="font-family:monospace; font-weight:800; color:#fff;">+${s.score} VP</span>
-                      </div>
-                    `).join('')}
+            const p1Pri = typeof p1R.primaryScore === 'number' ? p1R.primaryScore : 0;
+            const p2Pri = typeof p2R.primaryScore === 'number' ? p2R.primaryScore : 0;
+
+            const p1SecList = getPlayerRoundSecondaries(p1Obj, i);
+            const p2SecList = getPlayerRoundSecondaries(p2Obj, i);
+
+            const p1Sec = p1SecList.reduce((acc, s) => acc + (s.score || 0), 0);
+            const p2Sec = p2SecList.reduce((acc, s) => acc + (s.score || 0), 0);
+
+            const p1RoundTotal = p1Pri + p1Sec;
+            const p2RoundTotal = p2Pri + p2Sec;
+
+            const hasSecDetails = p1SecList.length > 0 || p2SecList.length > 0;
+
+            mHtml += `
+              <div class="sc-m-card">
+                <div class="sc-m-card-header" onclick="toggleMobileRoundDrawer(${i})">
+                  <div class="sc-m-round-title">
+                    <span>⚔️ Round ${i}</span>
                   </div>
-                ` : ''}
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="sc-m-round-score-chip" style="color:#38bdf8;">${p1RoundTotal} VP</span>
+                    <span style="color:#64748b; font-size:0.75rem;">vs</span>
+                    <span class="sc-m-round-score-chip" style="color:#f43f5e;">${p2RoundTotal} VP</span>
+                  </div>
+                </div>
+                <div class="sc-m-card-body">
+                  <div class="sc-m-player-row">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span style="width:8px; height:8px; border-radius:50%; background:#38bdf8; display:inline-block;"></span>
+                      <span style="font-weight:700; color:#38bdf8; font-size:0.85rem;">${escapeHtml(p1Name)}</span>
+                    </div>
+                    <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
+                      <span title="Primary Mission VP">Pri: <b>${p1Pri}</b></span> • <span title="Secondary Mission VP">Sec: <b>${p1Sec}</b></span>
+                    </div>
+                  </div>
+                  <div class="sc-m-player-row">
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span style="width:8px; height:8px; border-radius:50%; background:#f43f5e; display:inline-block;"></span>
+                      <span style="font-weight:700; color:#f43f5e; font-size:0.85rem;">${escapeHtml(p2Name)}</span>
+                    </div>
+                    <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
+                      <span title="Primary Mission VP">Pri: <b>${p2Pri}</b></span> • <span title="Secondary Mission VP">Sec: <b>${p2Sec}</b></span>
+                    </div>
+                  </div>
+
+                  ${hasSecDetails ? `
+                    <div id="sc-m-sec-drawer-${i}" class="sc-m-sec-drawer" style="display:block;">
+                      <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#94a3b8; margin-bottom:0.35rem;">
+                        Secondary Missions Drawn / Scored (Round ${i})
+                      </div>
+                      ${p1SecList.map(s => `
+                        <div class="sc-m-sec-item">
+                          <span style="color:#7dd3fc; font-weight:600;">🟦 ${escapeHtml(p1Name)}: ${escapeHtml(s.name)}</span>
+                          <span style="font-family:monospace; font-weight:800; color:#fff;">+${s.score} VP</span>
+                        </div>
+                      `).join('')}
+                      ${p2SecList.map(s => `
+                        <div class="sc-m-sec-item">
+                          <span style="color:#fda4af; font-weight:600;">🟥 ${escapeHtml(p2Name)}: ${escapeHtml(s.name)}</span>
+                          <span style="font-family:monospace; font-weight:800; color:#fff;">+${s.score} VP</span>
+                        </div>
+                      `).join('')}
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          }
+
+          // Paint bonus card
+          mHtml += `
+            <div class="sc-m-card" style="border-color:rgba(16,185,129,0.35); background:rgba(16,185,129,0.04);">
+              <div class="sc-m-card-header" style="background:rgba(16,185,129,0.12);">
+                <div class="sc-m-round-title" style="color:#10b981;">
+                  <span>🎨 Battle Ready Painting (+10 VP)</span>
+                </div>
+                <span class="sc-m-round-score-chip" style="color:#10b981;">+10 Standard</span>
+              </div>
+              <div class="sc-m-card-body" style="padding:0.6rem 1rem;">
+                <div class="sc-m-player-row">
+                  <span style="color:#38bdf8; font-weight:600;">🟦 ${escapeHtml(p1Name)}</span>
+                  <span style="font-family:monospace; font-weight:700; color:#10b981;">${p1Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
+                </div>
+                <div class="sc-m-player-row">
+                  <span style="color:#f43f5e; font-weight:600;">🟥 ${escapeHtml(p2Name)}</span>
+                  <span style="font-family:monospace; font-weight:700; color:#10b981;">${p2Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
+                </div>
               </div>
             </div>
           `;
         }
-
-        // Paint bonus card
-        mHtml += `
-          <div class="sc-m-card" style="border-color:rgba(16,185,129,0.35); background:rgba(16,185,129,0.04);">
-            <div class="sc-m-card-header" style="background:rgba(16,185,129,0.12);">
-              <div class="sc-m-round-title" style="color:#10b981;">
-                <span>🎨 Battle Ready Painting (+10 VP)</span>
-              </div>
-              <span class="sc-m-round-score-chip" style="color:#10b981;">+10 Standard</span>
-            </div>
-            <div class="sc-m-card-body" style="padding:0.6rem 1rem;">
-              <div class="sc-m-player-row">
-                <span style="color:#38bdf8; font-weight:600;">🟦 ${escapeHtml(p1Name)}</span>
-                <span style="font-family:monospace; font-weight:700; color:#10b981;">${p1Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
-              </div>
-              <div class="sc-m-player-row">
-                <span style="color:#f43f5e; font-weight:600;">🟥 ${escapeHtml(p2Name)}</span>
-                <span style="font-family:monospace; font-weight:700; color:#10b981;">${p2Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
-              </div>
-            </div>
-          </div>
-        `;
 
         mContainer.innerHTML = mHtml;
       }

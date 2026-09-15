@@ -64,6 +64,54 @@ ROOMS_DB = {
                 ]
             }
         }
+    },
+    "AOS-DEV1": {
+        "is_finished": False,
+        "status": "active",
+        "game_system": "aos",
+        "state": {
+            "id": "AOS-DEV1",
+            "gameSystem": "aos",
+            "edition": "4e-ghb24",
+            "battleplan": {
+                "id": "border-war",
+                "name": "Border War",
+                "maxPrimaryPerRound": 6
+            },
+            "round": 3,
+            "currentTurnPlayer": "p1",
+            "started": True,
+            "is_finished": False,
+            "roundState": {
+                "1": {"priorityWinner": "p1", "firstTurn": "p1", "secondTurn": "p2", "isDoubleTurn": False, "forfeitsBattleTactic": False},
+                "2": {"priorityWinner": "p2", "firstTurn": "p2", "secondTurn": "p1", "isDoubleTurn": False, "forfeitsBattleTactic": False},
+                "3": {"priorityWinner": "p1", "firstTurn": "p1", "secondTurn": "p2", "isDoubleTurn": False, "forfeitsBattleTactic": False}
+            },
+            "p1": {
+                "name": "Innes Wilson",
+                "grandAlliance": "Order",
+                "faction": "stormcast-eternals",
+                "battleFormation": "Lightning Echelon",
+                "cp": 2,
+                "rounds": [
+                    {"round": 1, "primaryScore": 6, "tacticStatus": "achieved", "tacticScore": 4, "tacticId": "take-the-flanks"},
+                    {"round": 2, "primaryScore": 4, "tacticStatus": "achieved", "tacticScore": 4, "tacticId": "seize-the-centre"},
+                    {"round": 3, "primaryScore": 4, "tacticStatus": "selected", "tacticScore": 0, "tacticId": "slay-the-warlord"}
+                ]
+            },
+            "p2": {
+                "name": "David Gaylard",
+                "grandAlliance": "Chaos",
+                "faction": "skaven",
+                "battleFormation": "Warpcog Convocation",
+                "cp": 3,
+                "rounds": [
+                    {"round": 1, "primaryScore": 4, "tacticStatus": "achieved", "tacticScore": 4, "tacticId": "restless-incursion"},
+                    {"round": 2, "primaryScore": 4, "tacticStatus": "failed", "tacticScore": 0, "tacticId": "attack-on-two-fronts"},
+                    {"round": 3, "primaryScore": 4, "tacticStatus": "selected", "tacticScore": 0, "tacticId": "surge-of-power"}
+                ]
+            }
+        }
     }
 }
 
@@ -1193,13 +1241,35 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
             return
 
+        # 3b. AoS Game Tracker Play SPA
+        if clean_path in ("11th/tracker/aos", "tracker/aos", "tracker/aos.html", "aos/tracker"):
+            qp = urllib.parse.parse_qs(query_str)
+            role = qp.get("role", [None])[0]
+            spectate = qp.get("spectate", [None])[0]
+            match_id = qp.get("match_id", [None])[0] or qp.get("room", [None])[0] or qp.get("id", [None])[0]
+            if (role == "spectator" or spectate == "true") and match_id:
+                self.send_response(302)
+                self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")
+                self.end_headers()
+                return
+            self._serve_html_with_auth(TRACKER_DIR / "aos.html", is_head)
+            return
+
         # 4. Bundle & Sync Assets
-        if clean_path in ("tracker/bundle.js", "11th/tracker/bundle.js", "bundle.js"):
-            self._serve_file(TRACKER_DIR / "bundle.js", "application/javascript; charset=utf-8", is_head)
+        if clean_path in ("tracker/bundle.js", "11th/tracker/bundle.js", "bundle.js", "tracker/bundle_40k.js"):
+            self._serve_file(TRACKER_DIR / "bundle_40k.js", "application/javascript; charset=utf-8", is_head)
+            return
+
+        if clean_path in ("tracker/bundle_aos.js", "11th/tracker/bundle_aos.js", "bundle_aos.js"):
+            self._serve_file(TRACKER_DIR / "bundle_aos.js", "application/javascript; charset=utf-8", is_head)
             return
 
         if clean_path in ("tracker/tracker_sync.js", "11th/tracker/tracker_sync.js"):
             self._serve_file(TRACKER_DIR / "tracker_sync.js", "application/javascript; charset=utf-8", is_head)
+            return
+
+        if clean_path in ("tracker/tracker_sync_aos.js", "11th/tracker/tracker_sync_aos.js"):
+            self._serve_file(TRACKER_DIR / "tracker_sync_aos.js", "application/javascript; charset=utf-8", is_head)
             return
 
         if clean_path in ("tracker/tracker_sync.css", "11th/tracker/tracker_sync.css"):
