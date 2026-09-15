@@ -98,7 +98,14 @@ function renderPlayersDirectoryRows() {
         </div>
       </td>
       <td class="col-faction">
-        ${(p.top_faction || 'Various').split(',').map(f => `<span class="faction-pill" title="${escapeHtml(f.trim())}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f.trim())}</span>`).join('')}
+        ${(() => {
+          const rawFacs = (p.top_faction || 'Various').split(',').map(f => f.trim()).filter(Boolean);
+          const showCount = 2;
+          const visible = rawFacs.slice(0, showCount);
+          const remaining = rawFacs.length - visible.length;
+          return visible.map(f => `<span class="faction-pill" title="${escapeHtml(f)}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f)}</span>`).join('') +
+            (remaining > 0 ? `<span class="faction-pill" title="${escapeHtml(rawFacs.slice(showCount).join(', '))}" style="margin:2px 3px 2px 0; display:inline-block; opacity:0.85; font-size:0.72rem; cursor:help;">+${remaining}</span>` : '');
+        })()}
       </td>
       <td>
         ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(p.current_elo, p.matches_played) : `<span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>`}

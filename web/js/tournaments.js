@@ -10,6 +10,36 @@ let currentEventData = null;
 let currentEventModalTab = 'results';
 let eventModalSearchQuery = '';
 
+function formatPlayerFaction(rawFaction, maxFactions = 1, isEventContext = false) {
+  if (!rawFaction) return isEventContext ? 'Unassigned' : 'Various';
+  if (Array.isArray(rawFaction)) {
+    rawFaction = rawFaction.join(', ');
+  }
+  const str = String(rawFaction).trim();
+  if (!str || str.toLowerCase() === 'unknown' || str.toLowerCase() === 'unassigned') {
+    return isEventContext ? 'Unassigned' : 'Various';
+  }
+  const parts = str.split(',').map(s => s.trim()).filter(Boolean);
+  if (parts.length === 0) return isEventContext ? 'Unassigned' : 'Various';
+  if (parts.length === 1) return parts[0];
+  if (isEventContext || maxFactions === 1) {
+    return parts[0];
+  }
+  if (parts.length <= maxFactions) {
+    return parts.join(', ');
+  }
+  return `${parts.slice(0, maxFactions).join(', ')} +${parts.length - maxFactions}`;
+}
+
+function formatEventPlayerFaction(rawFaction, maxFactions = 1) {
+  return formatPlayerFaction(rawFaction, maxFactions, true);
+}
+
+if (typeof window !== 'undefined') {
+  window.formatPlayerFaction = formatPlayerFaction;
+  window.formatEventPlayerFaction = formatEventPlayerFaction;
+}
+
 function debounceEventSearch() {
   clearTimeout(eventSearchTimeout);
   eventSearchTimeout = setTimeout(() => {
@@ -255,6 +285,11 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const modal = document.getElementById('event-modal');
   if (!modal) return;
 
+  // Reset cached registration if opening a different tournament
+  if (!currentEventData || String(currentEventData.id) !== String(eventId)) {
+    currentEventRegistration = null;
+  }
+
   // Set active tab immediately to prevent visual flashing (default to teams for team tournaments, results otherwise)
   const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
   switchEventModalTab(initialTab || (guessedIsTeam ? 'teams' : 'results'));
@@ -262,7 +297,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const subtabPlayerInit = document.getElementById('event-subtab-player');
   const subtabTeamsInit = document.getElementById('event-subtab-teams');
   const subtabEloInit = document.getElementById('event-subtab-elo');
-  if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', (initialTab === 'player') ? 'inline-flex' : 'none', 'important');
+  if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', 'none', 'important');
   if (subtabTeamsInit) {
     if (guessedIsTeam) {
       subtabTeamsInit.style.setProperty('display', 'inline-flex', 'important');
@@ -513,6 +548,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
         }
       }
     } else {
+      currentEventRegistration = null;
       if (subtabPlayer) subtabPlayer.style.setProperty('display', 'none', 'important');
       if (currentEventModalTab === 'player') {
         currentEventModalTab = isTeamEvent ? 'teams' : 'results';
@@ -849,7 +885,8 @@ function switchEventModalTab(tabKey) {
     currentEventRegistration?.is_ended === true ||
     currentEventRegistration?.status?.ended === true
   );
-  if (tabKey === 'player' && isEnded) {
+  const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
+  if (tabKey === 'player' && (!isRegistered || isEnded)) {
     const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
     tabKey = isTeam ? 'teams' : 'results';
   }
@@ -1083,7 +1120,7 @@ function renderEventTeamsRows() {
 
         const memberRowsHtml = members.map((m, mIdx) => {
           const mName = escapeHtml(m.full_name || m.player_name || m.name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
-          const mFac = escapeHtml(m.faction || 'Unknown');
+          const mFac = escapeHtml(formatEventPlayerFaction(m.faction || m.army_name || 'Unknown'));
           const mElo = Math.round(Number(m.current_elo || m.elo || 1500));
           const mBadge = getEloBadgeClass(mElo);
           const isCap = Boolean(m.is_captain || String(m.role || '').toLowerCase() === 'captain');
@@ -1212,7 +1249,7 @@ function renderEventTeamsRows() {
 
         const uRowsHtml = unassigned.map((m, mIdx) => {
           const mName = escapeHtml(m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
-          const mFac = escapeHtml(m.faction || 'Unknown');
+          const mFac = escapeHtml(formatEventPlayerFaction(m.faction || m.army_name || 'Unknown'));
           const mElo = m.current_elo ? Math.round(m.current_elo) : 1500;
           return `
             <div class="team-member-grid" style="border-bottom:${mIdx < unassigned.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none'};">
@@ -1367,12 +1404,12 @@ function renderEventResultsRows() {
 
   let playersToRender = eventPlayersCache;
   if (typeof eventHubFactionFilter !== 'undefined' && eventHubFactionFilter && eventHubFactionFilter.toLowerCase() !== 'all') {
-    playersToRender = playersToRender.filter(p => String(p.faction || '').trim().toLowerCase() === eventHubFactionFilter.toLowerCase());
+    playersToRender = playersToRender.filter(p => formatEventPlayerFaction(p.faction || p.army_name).toLowerCase() === eventHubFactionFilter.toLowerCase());
   }
   if (eventModalSearchQuery) {
     playersToRender = playersToRender.filter(p => {
       const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
-      const fac = (p.faction || '').toLowerCase();
+      const fac = formatEventPlayerFaction(p.faction || p.army_name).toLowerCase();
       const team = (p.team || '').toLowerCase();
       return name.includes(eventModalSearchQuery) || fac.includes(eventModalSearchQuery) || team.includes(eventModalSearchQuery);
     });
@@ -1458,16 +1495,20 @@ function renderEventResultsRows() {
       ? `<span class="badge" style="font-family:var(--font-mono); font-size:0.72rem; padding:1px 6px; margin-left:6px; background:${netEloBg}; color:${netEloColor}; border:1px solid ${netEloBorder}; font-weight:700;" title="Tournament Net Elo Change">${netEloStr}</span>`
       : '';
 
+    const displayFac = formatEventPlayerFaction(p.faction || p.army_name);
+
     tr.innerHTML = `
       <td class="rank-cell">${rankDisplay}</td>
-      <td>
+      <td style="max-width:220px;">
         <div class="player-name-cell">
-          <span class="player-link">${escapeHtml(p.full_name || 'Player')}</span>
+          <span class="player-link" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.full_name || 'Player')}">${escapeHtml(p.full_name || 'Player')}</span>
           ${teamHtml}
         </div>
       </td>
-      <td>
-        <span class="badge" style="background:var(--bg-card); border:1px solid var(--border);">${escapeHtml(p.faction || 'Unknown')}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}</span>
+      <td style="max-width:200px;">
+        <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
+          ${escapeHtml(displayFac)}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}
+        </span>
       </td>
       ${recordDisplay}
       ${pointsDisplay}
@@ -2996,11 +3037,13 @@ function getEventKpiSummary(ev) {
       if (topPlayer) {
         leaderName = topPlayer.full_name || topPlayer.player_name || topPlayer.name || 'Competitor';
         const recStr = `${topPlayer.event_wins || topPlayer.wins || 0}W-${topPlayer.event_losses || topPlayer.losses || 0}L${topPlayer.event_draws || topPlayer.draws ? '-' + (topPlayer.event_draws || topPlayer.draws) + 'D' : ''}`;
-        leaderSub = `${topPlayer.faction || 'Unknown'} • ${recStr}`;
+        const topPlayerFac = formatEventPlayerFaction(topPlayer.faction || topPlayer.army_name);
+        leaderSub = `${topPlayerFac} • ${recStr}`;
       }
     } else if (topSeedPlayer) {
       leaderName = topSeedPlayer.full_name || topSeedPlayer.player_name || topSeedPlayer.name || 'Competitor';
-      leaderSub = `${topSeedPlayer.faction || 'Unknown'} • ${Number(topSeedPlayer.current_elo || topSeedPlayer.elo || 1500).toFixed(1)} Elo`;
+      const seedFac = formatEventPlayerFaction(topSeedPlayer.faction || topSeedPlayer.army_name);
+      leaderSub = `${seedFac} • ${Number(topSeedPlayer.current_elo || topSeedPlayer.elo || 1500).toFixed(1)} Elo`;
     }
   }
 
@@ -3049,11 +3092,11 @@ function renderQuickEventModal(ev, userRegData) {
   // Personal Registration Status Banner
   const regBanner = document.getElementById('modal-quick-reg-banner');
   if (regBanner) {
-    if (userRegData && userRegData.is_registered) {
+    if (userRegData && userRegData.is_registered && !kpi.ended) {
       const preg = userRegData.player_registration || userRegData.player || {};
       const checkedIn = Boolean(preg.checked_in);
       const dropped = Boolean(preg.dropped);
-      const fac = preg.faction || 'Faction Pending';
+      const fac = formatEventPlayerFaction(preg.faction || preg.army_name || 'Faction Pending');
       const statusText = dropped ? '🚫 Dropped' : (checkedIn ? '✅ Checked In' : '⚠️ Not Checked In');
       regBanner.style.display = 'block';
       regBanner.innerHTML = `
@@ -3204,12 +3247,12 @@ function renderQuickModalTable() {
   // Default: Players Standings / Roster view
   thead.innerHTML = `
     <tr>
-      <th style="width:60px; padding:0.55rem 0.75rem;">Rank</th>
-      <th style="padding:0.55rem 0.75rem;">Competitor</th>
-      <th style="padding:0.55rem 0.75rem;">Faction</th>
-      <th style="padding:0.55rem 0.75rem;">Record / Status</th>
-      <th style="padding:0.55rem 0.75rem;">Elo & Net Δ</th>
-      <th style="text-align:right; padding:0.55rem 0.75rem;">List</th>
+      <th style="width:55px; text-align:center; padding:0.55rem 0.6rem;">Rank</th>
+      <th style="min-width:130px; padding:0.55rem 0.65rem;">Competitor</th>
+      <th style="min-width:110px; max-width:160px; padding:0.55rem 0.65rem;">Faction</th>
+      <th style="width:105px; text-align:center; padding:0.55rem 0.65rem;">Record / Status</th>
+      <th style="width:95px; text-align:center; padding:0.55rem 0.65rem;">Elo & Net Δ</th>
+      <th style="width:60px; text-align:right; padding:0.55rem 0.65rem;">List</th>
     </tr>
   `;
 
@@ -3228,7 +3271,7 @@ function renderQuickModalTable() {
   if (quickModalSearchQuery) {
     players = players.filter(p => {
       const name = (p.full_name || '').toLowerCase();
-      const fac = (p.faction || '').toLowerCase();
+      const fac = formatEventPlayerFaction(p.faction || p.army_name).toLowerCase();
       const team = (p.team || '').toLowerCase();
       return name.includes(quickModalSearchQuery) || fac.includes(quickModalSearchQuery) || team.includes(quickModalSearchQuery);
     });
@@ -3242,6 +3285,7 @@ function renderQuickModalTable() {
   tbody.innerHTML = players.map((p, idx) => {
     const safePid = String(p.player_id || p.id || '').trim();
     const safeName = String(p.full_name || 'Player').trim();
+    const displayFac = formatEventPlayerFaction(p.faction || p.army_name);
     const hasPlacement = Boolean(p.placement && p.placement > 0);
     const rankStr = (kpi.hasMatchesPlayed && hasPlacement) ? `#${p.placement}` : `#${idx + 1}`;
     const drawStr = p.event_draws ? `-${p.event_draws}D` : '';
@@ -3258,20 +3302,22 @@ function renderQuickModalTable() {
 
     return `
       <tr style="cursor:pointer;" onclick="event.stopPropagation(); closeModal('event-modal'); if (typeof openPlayerProfilePage === 'function' && '${safePid}') { openPlayerProfilePage('${safePid}'); } else { openPlayerModal('${safePid}', '${escapeHtml(safeName)}'); }">
-        <td class="rank-cell" style="padding:0.5rem 0.75rem;">${rankStr}</td>
-        <td style="padding:0.5rem 0.75rem;">
-          <div style="font-weight:600; color:#38bdf8;">${escapeHtml(safeName)}</div>
-          ${p.team ? `<div style="font-size:0.72rem; color:var(--text-muted);">🛡️ ${escapeHtml(p.team)}</div>` : ''}
+        <td class="rank-cell" style="width:55px; text-align:center; padding:0.5rem 0.6rem;">${rankStr}</td>
+        <td style="min-width:130px; max-width:180px; padding:0.5rem 0.65rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+          <div style="font-weight:600; color:#38bdf8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</div>
+          ${p.team ? `<div style="font-size:0.72rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.team)}">🛡️ ${escapeHtml(p.team)}</div>` : ''}
         </td>
-        <td style="padding:0.5rem 0.75rem;">
-          <span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.74rem;">${escapeHtml(p.faction || 'Unknown')}</span>
+        <td style="min-width:110px; max-width:160px; padding:0.5rem 0.65rem;">
+          <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.74rem; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
+            ${escapeHtml(displayFac)}
+          </span>
         </td>
-        <td style="padding:0.5rem 0.75rem;">${recordHtml}</td>
-        <td style="padding:0.5rem 0.75rem;">
+        <td style="width:105px; text-align:center; padding:0.5rem 0.65rem; white-space:nowrap;">${recordHtml}</td>
+        <td style="width:95px; text-align:center; padding:0.5rem 0.65rem; white-space:nowrap;">
           <span class="elo-badge ${getEloBadgeClass(p.current_elo)}" style="font-size:0.78rem;">${Number(p.current_elo || 1500).toFixed(1)}</span>
           ${netPill}
         </td>
-        <td style="padding:0.5rem 0.75rem; text-align:right;">
+        <td style="width:60px; padding:0.5rem 0.65rem; text-align:right;">
           <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;">
             📋 List
           </button>
@@ -3372,7 +3418,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       ev = detailsRes.value;
       userRegData = (regRes.status === 'fulfilled' && regRes.value && !regRes.value.error) ? regRes.value : null;
       currentEventData = ev;
-      currentEventRegistration = userRegData;
+      currentEventRegistration = (userRegData && userRegData.is_registered) ? userRegData : null;
     }
 
     eventMatchesCache = ev.matches || [];
@@ -3403,7 +3449,7 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     }
 
     const ended = isEventEnded(ev, userRegData);
-    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered);
+    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered && !ended);
     const subtabPlayer = document.getElementById('event-subtab-player');
     if (subtabPlayer) {
       subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
@@ -3419,6 +3465,9 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     let targetTab = options.initialTab;
     if (targetTab === 'teams' && !isTeamEvent && teamsList.length === 0) {
       targetTab = 'results';
+    }
+    if (targetTab === 'player' && !shouldShowPlayerTab) {
+      targetTab = (isTeamEvent || teamsList.length > 0) ? 'teams' : 'results';
     }
     if (!targetTab) {
       if (shouldShowPlayerTab && !ended) {
@@ -3474,8 +3523,8 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
   const facCounts = new Map();
   const facStats = new Map();
   kpi.players.forEach(p => {
-    const f = (p.faction || '').trim();
-    if (!f || f.toLowerCase() === 'unknown' || f.toLowerCase() === 'unassigned') return;
+    const f = formatEventPlayerFaction(p.faction || p.army_name);
+    if (!f || f === 'Unknown' || f === 'Unassigned' || f === 'Various') return;
     facCounts.set(f, (facCounts.get(f) || 0) + 1);
     if (!facStats.has(f)) facStats.set(f, { wins: 0, games: 0 });
     const st = facStats.get(f);
@@ -3577,13 +3626,13 @@ function populateEventHubFactionFilter(players) {
   const select = document.getElementById('event-hub-faction-filter');
   if (!select) return;
   const facs = Array.from(new Set(
-    (players || []).map(p => (p.faction || '').trim()).filter(f => f && f.toLowerCase() !== 'unknown')
+    (players || []).map(p => formatEventPlayerFaction(p.faction || p.army_name)).filter(f => f && f !== 'Unknown' && f !== 'Unassigned' && f !== 'Various')
   )).sort();
 
   const currentVal = select.value || 'All';
   select.innerHTML = `<option value="All">All Factions (${(players || []).length})</option>` +
     facs.map(f => {
-      const cnt = (players || []).filter(p => (p.faction || '').trim() === f).length;
+      const cnt = (players || []).filter(p => formatEventPlayerFaction(p.faction || p.army_name) === f).length;
       return `<option value="${escapeHtml(f)}">${escapeHtml(f)} (${cnt})</option>`;
     }).join('');
   if (facs.includes(currentVal)) {
@@ -3757,7 +3806,8 @@ function renderEventMetaAndHighlights(ev) {
   // Faction breakdown table
   const facMap = new Map();
   players.forEach(p => {
-    const fac = (p.faction || 'Unknown').trim();
+    const fac = formatEventPlayerFaction(p.faction || p.army_name);
+    if (!fac || fac === 'Unknown' || fac === 'Unassigned' || fac === 'Various') return;
     if (!facMap.has(fac)) {
       facMap.set(fac, {
         faction: fac,
@@ -3831,7 +3881,7 @@ function renderEventMetaAndHighlights(ev) {
           ${overperformer ? escapeHtml(overperformer.full_name || 'Player') : 'Awaiting Completed Rounds'}
         </div>
         <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:0.2rem;">
-          ${overperformer ? `${escapeHtml(overperformer.faction || 'Unknown')} • ${overperformer.event_wins || 0}W-${overperformer.event_losses || 0}L` : 'Calculated from tournament games'}
+          ${overperformer ? `${escapeHtml(formatEventPlayerFaction(overperformer.faction || overperformer.army_name))} • ${overperformer.event_wins || 0}W-${overperformer.event_losses || 0}L` : 'Calculated from tournament games'}
         </div>
       </div>
 
@@ -3857,7 +3907,7 @@ function renderEventMetaAndHighlights(ev) {
           ${topScorer && topScorer.event_battle_points ? escapeHtml(topScorer.full_name || 'Player') : 'Awaiting Match Scores'}
         </div>
         <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:0.2rem;">
-          ${topScorer && topScorer.event_battle_points ? `${escapeHtml(topScorer.faction || 'Unknown')} • ${(topScorer.event_battle_points / Math.max(1, topScorer.event_matches_count || 1)).toFixed(1)} pts/game` : 'Total Battle Points across all rounds'}
+          ${topScorer && topScorer.event_battle_points ? `${escapeHtml(formatEventPlayerFaction(topScorer.faction || topScorer.army_name))} • ${(topScorer.event_battle_points / Math.max(1, topScorer.event_matches_count || 1)).toFixed(1)} pts/game` : 'Total Battle Points across all rounds'}
         </div>
       </div>
     </div>
@@ -3918,15 +3968,16 @@ function openEventPlayerListModal(playerIdentifier) {
   const contentEl = document.getElementById('event-army-list-modal-content');
   const btnProfile = document.getElementById('btn-army-list-view-profile');
 
+  const modalFac = formatEventPlayerFaction(p?.faction || p?.army_name || 'Faction Unspecified');
   if (titleEl) titleEl.innerText = `${p?.full_name || playerIdentifier || 'Competitor'} — Army Roster`;
-  if (subEl) subEl.innerText = `${p?.faction || 'Faction Unspecified'}${p?.detachment ? ` • ${p.detachment}` : ''}${p?.team ? ` • 🛡️ ${p.team}` : ''}`;
+  if (subEl) subEl.innerText = `${modalFac}${p?.detachment ? ` • ${p.detachment}` : ''}${p?.team ? ` • 🛡️ ${p.team}` : ''}`;
 
   const listText = (p?.army_list || p?.army_list_text || p?.raw_list || p?.list_text || '').trim();
   if (contentEl) {
     if (listText) {
       contentEl.innerText = listText;
     } else {
-      contentEl.innerText = `No army list text has been published on BCP for ${p?.full_name || 'this competitor'} yet.\n\nCompetitor Details:\n• Faction: ${p?.faction || 'Unknown'}\n• Detachment: ${p?.detachment || 'Unspecified'}\n• Current Elo: ${Number(p?.current_elo || 1500).toFixed(1)}`;
+      contentEl.innerText = `No army list text has been published on BCP for ${p?.full_name || 'this competitor'} yet.\n\nCompetitor Details:\n• Faction: ${modalFac}\n• Detachment: ${p?.detachment || 'Unspecified'}\n• Current Elo: ${Number(p?.current_elo || 1500).toFixed(1)}`;
     }
   }
 

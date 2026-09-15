@@ -265,7 +265,14 @@ function renderLeaderboardRows() {
         </span>
       </td>
       <td class="col-faction">
-        ${(p.top_faction || 'Various').split(',').map(f => `<span class="faction-pill" title="${escapeHtml(f.trim())}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f.trim())}</span>`).join('')}
+        ${(() => {
+          const rawFacs = (p.top_faction || 'Various').split(',').map(f => f.trim()).filter(Boolean);
+          const showCount = 2;
+          const visible = rawFacs.slice(0, showCount);
+          const remaining = rawFacs.length - visible.length;
+          return visible.map(f => `<span class="faction-pill" title="${escapeHtml(f)}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f)}</span>`).join('') +
+            (remaining > 0 ? `<span class="faction-pill" title="${escapeHtml(rawFacs.slice(showCount).join(', '))}" style="margin:2px 3px 2px 0; display:inline-block; opacity:0.85; font-size:0.72rem; cursor:help;">+${remaining}</span>` : '');
+        })()}
       </td>
       <td class="col-last-active" style="font-size:0.8rem; color:var(--text-muted); font-family:var(--font-mono);">
         ${(p.last_active_date || '').slice(0, 10) || '-'}

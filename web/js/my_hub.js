@@ -327,10 +327,10 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
               );
 
               return `
-                <div class="hub-event-item-card">
+                <div class="hub-event-item-card" style="cursor: pointer;" onclick="openEventModal('${encodeURIComponent(evId)}', true)">
                   <div class="hub-event-header">
                     <div style="min-width: 0; flex: 1;">
-                      <span class="hub-event-title" onclick="openEventModal('${encodeURIComponent(evId)}', true, ${isEnded ? "'results'" : "'player'"})">
+                      <span class="hub-event-title">
                         ${escapeHtml(evName)}
                       </span>
                     </div>
@@ -354,24 +354,6 @@ function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
                         ${ev.detachment ? `<span style="color: var(--text-muted);"> (${escapeHtml(ev.detachment)})</span>` : ''}
                       </span>
                       ${listStatus}
-                    </div>
-
-                    <div class="hub-event-actions">
-                      <a href="${bcpUrl}" target="_blank" rel="noopener" class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="event.stopPropagation()">
-                        BCP ↗
-                      </a>
-                      ${isEnded ? `
-                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', true, 'results')">
-                          🏆 Results & Placings
-                        </button>
-                      ` : `
-                        <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa;" onclick="openEventModal('${encodeURIComponent(evId)}', true, 'player')">
-                          👤 Manage / Check In
-                        </button>
-                      `}
-                      <button class="hub-card-action-btn" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;" onclick="openEventModal('${encodeURIComponent(evId)}', true)">
-                        Roster ➔
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -455,11 +437,8 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
         </div>
       </div>
       <div style="display: flex; gap: 0.5rem; margin-top: 8px;">
-        <button class="hub-card-action-btn" style="flex: 1; font-size: 0.75rem; padding: 0.35rem 0.6rem; background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #60a5fa; text-align: center;" onclick="openEventModal('${encodeURIComponent(evId)}', true, 'player')">
-          👤 Manage / Check In
-        </button>
-        <button class="hub-view-all-btn" style="flex: 1.2; margin-top: 0;" onclick="switchHubMobileTab('events')">
-          <span>View All (${events.length})</span>
+        <button class="hub-view-all-btn" style="flex: 1; margin-top: 0;" onclick="switchHubMobileTab('events')">
+          <span>View All Registered Tournaments (${events.length})</span>
           <span class="hub-btn-arrow">➔</span>
         </button>
       </div>
@@ -832,7 +811,7 @@ function renderMyHub(data) {
               </div>
               <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
                 <span style="display: inline-flex; align-items: center; gap: 4px;">
-                  Primary Army: <b style="color: var(--accent);">${escapeHtml(p.top_faction || (window.connectState?.userProfile?.factions) || 'General (Any Army)')}</b>
+                  Primary Army: <b style="color: var(--accent);">${escapeHtml(typeof formatPlayerFaction === 'function' ? formatPlayerFaction(p.top_faction || (window.connectState?.userProfile?.factions) || 'General (Any Army)', 2) : (p.top_faction || 'General (Any Army)'))}</b>
                   <button onclick="openUserSettingsModal()" style="background: transparent; border: none; color: #38bdf8; font-size: 0.74rem; cursor: pointer; text-decoration: underline; font-weight: 600; padding: 0 2px;" title="Set your primary army and sparring preferences">✏️ Edit</button>
                 </span>
                 ${isBcpConnected ? `

@@ -715,6 +715,16 @@ async def api_events_recommended(
 
 _active_event_syncs: set = set()
 
+def sanitize_event_faction(fac: Optional[str]) -> str:
+    """Extracts a single registered tournament faction from raw or comma-separated factions."""
+    if not fac:
+        return "Unknown"
+    cleaned = str(fac).strip()
+    if not cleaned or cleaned.lower() in ("unknown", "unassigned", "none", "various"):
+        return "Unknown"
+    parts = [s.strip() for s in cleaned.split(",") if s.strip()]
+    return parts[0] if parts else "Unknown"
+
 def format_bcp_roster_to_players(raw_players: list, existing_players: list = None, db = None, game_system: Optional[str] = "40k") -> list:
     """Formats raw BCP competitors preserving exact BCP tournament placing order,
     pulling Elo ratings from player_ratings DB, and official placings strictly from BCP."""
@@ -1005,7 +1015,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 player_dict["full_name"] = (db_rating.get("player_name") if db_rating else "") or full_name or "Player"
 
             resolved_fac = faction_name if (faction_name and faction_name != "Unknown") else (player_dict.get("faction") if (player_dict.get("faction") and player_dict["faction"] != "Unknown") else ((db_rating.get("top_faction") if db_rating else "Unknown") or "Unknown"))
-            player_dict["faction"] = resolved_fac
+            player_dict["faction"] = sanitize_event_faction(resolved_fac)
             if detachment_name:
                 player_dict["detachment"] = detachment_name
 
@@ -1049,6 +1059,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             current_elo = float(db_rating.get("current_elo") or 1500.0) if db_rating else 1500.0
             peak_elo = float(db_rating.get("peak_elo") or 1500.0) if db_rating else 1500.0
             resolved_fac = faction_name if (faction_name and faction_name != "Unknown") else ((db_rating.get("top_faction") if db_rating else "Unknown") or "Unknown")
+            resolved_fac = sanitize_event_faction(resolved_fac)
             resolved_team = team_name or (db_rating.get("team") if db_rating else "")
             team_player_id = str(p.get("teamPlayerId") or p.get("team_player_id") or "")
             user_id = str(u.get("id") or p.get("userId") or "")
@@ -1557,6 +1568,11 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         "ended": is_ended,
         "started": bool(event_details.get("started") or (isinstance(raw_ev, dict) and raw_ev.get("started", True)))
     }
+
+    # Ensure all players in this event have clean single event factions
+    for pl in (event_details.get("players") or []):
+        if isinstance(pl, dict) and pl.get("faction"):
+            pl["faction"] = sanitize_event_faction(pl["faction"])
 
     event_details["sync_in_progress"] = False
     return event_details

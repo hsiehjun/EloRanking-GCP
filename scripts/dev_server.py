@@ -28,7 +28,9 @@ DEV_USER = {
         "username": "Commander",
         "display_name": "Commander",
         "email": "commander@omnitactica.com",
-        "role": "admin"
+        "role": "admin",
+        "bcp_connected": True,
+        "bcp_user_id": "bcp_dev_commander"
     }
 }
 
@@ -599,7 +601,47 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
-        if clean_path in ("api/leaderboard", "api/players", "api/events", "api/teams", "api/community/feed", "api/notifications/unread-count"):
+        if "leaderboard" in clean_path or "players" in clean_path:
+            players_data = [
+                {
+                    "rank": 1,
+                    "player_id": "p_innes_wilson",
+                    "player_name": "Innes Wilson",
+                    "current_elo": 2375.2,
+                    "peak_elo": 2390.0,
+                    "record": "120-15-2",
+                    "wins": 120,
+                    "losses": 15,
+                    "draws": 2,
+                    "win_rate": 87.6,
+                    "factions": "Dark Angels, Space Marines (Astartes), Genestealer Cult, Chaos Space Marines, Adeptus Astartes, Tyranids, Aeldari, Blood Angels, Grey Knights, World Eaters, T'au Empire, Legion of the Damned, Elysian Drop Troops, Black Templars, Thousand Sons",
+                    "top_faction": "Dark Angels, Space Marines (Astartes), Genestealer Cult, Chaos Space Marines, Adeptus Astartes, Tyranids, Aeldari, Blood Angels, Grey Knights, World Eaters, T'au Empire, Legion of the Damned, Elysian Drop Troops, Black Templars, Thousand Sons",
+                    "last_active": "2026-01-20"
+                },
+                {
+                    "rank": 2,
+                    "player_id": "p_folger_pyles",
+                    "player_name": "Folger Pyles",
+                    "current_elo": 2350.0,
+                    "peak_elo": 2365.0,
+                    "record": "145-20-1",
+                    "wins": 145,
+                    "losses": 20,
+                    "draws": 1,
+                    "win_rate": 87.3,
+                    "factions": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
+                    "top_faction": "Adeptus Custodes, Aeldari, Necrons, Drukhari, Imperial Agents, Chaos Space Marines, Ynnari, Death Guard, World Eaters",
+                    "last_active": "2026-01-18"
+                }
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"players": players_data, "leaderboard": players_data, "count": len(players_data), "total": len(players_data)}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/events", "api/teams", "api/community/feed", "api/notifications/unread-count"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -619,7 +661,8 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "matches_played": 40,
                     "wins": 27,
                     "losses": 13,
-                    "team": "Iron Hands Veterans"
+                    "team": "Iron Hands Veterans",
+                    "is_bcp_connected": True
                 },
                 "rankings": {
                     "global_rank": 142,
@@ -814,7 +857,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "tracker_history": [],
                 "active_sessions": [],
                 "events_attended": [],
-                "upcoming_events": []
+                "upcoming_events": [],
+                "bcp_linked": True,
+                "is_bcp_connected": True,
+                "registered_tournaments": [
+                    {
+                        "id": "ev_active_lvo_2026",
+                        "bcp_event_id": "ev_active_lvo_2026",
+                        "event_name": "LVO 2026 Warhammer 40K Champs",
+                        "event_date": "2026-01-18",
+                        "city": "Las Vegas",
+                        "state": "NV",
+                        "checked_in": True,
+                        "faction": "Necrons",
+                        "detachment": "Canoptek Court",
+                        "has_list_submitted": True,
+                        "points_limit": 2000,
+                        "rounds": 5
+                    }
+                ]
             }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
