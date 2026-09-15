@@ -8009,5 +8009,141 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
+/* ==========================================================================
+   2-TIER EVENT ARCHITECTURE: QUICK-VIEW MODAL & DEDICATED EVENT HUB PAGE
+   ========================================================================== */
+.profile-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1.2rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-kpi-card {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  box-sizing: border-box;
+}
+
+.profile-kpi-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.profile-kpi-value {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #fff;
+  font-family: var(--font-mono);
+}
+
+.profile-kpi-sub {
+  font-size: 0.76rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 900px) {
+  .profile-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.65rem !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .modal-quick-kpi-grid,
+  .profile-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.5rem !important;
+  }
+  #event-hub-subtabs-bar .profile-subtab-btn:first-child:not([style*="display: none"]) {
+    grid-column: 1 / -1;
+    justify-content: center !important;
+  }
+  #event-hub-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.65rem !important;
+  }
+  #event-hub-toolbar > div:last-child {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  #event-hub-faction-filter,
+  #event-player-search {
+    width: 100% !important;
+  }
+
+  /* Event Hub Standings Table Mobile Card Labels */
+  #event-results-body tr td:nth-child(1)::before { content: "Placing"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.25rem; }
+  #event-results-body tr td:nth-child(2)::before { content: "Competitor"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(3)::before { content: "Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(4)::before { content: "Record (Pts)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(5)::before { content: "Elo Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(6)::before { content: "Event Net Elo Δ"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td:nth-child(7)::before { content: "Army Roster"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Event Hub Pairings Table Mobile Card Labels */
+  #event-pairings-body tr td:nth-child(1)::before { content: "Round"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-pairings-body tr td:nth-child(2)::before { content: "Table"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-pairings-body tr td:nth-child(3) { border-top: 1px solid rgba(255,255,255,0.06) !important; padding-top: 0.4rem !important; }
+  #event-pairings-body tr td:nth-child(3)::before { content: "Player 1 (Win %)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-pairings-body tr td:nth-child(4)::before { content: "P1 Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-pairings-body tr td:nth-child(5)::before { content: "P2 Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-pairings-body tr td:nth-child(6)::before { content: "Player 2 (Win %)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-pairings-body tr td:nth-child(7) { border-top: 1px solid rgba(255,255,255,0.06) !important; padding-top: 0.4rem !important; margin-top: 0.15rem; }
+  #event-pairings-body tr td:nth-child(7)::before { content: "Outcome"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Event Hub Meta Table Mobile Card Labels */
+  #event-meta-body tr td:nth-child(1) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.25rem; }
+  #event-meta-body tr td:nth-child(1)::before { content: "Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-meta-body tr td:nth-child(2)::before { content: "Field Share"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-meta-body tr td:nth-child(3)::before { content: "Record (W-L-D)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-meta-body tr td:nth-child(4)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-meta-body tr td:nth-child(5)::before { content: "Avg Net Elo Δ"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-meta-body tr td:nth-child(6)::before { content: "Best Finish"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Personal Event Scorecard Mobile Card Labels */
+  #personal-scorecard-table tr td:nth-child(1)::before { content: "Round"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #personal-scorecard-table tr td:nth-child(2)::before { content: "Table"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #personal-scorecard-table tr td:nth-child(3) { border-top: 1px solid rgba(255,255,255,0.06) !important; padding-top: 0.35rem !important; }
+  #personal-scorecard-table tr td:nth-child(3)::before { content: "Opponent"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #personal-scorecard-table tr td:nth-child(4)::before { content: "Score"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #personal-scorecard-table tr td:nth-child(5)::before { content: "Result"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #personal-scorecard-table tr td:nth-child(6)::before { content: "Net Elo Δ"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #personal-scorecard-table tr td:nth-child(7) { border-top: 1px solid rgba(255,255,255,0.06) !important; padding-top: 0.45rem !important; margin-top: 0.15rem; }
+  #personal-scorecard-table tr td:nth-child(7)::before { content: "Action"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+}
+
+@media (max-width: 480px) {
+  .modal-quick-kpi-grid,
+  .profile-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.4rem !important;
+  }
+  #modal-quick-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  #modal-quick-search {
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+}
+
 
 

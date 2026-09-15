@@ -165,6 +165,10 @@ function switchGameSystem(sys) {
     if (typeof openPlayerProfilePage === 'function' && typeof currentProfilePlayerId !== 'undefined' && currentProfilePlayerId) {
       openPlayerProfilePage(currentProfilePlayerId, sys);
     }
+  } else if (activeTab === 'event-hub') {
+    if (typeof openEventHubPage === 'function' && typeof currentOpenEventId !== 'undefined' && currentOpenEventId) {
+      openEventHubPage(currentOpenEventId, sys);
+    }
   }
 
   // If quick player modal is currently active, reload it under the newly selected game system
@@ -282,7 +286,7 @@ function switchTab(tabName) {
   window.scrollTo({ top: 0, behavior: 'instant' });
 
   // Update URL hash history and clean away any query parameters
-  if (tabName !== 'player-profile' && window.history && window.history.replaceState) {
+  if (tabName !== 'player-profile' && tabName !== 'event-hub' && window.history && window.history.replaceState) {
     let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');
     if (currentGameSystem === 'aos') {
       if (!cleanPath.startsWith('/aos')) cleanPath = '/aos';
@@ -410,6 +414,17 @@ function handleAppRoute(routeStr) {
     const pid = decodeURIComponent(playerMatch[2]);
     if (typeof openPlayerProfilePage === 'function') {
       openPlayerProfilePage(pid, routeSys, { replaceUrl: true });
+      return true;
+    }
+  }
+
+  // Route: /#/aos/event/:id or /#/40k/event/:id or /#/event/:id
+  const eventMatch = clean.match(/^(?:(aos|40k)\/)?event\/([^/?#]+)/i);
+  if (eventMatch) {
+    const routeSys = eventMatch[1] ? eventMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const eid = decodeURIComponent(eventMatch[2]);
+    if (typeof openEventHubPage === 'function') {
+      openEventHubPage(eid, routeSys, { replaceUrl: true });
       return true;
     }
   }

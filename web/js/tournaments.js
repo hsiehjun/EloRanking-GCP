@@ -384,6 +384,9 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const dStr = (ev.event_date || '').slice(0, 10);
     eventMatchesCache = ev.matches || [];
     eventPlayersCache = ev.players || [];
+    if (typeof computeEventPlayerEloStats === 'function') {
+      computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
+    }
 
     const numRounds = ev.num_rounds || (eventMatchesCache.length > 0 ? Math.max(...eventMatchesCache.map(m => m.round || 1)) : 0);
     const roundsPart = numRounds > 0 ? ` • 🔄 ${numRounds} Rounds` : '';
@@ -531,6 +534,22 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     renderEventEloRows();
     renderEventPairingsRows();
     updateEventModalTabCountsForSearch();
+
+    if (typeof renderQuickEventModal === 'function') {
+      renderQuickEventModal(ev, userRegData);
+    }
+    if (typeof renderEventHubHeroSection === 'function') {
+      renderEventHubHeroSection(ev, userRegData);
+    }
+    if (typeof populateEventHubFactionFilter === 'function') {
+      populateEventHubFactionFilter(eventPlayersCache);
+    }
+    if (typeof renderPersonalEventScorecard === 'function') {
+      renderPersonalEventScorecard(ev, userRegData);
+    }
+    if (typeof renderEventMetaAndHighlights === 'function') {
+      renderEventMetaAndHighlights(ev);
+    }
 
     if (rbody) rbody.style.opacity = '1';
     if (ebody) ebody.style.opacity = '1';
@@ -817,7 +836,8 @@ window.handleEventModalSearch = handleEventModalSearch;
 window.clearEventModalSearch = clearEventModalSearch;
 
 function switchEventModalTab(tabKey) {
-  if (tabKey === 'elo') tabKey = 'results';
+  if (tabKey === 'elo' || tabKey === 'standings') tabKey = 'results';
+  if (tabKey === 'pairings') tabKey = 'matches';
   const isEnded = Boolean(
     currentEventData?.ended === true ||
     currentEventData?.is_ended === true ||
@@ -839,22 +859,33 @@ function switchEventModalTab(tabKey) {
   const btnResults = document.getElementById('event-subtab-results');
   const btnElo = document.getElementById('event-subtab-elo');
   const btnMatches = document.getElementById('event-subtab-matches');
+  const btnMeta = document.getElementById('event-subtab-meta');
   const viewPlayer = document.getElementById('event-view-player');
   const viewTeams = document.getElementById('event-view-teams');
   const viewResults = document.getElementById('event-view-results');
   const viewElo = document.getElementById('event-view-elo');
   const viewMatches = document.getElementById('event-view-matches');
+  const viewMeta = document.getElementById('event-view-meta');
   const searchRow = document.getElementById('event-modal-search-row') || document.querySelector('.event-modal-search-wrap');
+  const facFilterWrap = document.getElementById('event-hub-faction-filter-wrap');
 
-  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches].forEach(b => b && b.classList.remove('active'));
-  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches].forEach(v => v && (v.style.display = 'none'));
+  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches, btnMeta].forEach(b => b && b.classList.remove('active'));
+  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches, viewMeta].forEach(v => v && (v.style.display = 'none'));
 
   if (tabKey === 'player') {
     if (btnPlayer) btnPlayer.classList.add('active');
     if (viewPlayer) viewPlayer.style.display = 'block';
     if (searchRow) searchRow.style.display = 'none';
+  } else if (tabKey === 'meta') {
+    if (btnMeta) btnMeta.classList.add('active');
+    if (viewMeta) viewMeta.style.display = 'block';
+    if (searchRow) searchRow.style.display = 'none';
+    if (typeof renderEventMetaAndHighlights === 'function' && currentEventData) {
+      renderEventMetaAndHighlights(currentEventData);
+    }
   } else {
     if (searchRow) searchRow.style.display = 'flex';
+    if (facFilterWrap) facFilterWrap.style.display = (tabKey === 'results' || !tabKey) ? 'block' : 'none';
     if (tabKey === 'teams') {
       if (btnTeams) btnTeams.classList.add('active');
       if (viewTeams) viewTeams.style.display = 'block';
@@ -1013,7 +1044,27 @@ function renderEventTeamsRows() {
           ? `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); font-weight:600;">✓ Checked In</span>`
           : `<span style="display:inline-flex; align-items:center; gap:4px; font-size:0.72rem; padding:3px 8px; border-radius:6px; background:rgba(148,163,184,0.1); color:#94a3b8; border:1px solid rgba(148,163,184,0.2); font-weight:500;">Awaiting Check-in</span>`;
 
-        const avgEloVal = t.avg_elo ? Math.round(t.avg_elo) : 1500;
+        const members = (t.members || []).map(rawM => {
+          const mPid = String(rawM.player_id || rawM.id || '').trim().toLowerCase();
+          const mPname = String(rawM.full_name || rawM.player_name || rawM.name || '').trim().toLowerCase();
+          const cached = (eventPlayersCache || []).find(cp => {
+            const cPid = String(cp.player_id || cp.id || '').trim().toLowerCase();
+            const cName = String(cp.full_name || cp.player_name || cp.name || '').trim().toLowerCase();
+            return (mPid && cPid === mPid) || (mPname && cName === mPname);
+          });
+          return cached ? Object.assign({}, cached, rawM, {
+            current_elo: rawM.current_elo || cached.current_elo || cached.elo,
+            event_wins: rawM.event_wins !== undefined ? rawM.event_wins : cached.event_wins,
+            event_losses: rawM.event_losses !== undefined ? rawM.event_losses : cached.event_losses,
+            event_battle_points: rawM.event_battle_points !== undefined ? rawM.event_battle_points : cached.event_battle_points,
+            event_net_elo: rawM.event_net_elo !== undefined ? rawM.event_net_elo : cached.event_net_elo,
+            placement: rawM.placement || cached.placement
+          }) : rawM;
+        });
+
+        const memberElos = members.map(m => Number(m.current_elo || m.elo || 1500)).filter(e => !isNaN(e) && e > 0);
+        const computedAvgElo = memberElos.length > 0 ? Math.round(memberElos.reduce((a, b) => a + b, 0) / memberElos.length) : 1500;
+        const avgEloVal = t.avg_elo ? Math.round(t.avg_elo) : computedAvgElo;
         const avgEloBadge = `
           <div style="text-align:right; background:rgba(0,0,0,0.3); padding:3px 9px; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
             <div style="font-size:0.62rem; text-transform:uppercase; color:var(--text-muted, #94a3b8); font-weight:700; letter-spacing:0.04em;">${isDoubles ? 'Duo Avg Elo' : 'Team Avg Elo'}</div>
@@ -1030,13 +1081,16 @@ function renderEventTeamsRows() {
           `
           : checkinBadge;
 
-        const members = t.members || [];
         const memberRowsHtml = members.map((m, mIdx) => {
-          const mName = escapeHtml(m.full_name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
+          const mName = escapeHtml(m.full_name || m.player_name || m.name || (m.first_name ? `${m.first_name} ${m.last_name}` : '') || 'Competitor');
           const mFac = escapeHtml(m.faction || 'Unknown');
-          const mElo = m.current_elo ? Math.round(m.current_elo) : 1500;
+          const mElo = Math.round(Number(m.current_elo || m.elo || 1500));
           const mBadge = getEloBadgeClass(mElo);
-          const isCap = Boolean(m.is_captain);
+          const isCap = Boolean(m.is_captain || String(m.role || '').toLowerCase() === 'captain');
+          const netDelta = Number(m.event_net_elo || 0);
+          const deltaBadge = netDelta !== 0
+            ? `<span class="badge" style="font-family:var(--font-mono); font-size:0.72rem; font-weight:700; margin-left:4px; background:${netDelta > 0 ? 'rgba(34,197,94,0.16)' : 'rgba(239,68,68,0.16)'}; color:${netDelta > 0 ? '#4ade80' : '#f87171'}; border:1px solid ${netDelta > 0 ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'};">${netDelta > 0 ? '+' : ''}${netDelta.toFixed(1)}</span>`
+            : '';
 
           const capTag = isCap
             ? `<span class="badge team-captain-badge" style="font-size:0.65rem; padding:1px 6px; border-radius:4px; background:rgba(234,179,8,0.2); color:#facc15; font-weight:700; border:1px solid rgba(234,179,8,0.35); margin-left:6px; flex-shrink:0;">👑 CAPTAIN</span>`
@@ -1061,8 +1115,10 @@ function renderEventTeamsRows() {
               </div>
             `;
             col4Html = `
-              <div class="team-member-col-elo team-col-checkin" style="text-align:right;">
+              <div class="team-member-col-elo team-col-checkin" style="text-align:right; display:flex; align-items:center; justify-content:flex-end; gap:4px;">
                 <span class="elo-badge ${mBadge}" style="font-size:0.82rem; font-weight:700; padding:2px 7px;">${mElo}</span>
+                ${deltaBadge}
+                <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="View Army Roster">📋 List</button>
               </div>
             `;
           } else {
@@ -1072,8 +1128,9 @@ function renderEventTeamsRows() {
               </div>
             `;
             col4Html = `
-              <div class="team-member-col-elo team-col-checkin" style="text-align:right;">
+              <div class="team-member-col-elo team-col-checkin" style="text-align:right; display:flex; align-items:center; justify-content:flex-end; gap:6px;">
                 ${checkinTag}
+                <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" title="View Army Roster">📋 List</button>
               </div>
             `;
           }
@@ -1083,7 +1140,7 @@ function renderEventTeamsRows() {
               <div class="team-member-col-name" style="display:flex; align-items:center; gap:0.45rem; min-width:0;">
                 <span style="font-size:0.85rem; width:16px; text-align:center; flex-shrink:0;">${isCap ? '👑' : '<span style="color:var(--text-muted, #64748b);">•</span>'}</span>
                 ${memberPlacingTag}
-                <a href="javascript:void(0)" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}')" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
+                <a href="javascript:void(0)" onclick="event.stopPropagation(); if(typeof openPlayerProfilePage==='function'){openPlayerProfilePage('${escapeHtml(m.player_id || '')}');}else{openPlayerModal('${escapeHtml(m.player_id || '')}');}" style="font-weight:600; font-size:0.88rem; color:#38bdf8; text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">
                   ${mName}
                 </a>
                 ${capTag}
@@ -1309,8 +1366,11 @@ function renderEventResultsRows() {
   }
 
   let playersToRender = eventPlayersCache;
+  if (typeof eventHubFactionFilter !== 'undefined' && eventHubFactionFilter && eventHubFactionFilter.toLowerCase() !== 'all') {
+    playersToRender = playersToRender.filter(p => String(p.faction || '').trim().toLowerCase() === eventHubFactionFilter.toLowerCase());
+  }
   if (eventModalSearchQuery) {
-    playersToRender = eventPlayersCache.filter(p => {
+    playersToRender = playersToRender.filter(p => {
       const name = (p.full_name || (p.first_name ? `${p.first_name} ${p.last_name}` : '') || '').toLowerCase();
       const fac = (p.faction || '').toLowerCase();
       const team = (p.team || '').toLowerCase();
@@ -1320,7 +1380,7 @@ function renderEventResultsRows() {
 
   const searchSummary = document.getElementById('event-modal-search-summary');
   if (searchSummary && currentEventModalTab === 'results') {
-    if (eventModalSearchQuery) {
+    if (eventModalSearchQuery || (typeof eventHubFactionFilter !== 'undefined' && eventHubFactionFilter !== 'All')) {
       searchSummary.innerText = `Showing ${playersToRender.length} of ${eventPlayersCache.length} competitors`;
       searchSummary.style.display = 'block';
     } else {
@@ -1332,10 +1392,10 @@ function renderEventResultsRows() {
     const suggestions = getEventModalCrossTabSuggestions('results');
     tbody.innerHTML = `
       <tr>
-        <td colspan="6" class="empty-state" style="padding:2.5rem 1rem;">
+        <td colspan="7" class="empty-state" style="padding:2.5rem 1rem;">
           <div style="font-size:1.05rem; font-weight:600; color:#fff;">🔍 No Results Found</div>
           <div style="margin-top:0.5rem; color:var(--text-secondary); font-size:0.86rem;">
-            No competitors match "<strong>${escapeHtml(eventModalSearchQuery)}</strong>" in this tournament.
+            No competitors match your current filter in this tournament.
           </div>
           ${suggestions}
         </td>
@@ -1346,7 +1406,16 @@ function renderEventResultsRows() {
   tbody.innerHTML = '';
   playersToRender.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, p.full_name || ''); };
+    const safePid = String(p.player_id || p.id || '').trim();
+    const safeName = String(p.full_name || 'Player').trim();
+    tr.onclick = (e) => {
+      e.stopPropagation();
+      if (typeof openPlayerProfilePage === 'function' && safePid) {
+        openPlayerProfilePage(safePid, typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+      } else {
+        openPlayerModal(safePid, safeName);
+      }
+    };
 
     const eloBadgeClass = getEloBadgeClass(p.current_elo);
     const avgScore = (p.event_battle_points / (p.event_matches_count || 1)).toFixed(1);
@@ -1358,7 +1427,7 @@ function renderEventResultsRows() {
 
     const rankDisplay = (hasMatchesPlayed && hasPlacement)
       ? `#${p.placement}`
-      : (hasMatchesPlayed && p.rank && p.rank > 0 ? `#${p.rank}` : '-');
+      : (hasMatchesPlayed && p.rank && p.rank > 0 ? `#${p.rank}` : `#${idx + 1}`);
 
     const recordDisplay = hasMatchesPlayed
       ? `<td style="font-family:var(--font-mono); font-weight:700; color:var(--win); font-size:0.95rem;">
@@ -1380,6 +1449,15 @@ function renderEventResultsRows() {
         </td>`
       : `<td style="color:var(--text-muted); font-family:var(--font-mono);">-</td>`;
 
+    const netElo = Number(p.event_net_elo || 0);
+    const netEloStr = netElo > 0 ? `+${netElo.toFixed(1)}` : netElo.toFixed(1);
+    const netEloColor = netElo > 0 ? '#4ade80' : (netElo < 0 ? '#f87171' : 'var(--text-muted)');
+    const netEloBg = netElo > 0 ? 'rgba(34,197,94,0.14)' : (netElo < 0 ? 'rgba(239,68,68,0.14)' : 'rgba(255,255,255,0.06)');
+    const netEloBorder = netElo > 0 ? 'rgba(34,197,94,0.3)' : (netElo < 0 ? 'rgba(239,68,68,0.3)' : 'rgba(255,255,255,0.12)');
+    const netEloBadge = hasMatchesPlayed
+      ? `<span class="badge" style="font-family:var(--font-mono); font-size:0.72rem; padding:1px 6px; margin-left:6px; background:${netEloBg}; color:${netEloColor}; border:1px solid ${netEloBorder}; font-weight:700;" title="Tournament Net Elo Change">${netEloStr}</span>`
+      : '';
+
     tr.innerHTML = `
       <td class="rank-cell">${rankDisplay}</td>
       <td>
@@ -1393,8 +1471,16 @@ function renderEventResultsRows() {
       </td>
       ${recordDisplay}
       ${pointsDisplay}
-      <td class="elo-badge ${eloBadgeClass}">
-        ${Number(p.current_elo || 1500).toFixed(1)}
+      <td>
+        <div style="display:inline-flex; align-items:center;">
+          <span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>
+          ${netEloBadge}
+        </div>
+      </td>
+      <td style="text-align: right;">
+        <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;">
+          📋 Roster
+        </button>
       </td>
     `;
     tbody.appendChild(tr);
@@ -1617,7 +1703,7 @@ function renderEventPairingsRows() {
   // Collect all candidate IDs for logged-in user
   const userIds = [];
   if (u) {
-    [u.player_id, u.bcp_user_id, u.bcp_id, u.id, u.sub, u.userId].forEach(id => {
+    [u.player_id, u.bcp_player_id, u.bcp_user_id, u.bcp_id, u.id, u.sub, u.userId].forEach(id => {
       if (id && typeof id === 'string' && id.trim()) {
         userIds.push(id.trim().toLowerCase());
       }
@@ -1756,9 +1842,9 @@ function renderEventPairingsRows() {
       if (!isBye) {
         // 1. If game was actually completed with digital scorecard in tracker_games
         if (hasTrackerGame && (isTrackerDone || hasScore)) {
-          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`;
+          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="event.stopPropagation(); openScorecardModal('${matchId}')" title="View turn-by-turn digital scorecard">📄 Scorecard</button>`;
         } 
-        // 2. If match is uncompleted and user has competitor/staff permissions to edit/track
+        // 2. If match is ongoing/uncompleted and user has competitor/staff permissions to edit/track
         else if (!hasScore && canEdit) {
           const safeEventId = String(eventId).replace(/'/g, "\\'");
           const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
@@ -1767,9 +1853,9 @@ function renderEventPairingsRows() {
           const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
           const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
           const btnLabel = hasTrackerGame ? '🎮 Resume' : '🎲 Track';
-          actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || 1}">${btnLabel}</button>`;
+          actionBtn = `<button class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="event.stopPropagation(); launchTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || m.table || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="1-Click Launch Game Tracker for Table ${m.table_number || m.table || 1}">${btnLabel}</button>`;
         } 
-        // 3. If match is uncompleted and user is a spectator / other competitor
+        // 3. If match is ongoing/uncompleted and user is a spectator / other competitor
         else if (!hasScore && !canEdit) {
           const safeEventId = String(eventId).replace(/'/g, "\\'");
           const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
@@ -1778,7 +1864,7 @@ function renderEventPairingsRows() {
           const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
           const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
           const spectateLabel = hasTrackerGame ? '👁️ Spectate Live' : '👁️ Spectate';
-          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#a5b4fc; background:rgba(99, 102, 241, 0.12); border-radius:6px; font-weight:600; cursor:pointer;" onclick="event.stopPropagation(); spectateTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${safePairingId}')" title="Spectate Table ${m.table_number || 1} match in live view-only mode">${spectateLabel}</button>`;
+          actionBtn = `<button class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.55rem; display:inline-flex; align-items:center; gap:0.3rem; border-color:#6366f1; color:#a5b4fc; background:rgba(99, 102, 241, 0.12); border-radius:6px; font-weight:600; cursor:pointer;" onclick="event.stopPropagation(); spectateTournamentTracker('${safeEventId}', ${m.round || 1}, ${m.table_number || m.table || 1}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${safePairingId}')" title="Spectate Table ${m.table_number || m.table || 1} match in live view-only mode">${spectateLabel}</button>`;
         }
       }
 
@@ -1787,14 +1873,22 @@ function renderEventPairingsRows() {
       const targetP2Id = String((p2Record && p2Record.player_id) || m.player2_id || '').replace(/'/g, "\\'");
       const targetP2Name = String((p2Record && (p2Record.full_name || p2Record.name)) || m.player2_name || '').replace(/'/g, "\\'");
 
+      const p1Prob = m._p1_win_prob !== undefined ? m._p1_win_prob : 50;
+      const p2Prob = m._p2_win_prob !== undefined ? m._p2_win_prob : 50;
+      const p1ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p1Prob}%</span>` : '';
+      const p2ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p2Prob}%</span>` : '';
+
       tr.innerHTML = `
         <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
         <td style="font-family:var(--font-mono); color:var(--text-muted);">T${m.table_number || 1}</td>
         <td>
           <div class="player-name-cell">
-            <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}')">
-              ${escapeHtml(m.player1_name || 'Player 1')}
-            </span>
+            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
+              <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); if (typeof openPlayerProfilePage === 'function' && '${targetP1Id}') { openPlayerProfilePage('${targetP1Id}'); } else { openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}'); }">
+                ${escapeHtml(m.player1_name || 'Player 1')}
+              </span>
+              ${p1ProbPill}
+            </div>
             ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
           </div>
         </td>
@@ -1808,9 +1902,12 @@ function renderEventPairingsRows() {
           <div class="player-name-cell">
             ${isBye
               ? `<span style="color:var(--text-muted); font-weight:600;">BYE</span>`
-              : `<span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}')">
-                   ${escapeHtml(m.player2_name || 'Player 2')}
-                 </span>`
+              : `<div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
+                   <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); if (typeof openPlayerProfilePage === 'function' && '${targetP2Id}') { openPlayerProfilePage('${targetP2Id}'); } else { openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}'); }">
+                     ${escapeHtml(m.player2_name || 'Player 2')}
+                   </span>
+                   ${p2ProbPill}
+                 </div>`
             }
             ${(!isBye && p2Faction) ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p2Faction)}</span></div>` : ''}
           </div>
@@ -2729,3 +2826,1167 @@ window.handleEventPlayerUpdate = handleEventPlayerUpdate;
 window.handleEventPlayerSubmitList = handleEventPlayerSubmitList;
 window.handleEventPlayerCheckin = handleEventPlayerCheckin;
 window.handleEventPlayerDrop = handleEventPlayerDrop;
+
+/* ==========================================================================
+   2-TIER EVENT ARCHITECTURE: QUICK-VIEW MODAL & DEDICATED EVENT HUB PAGE
+   ========================================================================== */
+
+let eventHubFactionFilter = 'All';
+let quickModalViewMode = 'players';
+let quickModalSearchQuery = '';
+let currentArmyListModalPlayer = null;
+
+function isEventEnded(ev, regData = null) {
+  return Boolean(
+    ev?.ended === true ||
+    ev?.is_ended === true ||
+    ev?.status?.ended === true ||
+    ev?.raw_json?.ended === true ||
+    ev?.raw_json?.isEnded === true ||
+    ev?.raw_json?.status?.ended === true ||
+    regData?.ended === true ||
+    regData?.is_ended === true ||
+    regData?.status?.ended === true
+  );
+}
+
+function getEventTierBadgeHtml(totalPlayers) {
+  const count = Number(totalPlayers || 0);
+  if (count >= 100) {
+    return `<span class="badge" style="background:rgba(234,179,8,0.18); color:#facc15; border:1px solid rgba(234,179,8,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">👑 SUPER MAJOR</span>`;
+  } else if (count >= 60) {
+    return `<span class="badge" style="background:rgba(168,85,247,0.18); color:#c084fc; border:1px solid rgba(168,85,247,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🏆 MAJOR</span>`;
+  } else if (count >= 28) {
+    return `<span class="badge" style="background:rgba(56,189,248,0.18); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">⚔️ GT</span>`;
+  }
+  return `<span class="badge" style="background:rgba(148,163,184,0.16); color:#cbd5e1; border:1px solid rgba(148,163,184,0.35); font-weight:800; font-size:0.72rem; letter-spacing:0.04em;">🛡️ RTT</span>`;
+}
+
+function computeEventPlayerEloStats(players, matches) {
+  if (!Array.isArray(players)) return [];
+  const pMap = new Map();
+  players.forEach(p => {
+    if (!p.current_elo && p.elo) p.current_elo = p.elo;
+    if (!p.full_name && (p.player_name || p.name)) p.full_name = p.player_name || p.name;
+    if (p.event_wins === undefined && p.wins !== undefined) p.event_wins = Number(p.wins || 0);
+    if (p.event_losses === undefined && p.losses !== undefined) p.event_losses = Number(p.losses || 0);
+    if (p.event_draws === undefined && p.draws !== undefined) p.event_draws = Number(p.draws || 0);
+    if (p.event_battle_points === undefined && p.battle_points !== undefined) p.event_battle_points = Number(p.battle_points || 0);
+    p.event_matches_count = (Number(p.event_wins || 0) + Number(p.event_losses || 0) + Number(p.event_draws || 0)) || p.event_matches_count || 0;
+    const pid = String(p.player_id || p.id || '').trim().toLowerCase();
+    const pname = String(p.full_name || p.name || '').trim().toLowerCase();
+    p._computed_net_elo = (p.net_elo !== undefined && p.net_elo !== null) ? Number(p.net_elo) :
+                          (p.elo_delta !== undefined && p.elo_delta !== null) ? Number(p.elo_delta) : 0;
+    p._has_explicit_delta = (p.net_elo !== undefined && p.net_elo !== null) || (p.elo_delta !== undefined && p.elo_delta !== null);
+    if (pid) pMap.set(pid, p);
+    if (pname) pMap.set(pname, p);
+  });
+
+  if (Array.isArray(matches) && matches.length > 0) {
+    matches.forEach(m => {
+      const isBye = Boolean(m.is_bye || m.player2_name === 'BYE' || !m.player2_id);
+      if (isBye) return;
+
+      const p1Id = String(m.player1_id || '').trim().toLowerCase();
+      const p1Name = String(m.player1_name || '').trim().toLowerCase();
+      const p2Id = String(m.player2_id || '').trim().toLowerCase();
+      const p2Name = String(m.player2_name || '').trim().toLowerCase();
+
+      const p1Rec = pMap.get(p1Id) || pMap.get(p1Name);
+      const p2Rec = pMap.get(p2Id) || pMap.get(p2Name);
+
+      const elo1 = Number(m.player1_elo || p1Rec?.current_elo || p1Rec?.elo || 1500);
+      const elo2 = Number(m.player2_elo || p2Rec?.current_elo || p2Rec?.elo || 1500);
+
+      const exp1 = 1 / (1 + Math.pow(10, (elo2 - elo1) / 400));
+      const exp2 = 1 - exp1;
+      m._p1_win_prob = Math.round(exp1 * 100);
+      m._p2_win_prob = Math.round(exp2 * 100);
+      m._p1_elo = elo1;
+      m._p2_elo = elo2;
+
+      const outcomeStr = String(m.outcome || '').toLowerCase();
+      const hasScores = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
+      const isP1Win = Boolean(
+        (m.winner_id && String(m.winner_id) === String(m.player1_id)) ||
+        outcomeStr.includes('player 1 win') ||
+        (hasScores && Number(m.player1_score) > Number(m.player2_score))
+      );
+      const isP2Win = Boolean(
+        (m.winner_id && String(m.winner_id) === String(m.player2_id)) ||
+        outcomeStr.includes('player 2 win') ||
+        (hasScores && Number(m.player2_score) > Number(m.player1_score))
+      );
+      const isDraw = Boolean(m.is_draw || outcomeStr.includes('draw') || (!isP1Win && !isP2Win && hasScores && Number(m.player1_score) === Number(m.player2_score)));
+      const hasResult = isP1Win || isP2Win || isDraw;
+      m._is_p1_win = isP1Win;
+      m._is_p2_win = isP2Win;
+      m._is_draw = isDraw;
+      if (isP1Win && !m.winner_id) m.winner_id = m.player1_id;
+      if (isP2Win && !m.winner_id) m.winner_id = m.player2_id;
+
+      if (hasResult) {
+        const s1 = isP1Win ? 1.0 : (isP2Win ? 0.0 : 0.5);
+        const s2 = 1.0 - s1;
+        const d1 = (m.player1_delta !== undefined && m.player1_delta !== null) ? Number(m.player1_delta) : (32 * (s1 - exp1));
+        const d2 = (m.player2_delta !== undefined && m.player2_delta !== null) ? Number(m.player2_delta) : (32 * (s2 - exp2));
+        m._p1_delta = d1;
+        m._p2_delta = d2;
+
+        if (p1Rec && !p1Rec._has_explicit_delta) p1Rec._computed_net_elo += d1;
+        if (p2Rec && !p2Rec._has_explicit_delta) p2Rec._computed_net_elo += d2;
+      }
+    });
+  }
+
+  players.forEach(p => {
+    const cur = Number(p.current_elo || p.elo || 1500);
+    const net = Number(p._computed_net_elo || 0);
+    p.event_net_elo = net;
+    p.net_elo = net;
+    p.start_elo = (p.start_elo !== undefined && p.start_elo !== null) ? Number(p.start_elo) : (cur - net);
+  });
+
+  return players;
+}
+
+function getEventKpiSummary(ev) {
+  const players = Array.isArray(ev?.players) ? ev.players : (Array.isArray(eventPlayersCache) ? eventPlayersCache : []);
+  const matches = Array.isArray(ev?.matches) ? ev.matches : (Array.isArray(eventMatchesCache) ? eventMatchesCache : []);
+  const teams = (ev?.teams && ev.teams.length > 0) ? ev.teams : (ev?.team_standings || []);
+  const isTeamEvent = Boolean(ev?.is_team_event || teams.length > 0);
+  const isDoublesEvent = Boolean(ev?.is_doubles_event);
+  const totalPlayers = ev?.total_players || players.length || 0;
+  const totalTeams = ev?.total_teams || teams.length || 0;
+  const numRounds = ev?.num_rounds || (matches.length > 0 ? Math.max(...matches.map(m => m.round || 1)) : 5);
+  const ended = isEventEnded(ev);
+  const hasMatchesPlayed = matches.length > 0 || players.some(p => (p.event_wins || p.wins || 0) > 0 || (p.event_losses || p.losses || 0) > 0 || (p.placement && p.placement > 0));
+
+  const elos = players.map(p => Number(p.current_elo || p.elo || 1500)).filter(e => !isNaN(e) && e > 0);
+  const avgElo = elos.length > 0 ? (elos.reduce((a, b) => a + b, 0) / elos.length) : 1500;
+  const topSeedPlayer = players.slice().sort((a, b) => Number(b.current_elo || b.elo || 1500) - Number(a.current_elo || a.elo || 1500))[0] || null;
+
+  // Champion / Leader
+  let leaderTitle = ended ? '👑 Event Champion' : (hasMatchesPlayed ? '🔥 Current Leader' : '⭐ Top Seed');
+  let leaderName = 'TBD';
+  let leaderSub = 'Awaiting Round 1';
+
+  if (isTeamEvent && teams.length > 0 && hasMatchesPlayed) {
+    const topTeam = teams.slice().sort((a, b) => {
+      const pA = (a.placing && a.placing > 0) ? a.placing : 999;
+      const pB = (b.placing && b.placing > 0) ? b.placing : 999;
+      if (pA !== pB) return pA - pB;
+      return Number(b.match_points || b.wins || 0) - Number(a.match_points || a.wins || 0);
+    })[0];
+    if (topTeam) {
+      leaderName = topTeam.name || 'Team #1';
+      leaderSub = `${topTeam.wins !== undefined ? topTeam.wins + 'W • ' : ''}${topTeam.match_points || topTeam.battle_points || topTeam.points || 0} BP`;
+    }
+  } else if (players.length > 0) {
+    if (hasMatchesPlayed) {
+      const topPlayer = players.slice().sort((a, b) => {
+        const plA = (a.placement && a.placement > 0) ? a.placement : 9999;
+        const plB = (b.placement && b.placement > 0) ? b.placement : 9999;
+        if (plA !== plB) return plA - plB;
+        const wA = Number(a.event_wins || a.wins || 0);
+        const wB = Number(b.event_wins || b.wins || 0);
+        if (wA !== wB) return wB - wA;
+        return Number(b.event_battle_points || b.battle_points || 0) - Number(a.event_battle_points || a.battle_points || 0);
+      })[0];
+      if (topPlayer) {
+        leaderName = topPlayer.full_name || topPlayer.player_name || topPlayer.name || 'Competitor';
+        const recStr = `${topPlayer.event_wins || topPlayer.wins || 0}W-${topPlayer.event_losses || topPlayer.losses || 0}L${topPlayer.event_draws || topPlayer.draws ? '-' + (topPlayer.event_draws || topPlayer.draws) + 'D' : ''}`;
+        leaderSub = `${topPlayer.faction || 'Unknown'} • ${recStr}`;
+      }
+    } else if (topSeedPlayer) {
+      leaderName = topSeedPlayer.full_name || topSeedPlayer.player_name || topSeedPlayer.name || 'Competitor';
+      leaderSub = `${topSeedPlayer.faction || 'Unknown'} • ${Number(topSeedPlayer.current_elo || topSeedPlayer.elo || 1500).toFixed(1)} Elo`;
+    }
+  }
+
+  return {
+    totalPlayers,
+    totalTeams,
+    isTeamEvent,
+    isDoublesEvent,
+    numRounds,
+    ended,
+    hasMatchesPlayed,
+    avgElo,
+    topSeedPlayer,
+    leaderTitle,
+    leaderName,
+    leaderSub,
+    teams,
+    players,
+    matches
+  };
+}
+
+function renderQuickEventModal(ev, userRegData) {
+  if (!ev) return;
+  const kpi = getEventKpiSummary(ev);
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
+  const sysBadge = sys === 'aos'
+    ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.72rem; font-weight:700;">⚡ Age of Sigmar</span>`
+    : `<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.72rem; font-weight:700;">⚔️ Warhammer 40K</span>`;
+
+  const statusBadge = kpi.ended
+    ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.72rem; font-weight:700;">🟢 COMPLETED</span>`
+    : (kpi.hasMatchesPlayed
+        ? `<span class="badge" style="background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-size:0.72rem; font-weight:700;">🔴 LIVE IN PROGRESS</span>`
+        : `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.72rem; font-weight:700;">🔵 UPCOMING</span>`);
+
+  const formatBadge = kpi.isTeamEvent
+    ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.72rem; font-weight:700;">${kpi.isDoublesEvent ? '👥 DOUBLES' : '🛡️ TEAM TOURNAMENT'}</span>`
+    : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); font-size:0.72rem; font-weight:600;">👤 SINGLES</span>`;
+
+  const badgesEl = document.getElementById('modal-event-badges');
+  if (badgesEl) {
+    badgesEl.innerHTML = `${getEventTierBadgeHtml(kpi.totalPlayers)} ${sysBadge} ${statusBadge} ${formatBadge}`;
+  }
+
+  // Personal Registration Status Banner
+  const regBanner = document.getElementById('modal-quick-reg-banner');
+  if (regBanner) {
+    if (userRegData && userRegData.is_registered) {
+      const preg = userRegData.player_registration || userRegData.player || {};
+      const checkedIn = Boolean(preg.checked_in);
+      const dropped = Boolean(preg.dropped);
+      const fac = preg.faction || 'Faction Pending';
+      const statusText = dropped ? '🚫 Dropped' : (checkedIn ? '✅ Checked In' : '⚠️ Not Checked In');
+      regBanner.style.display = 'block';
+      regBanner.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.75rem; padding:0.65rem 0.95rem; background:rgba(16,185,129,0.12); border:1px solid rgba(16,185,129,0.35); border-radius:8px; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; color:#ecfdf5;">
+            <span style="font-size:1rem;">🟢</span>
+            <div>
+              <strong style="color:#10b981;">You are registered for this event</strong>
+              <span style="color:var(--text-secondary); margin-left:0.35rem;">• ${statusText} • ${escapeHtml(fac)}</span>
+            </div>
+          </div>
+          <button type="button" onclick="openEventHubFromModal('player')" class="btn-sm btn-primary" style="background:#10b981; border-color:#059669; color:#fff; font-weight:700; font-size:0.76rem; padding:0.35rem 0.85rem; cursor:pointer;">
+            👤 Manage Registration & Check-In ➔
+          </button>
+        </div>
+      `;
+    } else {
+      regBanner.style.display = 'none';
+      regBanner.innerHTML = '';
+    }
+  }
+
+  // 4-Card Quick KPI Strip
+  const kpisEl = document.getElementById('modal-quick-kpis');
+  if (kpisEl) {
+    const compPrimary = kpi.isTeamEvent && kpi.totalTeams > 0
+      ? `${kpi.totalTeams} ${kpi.isDoublesEvent ? 'Pairs' : 'Teams'}`
+      : `${kpi.totalPlayers} Players`;
+    const compSub = kpi.isTeamEvent && kpi.totalTeams > 0
+      ? `${kpi.totalPlayers} Competitors`
+      : `${kpi.players.filter(p => p.checked_in).length || kpi.totalPlayers} Active`;
+
+    const topSeedName = kpi.topSeedPlayer ? (kpi.topSeedPlayer.full_name || 'Player') : '-';
+    const topSeedElo = kpi.topSeedPlayer ? Number(kpi.topSeedPlayer.current_elo || 1500).toFixed(1) : '-';
+
+    kpisEl.innerHTML = `
+      <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">👥 Competitors</div>
+        <div style="font-size:1.05rem; font-weight:800; color:#fff; font-family:var(--font-mono);">${escapeHtml(compPrimary)}</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(compSub)}</div>
+      </div>
+      <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">🎲 Format & Rounds</div>
+        <div style="font-size:1.05rem; font-weight:800; color:#38bdf8; font-family:var(--font-mono);">${kpi.numRounds} Rounds</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${kpi.isTeamEvent ? 'Team Format' : 'Singles Format'} • ${kpi.matches.length} Matches</div>
+      </div>
+      <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">⚡ Field Strength</div>
+        <div style="font-size:1.05rem; font-weight:800; color:#facc15; font-family:var(--font-mono);">${kpi.avgElo.toFixed(1)} Avg Elo</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="Top Seed: ${escapeHtml(topSeedName)} (${topSeedElo})">#1: ${escapeHtml(topSeedName)} (${topSeedElo})</div>
+      </div>
+      <div class="card" style="padding:0.7rem 0.85rem; background:rgba(15,23,42,0.75); border:1px solid rgba(255,255,255,0.08); border-radius:8px;">
+        <div style="font-size:0.68rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--text-muted); margin-bottom:0.2rem;">${kpi.leaderTitle}</div>
+        <div style="font-size:0.98rem; font-weight:800; color:#4ade80; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(kpi.leaderName)}">${escapeHtml(kpi.leaderName)}</div>
+        <div style="font-size:0.72rem; color:var(--text-secondary); margin-top:0.15rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(kpi.leaderSub)}</div>
+      </div>
+    `;
+  }
+
+  // Toggle button for team events
+  const toggleWrap = document.getElementById('modal-quick-view-toggle');
+  if (toggleWrap) {
+    if (kpi.isTeamEvent && kpi.teams.length > 0) {
+      toggleWrap.style.display = 'inline-flex';
+      setQuickModalViewMode('teams', false);
+    } else {
+      toggleWrap.style.display = 'none';
+      setQuickModalViewMode('players', false);
+    }
+  } else {
+    quickModalViewMode = 'players';
+  }
+
+  const qSearch = document.getElementById('modal-quick-search');
+  if (qSearch) qSearch.value = '';
+  quickModalSearchQuery = '';
+  renderQuickModalTable();
+}
+
+function setQuickModalViewMode(mode, shouldRender = true) {
+  quickModalViewMode = mode === 'teams' ? 'teams' : 'players';
+  const btnTeams = document.getElementById('btn-quick-toggle-teams');
+  const btnPlayers = document.getElementById('btn-quick-toggle-players');
+  if (btnTeams) {
+    btnTeams.classList.toggle('active', quickModalViewMode === 'teams');
+    btnTeams.style.background = quickModalViewMode === 'teams' ? 'var(--accent, #0284c7)' : 'transparent';
+    btnTeams.style.color = quickModalViewMode === 'teams' ? '#fff' : 'var(--text-secondary)';
+  }
+  if (btnPlayers) {
+    btnPlayers.classList.toggle('active', quickModalViewMode === 'players');
+    btnPlayers.style.background = quickModalViewMode === 'players' ? 'var(--accent, #0284c7)' : 'transparent';
+    btnPlayers.style.color = quickModalViewMode === 'players' ? '#fff' : 'var(--text-secondary)';
+  }
+  if (shouldRender) renderQuickModalTable();
+}
+
+function handleQuickModalSearch(val) {
+  quickModalSearchQuery = (val || '').trim().toLowerCase();
+  renderQuickModalTable();
+}
+
+function renderQuickModalTable() {
+  const thead = document.getElementById('modal-quick-thead');
+  const tbody = document.getElementById('modal-quick-tbody');
+  if (!thead || !tbody) return;
+
+  const kpi = getEventKpiSummary(currentEventData);
+
+  if (quickModalViewMode === 'teams' && kpi.teams.length > 0) {
+    thead.innerHTML = `
+      <tr>
+        <th style="width:65px; padding:0.55rem 0.75rem;">Rank</th>
+        <th style="padding:0.55rem 0.75rem;">Team</th>
+        <th style="padding:0.55rem 0.75rem;">Captain / Members</th>
+        <th style="padding:0.55rem 0.75rem;">Match Points</th>
+        <th style="padding:0.55rem 0.75rem;">Battle Points</th>
+      </tr>
+    `;
+    let filteredTeams = kpi.teams;
+    if (quickModalSearchQuery) {
+      filteredTeams = kpi.teams.filter(t => {
+        const name = (t.name || '').toLowerCase();
+        const cap = (t.captain_name || t.captain || '').toLowerCase();
+        return name.includes(quickModalSearchQuery) || cap.includes(quickModalSearchQuery);
+      });
+    }
+    if (filteredTeams.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="padding:1.75rem;">No teams match "${escapeHtml(quickModalSearchQuery)}"</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = filteredTeams.map((t, i) => {
+      const rank = t.placing && t.placing > 0 ? `#${t.placing}` : `#${i + 1}`;
+      const cap = t.captain_name || t.captain || (Array.isArray(t.members) && t.members[0]?.full_name) || '-';
+      const memberCount = Array.isArray(t.members) ? ` (${t.members.length} players)` : '';
+      return `
+        <tr style="cursor:pointer;" onclick="openEventHubFromModal('teams')">
+          <td class="rank-cell" style="padding:0.5rem 0.75rem;">${rank}</td>
+          <td style="padding:0.5rem 0.75rem; font-weight:700; color:#fff;">🛡️ ${escapeHtml(t.name || 'Team')}</td>
+          <td style="padding:0.5rem 0.75rem; color:var(--text-secondary); font-size:0.82rem;">${escapeHtml(cap)}${memberCount}</td>
+          <td style="padding:0.5rem 0.75rem; font-family:var(--font-mono); font-weight:700; color:var(--win);">${t.match_points ?? t.wins ?? '-'} pts</td>
+          <td style="padding:0.5rem 0.75rem; font-family:var(--font-mono); font-weight:700; color:var(--accent);">${t.battle_points ?? '-'} BP</td>
+        </tr>
+      `;
+    }).join('');
+    return;
+  }
+
+  // Default: Players Standings / Roster view
+  thead.innerHTML = `
+    <tr>
+      <th style="width:60px; padding:0.55rem 0.75rem;">Rank</th>
+      <th style="padding:0.55rem 0.75rem;">Competitor</th>
+      <th style="padding:0.55rem 0.75rem;">Faction</th>
+      <th style="padding:0.55rem 0.75rem;">Record / Status</th>
+      <th style="padding:0.55rem 0.75rem;">Elo & Net Δ</th>
+      <th style="text-align:right; padding:0.55rem 0.75rem;">List</th>
+    </tr>
+  `;
+
+  let players = kpi.players.slice();
+  if (kpi.hasMatchesPlayed) {
+    players.sort((a, b) => {
+      const plA = (a.placement && a.placement > 0) ? a.placement : 9999;
+      const plB = (b.placement && b.placement > 0) ? b.placement : 9999;
+      if (plA !== plB) return plA - plB;
+      return Number(b.current_elo || 1500) - Number(a.current_elo || 1500);
+    });
+  } else {
+    players.sort((a, b) => Number(b.current_elo || 1500) - Number(a.current_elo || 1500));
+  }
+
+  if (quickModalSearchQuery) {
+    players = players.filter(p => {
+      const name = (p.full_name || '').toLowerCase();
+      const fac = (p.faction || '').toLowerCase();
+      const team = (p.team || '').toLowerCase();
+      return name.includes(quickModalSearchQuery) || fac.includes(quickModalSearchQuery) || team.includes(quickModalSearchQuery);
+    });
+  }
+
+  if (players.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-state" style="padding:1.75rem;">No competitors match "${escapeHtml(quickModalSearchQuery)}"</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = players.map((p, idx) => {
+    const safePid = String(p.player_id || p.id || '').trim();
+    const safeName = String(p.full_name || 'Player').trim();
+    const hasPlacement = Boolean(p.placement && p.placement > 0);
+    const rankStr = (kpi.hasMatchesPlayed && hasPlacement) ? `#${p.placement}` : `#${idx + 1}`;
+    const drawStr = p.event_draws ? `-${p.event_draws}D` : '';
+    const recordHtml = kpi.hasMatchesPlayed
+      ? `<span style="font-family:var(--font-mono); font-weight:700; color:var(--win);">${p.event_wins || 0}W-${p.event_losses || 0}L${drawStr}</span>`
+      : (p.checked_in ? `<span style="color:var(--win); font-weight:600; font-size:0.8rem;">✅ Checked In</span>` : `<span style="color:var(--text-muted); font-size:0.8rem;">Registered</span>`);
+
+    const netElo = Number(p.event_net_elo || 0);
+    const netEloStr = netElo > 0 ? `+${netElo.toFixed(1)}` : netElo.toFixed(1);
+    const netEloColor = netElo > 0 ? '#4ade80' : (netElo < 0 ? '#f87171' : 'var(--text-muted)');
+    const netPill = kpi.hasMatchesPlayed
+      ? `<span style="font-family:var(--font-mono); font-size:0.72rem; font-weight:700; color:${netEloColor}; margin-left:5px;">(${netEloStr})</span>`
+      : '';
+
+    return `
+      <tr style="cursor:pointer;" onclick="event.stopPropagation(); closeModal('event-modal'); if (typeof openPlayerProfilePage === 'function' && '${safePid}') { openPlayerProfilePage('${safePid}'); } else { openPlayerModal('${safePid}', '${escapeHtml(safeName)}'); }">
+        <td class="rank-cell" style="padding:0.5rem 0.75rem;">${rankStr}</td>
+        <td style="padding:0.5rem 0.75rem;">
+          <div style="font-weight:600; color:#38bdf8;">${escapeHtml(safeName)}</div>
+          ${p.team ? `<div style="font-size:0.72rem; color:var(--text-muted);">🛡️ ${escapeHtml(p.team)}</div>` : ''}
+        </td>
+        <td style="padding:0.5rem 0.75rem;">
+          <span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.74rem;">${escapeHtml(p.faction || 'Unknown')}</span>
+        </td>
+        <td style="padding:0.5rem 0.75rem;">${recordHtml}</td>
+        <td style="padding:0.5rem 0.75rem;">
+          <span class="elo-badge ${getEloBadgeClass(p.current_elo)}" style="font-size:0.78rem;">${Number(p.current_elo || 1500).toFixed(1)}</span>
+          ${netPill}
+        </td>
+        <td style="padding:0.5rem 0.75rem; text-align:right;">
+          <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;">
+            📋 List
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openEventHubFromModal(explicitTab = null) {
+  const eventId = currentOpenEventId || (currentEventData && currentEventData.id);
+  if (!eventId) return;
+
+  if (typeof closeModal === 'function') {
+    closeModal('event-modal');
+  } else {
+    const modal = document.getElementById('event-modal');
+    if (modal) {
+      modal.classList.remove('active');
+      modal.style.display = 'none';
+    }
+  }
+
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
+  const ended = isEventEnded(currentEventData, currentEventRegistration);
+  const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
+  const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
+
+  let targetTab = explicitTab;
+  if (!targetTab) {
+    if (isRegistered && !ended) {
+      targetTab = 'player';
+    } else if (isTeam) {
+      targetTab = 'teams';
+    } else {
+      targetTab = 'results';
+    }
+  }
+
+  openEventHubPage(eventId, sys, { initialTab: targetTab });
+}
+
+async function openEventHubPage(eventId, gameSystem = '', options = {}) {
+  if (!eventId) return;
+  currentOpenEventId = eventId;
+
+  const targetSys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem && typeof applyGameSystem === 'function') {
+    applyGameSystem(targetSys, false);
+  }
+
+  // Switch active view to Dedicated Event Hub Page
+  if (typeof switchTab === 'function') {
+    switchTab('event-hub');
+  } else {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('tab-event-hub');
+    if (panel) panel.classList.add('active');
+  }
+
+  // Update URL hash cleanly
+  const cleanPath = (targetSys === 'aos') ? '/aos' : '';
+  const targetHash = `#/${targetSys}/event/${encodeURIComponent(eventId)}`;
+  if (window.history && window.history.pushState && !options.replaceUrl) {
+    window.history.pushState({ eventId, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
+  } else if (window.history && window.history.replaceState) {
+    window.history.replaceState({ eventId, sys: targetSys }, '', `${cleanPath || ''}${targetHash}`);
+  }
+
+  const heroSection = document.getElementById('event-hub-hero-section');
+  const hasCached = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && !options.forceSync);
+
+  if (!hasCached && heroSection) {
+    heroSection.innerHTML = `
+      <div class="profile-hero-card" style="padding: 2.5rem 1.5rem; text-align: center; margin-bottom: 1.25rem;">
+        <div class="spinner"></div>
+        <div style="margin-top: 0.85rem; font-weight: 600; color: var(--text-secondary);">
+          Loading ${targetSys === 'aos' ? 'AoS' : '40K'} Event Hub & BCP Standings...
+        </div>
+      </div>
+    `;
+  }
+
+  try {
+    let ev = currentEventData;
+    let userRegData = currentEventRegistration;
+
+    if (!hasCached) {
+      const detailsPromise = window.api.getTournamentDetails(eventId, Boolean(options.forceSync));
+      const regPromise = (typeof window.api?.getCommunityEventRegistration === 'function')
+        ? window.api.getCommunityEventRegistration(eventId, Boolean(options.forceSync)).catch(() => null)
+        : Promise.resolve(null);
+
+      const [detailsRes, regRes] = await Promise.allSettled([detailsPromise, regPromise]);
+      if (detailsRes.status === 'rejected' || !detailsRes.value || detailsRes.value.error) {
+        throw new Error((detailsRes.value && detailsRes.value.error) || detailsRes.reason?.message || 'Tournament not found');
+      }
+      ev = detailsRes.value;
+      userRegData = (regRes.status === 'fulfilled' && regRes.value && !regRes.value.error) ? regRes.value : null;
+      currentEventData = ev;
+      currentEventRegistration = userRegData;
+    }
+
+    eventMatchesCache = ev.matches || [];
+    eventPlayersCache = ev.players || [];
+    computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
+
+    renderEventHubHeroSection(ev, userRegData, targetSys);
+    populateEventHubFactionFilter(eventPlayersCache);
+    renderPersonalEventScorecard(ev, userRegData);
+    renderEventMetaAndHighlights(ev);
+
+    const isTeamEvent = Boolean(ev.is_team_event || (ev.teams && ev.teams.length > 0));
+    const teamsList = (ev.teams && ev.teams.length > 0) ? ev.teams : (ev.team_standings || []);
+    const subtabTeams = document.getElementById('event-subtab-teams');
+    const tabTeamsCount = document.getElementById('event-tab-teams-count');
+    const tabResultsCount = document.getElementById('event-tab-results-count');
+    const tabMatchesCount = document.getElementById('event-tab-matches-count');
+
+    if (tabResultsCount) tabResultsCount.innerText = eventPlayersCache.length;
+    if (tabMatchesCount) tabMatchesCount.innerText = eventMatchesCache.length;
+
+    if (isTeamEvent || teamsList.length > 0) {
+      if (subtabTeams) subtabTeams.style.setProperty('display', 'inline-flex', 'important');
+      if (tabTeamsCount) tabTeamsCount.innerText = teamsList.length;
+      renderEventTeamsRows();
+    } else {
+      if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
+    }
+
+    const ended = isEventEnded(ev, userRegData);
+    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered);
+    const subtabPlayer = document.getElementById('event-subtab-player');
+    if (subtabPlayer) {
+      subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
+    }
+    if (shouldShowPlayerTab) {
+      await populateEventPlayerDetails(userRegData);
+    }
+
+    renderEventResultsRows();
+    renderEventEloRows();
+    renderEventPairingsRows();
+
+    let targetTab = options.initialTab;
+    if (targetTab === 'teams' && !isTeamEvent && teamsList.length === 0) {
+      targetTab = 'results';
+    }
+    if (!targetTab) {
+      if (shouldShowPlayerTab && !ended) {
+        targetTab = 'player';
+      } else if (isTeamEvent || teamsList.length > 0) {
+        targetTab = 'teams';
+      } else {
+        targetTab = 'results';
+      }
+    }
+    switchEventModalTab(targetTab);
+
+  } catch (err) {
+    if (heroSection) {
+      heroSection.innerHTML = `
+        <div class="profile-hero-card" style="padding: 2.5rem 1.5rem; text-align: center; color: var(--loss); margin-bottom: 1.25rem;">
+          <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
+          <div style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.5rem;">Unable to load Event Hub</div>
+          <p style="color: var(--text-muted); font-size: 0.85rem; margin: 0 auto 1.25rem;">${escapeHtml(err.message)}</p>
+          <button class="btn btn-outline" onclick="openEventHubPage('${escapeHtml(eventId)}', '${targetSys}', { forceSync: true })">🔄 Retry</button>
+        </div>
+      `;
+    }
+  }
+}
+
+function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
+  const heroSection = document.getElementById('event-hub-hero-section');
+  if (!heroSection || !ev) return;
+
+  const kpi = getEventKpiSummary(ev);
+  const sys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  const eventId = ev.id || currentOpenEventId || '';
+  const eventName = ev.name || ev.raw_json?.name || ev.event_name || 'Tournament Hub';
+  const loc = [ev.venue, ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
+  const dStr = (ev.event_date || '').slice(0, 10);
+
+  const sysBadge = sys === 'aos'
+    ? `<span class="badge" style="background:rgba(245,158,11,0.16); color:#fbbf24; border:1px solid rgba(245,158,11,0.35); font-size:0.75rem; font-weight:700;">⚡ Age of Sigmar</span>`
+    : `<span class="badge" style="background:rgba(56,189,248,0.15); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.75rem; font-weight:700;">⚔️ Warhammer 40K</span>`;
+
+  const statusBadge = kpi.ended
+    ? `<span class="badge" style="background:rgba(34,197,94,0.16); color:#4ade80; border:1px solid rgba(34,197,94,0.35); font-size:0.75rem; font-weight:700;">🟢 COMPLETED</span>`
+    : (kpi.hasMatchesPlayed
+        ? `<span class="badge" style="background:rgba(239,68,68,0.18); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-size:0.75rem; font-weight:700;">🔴 LIVE IN PROGRESS</span>`
+        : `<span class="badge" style="background:rgba(56,189,248,0.16); color:#38bdf8; border:1px solid rgba(56,189,248,0.35); font-size:0.75rem; font-weight:700;">🔵 UPCOMING</span>`);
+
+  const formatBadge = kpi.isTeamEvent
+    ? `<span class="badge" style="background:rgba(168,85,247,0.16); color:#c084fc; border:1px solid rgba(168,85,247,0.35); font-size:0.75rem; font-weight:700;">${kpi.isDoublesEvent ? '👥 DOUBLES' : '🛡️ TEAM TOURNAMENT'}</span>`
+    : `<span class="badge" style="background:rgba(255,255,255,0.06); color:#cbd5e1; border:1px solid rgba(255,255,255,0.15); font-size:0.75rem; font-weight:600;">👤 SINGLES</span>`;
+
+  // Meta Snapshot calculations
+  const facCounts = new Map();
+  const facStats = new Map();
+  kpi.players.forEach(p => {
+    const f = (p.faction || '').trim();
+    if (!f || f.toLowerCase() === 'unknown' || f.toLowerCase() === 'unassigned') return;
+    facCounts.set(f, (facCounts.get(f) || 0) + 1);
+    if (!facStats.has(f)) facStats.set(f, { wins: 0, games: 0 });
+    const st = facStats.get(f);
+    const w = Number(p.event_wins || 0);
+    const l = Number(p.event_losses || 0);
+    const d = Number(p.event_draws || 0);
+    st.wins += w;
+    st.games += (w + l + d);
+  });
+
+  let mostPlayedFac = 'Various';
+  let mostPlayedSub = 'Balanced Field';
+  if (facCounts.size > 0) {
+    const sortedFacs = Array.from(facCounts.entries()).sort((a, b) => b[1] - a[1]);
+    const [topFac, topCount] = sortedFacs[0];
+    const pct = Math.round((topCount / Math.max(1, kpi.totalPlayers)) * 100);
+    mostPlayedFac = topFac;
+    mostPlayedSub = `${topCount} Players (${pct}% of field)`;
+  }
+
+  let bestWrSub = 'Top Meta Contender';
+  const eligibleWrFacs = Array.from(facStats.entries()).filter(([_, st]) => st.games >= 3);
+  if (eligibleWrFacs.length > 0) {
+    eligibleWrFacs.sort((a, b) => (b[1].wins / b[1].games) - (a[1].wins / a[1].games));
+    const [bestFac, bestSt] = eligibleWrFacs[0];
+    const wrPct = Math.round((bestSt.wins / bestSt.games) * 100);
+    bestWrSub = `Best WR: ${bestFac} (${wrPct}% WR)`;
+  }
+
+  const topSeedName = kpi.topSeedPlayer ? (kpi.topSeedPlayer.full_name || 'Competitor') : '-';
+  const topSeedElo = kpi.topSeedPlayer ? Number(kpi.topSeedPlayer.current_elo || 1500).toFixed(1) : '-';
+
+  heroSection.innerHTML = `
+    <div class="profile-hero-card event-hub-hero-card" style="margin-bottom: 1.25rem;">
+      <div class="profile-hero-top">
+        <div class="profile-identity-group">
+          <div class="profile-rank-crest" title="Tournament Hub">
+            🏆
+          </div>
+          <div class="profile-name-meta">
+            <div class="profile-badges-row" style="margin-bottom: 0.35rem;">
+              ${getEventTierBadgeHtml(kpi.totalPlayers)}
+              ${sysBadge}
+              ${statusBadge}
+              ${formatBadge}
+            </div>
+            <h1 id="event-hub-title" class="profile-name-title" style="font-size: 1.5rem; margin: 0 0 0.3rem 0;">${escapeHtml(eventName)}</h1>
+            <div style="font-size: 0.85rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <span>📅 ${escapeHtml(dStr || 'Date TBD')}</span>
+              <span>•</span>
+              <span>📍 ${escapeHtml(loc)}</span>
+              <span>•</span>
+              <span>🔄 ${kpi.numRounds} Rounds</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="profile-hero-actions" style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+          <button type="button" class="btn btn-outline" onclick="copyEventHubLink('${escapeHtml(eventId)}', '${sys}')" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; cursor: pointer;">
+            🔗 Share Event Link
+          </button>
+          <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; text-decoration: none;">
+            Listing on BCP ↗
+          </a>
+          <button type="button" class="btn btn-primary" onclick="openEventHubPage('${escapeHtml(eventId)}', '${sys}', { forceSync: true })" style="font-weight: 700; font-size: 0.82rem; padding: 0.48rem 1rem; cursor: pointer;">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- 4 Hero KPI Cards -->
+      <div class="profile-kpi-grid" style="margin-top: 1.2rem;">
+        <div class="profile-kpi-card">
+          <div class="profile-kpi-label">👥 Field & Format</div>
+          <div class="profile-kpi-value">${kpi.isTeamEvent && kpi.totalTeams > 0 ? `${kpi.totalTeams} Teams` : `${kpi.totalPlayers} Players`}</div>
+          <div class="profile-kpi-sub">${kpi.numRounds} Rounds • ${kpi.isTeamEvent ? `${kpi.totalPlayers} Players` : 'Singles'} • ${kpi.matches.length} Matches</div>
+        </div>
+        <div class="profile-kpi-card">
+          <div class="profile-kpi-label">⚡ Field Strength</div>
+          <div class="profile-kpi-value" style="color: #facc15;">${kpi.avgElo.toFixed(1)} <span style="font-size:0.8rem; font-weight:600;">Avg Elo</span></div>
+          <div class="profile-kpi-sub" title="Top Seed: ${escapeHtml(topSeedName)} (${topSeedElo})">Top Seed: #1 ${escapeHtml(topSeedName)} (${topSeedElo})</div>
+        </div>
+        <div class="profile-kpi-card">
+          <div class="profile-kpi-label">${kpi.leaderTitle}</div>
+          <div class="profile-kpi-value" style="color: #4ade80; font-size: 1.15rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(kpi.leaderName)}">${escapeHtml(kpi.leaderName)}</div>
+          <div class="profile-kpi-sub">${escapeHtml(kpi.leaderSub)}</div>
+        </div>
+        <div class="profile-kpi-card">
+          <div class="profile-kpi-label">📊 Meta Snapshot</div>
+          <div class="profile-kpi-value" style="color: #38bdf8; font-size: 1.12rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="Most Played: ${escapeHtml(mostPlayedFac)}">${escapeHtml(mostPlayedFac)}</div>
+          <div class="profile-kpi-sub">${escapeHtml(bestWrSub || mostPlayedSub)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function populateEventHubFactionFilter(players) {
+  const select = document.getElementById('event-hub-faction-filter');
+  if (!select) return;
+  const facs = Array.from(new Set(
+    (players || []).map(p => (p.faction || '').trim()).filter(f => f && f.toLowerCase() !== 'unknown')
+  )).sort();
+
+  const currentVal = select.value || 'All';
+  select.innerHTML = `<option value="All">All Factions (${(players || []).length})</option>` +
+    facs.map(f => {
+      const cnt = (players || []).filter(p => (p.faction || '').trim() === f).length;
+      return `<option value="${escapeHtml(f)}">${escapeHtml(f)} (${cnt})</option>`;
+    }).join('');
+  if (facs.includes(currentVal)) {
+    select.value = currentVal;
+  } else {
+    select.value = 'All';
+    eventHubFactionFilter = 'All';
+  }
+}
+
+function handleEventHubFactionFilter(val) {
+  eventHubFactionFilter = val || 'All';
+  renderEventResultsRows();
+}
+
+function renderPersonalEventScorecard(ev, userRegData) {
+  const container = document.getElementById('event-player-personal-scorecard');
+  if (!container) return;
+
+  if (!userRegData || !userRegData.is_registered) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const preg = userRegData.player_registration || userRegData.player || {};
+  const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
+  const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+
+  const myMatches = (eventMatchesCache || []).filter(m => {
+    const p1Id = String(m.player1_id || '').trim().toLowerCase();
+    const p2Id = String(m.player2_id || '').trim().toLowerCase();
+    const p1Name = String(m.player1_name || '').trim().toLowerCase();
+    const p2Name = String(m.player2_name || '').trim().toLowerCase();
+    if (myPid && (p1Id === myPid || p2Id === myPid)) return true;
+    if (myName && (p1Name === myName || p2Name === myName)) return true;
+    return false;
+  }).sort((a, b) => (a.round || 1) - (b.round || 1));
+
+  if (myMatches.length === 0) {
+    container.innerHTML = `
+      <div class="card" style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 1rem;">
+        <div style="font-size: 0.92rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.25rem;">⚔️ Your Event Scorecard</div>
+        <div style="font-size: 0.82rem; color: var(--text-secondary);">Your round pairings and live match results will appear here as soon as Round 1 pairings are posted.</div>
+      </div>
+    `;
+    return;
+  }
+
+  let totalDelta = 0;
+  const eventId = (ev && ev.id) || currentOpenEventId || (currentEventData && currentEventData.id) || '';
+  const rowsHtml = myMatches.map(m => {
+    const p1Id = String(m.player1_id || '').trim().toLowerCase();
+    const p1Name = String(m.player1_name || '').trim().toLowerCase();
+    const isP1 = (myPid && p1Id === myPid) || (myName && p1Name === myName);
+    const oppName = isP1 ? (m.player2_name || 'BYE') : (m.player1_name || 'Opponent');
+    const oppFac = isP1 ? (m.player2_faction || '') : (m.player1_faction || '');
+    const myScore = isP1 ? m.player1_score : m.player2_score;
+    const oppScore = isP1 ? m.player2_score : m.player1_score;
+    const hasScore = myScore !== null && myScore !== undefined && oppScore !== null && oppScore !== undefined;
+    const delta = isP1 ? Number(m._p1_delta || 0) : Number(m._p2_delta || 0);
+    totalDelta += delta;
+
+    const isWin = Boolean(isP1 ? m._is_p1_win : m._is_p2_win);
+    const isLoss = Boolean(isP1 ? m._is_p2_win : m._is_p1_win);
+    const resBadge = isWin ? `<span class="badge badge-win">WIN</span>` : (isLoss ? `<span class="badge badge-loss">LOSS</span>` : `<span class="badge badge-draw">${hasScore ? 'DRAW' : 'ACTIVE ROUND'}</span>`);
+    const deltaStr = hasScore ? (delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)) : 'Pending';
+    const deltaColor = hasScore ? (delta > 0 ? '#4ade80' : (delta < 0 ? '#f87171' : 'var(--text-muted)')) : 'var(--text-muted)';
+
+    const roundNum = m.round || 1;
+    const tableNum = m.table_number || m.table || 1;
+    const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+    const safeEventId = String(eventId).replace(/'/g, "\\'");
+    const safeP1Name = String(m.player1_name || 'Player 1').replace(/'/g, "\\'");
+    const safeP2Name = String(m.player2_name || 'Player 2').replace(/'/g, "\\'");
+    const safeP1Id = String(m.player1_id || '').replace(/'/g, "\\'");
+    const safeP2Id = String(m.player2_id || '').replace(/'/g, "\\'");
+    const safePairingId = String(m.id || m.pairing_id || m.bcp_pairing_id || '').replace(/'/g, "\\'");
+    const p1ScoreVal = m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : "''";
+    const p2ScoreVal = m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : "''";
+
+    const actionBtns = [];
+    if (!hasScore) {
+      actionBtns.push(`<button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:#0284c7; color:#fff; border:1px solid #38bdf8; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;" onclick="launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" title="Create / Open Live Game Tracker Room">🎲 Track / Room</button>`);
+    } else {
+      actionBtns.push(`<button type="button" class="btn-sm btn-outline" style="font-size:0.72rem; padding:0.2rem 0.5rem; display:inline-flex; align-items:center; gap:0.3rem; cursor:pointer;" onclick="openScorecardModal('${matchId}')" title="View Turn-by-Turn Digital Scorecard">📄 Scorecard</button>`);
+    }
+
+    return `
+      <tr>
+        <td style="font-family:var(--font-mono); font-weight:700;">R${roundNum}</td>
+        <td style="font-family:var(--font-mono); color:var(--text-muted);">T${tableNum}</td>
+        <td style="font-weight:600; color:#fff;">${escapeHtml(oppName)} ${oppFac ? `<span class="badge" style="font-size:0.7rem; margin-left:4px;">${escapeHtml(oppFac)}</span>` : ''}</td>
+        <td style="font-family:var(--font-mono); font-weight:700;">${hasScore ? `${myScore} - ${oppScore}` : '-'}</td>
+        <td>${resBadge}</td>
+        <td style="font-family:var(--font-mono); font-weight:700; color:${deltaColor}; text-align:right;">${deltaStr}${hasScore ? ' Elo' : ''}</td>
+        <td style="text-align:right;">
+          <div style="display:flex; align-items:center; justify-content:flex-end; gap:0.35rem; flex-wrap:wrap;">
+            ${actionBtns.join(' ')}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  const netStr = totalDelta >= 0 ? `+${totalDelta.toFixed(1)}` : totalDelta.toFixed(1);
+  const netColor = totalDelta >= 0 ? '#4ade80' : '#f87171';
+
+  container.innerHTML = `
+    <div class="card" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 10px; padding: 1.15rem;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.85rem;">
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">⚔️ Your Personal Event Scorecard</h4>
+        <span class="badge" style="font-family:var(--font-mono); font-size:0.78rem; font-weight:700; color:${netColor}; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15);">Event Net Elo: ${netStr}</span>
+      </div>
+      <div class="table-container">
+        <table id="personal-scorecard-table">
+          <thead>
+            <tr>
+              <th>Round</th>
+              <th>Table</th>
+              <th>Opponent</th>
+              <th>Score</th>
+              <th>Result</th>
+              <th style="text-align:right;">Elo Δ</th>
+              <th style="text-align:right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderEventMetaAndHighlights(ev) {
+  const container = document.getElementById('event-meta-highlights-container');
+  if (!container) return;
+
+  const players = Array.isArray(eventPlayersCache) ? eventPlayersCache : [];
+  const matches = Array.isArray(eventMatchesCache) ? eventMatchesCache : [];
+
+  if (players.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:2.5rem 1rem;">No competitor data available for field meta analysis yet.</div>`;
+    return;
+  }
+
+  // 1. Biggest Elo Overperformer
+  const overperformer = players.slice().sort((a, b) => Number(b.event_net_elo || 0) - Number(a.event_net_elo || 0))[0] || null;
+  const overNet = overperformer ? Number(overperformer.event_net_elo || 0) : 0;
+  const overNetStr = overNet >= 0 ? `+${overNet.toFixed(1)}` : overNet.toFixed(1);
+
+  // 2. Biggest Giant Killer / Upset
+  let biggestUpset = null;
+  let maxUpsetGap = -9999;
+  matches.forEach(m => {
+    if (m.is_bye || !m.winner_id) return;
+    const isP1Win = String(m.winner_id) === String(m.player1_id);
+    const winnerName = isP1Win ? m.player1_name : m.player2_name;
+    const loserName = isP1Win ? m.player2_name : m.player1_name;
+    const winnerElo = isP1Win ? Number(m._p1_elo || m.player1_elo || 1500) : Number(m._p2_elo || m.player2_elo || 1500);
+    const loserElo = isP1Win ? Number(m._p2_elo || m.player2_elo || 1500) : Number(m._p1_elo || m.player1_elo || 1500);
+    const gap = loserElo - winnerElo;
+    if (gap > maxUpsetGap) {
+      maxUpsetGap = gap;
+      biggestUpset = { winnerName, loserName, winnerElo, loserElo, gap, round: m.round || 1 };
+    }
+  });
+
+  // 3. Highest Scoring Army
+  const topScorer = players.slice().sort((a, b) => Number(b.event_battle_points || 0) - Number(a.event_battle_points || 0))[0] || null;
+
+  // Faction breakdown table
+  const facMap = new Map();
+  players.forEach(p => {
+    const fac = (p.faction || 'Unknown').trim();
+    if (!facMap.has(fac)) {
+      facMap.set(fac, {
+        faction: fac,
+        count: 0,
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        netElo: 0,
+        bestRank: 9999,
+        bestPlayer: ''
+      });
+    }
+    const item = facMap.get(fac);
+    item.count++;
+    item.wins += Number(p.event_wins || 0);
+    item.losses += Number(p.event_losses || 0);
+    item.draws += Number(p.event_draws || 0);
+    item.netElo += Number(p.event_net_elo || 0);
+    const rank = (p.placement && p.placement > 0) ? p.placement : 9999;
+    if (rank < item.bestRank) {
+      item.bestRank = rank;
+      item.bestPlayer = p.full_name || 'Player';
+    } else if (!item.bestPlayer) {
+      item.bestPlayer = p.full_name || 'Player';
+    }
+  });
+
+  const facList = Array.from(facMap.values()).sort((a, b) => b.count - a.count || b.wins - a.wins);
+  const totalField = Math.max(1, players.length);
+
+  const facRowsHtml = facList.map(f => {
+    const sharePct = ((f.count / totalField) * 100).toFixed(1);
+    const totalGames = f.wins + f.losses + f.draws;
+    const wrPct = totalGames > 0 ? ((f.wins / totalGames) * 100).toFixed(1) : '0.0';
+    const avgNet = f.count > 0 ? (f.netElo / f.count) : 0;
+    const avgNetStr = avgNet >= 0 ? `+${avgNet.toFixed(1)}` : avgNet.toFixed(1);
+    const avgNetColor = avgNet > 0 ? '#4ade80' : (avgNet < 0 ? '#f87171' : 'var(--text-muted)');
+    const bestFinishStr = f.bestRank < 9999 ? `#${f.bestRank} ${escapeHtml(f.bestPlayer)}` : escapeHtml(f.bestPlayer);
+
+    return `
+      <tr>
+        <td style="font-weight:700; color:#fff;">🛡️ ${escapeHtml(f.faction)}</td>
+        <td>
+          <span style="font-family:var(--font-mono); font-weight:700; color:#38bdf8;">${f.count}</span>
+          <span style="font-size:0.75rem; color:var(--text-muted); margin-left:4px;">(${sharePct}%)</span>
+        </td>
+        <td style="font-family:var(--font-mono); font-weight:600;">${f.wins}W - ${f.losses}L${f.draws ? ` - ${f.draws}D` : ''}</td>
+        <td>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <span style="font-family:var(--font-mono); font-weight:700; width:46px;">${wrPct}%</span>
+            <div style="flex:1; max-width:90px; height:6px; background:rgba(255,255,255,0.08); border-radius:4px; overflow:hidden;">
+              <div style="width:${Math.min(100, Number(wrPct))}%; height:100%; background:${Number(wrPct) >= 50 ? 'var(--win)' : 'var(--accent)'};"></div>
+            </div>
+          </div>
+        </td>
+        <td style="font-family:var(--font-mono); font-weight:700; color:${avgNetColor};">${avgNetStr}</td>
+        <td style="font-size:0.82rem; color:var(--text-secondary);">${bestFinishStr}</td>
+      </tr>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <!-- 3 Tournament Spotlight Cards -->
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem; margin-bottom:1.5rem;">
+      <div class="card" style="padding:1.1rem; background:linear-gradient(135deg, rgba(16,185,129,0.12), rgba(15,23,42,0.85)); border:1px solid rgba(16,185,129,0.35); border-radius:10px;">
+        <div style="font-size:0.74rem; font-weight:800; text-transform:uppercase; color:#34d399; letter-spacing:0.05em; margin-bottom:0.35rem;">📈 Biggest Elo Overperformer</div>
+        <div style="font-size:1.25rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin-bottom:0.2rem;">
+          ${overperformer ? `${overNetStr} Net Elo` : 'TBD'}
+        </div>
+        <div style="font-weight:700; color:#38bdf8; font-size:0.95rem;">
+          ${overperformer ? escapeHtml(overperformer.full_name || 'Player') : 'Awaiting Completed Rounds'}
+        </div>
+        <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:0.2rem;">
+          ${overperformer ? `${escapeHtml(overperformer.faction || 'Unknown')} • ${overperformer.event_wins || 0}W-${overperformer.event_losses || 0}L` : 'Calculated from tournament games'}
+        </div>
+      </div>
+
+      <div class="card" style="padding:1.1rem; background:linear-gradient(135deg, rgba(245,158,11,0.12), rgba(15,23,42,0.85)); border:1px solid rgba(245,158,11,0.35); border-radius:10px;">
+        <div style="font-size:0.74rem; font-weight:800; text-transform:uppercase; color:#fbbf24; letter-spacing:0.05em; margin-bottom:0.35rem;">⚡ Biggest Giant Killer / Upset</div>
+        <div style="font-size:1.25rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin-bottom:0.2rem;">
+          ${biggestUpset && biggestUpset.gap > 0 ? `+${Math.round(biggestUpset.gap)} Elo Gap` : (biggestUpset ? `Round ${biggestUpset.round} Victory` : 'TBD')}
+        </div>
+        <div style="font-weight:700; color:#fbbf24; font-size:0.92rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          ${biggestUpset ? `${escapeHtml(biggestUpset.winnerName)} (${Math.round(biggestUpset.winnerElo)})` : 'No Upsets Recorded Yet'}
+        </div>
+        <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:0.2rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+          ${biggestUpset ? `def. ${escapeHtml(biggestUpset.loserName)} (${Math.round(biggestUpset.loserElo)}) • R${biggestUpset.round}` : 'Tracks highest underdog Elo victory'}
+        </div>
+      </div>
+
+      <div class="card" style="padding:1.1rem; background:linear-gradient(135deg, rgba(56,189,248,0.12), rgba(15,23,42,0.85)); border:1px solid rgba(56,189,248,0.35); border-radius:10px;">
+        <div style="font-size:0.74rem; font-weight:800; text-transform:uppercase; color:#38bdf8; letter-spacing:0.05em; margin-bottom:0.35rem;">🔥 Highest Scoring General</div>
+        <div style="font-size:1.25rem; font-weight:800; color:#fff; font-family:var(--font-mono); margin-bottom:0.2rem;">
+          ${topScorer && topScorer.event_battle_points ? `${topScorer.event_battle_points} Battle Pts` : 'TBD'}
+        </div>
+        <div style="font-weight:700; color:#38bdf8; font-size:0.95rem;">
+          ${topScorer && topScorer.event_battle_points ? escapeHtml(topScorer.full_name || 'Player') : 'Awaiting Match Scores'}
+        </div>
+        <div style="font-size:0.78rem; color:var(--text-secondary); margin-top:0.2rem;">
+          ${topScorer && topScorer.event_battle_points ? `${escapeHtml(topScorer.faction || 'Unknown')} • ${(topScorer.event_battle_points / Math.max(1, topScorer.event_matches_count || 1)).toFixed(1)} pts/game` : 'Total Battle Points across all rounds'}
+        </div>
+      </div>
+    </div>
+
+    <!-- Faction Representation & Performance Table -->
+    <div class="card" style="background: rgba(15, 23, 42, 0.7); border: 1px solid var(--border); border-radius: 10px; padding: 1.15rem;">
+      <h4 style="margin: 0 0 0.9rem 0; font-size: 1rem; font-weight: 700; color: #fff;">📊 Tournament Faction Breakdown & Performance</h4>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Faction</th>
+              <th>Representation</th>
+              <th>Record (W-L-D)</th>
+              <th>Win Rate</th>
+              <th>Avg Net Elo Δ</th>
+              <th>Best Finish</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${facRowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function copyEventHubLink(eventId, sys = '40k') {
+  const cleanSys = (sys || '40k').toLowerCase();
+  const url = `${window.location.origin}/#/${cleanSys}/event/${encodeURIComponent(eventId)}`;
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(url).then(() => {
+      if (typeof showProfileToast === 'function') {
+        showProfileToast('✓ Event Hub link copied to clipboard!');
+      } else if (typeof showToast === 'function') {
+        showToast('Event Hub link copied to clipboard!', 'success');
+      }
+    }).catch(() => {});
+  }
+}
+
+function openEventPlayerListModal(playerIdentifier) {
+  const modal = document.getElementById('event-army-list-modal');
+  if (!modal) return;
+
+  const q = String(playerIdentifier || '').trim().toLowerCase();
+  const p = (eventPlayersCache || []).find(item => {
+    const pid = String(item.player_id || item.id || '').trim().toLowerCase();
+    const pname = String(item.full_name || item.name || '').trim().toLowerCase();
+    return (pid && pid === q) || (pname && pname === q);
+  });
+
+  currentArmyListModalPlayer = p || { full_name: playerIdentifier, player_id: playerIdentifier };
+
+  const titleEl = document.getElementById('event-army-list-modal-title');
+  const subEl = document.getElementById('event-army-list-modal-subtitle');
+  const contentEl = document.getElementById('event-army-list-modal-content');
+  const btnProfile = document.getElementById('btn-army-list-view-profile');
+
+  if (titleEl) titleEl.innerText = `${p?.full_name || playerIdentifier || 'Competitor'} — Army Roster`;
+  if (subEl) subEl.innerText = `${p?.faction || 'Faction Unspecified'}${p?.detachment ? ` • ${p.detachment}` : ''}${p?.team ? ` • 🛡️ ${p.team}` : ''}`;
+
+  const listText = (p?.army_list || p?.army_list_text || p?.raw_list || p?.list_text || '').trim();
+  if (contentEl) {
+    if (listText) {
+      contentEl.innerText = listText;
+    } else {
+      contentEl.innerText = `No army list text has been published on BCP for ${p?.full_name || 'this competitor'} yet.\n\nCompetitor Details:\n• Faction: ${p?.faction || 'Unknown'}\n• Detachment: ${p?.detachment || 'Unspecified'}\n• Current Elo: ${Number(p?.current_elo || 1500).toFixed(1)}`;
+    }
+  }
+
+  if (btnProfile) {
+    const targetId = p?.player_id || p?.id || '';
+    btnProfile.onclick = () => {
+      closeModal('event-army-list-modal');
+      if (typeof openPlayerProfilePage === 'function' && targetId) {
+        openPlayerProfilePage(targetId);
+      } else if (typeof openPlayerModal === 'function') {
+        openPlayerModal(targetId, p?.full_name || '');
+      }
+    };
+  }
+
+  modal.style.display = 'flex';
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.classList.add('active');
+  }
+}
+
+function closeEventArmyListModal() {
+  if (typeof closeModal === 'function') {
+    closeModal('event-army-list-modal');
+  } else {
+    const m = document.getElementById('event-army-list-modal');
+    if (m) m.style.display = 'none';
+  }
+}
+window.closeEventArmyListModal = closeEventArmyListModal;
+
+function copyEventArmyListModalText() {
+  const contentEl = document.getElementById('event-army-list-modal-content');
+  if (!contentEl) return;
+  const text = contentEl.innerText || '';
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showProfileToast === 'function') {
+        showProfileToast('✓ Army list copied to clipboard!');
+      } else if (typeof showToast === 'function') {
+        showToast('Army list copied to clipboard!', 'success');
+      }
+    }).catch(() => {});
+  }
+}
+
+window.computeEventPlayerEloStats = computeEventPlayerEloStats;
+window.renderQuickEventModal = renderQuickEventModal;
+window.setQuickModalViewMode = setQuickModalViewMode;
+window.handleQuickModalSearch = handleQuickModalSearch;
+window.renderQuickModalTable = renderQuickModalTable;
+window.openEventHubFromModal = openEventHubFromModal;
+window.openEventHubPage = openEventHubPage;
+window.renderEventHubHeroSection = renderEventHubHeroSection;
+window.populateEventHubFactionFilter = populateEventHubFactionFilter;
+window.handleEventHubFactionFilter = handleEventHubFactionFilter;
+window.renderPersonalEventScorecard = renderPersonalEventScorecard;
+window.renderEventMetaAndHighlights = renderEventMetaAndHighlights;
+window.copyEventHubLink = copyEventHubLink;
+window.openEventPlayerListModal = openEventPlayerListModal;
+window.copyEventArmyListModalText = copyEventArmyListModalText;

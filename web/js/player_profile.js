@@ -69,11 +69,6 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}) {
   } catch (err) {
     if (container) {
       container.innerHTML = `
-        <div class="profile-nav-bar">
-          <button type="button" class="btn-profile-back" onclick="navigateBackFromProfile()">
-            ← Back to Leaderboard
-          </button>
-        </div>
         <div class="empty-state" style="padding: 3rem 1rem; color: var(--loss);">
           <div style="font-size: 2rem; margin-bottom: 0.5rem;">⚠️</div>
           <div style="font-weight: 700; font-size: 1.1rem; margin-bottom: 0.5rem;">Unable to load profile</div>
