@@ -265,9 +265,28 @@ class PostgresDatabase:
                 self.init_db()
                 self.ensure_tracker_table()
                 self._ensure_event_participant_columns()
+                self._heal_unlinked_user_profiles()
                 PostgresDatabase._db_initialized = True
         except Exception as e:
             logger.warning(f"Initial DB connect notice (will retry on query): {e}")
+
+    def _heal_unlinked_user_profiles(self):
+        """Cleanses legacy user rows that were auto-assigned player_ids prior to BCP verification."""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        UPDATE users 
+                        SET player_id = NULL 
+                        WHERE (bcp_user_id IS NULL OR bcp_user_id = '') 
+                          AND player_id IS NOT NULL;
+                    """)
+                    affected = cur.rowcount
+                    if affected > 0:
+                        logger.info(f"🧹 Self-healed {affected} unlinked user account(s) by clearing speculative player_id.")
+                conn.commit()
+        except Exception as e:
+            logger.debug(f"Unlinked user self-heal notice: {e}")
 
     def _ensure_pool(self):
         if PostgresDatabase._pool is None:
@@ -359,7 +378,7 @@ class PostgresDatabase:
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v17_multigame_constraint_fix':
+                        if setting and setting[0] == 'v19_unlinked_user_cleanup':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -1097,8 +1116,12 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v18_placeholder_heal')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v19_unlinked_user_cleanup')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+                    UPDATE users 
+                    SET player_id = NULL 
+                    WHERE (bcp_user_id IS NULL OR bcp_user_id = '') 
+                      AND player_id IS NOT NULL;
                     """)
                     placeholder_re = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
                     cursor.execute("""
@@ -2529,8 +2552,7 @@ class PostgresDatabase:
                     FROM faction_player_matches fpm
                     LEFT JOIN player_ratings r ON fpm.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s
                     LEFT JOIN users u ON (
-                        (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = fpm.p_id)
-                        OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = fpm.p_id)
+                        (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = fpm.p_id OR u.bcp_user_id = fpm.p_id))
                         OR u.id = fpm.p_id
                     )
                     WHERE 1=1
@@ -2595,8 +2617,7 @@ class PostgresDatabase:
                        u.id as account_user_id
                 FROM player_ratings r
                 LEFT JOIN users u ON (
-                    (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = r.player_id)
-                    OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = r.player_id)
+                    (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = r.player_id OR u.bcp_user_id = r.player_id))
                     OR u.id = r.player_id
                 )
                 {where_sql}
@@ -2641,8 +2662,7 @@ class PostgresDatabase:
                                u.id as account_user_id
                         FROM player_ratings r
                         LEFT JOIN users u ON (
-                            (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = r.player_id)
-                            OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = r.player_id)
+                            (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = r.player_id OR u.bcp_user_id = r.player_id))
                             OR u.id = r.player_id
                         )
                         {s_sql}
@@ -7160,12 +7180,11 @@ class PostgresDatabase:
             return None
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                # Strictly match by player_id, bcp_user_id, or user id (never assume by name)
+                # Strictly match by verified bcp_user_id, or internal user id (never assume by unverified player_id)
                 cursor.execute("""
                     SELECT id, display_name, email, role, player_id, bcp_user_id, created_at
                     FROM users
-                    WHERE (player_id IS NOT NULL AND player_id != '' AND player_id = %s)
-                       OR (bcp_user_id IS NOT NULL AND bcp_user_id != '' AND bcp_user_id = %s)
+                    WHERE ((bcp_user_id IS NOT NULL AND bcp_user_id != '') AND (player_id = %s OR bcp_user_id = %s))
                        OR id = %s
                     ORDER BY updated_at DESC
                     LIMIT 1;
@@ -7211,8 +7230,7 @@ class PostgresDatabase:
                 cursor.execute("""
                     SELECT id FROM users
                     WHERE id = %s
-                       OR (player_id IS NOT NULL AND player_id != '' AND player_id = %s)
-                       OR (bcp_user_id IS NOT NULL AND bcp_user_id != '' AND bcp_user_id = %s)
+                       OR ((bcp_user_id IS NOT NULL AND bcp_user_id != '') AND (player_id = %s OR bcp_user_id = %s))
                     LIMIT 1;
                 """, (receiver_id, receiver_id, receiver_id))
                 user_match = cursor.fetchone()
@@ -8654,8 +8672,7 @@ class PostgresDatabase:
                         FROM event_participants ep
                         LEFT JOIN player_ratings pr ON ep.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
                         LEFT JOIN users u ON (
-                            (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = ep.player_id)
-                            OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = ep.player_id)
+                            (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = ep.player_id OR u.bcp_user_id = ep.player_id))
                             OR u.id = ep.player_id
                         )
                         WHERE ep.event_id = ANY(%s) AND ep.player_id IS NOT NULL AND ep.player_id != ''
@@ -8687,8 +8704,7 @@ class PostgresDatabase:
                                 CASE WHEN u.id IS NOT NULL THEN TRUE ELSE FALSE END as has_account
                             FROM player_ratings pr
                             LEFT JOIN users u ON (
-                                (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = pr.player_id)
-                                OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = pr.player_id)
+                                (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = pr.player_id OR u.bcp_user_id = pr.player_id))
                                 OR u.id = pr.player_id
                             )
                             WHERE pr.player_id = ANY(%s) AND COALESCE(pr.game_system, '40k') = %s;
@@ -8795,8 +8811,7 @@ class PostgresDatabase:
                         FROM player_lfg_profiles p
                         LEFT JOIN player_ratings pr ON p.player_id = pr.player_id AND COALESCE(pr.game_system, '40k') = %s
                         LEFT JOIN users u ON (
-                            (u.player_id IS NOT NULL AND u.player_id != '' AND u.player_id = p.player_id)
-                            OR (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND u.bcp_user_id = p.player_id)
+                            (u.bcp_user_id IS NOT NULL AND u.bcp_user_id != '' AND (u.player_id = p.player_id OR u.bcp_user_id = p.player_id))
                             OR u.id = p.player_id
                         )
                         WHERE p.latitude BETWEEN %s AND %s AND p.longitude BETWEEN %s AND %s

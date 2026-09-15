@@ -173,7 +173,7 @@ function resetMyHubToProfile() {
     const el = document.getElementById(id);
     if (el) {
       el.classList.remove('active');
-      el.style.display = 'none';
+      el.style.removeProperty('display');
     }
   });
 

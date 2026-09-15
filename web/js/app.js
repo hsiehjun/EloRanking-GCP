@@ -282,10 +282,14 @@ function switchTab(tabName) {
   // Update tab panel visibility
   document.querySelectorAll('.tab-panel').forEach(p => {
     p.classList.remove('active');
+    p.style.removeProperty('display');
   });
 
   const activePanel = document.getElementById(`tab-${tabName}`);
-  if (activePanel) activePanel.classList.add('active');
+  if (activePanel) {
+    activePanel.style.removeProperty('display');
+    activePanel.classList.add('active');
+  }
 
   const mainEl = document.querySelector('main');
   if (mainEl) mainEl.scrollTop = 0;

@@ -30,12 +30,20 @@ async function openPlayerProfilePage(playerId, gameSystem = '', options = {}) {
   if (typeof switchTab === 'function') {
     switchTab('player-profile');
   } else {
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.remove('active');
+      p.style.removeProperty('display');
+    });
     const panel = document.getElementById('tab-player-profile');
     if (panel) {
-      panel.style.display = 'block';
+      panel.style.removeProperty('display');
       panel.classList.add('active');
     }
+  }
+  const profPanel = document.getElementById('tab-player-profile');
+  if (profPanel) {
+    profPanel.style.removeProperty('display');
+    profPanel.classList.add('active');
   }
 
   // Update URL hash without re-triggering hashchange loop

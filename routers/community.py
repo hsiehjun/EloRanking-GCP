@@ -66,7 +66,7 @@ async def api_community_overview(
     session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     user_id = user["id"] if user else None
-    player_id = user.get("player_id") or user.get("bcp_user_id") if user else None
+    player_id = (user.get("player_id") or user.get("bcp_user_id")) if (user and user.get("bcp_user_id")) else None
 
     db = get_database()
     return db.get_community_overview(
@@ -611,7 +611,7 @@ async def api_community_event_registration(
     if user:
         user_display = user.get("display_name") or user.get("full_name") or user.get("name") or ""
         user_email = user.get("email") or ""
-        bcp_user_id = user.get("bcp_user_id") or user.get("player_id")
+        bcp_user_id = user.get("bcp_user_id") if user else None
         bcp_linked = bool(user.get("bcp_token") or (bcp_user_id and not str(bcp_user_id).startswith("user_")))
         
         parts = user_display.split(" ", 1) if user_display else ["", ""]

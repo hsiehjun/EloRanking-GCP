@@ -3423,7 +3423,9 @@ function openEventHubFromModal(explicitTab = null) {
   const eventId = currentOpenEventId || (currentEventData && currentEventData.id);
   if (!eventId) return;
 
-  if (typeof closeModal === 'function') {
+  if (typeof closeAllModals === 'function') {
+    closeAllModals();
+  } else if (typeof closeModal === 'function') {
     closeModal('event-modal');
   } else {
     const modal = document.getElementById('event-modal');
@@ -3470,9 +3472,20 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
   if (typeof switchTab === 'function') {
     switchTab('event-hub');
   } else {
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.remove('active');
+      p.style.removeProperty('display');
+    });
     const panel = document.getElementById('tab-event-hub');
-    if (panel) panel.classList.add('active');
+    if (panel) {
+      panel.style.removeProperty('display');
+      panel.classList.add('active');
+    }
+  }
+  const eventPanel = document.getElementById('tab-event-hub');
+  if (eventPanel) {
+    eventPanel.style.removeProperty('display');
+    eventPanel.classList.add('active');
   }
 
   // Update URL hash cleanly

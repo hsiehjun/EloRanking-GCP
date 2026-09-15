@@ -203,6 +203,7 @@ class AuthManager:
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_user_id ON users(bcp_user_id) WHERE bcp_user_id IS NOT NULL AND bcp_user_id != '';
                         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_unique_bcp_email ON users(LOWER(bcp_email)) WHERE bcp_email IS NOT NULL AND bcp_email != '';
                         UPDATE users SET role = 'admin' WHERE LOWER(email) = 'swimgeek751@gmail.com';
+                        UPDATE users SET player_id = NULL WHERE (bcp_user_id IS NULL OR bcp_user_id = '') AND player_id IS NOT NULL;
                         """,
                         # Table: user_sessions
                         """
