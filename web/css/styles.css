@@ -3945,28 +3945,45 @@ input, select, textarea {
   #hub-history-table td:nth-child(4)::before { content: "Match Result"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #hub-history-table td:nth-child(5)::before { content: "Elo Delta"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
 
-  /* 2. Matchup Matrix Card (4 columns) */
-  #hub-matchup-table td:nth-child(1) {
+  /* 2. Matchup Matrix Card (5 columns: Enemy Army, Played, Record, Net Elo, Win Rate) */
+  #hub-matchup-table td:nth-child(1),
+  #profile-matchup-table td:nth-child(1) {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
     padding-bottom: 0.4rem !important;
     margin-bottom: 0.35rem;
     font-size: 0.92rem !important;
   }
-  #hub-matchup-table td:nth-child(2)::before { content: "Total Encounters"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-matchup-table td:nth-child(3)::before { content: "Record (W-L-D)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-matchup-table td:nth-child(4)::before { content: "Win Rate vs Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-matchup-table td:nth-child(4) > div { width: 55%; }
+  #hub-matchup-table td:nth-child(2)::before,
+  #profile-matchup-table td:nth-child(2)::before { content: "Encounters"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(3)::before,
+  #profile-matchup-table td:nth-child(3)::before { content: "Record (W-L-D)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(4)::before,
+  #profile-matchup-table td:nth-child(4)::before { content: "Net Elo Δ"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(5)::before,
+  #profile-matchup-table td:nth-child(5)::before { content: "Win Rate vs Army"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-matchup-table td:nth-child(5) > div,
+  #profile-matchup-table td:nth-child(5) > div { width: 55%; }
 
-  /* 3. Faction Mastery Card (4 columns) */
-  #hub-faction-table td:nth-child(1) {
+  /* 3. Faction Mastery Card (6 columns: Army Played, Share, Games, Record, Net Elo, Win Rate) */
+  #hub-faction-table td:nth-child(1),
+  #profile-faction-table td:nth-child(1) {
     border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
     padding-bottom: 0.4rem !important;
     margin-bottom: 0.35rem;
     font-size: 0.92rem !important;
   }
-  #hub-faction-table td:nth-child(2)::before { content: "Games Played"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-faction-table td:nth-child(3)::before { content: "Career Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #hub-faction-table td:nth-child(4)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(2)::before,
+  #profile-faction-table td:nth-child(2)::before { content: "Army Share"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(3)::before,
+  #profile-faction-table td:nth-child(3)::before { content: "Games Played"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(4)::before,
+  #profile-faction-table td:nth-child(4)::before { content: "Career Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(5)::before,
+  #profile-faction-table td:nth-child(5)::before { content: "Net Elo Δ"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(6)::before,
+  #profile-faction-table td:nth-child(6)::before { content: "Win Rate"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #hub-faction-table td:nth-child(6) > div,
+  #profile-faction-table td:nth-child(6) > div { width: 55%; }
 
   /* 4. Live Game Tracker Completed History */
   #hub-tracker-history-table td:nth-child(1) {

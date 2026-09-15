@@ -393,105 +393,6 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     return `<span class="faction-pill" title="${escapeHtml(f.faction)} (${f.games} matches)">#${i+1} ${escapeHtml(f.faction)} <strong style="color:var(--text-main); margin-left:2px;">${f.games}G</strong></span>`;
   }).join(' ');
 
-  // Faction Spotlights HTML
-  let factionSpotlightsHtml = '';
-  if (profileFactionMastery.length > 0) {
-    const sigArmy = profileFactionMastery[0];
-    const qualifiedForWr = profileFactionMastery.filter(f => f.games >= 3);
-    const bestWrArmy = (qualifiedForWr.length > 0 ? qualifiedForWr : profileFactionMastery)
-      .slice()
-      .sort((a, b) => b.win_rate - a.win_rate || b.games - a.games)[0];
-    const bestEloArmy = profileFactionMastery.slice().sort((a, b) => b.net_elo - a.net_elo)[0];
-
-    factionSpotlightsHtml = `
-      <div class="profile-spotlight-grid">
-        <div class="profile-spotlight-card" style="border-left: 3px solid #38bdf8;">
-          <span style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">🛡️ Signature Army</span>
-          <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(sigArmy.faction)}</div>
-          <div style="font-size: 0.78rem; color: var(--text-secondary);">
-            <b>${sigArmy.games}</b> games (${totalFactionGames > 0 ? ((sigArmy.games / totalFactionGames) * 100).toFixed(0) : 100}% share) • <span style="color:var(--win); font-weight:700;">${sigArmy.win_rate.toFixed(1)}% WR</span>
-          </div>
-        </div>
-        ${bestWrArmy ? `
-          <div class="profile-spotlight-card" style="border-left: 3px solid #10b981;">
-            <span style="font-size: 0.7rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">🔥 Highest Win Rate</span>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(bestWrArmy.faction)}</div>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b style="color:var(--win);">${bestWrArmy.win_rate.toFixed(1)}% WR</b> (${bestWrArmy.wins}W - ${bestWrArmy.losses}L across ${bestWrArmy.games}G)
-            </div>
-          </div>
-        ` : ''}
-        ${bestEloArmy ? `
-          <div class="profile-spotlight-card" style="border-left: 3px solid #fbbf24;">
-            <span style="font-size: 0.7rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.05em;">📈 Net Elo Leader</span>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(bestEloArmy.faction)}</div>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b style="color:${bestEloArmy.net_elo >= 0 ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono);">${bestEloArmy.net_elo >= 0 ? '+' : ''}${bestEloArmy.net_elo.toFixed(1)} Elo</b> net career impact
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }
-
-  // Matchup Spotlights HTML (Prey vs Nemesis)
-  let matchupSpotlightsHtml = '';
-  if (profileMatchupMatrix.length > 0) {
-    const qualifiedMatchups = profileMatchupMatrix.filter(m => m.total_encounters >= 2);
-    const pool = qualifiedMatchups.length > 0 ? qualifiedMatchups : profileMatchupMatrix;
-    const preyArmy = pool.slice().sort((a, b) => b.win_rate - a.win_rate || b.wins - a.wins)[0];
-    const nemesisArmy = pool.slice().sort((a, b) => a.win_rate - b.win_rate || b.losses - a.losses)[0];
-
-    // Most frequent rival player
-    const rivalMap = new Map();
-    rawHistory.forEach(m => {
-      if (!m.opponent_name || m.is_bye || m.opponent_name.toUpperCase() === 'BYE') return;
-      const key = m.opponent_id || m.opponent_name;
-      if (!rivalMap.has(key)) {
-        rivalMap.set(key, { name: m.opponent_name, id: m.opponent_id || '', games: 0, wins: 0, losses: 0 });
-      }
-      const r = rivalMap.get(key);
-      r.games++;
-      if (m.result === 'W') r.wins++;
-      else if (m.result === 'L') r.losses++;
-    });
-    const topRival = Array.from(rivalMap.values()).sort((a, b) => b.games - a.games)[0];
-
-    matchupSpotlightsHtml = `
-      <div class="profile-spotlight-grid">
-        ${preyArmy ? `
-          <div class="profile-spotlight-card" style="border-left: 3px solid #10b981;">
-            <span style="font-size: 0.7rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">🦅 Favorite Prey Army</span>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(preyArmy.enemy_faction)}</div>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b style="color:var(--win);">${preyArmy.win_rate.toFixed(0)}% Win Rate</b> (${preyArmy.wins}W - ${preyArmy.losses}L in ${preyArmy.total_encounters} encounters)
-            </div>
-          </div>
-        ` : ''}
-        ${nemesisArmy ? `
-          <div class="profile-spotlight-card" style="border-left: 3px solid #ef4444;">
-            <span style="font-size: 0.7rem; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.05em;">💀 Toughest Nemesis Army</span>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(nemesisArmy.enemy_faction)}</div>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b style="color:var(--loss);">${nemesisArmy.win_rate.toFixed(0)}% Win Rate</b> (${nemesisArmy.wins}W - ${nemesisArmy.losses}L in ${nemesisArmy.total_encounters} encounters)
-            </div>
-          </div>
-        ` : ''}
-        ${topRival ? `
-          <div class="profile-spotlight-card" style="border-left: 3px solid #c084fc;">
-            <span style="font-size: 0.7rem; font-weight: 800; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em;">⚔️ Top Rival Competitor</span>
-            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">
-              ${topRival.id ? `<span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="openPlayerModal('${escapeHtml(topRival.id)}', '${escapeHtml(topRival.name)}')">${escapeHtml(topRival.name)}</span>` : escapeHtml(topRival.name)}
-            </div>
-            <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b>${topRival.games}</b> clashes • Record: <span style="color:var(--win); font-weight:700;">${topRival.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${topRival.losses}L</span>
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }
-
   // Career net Elo delta
   const netCareerElo = currentElo - 1500;
   const netCareerEloStr = (netCareerElo >= 0 ? '+' : '') + netCareerElo.toFixed(1);
@@ -660,123 +561,12 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
     <!-- TAB PANEL 3: Faction Mastery -->
     <div id="profile-panel-factions" class="profile-tab-panel">
-      <div class="hub-card" style="padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div>
-            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
-              Performance breakdown across ${profileFactionMastery.length} armies played (${totalFactionGames} games)
-            </div>
-          </div>
-          <div style="min-width: 220px;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Search army played..." oninput="filterProfileFactions(this.value)">
-          </div>
-        </div>
-
-        ${factionSpotlightsHtml}
-
-        ${profileFactionMastery.length > 0 ? `
-          <div class="hub-table-wrapper">
-            <table id="profile-faction-table" class="hub-table">
-              <thead>
-                <tr>
-                  <th style="width: 32%;">Army Played</th>
-                  <th style="width: 12%; text-align: center;">Share</th>
-                  <th style="width: 12%; text-align: center;">Games</th>
-                  <th style="width: 16%;">Record</th>
-                  <th style="width: 12%; text-align: right;">Net Elo</th>
-                  <th style="width: 16%;">Win Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${profileFactionMastery.map(fm => {
-                  const sharePct = totalFactionGames > 0 ? ((fm.games / totalFactionGames) * 100).toFixed(1) : '0.0';
-                  const netStr = (fm.net_elo >= 0 ? '+' : '') + fm.net_elo.toFixed(1);
-                  const netCol = fm.net_elo > 0 ? 'var(--win)' : (fm.net_elo < 0 ? 'var(--loss)' : 'var(--text-muted)');
-                  return `
-                    <tr data-faction="${escapeHtml(fm.faction)}">
-                      <td class="cell-ellipsis" title="${escapeHtml(fm.faction)}"><b style="color: #fff;">${escapeHtml(fm.faction)}</b></td>
-                      <td style="text-align: center; font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);">${sharePct}%</td>
-                      <td style="text-align: center; font-family: var(--font-mono); font-weight: 700;">${fm.games}</td>
-                      <td style="font-size: 0.8rem;">
-                        <span style="color:var(--win); font-weight:700;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${fm.losses}L</span>${fm.draws > 0 ? ` - <span style="color:var(--draw);">${fm.draws}D</span>` : ''}
-                      </td>
-                      <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${netCol};">${netStr}</td>
-                      <td>
-                        <div style="display:flex; align-items:center; gap:0.45rem;">
-                          <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
-                            <div style="width:${Math.min(100, Number(fm.win_rate))}%; background:${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
-                          </div>
-                          <b style="font-size:0.8rem; font-family:var(--font-mono); min-width: 42px; text-align: right;">${Number(fm.win_rate).toFixed(1)}%</b>
-                        </div>
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        ` : `<div class="empty-state" style="padding: 2rem;">No faction data recorded for this player.</div>`}
-      </div>
+      ${renderFactionMasteryTabContent(profileFactionMastery, 'profile-faction-table', 'filterProfileFactions')}
     </div>
 
     <!-- TAB PANEL 4: Matchup Matrix -->
     <div id="profile-panel-matchups" class="profile-tab-panel">
-      <div class="hub-card" style="padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div>
-            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🎯 Opponent Matchup Matrix</h3>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
-              Head-to-head record against ${profileMatchupMatrix.length} enemy armies faced in tournament play
-            </div>
-          </div>
-          <div style="min-width: 220px;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Search enemy army..." oninput="filterProfileMatchups(this.value)">
-          </div>
-        </div>
-
-        ${matchupSpotlightsHtml}
-
-        ${profileMatchupMatrix.length > 0 ? `
-          <div class="hub-table-wrapper">
-            <table id="profile-matchup-table" class="hub-table">
-              <thead>
-                <tr>
-                  <th style="width: 34%;">Enemy Army</th>
-                  <th style="width: 14%; text-align: center;">Played</th>
-                  <th style="width: 18%;">Record</th>
-                  <th style="width: 14%; text-align: right;">Net Elo</th>
-                  <th style="width: 20%;">Win Rate vs Army</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${profileMatchupMatrix.map(m => {
-                  const netStr = (m.net_elo >= 0 ? '+' : '') + m.net_elo.toFixed(1);
-                  const netCol = m.net_elo > 0 ? 'var(--win)' : (m.net_elo < 0 ? 'var(--loss)' : 'var(--text-muted)');
-                  return `
-                    <tr data-faction="${escapeHtml(m.enemy_faction)}">
-                      <td class="cell-ellipsis" title="${escapeHtml(m.enemy_faction)}"><b style="color: #fff;">${escapeHtml(m.enemy_faction)}</b></td>
-                      <td style="text-align: center; font-family: var(--font-mono); font-weight: 700;">${m.total_encounters}</td>
-                      <td style="font-size: 0.8rem;">
-                        <span style="color:var(--win); font-weight:700;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${m.losses}L</span>${m.draws > 0 ? ` - <span style="color:var(--draw);">${m.draws}D</span>` : ''}
-                      </td>
-                      <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${netCol};">${netStr}</td>
-                      <td>
-                        <div style="display:flex; align-items:center; gap:0.45rem;">
-                          <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
-                            <div style="width:${Math.min(100, Number(m.win_rate))}%; background:${Number(m.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
-                          </div>
-                          <b style="font-size:0.8rem; font-family:var(--font-mono); min-width: 42px; text-align: right;">${Number(m.win_rate).toFixed(1)}%</b>
-                        </div>
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        ` : `<div class="empty-state" style="padding: 2rem;">No opponent army matchup data recorded for this player.</div>`}
-      </div>
+      ${renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory, 'profile-matchup-table', 'filterProfileMatchups')}
     </div>
   `;
 
@@ -1036,11 +826,11 @@ function computeProfileFactionMastery(history, existingBreakdown) {
     existingBreakdown.forEach(eb => {
       const fn = (eb.faction || '').trim();
       if (!fn || fn.toLowerCase() === 'unknown') return;
+      const g = Number(eb.games || eb.matches || 0);
+      const w = Number(eb.wins || 0);
+      const l = Number(eb.losses || 0);
+      const d = Number(eb.draws || 0);
       if (!map.has(fn)) {
-        const g = Number(eb.games || eb.matches || 0);
-        const w = Number(eb.wins || 0);
-        const l = Number(eb.losses || 0);
-        const d = Number(eb.draws || 0);
         map.set(fn, {
           faction: fn,
           games: g,
@@ -1050,6 +840,17 @@ function computeProfileFactionMastery(history, existingBreakdown) {
           net_elo: Number(eb.net_elo || 0),
           win_rate: g > 0 ? (w / g) * 100 : 0
         });
+      } else {
+        const item = map.get(fn);
+        if (g > item.games) {
+          item.games = g;
+          item.wins = w;
+          item.losses = l;
+          item.draws = d;
+          if (eb.net_elo !== undefined && eb.net_elo !== null) {
+            item.net_elo = Number(eb.net_elo);
+          }
+        }
       }
     });
   }
@@ -1087,11 +888,11 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
     existingMatrix.forEach(em => {
       const fn = (em.enemy_faction || em.faction || '').trim();
       if (!fn || fn.toLowerCase() === 'unknown') return;
+      const g = Number(em.total_encounters || em.games || 0);
+      const w = Number(em.wins || 0);
+      const l = Number(em.losses || 0);
+      const d = Number(em.draws || 0);
       if (!map.has(fn)) {
-        const g = Number(em.total_encounters || em.games || 0);
-        const w = Number(em.wins || 0);
-        const l = Number(em.losses || 0);
-        const d = Number(em.draws || 0);
         map.set(fn, {
           enemy_faction: fn,
           total_encounters: g,
@@ -1101,6 +902,17 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
           net_elo: Number(em.net_elo || 0),
           win_rate: g > 0 ? (w / g) * 100 : 0
         });
+      } else {
+        const item = map.get(fn);
+        if (g > item.total_encounters) {
+          item.total_encounters = g;
+          item.wins = w;
+          item.losses = l;
+          item.draws = d;
+          if (em.net_elo !== undefined && em.net_elo !== null) {
+            item.net_elo = Number(em.net_elo);
+          }
+        }
       }
     });
   }
@@ -1110,6 +922,236 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
     item.win_rate = item.total_encounters > 0 ? (item.wins / item.total_encounters) * 100 : 0;
   });
   return list.sort((a, b) => b.total_encounters - a.total_encounters || b.win_rate - a.win_rate);
+}
+
+/**
+ * Shared renderer for Faction Mastery tab (used by Public Player Profile & My Hub)
+ */
+function renderFactionMasteryTabContent(profileFactionMastery, tableId = 'profile-faction-table', filterFnName = 'filterProfileFactions') {
+  const totalFactionGames = (profileFactionMastery || []).reduce((acc, f) => acc + f.games, 0);
+
+  let factionSpotlightsHtml = '';
+  if (profileFactionMastery && profileFactionMastery.length > 0) {
+    const sigArmy = profileFactionMastery[0];
+    const qualifiedForWr = profileFactionMastery.filter(f => f.games >= 3);
+    const bestWrArmy = (qualifiedForWr.length > 0 ? qualifiedForWr : profileFactionMastery)
+      .slice()
+      .sort((a, b) => b.win_rate - a.win_rate || b.games - a.games)[0];
+    const bestEloArmy = profileFactionMastery.slice().sort((a, b) => b.net_elo - a.net_elo)[0];
+
+    factionSpotlightsHtml = `
+      <div class="profile-spotlight-grid">
+        <div class="profile-spotlight-card" style="border-left: 3px solid #38bdf8;">
+          <span style="font-size: 0.7rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; letter-spacing: 0.05em;">🛡️ Signature Army</span>
+          <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(sigArmy.faction)}</div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary);">
+            <b>${sigArmy.games}</b> games (${totalFactionGames > 0 ? ((sigArmy.games / totalFactionGames) * 100).toFixed(0) : 100}% share) • <span style="color:var(--win); font-weight:700;">${sigArmy.win_rate.toFixed(1)}% WR</span>
+          </div>
+        </div>
+        ${bestWrArmy ? `
+          <div class="profile-spotlight-card" style="border-left: 3px solid #10b981;">
+            <span style="font-size: 0.7rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">🔥 Highest Win Rate</span>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(bestWrArmy.faction)}</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">
+              <b style="color:var(--win);">${bestWrArmy.win_rate.toFixed(1)}% WR</b> (${bestWrArmy.wins}W - ${bestWrArmy.losses}L across ${bestWrArmy.games}G)
+            </div>
+          </div>
+        ` : ''}
+        ${bestEloArmy ? `
+          <div class="profile-spotlight-card" style="border-left: 3px solid #fbbf24;">
+            <span style="font-size: 0.7rem; font-weight: 800; color: #fbbf24; text-transform: uppercase; letter-spacing: 0.05em;">📈 Net Elo Leader</span>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(bestEloArmy.faction)}</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">
+              <b style="color:${bestEloArmy.net_elo >= 0 ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono);">${bestEloArmy.net_elo >= 0 ? '+' : ''}${bestEloArmy.net_elo.toFixed(1)} Elo</b> net career impact
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="hub-card" style="padding: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            Performance breakdown across ${profileFactionMastery ? profileFactionMastery.length : 0} armies played (${totalFactionGames} games)
+          </div>
+        </div>
+        <div style="min-width: 220px;">
+          <input type="text" class="hub-search-input" placeholder="🔍 Search army played..." oninput="${filterFnName}(this.value)">
+        </div>
+      </div>
+
+      ${factionSpotlightsHtml}
+
+      ${profileFactionMastery && profileFactionMastery.length > 0 ? `
+        <div class="hub-table-wrapper">
+          <table id="${tableId}" class="hub-table">
+            <thead>
+              <tr>
+                <th style="width: 32%;">Army Played</th>
+                <th style="width: 12%; text-align: center;">Share</th>
+                <th style="width: 12%; text-align: center;">Games</th>
+                <th style="width: 16%;">Record</th>
+                <th style="width: 12%; text-align: right;">Net Elo</th>
+                <th style="width: 16%;">Win Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${profileFactionMastery.map(fm => {
+                const sharePct = totalFactionGames > 0 ? ((fm.games / totalFactionGames) * 100).toFixed(1) : '0.0';
+                const netStr = (fm.net_elo >= 0 ? '+' : '') + fm.net_elo.toFixed(1);
+                const netCol = fm.net_elo > 0 ? 'var(--win)' : (fm.net_elo < 0 ? 'var(--loss)' : 'var(--text-muted)');
+                return `
+                  <tr data-faction="${escapeHtml(fm.faction)}">
+                    <td class="cell-ellipsis" title="${escapeHtml(fm.faction)}"><b style="color: #fff;">${escapeHtml(fm.faction)}</b></td>
+                    <td style="text-align: center; font-family: var(--font-mono); font-size: 0.78rem; color: var(--text-muted);">${sharePct}%</td>
+                    <td style="text-align: center; font-family: var(--font-mono); font-weight: 700;">${fm.games}</td>
+                    <td style="font-size: 0.8rem;">
+                      <span style="color:var(--win); font-weight:700;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${fm.losses}L</span>${fm.draws > 0 ? ` - <span style="color:var(--draw);">${fm.draws}D</span>` : ''}
+                    </td>
+                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${netCol};">${netStr}</td>
+                    <td>
+                      <div style="display:flex; align-items:center; gap:0.45rem;">
+                        <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
+                          <div style="width:${Math.min(100, Number(fm.win_rate))}%; background:${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
+                        </div>
+                        <b style="font-size:0.8rem; font-family:var(--font-mono); min-width: 42px; text-align: right;">${Number(fm.win_rate).toFixed(1)}%</b>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : `<div class="empty-state" style="padding: 2rem;">No faction data recorded for this player.</div>`}
+    </div>
+  `;
+}
+
+/**
+ * Shared renderer for Opponent Matchup Matrix tab (used by Public Player Profile & My Hub)
+ */
+function renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory = [], tableId = 'profile-matchup-table', filterFnName = 'filterProfileMatchups') {
+  let matchupSpotlightsHtml = '';
+  if (profileMatchupMatrix && profileMatchupMatrix.length > 0) {
+    const qualifiedMatchups = profileMatchupMatrix.filter(m => m.total_encounters >= 2);
+    const pool = qualifiedMatchups.length > 0 ? qualifiedMatchups : profileMatchupMatrix;
+    const preyArmy = pool.slice().sort((a, b) => b.win_rate - a.win_rate || b.wins - a.wins)[0];
+    const nemesisArmy = pool.slice().sort((a, b) => a.win_rate - b.win_rate || b.losses - a.losses)[0];
+
+    // Most frequent rival player
+    const rivalMap = new Map();
+    if (Array.isArray(rawHistory)) {
+      rawHistory.forEach(m => {
+        if (!m.opponent_name || m.is_bye || m.opponent_name.toUpperCase() === 'BYE') return;
+        const key = m.opponent_id || m.opponent_name;
+        if (!rivalMap.has(key)) {
+          rivalMap.set(key, { name: m.opponent_name, id: m.opponent_id || '', games: 0, wins: 0, losses: 0 });
+        }
+        const r = rivalMap.get(key);
+        r.games++;
+        if (m.result === 'W') r.wins++;
+        else if (m.result === 'L') r.losses++;
+      });
+    }
+    const topRival = Array.from(rivalMap.values()).sort((a, b) => b.games - a.games)[0];
+
+    matchupSpotlightsHtml = `
+      <div class="profile-spotlight-grid">
+        ${preyArmy ? `
+          <div class="profile-spotlight-card" style="border-left: 3px solid #10b981;">
+            <span style="font-size: 0.7rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">🦅 Favorite Prey Army</span>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(preyArmy.enemy_faction)}</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">
+              <b style="color:var(--win);">${preyArmy.win_rate.toFixed(0)}% Win Rate</b> (${preyArmy.wins}W - ${preyArmy.losses}L in ${preyArmy.total_encounters} encounters)
+            </div>
+          </div>
+        ` : ''}
+        ${nemesisArmy ? `
+          <div class="profile-spotlight-card" style="border-left: 3px solid #ef4444;">
+            <span style="font-size: 0.7rem; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.05em;">💀 Toughest Nemesis Army</span>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(nemesisArmy.enemy_faction)}</div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">
+              <b style="color:var(--loss);">${nemesisArmy.win_rate.toFixed(0)}% Win Rate</b> (${nemesisArmy.wins}W - ${nemesisArmy.losses}L in ${nemesisArmy.total_encounters} encounters)
+            </div>
+          </div>
+        ` : ''}
+        ${topRival ? `
+          <div class="profile-spotlight-card" style="border-left: 3px solid #c084fc;">
+            <span style="font-size: 0.7rem; font-weight: 800; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em;">⚔️ Top Rival Competitor</span>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">
+              ${topRival.id ? `<span class="player-link" style="color:#38bdf8; cursor:pointer;" onclick="openPlayerModal('${escapeHtml(topRival.id)}', '${escapeHtml(topRival.name)}')">${escapeHtml(topRival.name)}</span>` : escapeHtml(topRival.name)}
+            </div>
+            <div style="font-size: 0.78rem; color: var(--text-secondary);">
+              <b>${topRival.games}</b> clashes • Record: <span style="color:var(--win); font-weight:700;">${topRival.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${topRival.losses}L</span>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="hub-card" style="padding: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🎯 Opponent Matchup Matrix</h3>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            Head-to-head record against ${profileMatchupMatrix ? profileMatchupMatrix.length : 0} enemy armies faced in tournament play
+          </div>
+        </div>
+        <div style="min-width: 220px;">
+          <input type="text" class="hub-search-input" placeholder="🔍 Search enemy army..." oninput="${filterFnName}(this.value)">
+        </div>
+      </div>
+
+      ${matchupSpotlightsHtml}
+
+      ${profileMatchupMatrix && profileMatchupMatrix.length > 0 ? `
+        <div class="hub-table-wrapper">
+          <table id="${tableId}" class="hub-table">
+            <thead>
+              <tr>
+                <th style="width: 34%;">Enemy Army</th>
+                <th style="width: 14%; text-align: center;">Played</th>
+                <th style="width: 18%;">Record</th>
+                <th style="width: 14%; text-align: right;">Net Elo</th>
+                <th style="width: 20%;">Win Rate vs Army</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${profileMatchupMatrix.map(m => {
+                const netStr = (m.net_elo >= 0 ? '+' : '') + m.net_elo.toFixed(1);
+                const netCol = m.net_elo > 0 ? 'var(--win)' : (m.net_elo < 0 ? 'var(--loss)' : 'var(--text-muted)');
+                return `
+                  <tr data-faction="${escapeHtml(m.enemy_faction)}">
+                    <td class="cell-ellipsis" title="${escapeHtml(m.enemy_faction)}"><b style="color: #fff;">${escapeHtml(m.enemy_faction)}</b></td>
+                    <td style="text-align: center; font-family: var(--font-mono); font-weight: 700;">${m.total_encounters}</td>
+                    <td style="font-size: 0.8rem;">
+                      <span style="color:var(--win); font-weight:700;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${m.losses}L</span>${m.draws > 0 ? ` - <span style="color:var(--draw);">${m.draws}D</span>` : ''}
+                    </td>
+                    <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; color: ${netCol};">${netStr}</td>
+                    <td>
+                      <div style="display:flex; align-items:center; gap:0.45rem;">
+                        <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
+                          <div style="width:${Math.min(100, Number(m.win_rate))}%; background:${Number(m.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
+                        </div>
+                        <b style="font-size:0.8rem; font-family:var(--font-mono); min-width: 42px; text-align: right;">${Number(m.win_rate).toFixed(1)}%</b>
+                      </div>
+                    </td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      ` : `<div class="empty-state" style="padding: 2rem;">No opponent army matchup data recorded for this player.</div>`}
+    </div>
+  `;
 }
 
 /**
@@ -1323,5 +1365,10 @@ if (typeof window !== 'undefined') {
   window.filterProfileFactions = filterProfileFactions;
   window.filterProfileMatchups = filterProfileMatchups;
   window.renderProfileTrajectoryChart = renderProfileTrajectoryChart;
+  window.computeProfileFactionMastery = computeProfileFactionMastery;
+  window.computeProfileMatchupMatrix = computeProfileMatchupMatrix;
+  window.renderFactionMasteryTabContent = renderFactionMasteryTabContent;
+  window.renderMatchupMatrixTabContent = renderMatchupMatrixTabContent;
 }
+
 

@@ -536,15 +536,14 @@ function renderMyHub(data) {
   const p = data.player || {};
   const rankings = data.rankings || {};
   const history = data.history || [];
-  const factionMastery = data.faction_mastery || [];
-  const matchups = data.matchup_matrix || [];
+  const factionMastery = typeof computeProfileFactionMastery === 'function'
+    ? computeProfileFactionMastery(history, data.faction_mastery || data.factions_breakdown)
+    : (data.faction_mastery || []);
+  const matchups = typeof computeProfileMatchupMatrix === 'function'
+    ? computeProfileMatchupMatrix(history, data.matchup_matrix)
+    : (data.matchup_matrix || []);
   const upcoming = data.upcoming_events || [];
   const registeredTournaments = data.registered_tournaments || [];
-  const matchupSpotlights = computeMatchupSpotlights(matchups, history, p.win_rate);
-  const factionSpotlights = computeFactionMasterySpotlights(factionMastery, history, p.win_rate);
-  const primaryFactionName = factionMastery.length > 0 ? factionMastery[0].faction : null;
-  const factionIntel = computeFactionIntel(primaryFactionName, history, data.events_attended);
-
   const totalHistoryMatches = history.length;
   const totalFactionGames = factionMastery.reduce((acc, f) => acc + (Number(f.games) || 0), 0);
   const totalMatchupGames = matchups.reduce((acc, m) => acc + (Number(m.total_encounters) || 0), 0);
@@ -1144,107 +1143,20 @@ function renderMyHub(data) {
 
     <!-- TAB PANEL 4: Faction Mastery -->
     <div id="hub-panel-factions" class="profile-tab-panel ${currentHubSubtab === 'factions' ? 'active' : ''}">
-      <div class="hub-card hub-card-mastery" style="padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div>
-            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
-              Performance breakdown across ${factionMastery.length} faction${factionMastery.length === 1 ? '' : 's'} piloted in official events
-            </div>
-          </div>
-          ${factionMastery.length > 0 ? `
-            <div style="width: 240px; max-width: 100%;">
-              <input type="text" class="hub-search-input" placeholder="🔍 Search army..." oninput="filterHubFaction(this.value)">
-            </div>
-          ` : ''}
-        </div>
-        ${factionMastery.length > 0 ? `
-          ${renderFactionMasterySpotlightCards(factionSpotlights)}
-          <div class="hub-table-wrapper" style="margin-top: 0.75rem;">
-            <table id="hub-faction-table" class="hub-table">
-              <thead>
-                <tr>
-                  <th style="width: 36%;">Army Played</th>
-                  <th style="width: 14%; text-align: center;">Share</th>
-                  <th style="width: 14%; text-align: center;">Games</th>
-                  <th style="width: 16%;">Record</th>
-                  <th style="width: 20%;">Win Rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${factionMastery.map(fm => `
-                  <tr data-faction="${escapeHtml(fm.faction)}">
-                    <td class="cell-ellipsis" title="${escapeHtml(fm.faction)}"><b style="color: #fff;">${escapeHtml(fm.faction)}</b></td>
-                    <td style="text-align: center; font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">${totalFactionGames > 0 ? `${((fm.games / totalFactionGames) * 100).toFixed(1)}%` : '—'}</td>
-                    <td style="text-align: center; font-family: var(--font-mono);">${fm.games}</td>
-                    <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${fm.losses}L</span></td>
-                    <td>
-                      <div style="display:flex; align-items:center; gap:0.4rem;">
-                        <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
-                          <div style="width:${Math.min(100, Number(fm.win_rate))}%; background:${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
-                        </div>
-                        <b style="font-size:0.78rem; font-family:var(--font-mono);">${Number(fm.win_rate).toFixed(1)}%</b>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-          ${renderFactionIntelPanel(factionIntel)}
-        ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading faction data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>')}
-      </div>
+      ${data._isSkeleton
+        ? '<div class="hub-card" style="padding:2rem; text-align:center; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading faction data...</div></div>'
+        : (typeof renderFactionMasteryTabContent === 'function'
+            ? renderFactionMasteryTabContent(factionMastery, 'hub-faction-table', 'filterHubFaction')
+            : '')}
     </div>
 
     <!-- TAB PANEL 5: Matchup Matrix -->
     <div id="hub-panel-matchups" class="profile-tab-panel ${currentHubSubtab === 'matchups' ? 'active' : ''}">
-      <div class="hub-card hub-card-matrix" style="padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div>
-            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🎯 Opponent Matchup Matrix</h3>
-            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
-              Head-to-head record against ${matchups.length} enemy armies faced in tournament play
-            </div>
-          </div>
-          ${matchups.length > 0 ? `
-            <div style="width: 240px; max-width: 100%;">
-              <input type="text" class="hub-search-input" placeholder="🔍 Search enemy faction..." oninput="filterHubMatrix(this.value)">
-            </div>
-          ` : ''}
-        </div>
-        ${matchups.length > 0 ? `
-          ${renderMatchupSpotlightCards(matchupSpotlights)}
-          <div class="hub-table-wrapper" style="margin-top: 0.75rem;">
-            <table id="hub-matchup-table" class="hub-table">
-              <thead>
-                <tr>
-                  <th style="width: 35%;">Enemy Army</th>
-                  <th style="width: 15%; text-align: center;">Played</th>
-                  <th style="width: 20%;">Record</th>
-                  <th style="width: 30%;">Win Rate vs Army</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${matchups.map(m => `
-                  <tr data-faction="${escapeHtml(m.enemy_faction)}">
-                    <td class="cell-ellipsis" title="${escapeHtml(m.enemy_faction)}"><b style="color: #fff;">${escapeHtml(m.enemy_faction)}</b></td>
-                    <td style="text-align: center; font-family: var(--font-mono);">${m.total_encounters}</td>
-                    <td style="font-size: 0.78rem;"><span style="color:var(--win); font-weight:700;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:700;">${m.losses}L</span>${m.draws ? ` - <span style="color:var(--draw);">${m.draws}D</span>` : ''}</td>
-                    <td>
-                      <div style="display:flex; align-items:center; gap:0.5rem;">
-                        <div style="flex:1; background:rgba(255,255,255,0.08); height:6px; border-radius:3px; overflow:hidden;">
-                          <div style="width:${Math.min(100, Number(m.win_rate))}%; background:${Number(m.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height:100%;"></div>
-                        </div>
-                        <b style="font-size:0.78rem; font-family:var(--font-mono);">${Number(m.win_rate).toFixed(1)}%</b>
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-        ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading matchup data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>')}
-      </div>
+      ${data._isSkeleton
+        ? '<div class="hub-card" style="padding:2rem; text-align:center; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading matchup data...</div></div>'
+        : (typeof renderMatchupMatrixTabContent === 'function'
+            ? renderMatchupMatrixTabContent(matchups, history, 'hub-matchup-table', 'filterHubMatrix')
+            : '')}
     </div>
 
   </div> <!-- /my-hub-container -->
