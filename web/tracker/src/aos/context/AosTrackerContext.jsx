@@ -66,14 +66,34 @@ export function AosTrackerProvider({ children }) {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  // Persist state mutations to localStorage
+  // Persist state mutations to localStorage and notify sync layer
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_AOS_TRACKER_STATE, JSON.stringify(state));
+      window.dispatchEvent(new CustomEvent('aos_state_change', { detail: state }));
     } catch (e) {
       console.error("Failed to save AoS tracker state to localStorage:", e);
     }
   }, [state]);
+
+  // Listen to remote multiplayer sync events
+  useEffect(() => {
+    function handleRemoteSync(e) {
+      try {
+        const incoming = e.detail || JSON.parse(localStorage.getItem(STORAGE_KEY_AOS_TRACKER_STATE));
+        if (incoming && incoming.gameSystem === "aos") {
+          setState(incoming);
+        }
+      } catch (err) {}
+    }
+    window.addEventListener("aos_remote_sync", handleRemoteSync);
+    window.addEventListener("storage", (ev) => {
+      if (ev.key === STORAGE_KEY_AOS_TRACKER_STATE) handleRemoteSync(ev);
+    });
+    return () => {
+      window.removeEventListener("aos_remote_sync", handleRemoteSync);
+    };
+  }, []);
 
   // Update Game and Player Setup
   const updateGameSetup = useCallback((updates) => {

@@ -65,43 +65,62 @@
     };
   }
 
-  // Broadcast state updates to dev_server or Firestore room
-  async function broadcastAosState() {
-    if (!matchId || isSpectator) return;
-    const state = getAosState();
-    if (!state) return;
+  let lastBroadcastVersion = 0;
+  let currentRemoteVersion = 0;
+  let broadcastTimer = null;
+  let isRemoteUpdating = false;
 
-    try {
-      // 1. Write to local dev_server / Firestore API
-      await fetch(`/api/tracker/${encodeURIComponent(matchId)}/state`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          match_id: matchId,
-          game_system: 'aos',
-          version: Date.now(),
-          state
-        })
-      });
-    } catch (e) {
-      // Offline fallback
-    }
+  const role = urlParams.get('role') || 'player1';
+
+  // Broadcast state updates to dev_server or Firestore room
+  function broadcastAosState() {
+    if (!matchId || isSpectator || role === 'player2' || isRemoteUpdating) return;
+    if (broadcastTimer) clearTimeout(broadcastTimer);
+
+    broadcastTimer = setTimeout(async () => {
+      const state = getAosState();
+      if (!state) return;
+      const ver = Date.now();
+      lastBroadcastVersion = ver;
+
+      try {
+        await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            match_id: matchId,
+            game_system: 'aos',
+            version: ver,
+            state
+          })
+        });
+      } catch (e) {
+        // Offline fallback
+      }
+    }, 60);
   }
 
-  // Poll remote room if spectator
-  if (matchId && isSpectator) {
-    setInterval(async () => {
-      try {
-        const resp = await fetch(`/api/tracker/${encodeURIComponent(matchId)}`);
-        if (resp.ok) {
-          const data = await resp.json();
-          if (data && data.state) {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(data.state));
-            window.dispatchEvent(new Event('storage'));
-          }
+  // Poll remote room if spectator or non-host player
+  async function syncFromRemote() {
+    if (!matchId) return;
+    try {
+      const resp = await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data && data.state && (!currentRemoteVersion || (data.version && data.version > currentRemoteVersion))) {
+          currentRemoteVersion = data.version || Date.now();
+          isRemoteUpdating = true;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data.state));
+          window.dispatchEvent(new CustomEvent('aos_remote_sync', { detail: data.state }));
+          setTimeout(() => { isRemoteUpdating = false; }, 100);
         }
-      } catch (e) {}
-    }, 2500);
+      }
+    } catch (e) {}
+  }
+
+  if (matchId && (isSpectator || role === 'player2')) {
+    syncFromRemote();
+    setInterval(syncFromRemote, 1000);
   }
 
   // Listen to state mutations
@@ -109,6 +128,9 @@
     if (e.key === STORAGE_KEY) {
       broadcastAosState();
     }
+  });
+  window.addEventListener('aos_state_change', () => {
+    broadcastAosState();
   });
 
   // Inject AoS Sync HUD

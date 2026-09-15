@@ -10,6 +10,7 @@ import sys
 import json
 import mimetypes
 import urllib.parse
+import secrets
 from pathlib import Path
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 5174))
@@ -214,13 +215,28 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path == "api/tracker/room/create":
-            match_id = "WH40K-DEV1"
+            try:
+                p_load = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_load = {}
+            is_aos = p_load.get("game_system") == "aos" or str(p_load.get("match_id", "")).startswith("AOS-")
+            token = secrets.token_hex(4).upper()
+            match_id = p_load.get("match_id") or (f"AOS-{token[:4]}-{token[4:]}" if is_aos else f"WH40K-{token[:4]}-{token[4:]}")
             res = {
                 "success": True,
                 "match_id": match_id,
                 "role": "player1",
-                "p1_name": "Player 1",
-                "p2_name": "Player 2",
+                "game_system": "aos" if is_aos else "40k",
+                "p1_name": p_load.get("p1_name", "Player 1"),
+                "p2_name": p_load.get("p2_name", "Player 2"),
+                "state": None
+            }
+            ROOMS_DB[match_id] = {
+                "match_id": match_id,
+                "game_system": "aos" if is_aos else "40k",
+                "status": "active",
+                "version": 1,
+                "online_count": 1,
                 "state": None
             }
             self.send_response(200)
@@ -231,18 +247,66 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/tracker/"):
             try:
-                payload = json.loads(body.decode("utf-8"))
+                payload = json.loads(body.decode("utf-8")) if body else {}
             except Exception:
                 payload = {}
 
-            room_id = clean_path.replace("api/tracker/", "").replace("room/", "").strip("/")
-            if room_id:
-                ROOMS_DB[room_id] = payload
+            tail = clean_path.replace("api/tracker/", "")
+            if tail.startswith("room/"):
+                tail = tail[5:]
+            sub_actions = ["/state", "/join", "/check", "/finalize", "/discard", "/clock", "/dice_tray", "/dice_roll", "/armylist"]
+            action = None
+            for sa in sub_actions:
+                if tail.endswith(sa):
+                    tail = tail[:-len(sa)].strip("/")
+                    action = sa[1:]
+                    break
 
+            room_id = tail.strip("/")
+            if room_id:
+                if room_id not in ROOMS_DB:
+                    ROOMS_DB[room_id] = {
+                        "match_id": room_id,
+                        "status": "active",
+                        "game_system": "aos" if room_id.startswith("AOS-") else "40k",
+                        "version": 1,
+                        "online_count": 1,
+                        "state": None
+                    }
+
+                entry = ROOMS_DB[room_id]
+                if "state" in payload and payload["state"] is not None:
+                    entry["state"] = payload["state"]
+                    entry["version"] = payload.get("version", entry.get("version", 1) + 1)
+                elif payload and any(k in payload for k in ("p1", "p2", "round", "game")):
+                    entry["state"] = payload
+                    entry["version"] = entry.get("version", 1) + 1
+
+                if action == "join":
+                    entry["online_count"] = entry.get("online_count", 1) + 1
+                    res = {
+                        "success": True,
+                        "match_id": room_id,
+                        "role": payload.get("claim_role", "player2"),
+                        "online_count": entry["online_count"],
+                        "version": entry.get("version", 1),
+                        "state": entry.get("state")
+                    }
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json; charset=utf-8")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+                    return
+
+            res = {
+                "success": True,
+                "match_id": room_id or "WH40K-DEV1",
+                "version": ROOMS_DB.get(room_id, {}).get("version", 1)
+            }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
-            self.wfile.write(json.dumps({"success": True, "match_id": room_id or "WH40K-DEV1"}).encode("utf-8"))
+            self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
         self.send_response(200)
@@ -1045,24 +1109,46 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
+                st = room_data.get("state") if isinstance(room_data, dict) else None
+                sys_id = (room_data.get("game_system") if isinstance(room_data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if match_id.startswith("AOS-") else "40k")
                 self.wfile.write(json.dumps({
                     "success": True,
                     "match_id": match_id,
+                    "game_system": sys_id,
                     "game_record": None,
-                    "state": room_data.get("state"),
+                    "state": st,
                     "is_finished": bool(room_data.get("is_finished", False)),
                     "status": room_data.get("status", "active")
                 }).encode("utf-8"))
             return
 
         if clean_path.startswith("api/tracker/"):
-            room_id = clean_path.replace("api/tracker/", "").replace("room/", "").strip("/")
+            tail = clean_path.replace("api/tracker/", "")
+            if tail.startswith("room/"):
+                tail = tail[5:]
+            for sa in ["/check", "/armylists", "/clock", "/state"]:
+                if tail.endswith(sa):
+                    tail = tail[:-len(sa)].strip("/")
+                    break
+            room_id = tail.strip("/")
             data = ROOMS_DB.get(room_id, {})
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "match_id": room_id or "WH40K-DEV1", "data": data, "state": None}).encode("utf-8"))
+                st = data.get("state") if isinstance(data, dict) else None
+                ver = data.get("version", 1) if isinstance(data, dict) else 1
+                online = data.get("online_count", 2) if isinstance(data, dict) else 2
+                sys_id = (data.get("game_system") if isinstance(data, dict) else None) or (st.get("gameSystem") if isinstance(st, dict) else None) or ("aos" if room_id.startswith("AOS-") else "40k")
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "match_id": room_id,
+                    "game_system": sys_id,
+                    "data": data,
+                    "state": st,
+                    "version": ver,
+                    "online_count": online
+                }).encode("utf-8"))
             return
 
         if clean_path.startswith("api/bcp/armylist/"):
