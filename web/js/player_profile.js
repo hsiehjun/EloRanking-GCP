@@ -621,31 +621,39 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
 
     <!-- TAB PANEL 2: Elo Rating Trajectory -->
     <div id="profile-panel-trajectory" class="profile-tab-panel">
-      <div class="hub-card" style="padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div class="hub-card trajectory-card" style="padding: 1.25rem;">
+        <div class="trajectory-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
           <div>
             <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">📈 Career Elo Rating Trajectory</h3>
             <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
               Match-by-match rating progression across ${rawHistory.length} official games in ${sysLabel}
             </div>
           </div>
-          <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
-            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+          <div class="trajectory-stats-row" style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+            <div class="trajectory-stat-pill" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
               <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
               <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: #38bdf8;">${currentElo.toFixed(1)}</div>
             </div>
-            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+            <div class="trajectory-stat-pill" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
               <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">All-Time Peak</div>
               <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: #fbbf24;">${peakElo.toFixed(1)} 👑</div>
             </div>
-            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+            <div class="trajectory-stat-pill" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
               <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Net Career Δ</div>
               <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: ${netCareerElo >= 0 ? 'var(--win)' : 'var(--loss)'};">${netCareerEloStr}</div>
             </div>
           </div>
         </div>
-        <div style="background: rgba(10, 14, 23, 0.65); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 1rem; overflow-x: auto;">
+        <div class="trajectory-chart-box" style="background: rgba(10, 14, 23, 0.65); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 1rem; overflow-x: auto;">
           <svg id="profile-trajectory-svg" style="width: 100%; height: 220px; display: block;"></svg>
+        </div>
+        <div class="trajectory-legend-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; gap: 0.5rem;">
+          <span>Tap or hover any data point to inspect match details & rating delta</span>
+          <div style="display: flex; align-items: center; gap: 0.85rem;">
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span> Win</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444;"></span> Loss</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8;"></span> Starting / Draw</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1110,6 +1118,7 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
 function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-svg') {
   const svg = document.getElementById(svgId);
   if (!svg || !rawHistory || rawHistory.length === 0) return;
+  svg._lastRawHistory = rawHistory;
 
   // Ensure chronological oldest-to-newest order for left-to-right trajectory plotting
   const chronHistory = rawHistory.slice().sort((a, b) => {
@@ -1119,23 +1128,31 @@ function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-sv
     return Number(a.round || 0) - Number(b.round || 0);
   });
 
-  const w = svg.clientWidth || 780;
-  const h = 220;
+  const rectW = svg.getBoundingClientRect ? svg.getBoundingClientRect().width : 0;
+  const w = Math.round(rectW || svg.clientWidth || (window.innerWidth < 600 ? Math.max(280, window.innerWidth - 40) : 780));
+  const isMobile = w < 520;
+  const h = isMobile ? 210 : 220;
   svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
   svg.innerHTML = '';
 
-  const padX = 50;
-  const padY = 22;
-  const plotW = w - padX * 2;
+  const padLeft = isMobile ? 32 : 46;
+  const padRight = isMobile ? 10 : 18;
+  const padY = isMobile ? 15 : 22;
+  const plotW = Math.max(100, w - padLeft - padRight);
   const plotH = h - padY * 2;
 
-  const startElo = (chronHistory.length > 0 && chronHistory[0].old_elo !== undefined)
-    ? Number(chronHistory[0].old_elo)
-    : 1500;
+  const firstPt = chronHistory[0] || {};
+  const startElo = firstPt.old_elo !== undefined && firstPt.old_elo !== null
+    ? Number(firstPt.old_elo)
+    : (firstPt.new_elo !== undefined && firstPt.delta_elo !== undefined
+        ? Number(firstPt.new_elo) - Number(firstPt.delta_elo)
+        : 1500);
   const pointsData = [{ new_elo: startElo, event_name: 'Starting Rating', result: '-' }, ...chronHistory];
   const elos = pointsData.map(pt => Number(pt.new_elo || 1500));
-  const minElo = Math.floor(Math.min(...elos, 1450) / 50) * 50;
-  const maxElo = Math.ceil(Math.max(...elos, 1550) / 50) * 50;
+  const rawMin = Math.min(...elos);
+  const rawMax = Math.max(...elos);
+  const minElo = Math.floor((rawMin - 25) / 50) * 50;
+  const maxElo = Math.ceil((rawMax + 25) / 50) * 50;
   const range = Math.max(100, maxElo - minElo);
 
   // Horizontal Grid Lines
@@ -1143,19 +1160,19 @@ function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-sv
   for (let val = minElo; val <= maxElo; val += step) {
     const y = padY + plotH - ((val - minElo) / range) * plotH;
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', padX);
+    line.setAttribute('x1', padLeft);
     line.setAttribute('y1', y);
-    line.setAttribute('x2', w - padX);
+    line.setAttribute('x2', w - padRight);
     line.setAttribute('y2', y);
     line.setAttribute('stroke', val === 1500 ? 'rgba(56,189,248,0.22)' : 'rgba(255,255,255,0.07)');
     if (val === 1500) line.setAttribute('stroke-dasharray', '4 4');
     svg.appendChild(line);
 
     const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', padX - 8);
-    txt.setAttribute('y', y + 4);
+    txt.setAttribute('x', padLeft - 6);
+    txt.setAttribute('y', y + 3.5);
     txt.setAttribute('fill', val === 1500 ? '#38bdf8' : '#64748b');
-    txt.setAttribute('font-size', '10');
+    txt.setAttribute('font-size', isMobile ? '9.5' : '10');
     txt.setAttribute('font-family', 'monospace');
     txt.setAttribute('text-anchor', 'end');
     txt.textContent = val;
@@ -1164,10 +1181,13 @@ function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-sv
 
   // Compute Coordinates
   const pts = pointsData.map((pt, idx) => {
-    const x = padX + (idx / (pointsData.length - 1 || 1)) * plotW;
+    const x = padLeft + (idx / (pointsData.length - 1 || 1)) * plotW;
     const y = padY + plotH - ((Number(pt.new_elo || 1500) - minElo) / range) * plotH;
     return { x, y, elo: Number(pt.new_elo || 1500), raw: pt };
   });
+
+  const density = plotW / Math.max(1, pointsData.length);
+  const strokeW = density < 5 ? '1.8' : '2.5';
 
   // Area Gradient Fill under trajectory line
   const gradId = `${svgId}-grad`;
@@ -1200,7 +1220,7 @@ function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-sv
     path.setAttribute('d', dStr);
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', '#38bdf8');
-    path.setAttribute('stroke-width', '2.5');
+    path.setAttribute('stroke-width', strokeW);
     path.setAttribute('stroke-linecap', 'round');
     svg.appendChild(path);
   }
@@ -1210,11 +1230,13 @@ function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-sv
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('cx', pt.x);
     circle.setAttribute('cy', pt.y);
-    circle.setAttribute('r', idx === pts.length - 1 ? '4.5' : '3');
+    const isLast = idx === pts.length - 1;
+    const dotRadius = isLast ? (isMobile ? '4' : '4.5') : (density < 4.5 ? '1.8' : (density < 8 ? '2.4' : '3'));
+    circle.setAttribute('r', dotRadius);
     const col = pt.raw.result === 'W' ? '#10b981' : (pt.raw.result === 'L' ? '#ef4444' : '#38bdf8');
     circle.setAttribute('fill', col);
     circle.setAttribute('stroke', '#0a0c10');
-    circle.setAttribute('stroke-width', '1.5');
+    circle.setAttribute('stroke-width', isLast ? '1.5' : (density < 5 ? '1' : '1.5'));
 
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     title.textContent = idx === 0
@@ -1222,6 +1244,18 @@ function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-sv
       : `Match #${idx}: ${pt.elo.toFixed(1)} Elo (${pt.raw.result || '-'} vs ${pt.raw.opponent_name || 'Opponent'} @ ${pt.raw.event_name || 'Event'})`;
     circle.appendChild(title);
     svg.appendChild(circle);
+  });
+}
+
+if (typeof window !== 'undefined' && !window._trajectoryResizeBound) {
+  window._trajectoryResizeBound = true;
+  window.addEventListener('resize', () => {
+    ['profile-trajectory-svg', 'hub-trajectory-svg'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el._lastRawHistory && el.offsetParent !== null) {
+        renderProfileTrajectoryChart(el._lastRawHistory, id);
+      }
+    });
   });
 }
 

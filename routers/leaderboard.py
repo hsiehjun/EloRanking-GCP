@@ -906,7 +906,9 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                         has_bps_metric = True
                     except (ValueError, TypeError): pass
 
-        raw_games = p.get("games") or p.get("total_games") or []
+        t_games = p.get("total_games") if isinstance(p.get("total_games"), list) else []
+        s_games = p.get("games") if isinstance(p.get("games"), list) else []
+        raw_games = t_games if len(t_games) >= len(s_games) else s_games
         if isinstance(raw_games, list) and raw_games:
             g_wins = 0
             g_losses = 0
@@ -932,7 +934,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             has_wins_metric = True
             has_losses_metric = True
             has_draws_metric = True
-            if not has_bps_metric and g_bps > 0:
+            if (not has_bps_metric or g_bps > bps) and g_bps > 0:
                 bps = g_bps
                 has_bps_metric = True
 
@@ -1018,18 +1020,24 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 player_dict["dropped"] = bool(p.get("dropped"))
             player_dict["checked_in"] = is_checked_in
 
-            if has_wins_metric or "event_wins" not in player_dict:
+            cached_matches_count = int(cached.get("event_matches_count") or 0)
+            bcp_matches_count = int(wins + losses + draws)
+            use_bcp_record = (bcp_matches_count >= cached_matches_count) and (has_wins_metric or has_losses_metric or has_draws_metric)
+
+            if use_bcp_record or "event_wins" not in player_dict:
                 player_dict["event_wins"] = wins
-            if has_losses_metric or "event_losses" not in player_dict:
+            if use_bcp_record or "event_losses" not in player_dict:
                 player_dict["event_losses"] = losses
-            if has_draws_metric or "event_draws" not in player_dict:
+            if use_bcp_record or "event_draws" not in player_dict:
                 player_dict["event_draws"] = draws
 
-            if has_wins_metric or has_losses_metric or has_draws_metric or "event_matches_count" not in player_dict:
+            if use_bcp_record or "event_matches_count" not in player_dict:
                 player_dict["event_matches_count"] = int(player_dict.get("event_wins", 0) + player_dict.get("event_losses", 0) + player_dict.get("event_draws", 0))
 
-            if has_bps_metric or "event_battle_points" not in player_dict:
-                player_dict["event_battle_points"] = bps or p.get("points") or 0
+            cached_bps = int(cached.get("event_battle_points") or 0)
+            bcp_bps = int(bps or p.get("points") or 0)
+            if (use_bcp_record and has_bps_metric and bcp_bps >= cached_bps) or "event_battle_points" not in player_dict or player_dict.get("event_battle_points", 0) == 0:
+                player_dict["event_battle_points"] = max(bcp_bps, cached_bps) if not use_bcp_record else (bcp_bps or cached_bps)
 
             player_dict["games"] = raw_games
             player_dict["team_player_id"] = str(p.get("teamPlayerId") or p.get("team_player_id") or "")

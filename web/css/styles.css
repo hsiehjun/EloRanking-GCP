@@ -7954,4 +7954,43 @@ body.is-authenticated #floating-chat-widget {
   }
 }
 
+@media (max-width: 600px) {
+  .trajectory-card {
+    padding: 0.85rem 0.65rem !important;
+  }
+  .trajectory-header-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.65rem !important;
+  }
+  .trajectory-stats-row {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 0.35rem !important;
+    width: 100% !important;
+  }
+  .trajectory-stat-pill {
+    padding: 0.38rem 0.28rem !important;
+    text-align: center !important;
+  }
+  .trajectory-stat-pill > div:first-child {
+    font-size: 0.6rem !important;
+    letter-spacing: 0.01em !important;
+    white-space: nowrap !important;
+  }
+  .trajectory-stat-pill > div:last-child {
+    font-size: 0.85rem !important;
+    margin-top: 1px !important;
+  }
+  .trajectory-chart-box {
+    padding: 0.45rem 0.2rem !important;
+  }
+  .trajectory-legend-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.4rem !important;
+  }
+}
+
+
 

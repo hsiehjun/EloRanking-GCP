@@ -1105,34 +1105,34 @@ function renderMyHub(data) {
 
     <!-- TAB PANEL 3: Career Elo Trajectory -->
     <div id="hub-panel-trajectory" class="profile-tab-panel ${currentHubSubtab === 'trajectory' ? 'active' : ''}">
-      <div class="hub-card" style="padding: 1.25rem;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+      <div class="hub-card trajectory-card" style="padding: 1.25rem;">
+        <div class="trajectory-header-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
           <div>
             <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">📈 Career Elo Rating Trajectory</h3>
             <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
               Match-by-match rating progression across ${history.length} official games in ${sysLabel}
             </div>
           </div>
-          <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
-            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+          <div class="trajectory-stats-row" style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+            <div class="trajectory-stat-pill" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
               <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
               <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: #38bdf8;">${currentElo}</div>
             </div>
-            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+            <div class="trajectory-stat-pill" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
               <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">All-Time Peak</div>
               <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: #fbbf24;">${peakElo} 👑</div>
             </div>
-            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+            <div class="trajectory-stat-pill" style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
               <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Net Career Δ</div>
               <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: ${(currentEloNum - 1500) >= 0 ? 'var(--win)' : 'var(--loss)'};">${(currentEloNum - 1500) >= 0 ? '+' : ''}${(currentEloNum - 1500).toFixed(1)}</div>
             </div>
           </div>
         </div>
-        <div style="overflow-x: auto; padding-top: 0.25rem;">
+        <div class="trajectory-chart-box" style="background: rgba(10, 14, 23, 0.65); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 1rem; overflow-x: auto;">
           <svg id="hub-trajectory-svg" style="width: 100%; height: 220px; display: block;"></svg>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; gap: 0.5rem;">
-          <span>Hover over any data point to inspect match details & rating delta</span>
+        <div class="trajectory-legend-row" style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; gap: 0.5rem;">
+          <span>Tap or hover any data point to inspect match details & rating delta</span>
           <div style="display: flex; align-items: center; gap: 0.85rem;">
             <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span> Win</span>
             <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444;"></span> Loss</span>

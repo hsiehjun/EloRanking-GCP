@@ -500,6 +500,79 @@ def test_scraper_robustness_fixes():
     print("✅ test_scraper_robustness_fixes passed!")
 
 
+def test_pod_split_total_games_and_db_completed_games():
+    """Verify that pod-split events (e.g. Tacoma Open) use total_games (8 games) over games (4 Swiss games),
+    and preserve DB completed match counts when DB has more completed games than BCP reports."""
+    from routers.leaderboard import format_bcp_roster_to_players
+
+    # Simulate Tacoma Open player where BCP puts 4 Swiss rounds in `games` and all 8 rounds in `total_games`
+    bcp_pod_player = {
+        "id": "p_trenton",
+        "userId": "u_trenton",
+        "user": {"firstName": "Trenton", "lastName": "Bates"},
+        "placing": 3,
+        "games": [
+            {"gameNum": 1, "gameResult": 2, "gamePoints": 100},
+            {"gameNum": 2, "gameResult": 2, "gamePoints": 100},
+            {"gameNum": 3, "gameResult": 1, "gamePoints": 85},
+            {"gameNum": 4, "gameResult": 2, "gamePoints": 100},
+        ],
+        "total_games": [
+            {"gameNum": 1, "gameResult": 2, "gamePoints": 100},
+            {"gameNum": 2, "gameResult": 2, "gamePoints": 100},
+            {"gameNum": 3, "gameResult": 1, "gamePoints": 85},
+            {"gameNum": 4, "gameResult": 2, "gamePoints": 100},
+            {"gameNum": 1, "gameResult": 2, "gamePoints": 93, "pod": True},
+            {"gameNum": 2, "gameResult": 2, "gamePoints": 100, "pod": True},
+            {"gameNum": 3, "gameResult": 0, "gamePoints": 42, "pod": True},
+            {"gameNum": 4, "gameResult": 2, "gamePoints": 100, "pod": True},
+        ],
+        "total_metrics": [{"name": "Battle Points", "value": 720}]
+    }
+
+    formatted = format_bcp_roster_to_players([bcp_pod_player], [], db=None, game_system="40k")
+    assert len(formatted) == 1
+    p = formatted[0]
+    assert p["event_wins"] == 6, f"Expected 6 wins from total_games, got {p['event_wins']}"
+    assert p["event_losses"] == 1, f"Expected 1 loss from total_games, got {p['event_losses']}"
+    assert p["event_draws"] == 1, f"Expected 1 draw from total_games, got {p['event_draws']}"
+    assert p["event_matches_count"] == 8, f"Expected 8 total matches, got {p['event_matches_count']}"
+    assert p["event_battle_points"] == 720
+
+    # Also verify that if DB (`existing_players`) has 8 completed matches while BCP only sent 4 games, DB record is preserved
+    bcp_partial_player = {
+        "id": "p_scott",
+        "userId": "u_scott",
+        "user": {"firstName": "Scott", "lastName": "Ketcham"},
+        "placing": 5,
+        "games": [
+            {"gameNum": 1, "gameResult": 2, "gamePoints": 88},
+            {"gameNum": 2, "gameResult": 2, "gamePoints": 97},
+            {"gameNum": 3, "gameResult": 2, "gamePoints": 89},
+            {"gameNum": 4, "gameResult": 2, "gamePoints": 69},
+        ],
+        "metrics": [{"name": "Battle Points", "value": 343}]
+    }
+    db_existing = [{
+        "player_id": "u_scott",
+        "full_name": "Scott Ketcham",
+        "event_wins": 7,
+        "event_losses": 0,
+        "event_draws": 1,
+        "event_matches_count": 8,
+        "event_battle_points": 700,
+        "current_elo": 2153.4
+    }]
+    formatted2 = format_bcp_roster_to_players([bcp_partial_player], db_existing, db=None, game_system="40k")
+    p2 = formatted2[0]
+    assert p2["placement"] == 5
+    assert p2["event_wins"] == 7
+    assert p2["event_draws"] == 1
+    assert p2["event_matches_count"] == 8
+    assert p2["event_battle_points"] == 700
+    print("✅ test_pod_split_total_games_and_db_completed_games passed!")
+
+
 if __name__ == "__main__":
     test_scraper_placing_resolution_priority()
     test_team_standings_placing_priority()
@@ -509,4 +582,5 @@ if __name__ == "__main__":
     test_frontend_default_tab_and_sorting()
     test_api_event_details_direct_bcp_placings()
     test_scraper_robustness_fixes()
+    test_pod_split_total_games_and_db_completed_games()
     print("\n🎉 ALL BCP PLACINGS INTEGRITY TESTS PASSED!")

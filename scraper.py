@@ -234,7 +234,7 @@ class BestCoastPairingsScraper:
                             matched = plc_map[str(kid).strip()]
                             break
                     if matched:
-                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "points", "battlePoints", "totalPoints", "metrics", "total_metrics", "overall_metrics", "games", "total_games", "podNum"):
+                        for k in ("placing", "manualPlacing", "rank", "place", "placement", "points", "battlePoints", "totalPoints", "metrics", "pod_metrics", "total_metrics", "overall_metrics", "games", "pod_games", "total_games", "podNum"):
                             if matched.get(k) is not None:
                                 rp[k] = matched[k]
                 return roster_players
