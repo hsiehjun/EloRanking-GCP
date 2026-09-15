@@ -1722,9 +1722,13 @@ async def api_head_to_head(p1: str = Query(...), p2: str = Query(...), game_syst
 
 # API: Unique Factions
 @router.get("/api/factions", summary="List all active Warhammer factions")
-async def api_factions(game_system: Optional[str] = Query("40k")):
+async def api_factions(game_system: Optional[str] = Query("40k"), grouped: Optional[bool] = Query(False)):
     def _run_factions():
-        stats = get_database().get_summary_stats(game_system=game_system)
+        db = get_database()
+        if grouped:
+            from database import PostgresDatabase
+            return PostgresDatabase.get_factions(game_system=game_system, grouped=True)
+        stats = db.get_summary_stats(game_system=game_system)
         return stats.get("factions", [])
     return await asyncio.to_thread(_run_factions)
 
@@ -1769,8 +1773,13 @@ async def api_faction_meta(
 
 # API: Faction Details & Match History
 @router.get("/api/faction/{faction_name}", summary="Get faction detailed metrics, top players, and match history")
-async def api_faction_details(faction_name: str, limit: int = Query(100, ge=1, le=500), game_system: Optional[str] = Query("40k")):
-    return get_database().get_faction_details(faction_name.strip(), limit=limit, game_system=game_system)
+async def api_faction_details(
+    faction_name: str,
+    limit: int = Query(100, ge=1, le=500),
+    game_system: Optional[str] = Query("40k"),
+    timeframe: Optional[str] = Query("1yr")
+):
+    return get_database().get_faction_details(faction_name.strip(), limit=limit, game_system=game_system, timeframe=timeframe)
 
 # API: Match Win Probability Predictor
 @router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")

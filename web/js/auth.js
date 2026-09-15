@@ -758,9 +758,143 @@ function renderHeaderAuth() {
   }
 }
 
+const FACTIONS_40K_DATA = [
+  {
+    group: 'Imperium',
+    factions: [
+      'Adepta Sororitas', 'Adeptus Custodes', 'Adeptus Mechanicus', 'Astra Militarum',
+      'Grey Knights', 'Imperial Agents', 'Imperial Knights'
+    ]
+  },
+  {
+    group: 'Space Marines',
+    factions: [
+      'Space Marines', 'Black Templars', 'Blood Angels', 'Dark Angels', 'Deathwatch',
+      'Imperial Fists', 'Iron Hands', 'Raven Guard', 'Salamanders', 'Space Wolves',
+      'Ultramarines', 'White Scars'
+    ]
+  },
+  {
+    group: 'Chaos',
+    factions: [
+      'Chaos Space Marines', 'World Eaters', 'Death Guard', 'Thousand Sons',
+      "Emperor's Children", 'Chaos Daemons', 'Chaos Knights'
+    ]
+  },
+  {
+    group: 'Xenos',
+    factions: [
+      'Aeldari', 'Drukhari', 'Genestealer Cults', 'Leagues of Votann',
+      'Necrons', 'Orks', "T'au Empire", 'Tyranids'
+    ]
+  }
+];
+
+const FACTIONS_AOS_DATA = [
+  {
+    group: 'Order',
+    factions: [
+      'Cities of Sigmar', 'Daughters of Khaine', 'Fyreslayers', 'Idoneth Deepkin',
+      'Kharadron Overlords', 'Lumineth Realm-lords', 'Seraphon', 'Stormcast Eternals', 'Sylvaneth'
+    ]
+  },
+  {
+    group: 'Chaos',
+    factions: [
+      'Beasts of Chaos', 'Blades of Khorne', 'Disciples of Tzeentch', 'Hedonites of Slaanesh',
+      'Maggotkin of Nurgle', 'Skaven', 'Slaves to Darkness'
+    ]
+  },
+  {
+    group: 'Death',
+    factions: [
+      'Flesh-eater Courts', 'Nighthaunt', 'Ossiarch Bonereapers', 'Soulblight Gravelords'
+    ]
+  },
+  {
+    group: 'Destruction',
+    factions: [
+      'Gloomspite Gitz', 'Ogor Mawtribes', 'Orruk Warclans', 'Sons of Behemat'
+    ]
+  }
+];
+
+const _factionsApiCache = {};
+
+async function fetchDynamicFactions(gameSystem = '40k') {
+  const sys = (gameSystem || '40k').toLowerCase().trim();
+  if (_factionsApiCache[sys]) return _factionsApiCache[sys];
+  try {
+    const res = await fetch(`/api/factions?game_system=${encodeURIComponent(sys)}&grouped=true`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        _factionsApiCache[sys] = data;
+        return data;
+      }
+    }
+  } catch (e) {
+    console.debug('Dynamic factions fetch fallback to local Wahapedia data:', e);
+  }
+  return null;
+}
+
+function renderFactionDropdownOptions(selectEl, dataset, currentVal) {
+  if (!selectEl || !Array.isArray(dataset)) return;
+  let html = '<option value="">Various / Any Army</option>';
+  dataset.forEach(grp => {
+    html += `<optgroup label="${escapeHtml(grp.group || grp.label || '')}">`;
+    const fList = grp.factions || [];
+    fList.forEach(f => {
+      const fName = typeof f === 'string' ? f : (f.label || f.name || f.value);
+      html += `<option value="${escapeHtml(fName)}">${escapeHtml(fName)}</option>`;
+    });
+    html += `</optgroup>`;
+  });
+
+  if (currentVal) {
+    const allKnown = dataset.flatMap(g => (g.factions || []).map(f => typeof f === 'string' ? f : (f.label || f.name || f.value)));
+    if (!allKnown.includes(currentVal)) {
+      html += `<optgroup label="Other / Saved"><option value="${escapeHtml(currentVal)}">${escapeHtml(currentVal)}</option></optgroup>`;
+    }
+  }
+
+  selectEl.innerHTML = html;
+  if (currentVal) {
+    selectEl.value = currentVal;
+  }
+}
+
+function populateSettingsFactionDropdown(selectedVal = '') {
+  const factionSelect = document.getElementById('settings-primary-faction');
+  if (!factionSelect) return;
+
+  const currentVal = selectedVal || factionSelect.value || '';
+  const isAos = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos');
+  const sysKey = isAos ? 'aos' : '40k';
+  const localFallback = isAos ? FACTIONS_AOS_DATA : FACTIONS_40K_DATA;
+  const cachedData = _factionsApiCache[sysKey];
+
+  // 1. Immediate synchronous render from memory / local Wahapedia dataset
+  renderFactionDropdownOptions(factionSelect, cachedData || localFallback, currentVal);
+
+  // 2. Asynchronous background fetch to keep factions dynamically refreshed from Wahapedia API
+  if (!cachedData) {
+    fetchDynamicFactions(sysKey).then(remoteData => {
+      if (remoteData && factionSelect && document.body.contains(factionSelect)) {
+        renderFactionDropdownOptions(factionSelect, remoteData, currentVal);
+      }
+    }).catch(() => {});
+  }
+}
+window.populateSettingsFactionDropdown = populateSettingsFactionDropdown;
+window.fetchDynamicFactions = fetchDynamicFactions;
+
 function openUserSettingsModal() {
   const modal = document.getElementById('user-settings-modal');
   if (!modal) return;
+
+  populateSettingsFactionDropdown();
 
   // Populate fields
   const nameInput = document.getElementById('settings-display-name');
@@ -798,7 +932,7 @@ function openUserSettingsModal() {
       } else {
         bcpVal.innerHTML = `
           <div style="display: flex; align-items: center; gap: 6px; justify-content: flex-end;">
-            <span style="color:#94a3b8;">⚪ Not Linked</span>
+            <span style="color:#94a3b8; font-size: 0.8rem;">Your BCP: ⚪ Not Linked</span>
             <button onclick="closeUserSettingsModal(); openBcpLinkModal();" style="background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.3); color:#38bdf8; font-size:11px; font-weight:600; cursor:pointer; padding:1px 7px; border-radius:4px; transition:all 0.15s;">Link now</button>
           </div>
         `;
@@ -910,9 +1044,9 @@ async function loadUserSettingsLocation() {
     if (prof.radius_miles && radSelect) radSelect.value = String(prof.radius_miles);
     if (prof.is_active !== undefined && activeSelect) activeSelect.value = prof.is_active ? 'true' : 'false';
     const playStyleSelect = document.getElementById('settings-play-style');
-    const factionSelect = document.getElementById('settings-primary-faction');
     if (prof.play_style && playStyleSelect) playStyleSelect.value = prof.play_style;
-    if ((prof.factions || prof.top_faction) && factionSelect) factionSelect.value = prof.factions || prof.top_faction;
+    const targetFaction = prof.factions || prof.top_faction || '';
+    populateSettingsFactionDropdown(targetFaction);
 
     if (badge && (prof.latitude != null || name)) {
       badge.textContent = '✓ Saved Location';

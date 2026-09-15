@@ -157,8 +157,64 @@ function switchHubSubtab(tabId) {
 function switchHubMobileTab(tab) {
   switchHubSubtab(tab);
 }
+
+function resetMyHubToProfile() {
+  currentHubSubtab = 'active';
+
+  // 1. Close any open modal dialogs
+  if (typeof closeAllModals === 'function') {
+    closeAllModals();
+  } else if (typeof window.closeAllModals === 'function') {
+    window.closeAllModals();
+  }
+
+  // 2. Hide subpanels like inspected player profile or event hub
+  ['tab-player-profile', 'tab-event-hub'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.classList.remove('active');
+      el.style.display = 'none';
+    }
+  });
+
+  // 3. Reset profile inspection pointers
+  if (typeof currentProfilePlayerId !== 'undefined') {
+    window.currentProfilePlayerId = null;
+  }
+  if (typeof currentOpenEventId !== 'undefined') {
+    window.currentOpenEventId = null;
+  }
+
+  // 4. Ensure My Hub subtabs and panels switch back to 'active'
+  const bar = document.getElementById('hub-subtabs-bar');
+  if (bar) {
+    bar.querySelectorAll('.profile-subtab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === 'active');
+    });
+  }
+
+  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups'];
+  panels.forEach(id => {
+    const el = document.getElementById(`hub-panel-${id}`);
+    if (el) {
+      el.classList.toggle('active', id === 'active');
+    }
+  });
+
+  const hubContainer = document.getElementById('my-hub-container');
+  if (hubContainer) {
+    hubContainer.setAttribute('data-active-tab', 'active');
+  }
+
+  // 5. Scroll container and page to top
+  const mainEl = document.querySelector('main');
+  if (mainEl) mainEl.scrollTop = 0;
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
 window.switchHubSubtab = switchHubSubtab;
 window.switchHubMobileTab = switchHubMobileTab;
+window.resetMyHubToProfile = resetMyHubToProfile;
 
 function filterHubHistory(query) {
   const q = (query || '').trim().toLowerCase();

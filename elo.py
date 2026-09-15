@@ -1,9 +1,12 @@
 """Elo rating engine: reconstructs chronological player win paths and ratings."""
 
 import collections
+import io
+import json
 import logging
 import math
 import re
+import time
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -15,11 +18,88 @@ def _is_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -
     if not name:
         return True
     cleaned = str(name).strip()
-    if not cleaned or _PLACEHOLDER_RE.match(cleaned):
+    if not cleaned or len(cleaned) > 100 or cleaned.startswith("{") or cleaned.startswith("["):
+        return True
+    if _PLACEHOLDER_RE.match(cleaned):
         return True
     if player_id and cleaned == str(player_id).strip():
         return True
     return False
+
+
+def _sanitize_name(val: Any, max_len: int = 100) -> str:
+    """Sanitizes player name string, extracting from JSON if needed, stripping newlines, and enforcing max length."""
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    if s.startswith("{") and s.endswith("}"):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, dict):
+                s = str(parsed.get("name") or parsed.get("fullName") or parsed.get("full_name") or parsed.get("playerName") or "").strip()
+        except Exception:
+            s = ""
+    elif s.startswith("{") or s.startswith("["):
+        return ""
+    if "\n" in s or "\r" in s:
+        lines = [line.strip() for line in s.replace("\r", "\n").split("\n") if line.strip()]
+        s = lines[0] if lines else ""
+    s = s.replace("\t", " ").replace("\\", " ")
+    cleaned = " ".join(s.split())
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].strip()
+    return cleaned
+
+
+def _sanitize_team(val: Any, max_len: int = 100) -> Optional[str]:
+    """Sanitizes team affiliation, rejecting JSON structures, invalid placeholders, and oversized strings."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    if s.startswith("{") and s.endswith("}"):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, dict):
+                s = str(parsed.get("name") or parsed.get("teamName") or parsed.get("team_name") or parsed.get("title") or "").strip()
+        except Exception:
+            return None
+    elif s.startswith("{") or s.startswith("["):
+        return None
+    if "\n" in s or "\r" in s:
+        lines = [line.strip() for line in s.replace("\r", "\n").split("\n") if line.strip()]
+        s = lines[0] if lines else ""
+    s = s.replace("\t", " ").replace("\\", " ")
+    cleaned = " ".join(s.split())
+    if not cleaned:
+        return None
+    if cleaned.lower() in ("none", "n/a", "unaligned", "unaffiliated", "no team", "null", "unknown", "-", "{}", "[]", "tbd"):
+        return None
+    if _PLACEHOLDER_RE.match(cleaned):
+        return None
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].strip()
+    return cleaned if cleaned else None
+
+
+def _sanitize_top_factions(player_factions_counter: collections.Counter, max_factions: int = 5, max_len: int = 200) -> Optional[str]:
+    """Formats and bounds top factions string to prevent DB index limit errors."""
+    if not player_factions_counter:
+        return None
+    factions_list: List[str] = []
+    for fac, cnt in player_factions_counter.most_common(max_factions):
+        clean_fac = _sanitize_name(fac, max_len=60)
+        if clean_fac and clean_fac.lower() not in ("none", "null", "unknown", "n/a"):
+            factions_list.append(clean_fac)
+    if not factions_list:
+        return None
+    res = ", ".join(factions_list)
+    if len(res) > max_len:
+        res = res[:max_len].strip()
+    return res if res else None
 
 
 def _heal_and_load_authoritative_names(conn: Any, sys_target: str) -> Dict[str, str]:
@@ -29,50 +109,58 @@ def _heal_and_load_authoritative_names(conn: Any, sys_target: str) -> Dict[str, 
         with conn.cursor() as cur:
             cur.execute("""
             UPDATE players p
-            SET full_name = ep.full_name
+            SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
             FROM event_participants ep
             WHERE p.id = ep.player_id
-              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-              AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
+              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+              AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
+              AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
               AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
             """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
             cur.execute("""
             UPDATE players p
-            SET full_name = m.player1_name
+            SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
             FROM matches m
             WHERE p.id = m.player1_id
-              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-              AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != ''
+              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+              AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
+              AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
               AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
             """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
             cur.execute("""
             UPDATE players p
-            SET full_name = m.player2_name
+            SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
             FROM matches m
             WHERE p.id = m.player2_id
-              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-              AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != ''
+              AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+              AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
+              AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
               AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
             """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
             cur.execute("""
             UPDATE player_ratings pr
-            SET player_name = p.full_name, updated_at = NOW()
+            SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
             FROM players p
             WHERE pr.player_id = p.id
-              AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s)
-              AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+              AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
+              AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+              AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
               AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
             """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
             cur.execute("""
             SELECT id, full_name FROM players
             WHERE full_name IS NOT NULL AND TRIM(full_name) != ''
+              AND LENGTH(full_name) <= 100
+              AND full_name NOT LIKE '{%%' AND full_name NOT LIKE '[%%'
               AND NOT (full_name ~* %s OR full_name ILIKE 'BYE');
             """, (PLACEHOLDER_REGEX_STR,))
             for row in cur.fetchall():
                 pid = row[0] if isinstance(row, tuple) else row.get("id")
                 fname = row[1] if isinstance(row, tuple) else row.get("full_name")
                 if pid and fname:
-                    auth_names[str(pid)] = str(fname).strip()
+                    clean_fname = _sanitize_name(fname, max_len=100)
+                    if clean_fname and not _is_placeholder_name(clean_fname, str(pid)):
+                        auth_names[str(pid)] = clean_fname
         conn.commit()
     except Exception as e:
         try:
@@ -93,6 +181,9 @@ def _format_tsv_field(val: Any) -> str:
         return val.strftime("%Y-%m-%d %H:%M:%S%z")
     # Clean text: replace tabs, newlines, backslashes
     s = str(val).replace("\\", "\\\\").replace("\t", " ").replace("\n", " ").replace("\r", " ")
+    # Universal fail-safe: never allow a single TSV column value to exceed 1000 characters
+    if len(s) > 1000:
+        s = s[:1000].strip()
     return s
 
 try:
@@ -418,13 +509,16 @@ class EloEngine:
                 FROM event_participants ep
                 LEFT JOIN events e ON ep.event_id = e.id
                 WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                  AND LENGTH(ep.team) <= 100 AND ep.team NOT LIKE '{%%' AND ep.team NOT LIKE '[%%'
                   AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                   AND COALESCE(e.game_system, '40k') = %s
                 ORDER BY ep.player_id, e.event_date DESC NULLS LAST;
                 """, (sys_target,))
                 for r in cur.fetchall():
-                    if r.get("player_id") and r.get("team"):
-                        existing_teams[r["player_id"]] = r["team"]
+                    pid = r.get("player_id")
+                    clean_t = _sanitize_team(r.get("team"), max_len=100)
+                    if pid and clean_t:
+                        existing_teams[str(pid)[:64]] = clean_t
 
                 # 2. Fallback to players table ONLY for 40k (to prevent 40k teams from polluting AoS)
                 if sys_target == "40k":
@@ -432,12 +526,14 @@ class EloEngine:
                     SELECT id as player_id, TRIM(team) as team
                     FROM players
                     WHERE team IS NOT NULL AND TRIM(team) != ''
+                      AND LENGTH(team) <= 100 AND team NOT LIKE '{%%' AND team NOT LIKE '[%%'
                       AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
                     """)
                     for r in cur.fetchall():
                         pid = r.get("player_id")
-                        if pid and r.get("team") and pid not in existing_teams:
-                            existing_teams[pid] = r["team"]
+                        clean_t = _sanitize_team(r.get("team"), max_len=100)
+                        if pid and clean_t and pid not in existing_teams:
+                            existing_teams[str(pid)[:64]] = clean_t
 
                 cur.execute("""
                 SELECT player_id, player_name, current_elo, peak_elo,
@@ -446,12 +542,13 @@ class EloEngine:
                 WHERE (game_system = %s OR (game_system IS NULL AND %s = '40k'));
                 """, (sys_target, sys_target))
                 for r in cur.fetchall():
-                    pid = r["player_id"]
+                    pid = str(r["player_id"])[:64]
                     raw_name = r.get("player_name") or pid
                     if _is_placeholder_name(raw_name, pid) and pid in authoritative_names:
                         raw_name = authoritative_names[pid]
+                    clean_name_val = _sanitize_name(raw_name, max_len=100) or f"Player {pid[:8]}"
                     player_states[pid] = {
-                        "name": raw_name,
+                        "name": clean_name_val,
                         "elo": float(r.get("current_elo") or self.initial_elo),
                         "peak_elo": float(r.get("peak_elo") or self.initial_elo),
                         "matches_played": int(r.get("matches_played") or 0),
@@ -460,12 +557,14 @@ class EloEngine:
                         "draws": int(r.get("draws") or 0),
                         "last_active_date": r.get("last_active_date")
                     }
-                    if r.get("team") and pid not in existing_teams:
-                        existing_teams[pid] = r["team"]
+                    clean_t = _sanitize_team(r.get("team"), max_len=100)
+                    if clean_t and pid not in existing_teams:
+                        existing_teams[pid] = clean_t
                     if r.get("top_faction"):
                         for fac in r["top_faction"].split(", "):
-                            if fac.strip():
-                                player_factions[pid][fac.strip()] += 1
+                            clean_fac = _sanitize_name(fac, max_len=60)
+                            if clean_fac:
+                                player_factions[pid][clean_fac] += 1
 
             # 3. Process new matches and append trajectory points
             print(f"[3/3] ⚡ Computing Elo updates and persisting {total_new:,} {sys_target.upper()} matches...")
@@ -487,13 +586,15 @@ class EloEngine:
                     p1_id, p2_id = m["player1_id"], m["player2_id"]
                     if not p1_id or not p2_id:
                         continue
+                    p1_id = str(p1_id)[:64]
+                    p2_id = str(p2_id)[:64]
 
-                    p1_mname = m.get("player1_name")
+                    p1_mname = _sanitize_name(m.get("player1_name"), max_len=100)
                     p1_best = authoritative_names.get(p1_id) or (p1_mname if not _is_placeholder_name(p1_mname, p1_id) else None)
                     s1 = player_states.get(p1_id)
                     if not s1:
                         s1 = {
-                            "name": p1_best or p1_mname or p1_id,
+                            "name": _sanitize_name(p1_best or p1_mname, max_len=100) or f"Player {p1_id[:8]}",
                             "elo": self.initial_elo,
                             "peak_elo": self.initial_elo,
                             "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
@@ -501,14 +602,14 @@ class EloEngine:
                         }
                         player_states[p1_id] = s1
                     elif _is_placeholder_name(s1["name"], p1_id) and p1_best:
-                        s1["name"] = p1_best
+                        s1["name"] = _sanitize_name(p1_best, max_len=100)
 
-                    p2_mname = m.get("player2_name")
+                    p2_mname = _sanitize_name(m.get("player2_name"), max_len=100)
                     p2_best = authoritative_names.get(p2_id) or (p2_mname if not _is_placeholder_name(p2_mname, p2_id) else None)
                     s2 = player_states.get(p2_id)
                     if not s2:
                         s2 = {
-                            "name": p2_best or p2_mname or p2_id,
+                            "name": _sanitize_name(p2_best or p2_mname, max_len=100) or f"Player {p2_id[:8]}",
                             "elo": self.initial_elo,
                             "peak_elo": self.initial_elo,
                             "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
@@ -516,7 +617,7 @@ class EloEngine:
                         }
                         player_states[p2_id] = s2
                     elif _is_placeholder_name(s2["name"], p2_id) and p2_best:
-                        s2["name"] = p2_best
+                        s2["name"] = _sanitize_name(p2_best, max_len=100)
 
                     is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0))
                     has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
@@ -556,7 +657,10 @@ class EloEngine:
                     elif res1 == "L": s1["losses"] += 1
                     else: s1["draws"] += 1
                     if m_date: s1["last_active_date"] = _max_date(s1["last_active_date"], m_date)
-                    if m.get("player1_faction"): player_factions[p1_id][m.get("player1_faction")] += 1
+                    fac1 = _sanitize_name(m.get("player1_faction"), max_len=60)
+                    fac2 = _sanitize_name(m.get("player2_faction"), max_len=60)
+                    if fac1: player_factions[p1_id][fac1] += 1
+                    if fac2: player_factions[p2_id][fac2] += 1
 
                     # Update player 2
                     s2["elo"] = new_elo2
@@ -566,21 +670,20 @@ class EloEngine:
                     elif res2 == "L": s2["losses"] += 1
                     else: s2["draws"] += 1
                     if m_date: s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
-                    if m.get("player2_faction"): player_factions[p2_id][m.get("player2_faction")] += 1
 
                     history_batch.append((
-                        p1_id, m["id"], m.get("event_id"), m.get("round"), m_date,
+                        p1_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
                         old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
-                        p2_id, s2["name"], old_elo2, res1,
-                        m.get("player1_faction"), m.get("player2_faction"),
+                        p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
+                        fac1, fac2,
                         m.get("player1_score"), m.get("player2_score"),
                         match_sys
                     ))
                     history_batch.append((
-                        p2_id, m["id"], m.get("event_id"), m.get("round"), m_date,
+                        p2_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
                         old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
-                        p1_id, s1["name"], old_elo1, res2,
-                        m.get("player2_faction"), m.get("player1_faction"),
+                        p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
+                        fac2, fac1,
                         m.get("player2_score"), m.get("player1_score"),
                         match_sys
                     ))
@@ -620,12 +723,12 @@ class EloEngine:
                     s = player_states[pid]
                     total = s["matches_played"]
                     win_rate = round((s["wins"] / total) * 100.0, 1) if total > 0 else 0.0
-                    factions_list = [fac for fac, cnt in player_factions[pid].most_common() if fac]
-                    top_fac = ", ".join(factions_list) if factions_list else None
-                    team_name = existing_teams.get(pid)
+                    top_fac = _sanitize_top_factions(player_factions[pid], max_factions=5, max_len=200)
+                    team_name = _sanitize_team(existing_teams.get(pid), max_len=100)
+                    clean_player_name = _sanitize_name(s.get("name"), max_len=100) or f"Player {str(pid)[:8]}"
 
                     ratings_data.append((
-                        pid, s["name"], s["elo"], s["peak_elo"],
+                        str(pid)[:64], clean_player_name, s["elo"], s["peak_elo"],
                         total, s["wins"], s["losses"], s["draws"], win_rate,
                         top_fac, team_name, s["last_active_date"], now_iso, sys_target
                     ))
@@ -703,6 +806,27 @@ class EloEngine:
         player_factions: Dict[str, collections.Counter] = collections.defaultdict(collections.Counter)
         existing_teams: Dict[str, str] = {}
 
+        # 0. Defensive Database Self-Healing: purge/clamp any oversized strings or raw JSON blobs from text columns
+        # to prevent PostgreSQL B-tree index row limit exceptions (maximum 8191 bytes per index key).
+        with self.db.get_connection() as conn:
+            try:
+                with conn.cursor() as heal_cur:
+                    heal_cur.execute("""
+                    UPDATE players SET full_name = SUBSTRING(TRIM(full_name), 1, 100) WHERE full_name IS NOT NULL AND LENGTH(full_name) > 100;
+                    UPDATE players SET team = NULL WHERE team IS NOT NULL AND (LENGTH(team) > 100 OR team LIKE '{%' OR team LIKE '[%');
+                    UPDATE matches SET player1_name = SUBSTRING(TRIM(player1_name), 1, 100) WHERE player1_name IS NOT NULL AND LENGTH(player1_name) > 100;
+                    UPDATE matches SET player2_name = SUBSTRING(TRIM(player2_name), 1, 100) WHERE player2_name IS NOT NULL AND LENGTH(player2_name) > 100;
+                    UPDATE event_participants SET full_name = SUBSTRING(TRIM(full_name), 1, 100) WHERE full_name IS NOT NULL AND LENGTH(full_name) > 100;
+                    UPDATE event_participants SET team = NULL WHERE team IS NOT NULL AND (LENGTH(team) > 100 OR team LIKE '{%' OR team LIKE '[%');
+                    """)
+                    conn.commit()
+            except Exception as heal_err:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                logger.debug(f"Pre-reconstruction database self-healing notice: {heal_err}")
+
         # 1. Fetch existing teams from permanent players & participants tables
         with self.db.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
@@ -712,26 +836,31 @@ class EloEngine:
                 FROM event_participants ep
                 LEFT JOIN events e ON ep.event_id = e.id
                 WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                  AND LENGTH(ep.team) <= 100 AND ep.team NOT LIKE '{%%' AND ep.team NOT LIKE '[%%'
                   AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                   AND COALESCE(e.game_system, '40k') = %s
                 ORDER BY ep.player_id, e.event_date DESC NULLS LAST;
                 """, (sys_target,))
                 for r in cur.fetchall():
-                    if r.get("player_id") and r.get("team"):
-                        existing_teams[r["player_id"]] = r["team"]
+                    pid = r.get("player_id")
+                    clean_t = _sanitize_team(r.get("team"), max_len=100)
+                    if pid and clean_t:
+                        existing_teams[str(pid)[:64]] = clean_t
 
                 # 2. Fallback to existing player_ratings for players not covered above
                 cur.execute("""
                 SELECT player_id, TRIM(team) as team
                 FROM player_ratings
                 WHERE team IS NOT NULL AND TRIM(team) != ''
+                  AND LENGTH(team) <= 100 AND team NOT LIKE '{%%' AND team NOT LIKE '[%%'
                   AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                   AND COALESCE(game_system, '40k') = %s;
                 """, (sys_target,))
                 for r in cur.fetchall():
                     pid = r.get("player_id")
-                    if pid and r.get("team") and pid not in existing_teams:
-                        existing_teams[pid] = r["team"]
+                    clean_t = _sanitize_team(r.get("team"), max_len=100)
+                    if pid and clean_t and str(pid)[:64] not in existing_teams:
+                        existing_teams[str(pid)[:64]] = clean_t
 
                 # 3. Fallback to players table ONLY for 40k (to prevent 40k teams from polluting AoS)
                 if sys_target == "40k":
@@ -739,12 +868,14 @@ class EloEngine:
                     SELECT id as player_id, TRIM(team) as team
                     FROM players
                     WHERE team IS NOT NULL AND TRIM(team) != ''
+                      AND LENGTH(team) <= 100 AND team NOT LIKE '{%%' AND team NOT LIKE '[%%'
                       AND LOWER(TRIM(team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-');
                     """)
                     for r in cur.fetchall():
                         pid = r.get("player_id")
-                        if pid and r.get("team") and pid not in existing_teams:
-                            existing_teams[pid] = r["team"]
+                        clean_t = _sanitize_team(r.get("team"), max_len=100)
+                        if pid and clean_t and str(pid)[:64] not in existing_teams:
+                            existing_teams[str(pid)[:64]] = clean_t
 
                 if not existing_teams:
                     print("      🔍 Scanning matches raw JSON for team affiliations...")
@@ -754,9 +885,13 @@ class EloEngine:
                             player1_id as p_id, 
                             COALESCE(
                                 raw_json->'player1'->>'teamName',
-                                raw_json->'player1'->>'team',
+                                raw_json->'player1'->'team'->>'name',
+                                raw_json->'player1'->'team'->>'teamName',
+                                CASE WHEN raw_json->'player1'->>'team' NOT LIKE '{%%' AND raw_json->'player1'->>'team' NOT LIKE '[%%' THEN raw_json->'player1'->>'team' ELSE NULL END,
                                 raw_json->'player1'->'user'->>'teamName',
-                                raw_json->'player1'->'user'->>'team'
+                                raw_json->'player1'->'user'->'team'->>'name',
+                                raw_json->'player1'->'user'->'team'->>'teamName',
+                                CASE WHEN raw_json->'player1'->'user'->>'team' NOT LIKE '{%%' AND raw_json->'player1'->'user'->>'team' NOT LIKE '[%%' THEN raw_json->'player1'->'user'->>'team' ELSE NULL END
                             ) as t_name
                         FROM matches
                         WHERE player1_id IS NOT NULL 
@@ -772,9 +907,13 @@ class EloEngine:
                             player2_id as p_id, 
                             COALESCE(
                                 raw_json->'player2'->>'teamName',
-                                raw_json->'player2'->>'team',
+                                raw_json->'player2'->'team'->>'name',
+                                raw_json->'player2'->'team'->>'teamName',
+                                CASE WHEN raw_json->'player2'->>'team' NOT LIKE '{%%' AND raw_json->'player2'->>'team' NOT LIKE '[%%' THEN raw_json->'player2'->>'team' ELSE NULL END,
                                 raw_json->'player2'->'user'->>'teamName',
-                                raw_json->'player2'->'user'->>'team'
+                                raw_json->'player2'->'user'->'team'->>'name',
+                                raw_json->'player2'->'user'->'team'->>'teamName',
+                                CASE WHEN raw_json->'player2'->'user'->>'team' NOT LIKE '{%%' AND raw_json->'player2'->'user'->>'team' NOT LIKE '[%%' THEN raw_json->'player2'->'user'->>'team' ELSE NULL END
                             ) as t_name
                         FROM matches
                         WHERE player2_id IS NOT NULL 
@@ -787,10 +926,11 @@ class EloEngine:
                           );
                         """, (sys_target, sys_target))
                         for r in cur.fetchall():
-                            t = (r.get("t_name") or "").strip()
-                            if r.get("p_id") and t and t != "None" and t != "null":
-                                existing_teams[r["p_id"]] = t
-                                cur.execute("UPDATE players SET team = %s WHERE id = %s;", (t, r["p_id"]))
+                            t = _sanitize_team(r.get("t_name"), max_len=100)
+                            p_id = str(r.get("p_id") or "").strip()[:64]
+                            if p_id and t:
+                                existing_teams[p_id] = t
+                                cur.execute("UPDATE players SET team = %s WHERE id = %s;", (t, p_id))
                         conn.commit()
                         print(f"      🛡️ Discovered and mapped {len(existing_teams):,} player team memberships.")
                     except Exception as e:
@@ -859,18 +999,20 @@ class EloEngine:
                             p1_id, p2_id = m["player1_id"], m["player2_id"]
                             if not p1_id or not p2_id:
                                 continue
+                            p1_id = str(p1_id)[:64]
+                            p2_id = str(p2_id)[:64]
 
                             is_real_draw = bool(m.get("is_draw") and ((m.get("player1_score") or 0) > 0 or (m.get("player2_score") or 0) > 0))
                             has_valid_winner = bool(m.get("winner_id") and m.get("winner_id") in (p1_id, p2_id))
                             if not m.get("is_bye") and not has_valid_winner and not is_real_draw:
                                 continue
 
-                            p1_mname = m.get("player1_name")
+                            p1_mname = _sanitize_name(m.get("player1_name"), max_len=100)
                             p1_best = authoritative_names.get(p1_id) or (p1_mname if not _is_placeholder_name(p1_mname, p1_id) else None)
                             s1 = player_states.get(p1_id)
                             if not s1:
                                 s1 = {
-                                    "name": p1_best or p1_mname or p1_id,
+                                    "name": _sanitize_name(p1_best or p1_mname, max_len=100) or f"Player {p1_id[:8]}",
                                     "elo": self.initial_elo,
                                     "peak_elo": self.initial_elo,
                                     "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
@@ -878,14 +1020,14 @@ class EloEngine:
                                 }
                                 player_states[p1_id] = s1
                             elif _is_placeholder_name(s1["name"], p1_id) and p1_best:
-                                s1["name"] = p1_best
+                                s1["name"] = _sanitize_name(p1_best, max_len=100)
 
-                            p2_mname = m.get("player2_name")
+                            p2_mname = _sanitize_name(m.get("player2_name"), max_len=100)
                             p2_best = authoritative_names.get(p2_id) or (p2_mname if not _is_placeholder_name(p2_mname, p2_id) else None)
                             s2 = player_states.get(p2_id)
                             if not s2:
                                 s2 = {
-                                    "name": p2_best or p2_mname or p2_id,
+                                    "name": _sanitize_name(p2_best or p2_mname, max_len=100) or f"Player {p2_id[:8]}",
                                     "elo": self.initial_elo,
                                     "peak_elo": self.initial_elo,
                                     "matches_played": 0, "wins": 0, "losses": 0, "draws": 0,
@@ -893,7 +1035,7 @@ class EloEngine:
                                 }
                                 player_states[p2_id] = s2
                             elif _is_placeholder_name(s2["name"], p2_id) and p2_best:
-                                s2["name"] = p2_best
+                                s2["name"] = _sanitize_name(p2_best, max_len=100)
 
                             old_elo1 = s1["elo"]
                             old_elo2 = s2["elo"]
@@ -924,7 +1066,10 @@ class EloEngine:
                             elif res1 == "L": s1["losses"] += 1
                             else: s1["draws"] += 1
                             if m_date: s1["last_active_date"] = _max_date(s1["last_active_date"], m_date)
-                            if m.get("player1_faction"): player_factions[p1_id][m.get("player1_faction")] += 1
+                            fac1 = _sanitize_name(m.get("player1_faction"), max_len=60)
+                            fac2 = _sanitize_name(m.get("player2_faction"), max_len=60)
+                            if fac1: player_factions[p1_id][fac1] += 1
+                            if fac2: player_factions[p2_id][fac2] += 1
 
                             # Update player 2
                             s2["elo"] = new_elo2
@@ -934,14 +1079,13 @@ class EloEngine:
                             elif res2 == "L": s2["losses"] += 1
                             else: s2["draws"] += 1
                             if m_date: s2["last_active_date"] = _max_date(s2["last_active_date"], m_date)
-                            if m.get("player2_faction"): player_factions[p2_id][m.get("player2_faction")] += 1
 
                             # Row 1 (Player 1 perspective)
                             r1_vals = (
-                                p1_id, m["id"], m.get("event_id"), m.get("round"), m_date,
+                                p1_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
                                 old_elo1, new_elo1, round(new_elo1 - old_elo1, 2),
-                                p2_id, s2["name"], old_elo2, res1,
-                                m.get("player1_faction"), m.get("player2_faction"),
+                                p2_id, _sanitize_name(s2["name"], max_len=100), old_elo2, res1,
+                                fac1, fac2,
                                 m.get("player1_score"), m.get("player2_score"),
                                 sys_target
                             )
@@ -949,10 +1093,10 @@ class EloEngine:
 
                             # Row 2 (Player 2 perspective)
                             r2_vals = (
-                                p2_id, m["id"], m.get("event_id"), m.get("round"), m_date,
+                                p2_id, str(m["id"])[:64], str(m.get("event_id") or "")[:64] if m.get("event_id") else None, m.get("round"), m_date,
                                 old_elo2, new_elo2, round(new_elo2 - old_elo2, 2),
-                                p1_id, s1["name"], old_elo1, res2,
-                                m.get("player2_faction"), m.get("player1_faction"),
+                                p1_id, _sanitize_name(s1["name"], max_len=100), old_elo1, res2,
+                                fac2, fac1,
                                 m.get("player2_score"), m.get("player1_score"),
                                 sys_target
                             )
@@ -989,12 +1133,12 @@ class EloEngine:
                         for pid, s in player_states.items():
                             total = s["matches_played"]
                             win_rate = round((s["wins"] / total) * 100.0, 1) if total > 0 else 0.0
-                            factions_list = [fac for fac, cnt in player_factions[pid].most_common() if fac]
-                            top_fac = ", ".join(factions_list) if factions_list else None
-                            team_name = existing_teams.get(pid)
+                            top_fac = _sanitize_top_factions(player_factions[pid], max_factions=5, max_len=200)
+                            team_name = _sanitize_team(existing_teams.get(pid), max_len=100)
+                            clean_player_name = _sanitize_name(s.get("name"), max_len=100) or f"Player {str(pid)[:8]}"
 
                             r_vals = (
-                                pid, sys_target, s["name"], s["elo"], s["peak_elo"],
+                                str(pid)[:64], sys_target, clean_player_name, s["elo"], s["peak_elo"],
                                 total, s["wins"], s["losses"], s["draws"], win_rate,
                                 top_fac, team_name, s["last_active_date"], now_iso
                             )

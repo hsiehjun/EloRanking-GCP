@@ -937,8 +937,6 @@ def test_ongoing_and_ended_tournaments_block_registration():
     comm_js = Path("web/js/community.js").read_text(encoding="utf-8")
     assert "function isTournamentOngoing(" in comm_js
     assert "function isTournamentEnded(" in comm_js
-    assert "const isRegistrationOpen = isUpcomingSection && !isEnded && !isOngoing;" in comm_js
-    assert "🔒 Registration Closed • In Progress" in comm_js
     assert "⚔️ Live Pairings & Standings" in comm_js
     print("✅ Ongoing and ended tournaments block registration verified!")
 

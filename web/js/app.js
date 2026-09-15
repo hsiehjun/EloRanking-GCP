@@ -89,6 +89,11 @@ function applyGameSystem(sys, updateUrl = true) {
     }
   }
 
+  // Update account settings faction dropdown if present
+  if (typeof populateSettingsFactionDropdown === 'function') {
+    populateSettingsFactionDropdown();
+  }
+
   // Update URL if requested
   if (updateUrl && window.history && window.history.replaceState) {
     const prefix = (currentGameSystem === 'aos') ? '/aos' : '';
@@ -147,6 +152,7 @@ function switchGameSystem(sys) {
       if (typeof loadLeaderboard === 'function') loadLeaderboard();
     }
   } else if (activeTab === 'my-hub') {
+    if (typeof resetMyHubToProfile === 'function') resetMyHubToProfile();
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   } else if (activeTab === 'meta-intel') {
     if (typeof loadFactionMeta === 'function') loadFactionMeta();
@@ -340,6 +346,9 @@ function switchTab(tabName) {
     if (!currentUser) {
       window.location.href = '/login?redirect=' + encodeURIComponent('/#my-hub');
       return;
+    }
+    if (typeof resetMyHubToProfile === 'function') {
+      resetMyHubToProfile();
     }
     if (typeof loadMyHubDashboard === 'function') loadMyHubDashboard();
   }

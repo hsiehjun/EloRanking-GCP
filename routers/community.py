@@ -486,10 +486,12 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
         status_obj.get("started") is True or status_obj.get("isStarted") is True
     )
 
-    if ev_date_str and ev_date_str > today_utc_str and not has_pairings:
+    if is_ended:
+        is_started = True
+    elif ev_date_str and ev_date_str > today_utc_str and not has_pairings:
         is_started = False
     else:
-        is_started = bool(is_ended or has_pairings or bcp_explicit_started)
+        is_started = bool(has_pairings or bcp_explicit_started or (ev_date_str and ev_date_str <= today_utc_str))
 
     return is_started, is_ended
 

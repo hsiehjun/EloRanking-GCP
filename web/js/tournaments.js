@@ -358,9 +358,17 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     currentEventRegistration = null;
   }
 
-  // Set active tab immediately to prevent visual flashing (default to teams for team tournaments, results otherwise)
+  // Set active tab immediately to prevent visual flashing (default to pairings for live ongoing events, teams for team tournaments, results otherwise)
+  let guessedOngoing = false;
+  if (currentEventData && String(currentEventData.id) === String(eventId)) {
+    if (typeof isTournamentOngoing === 'function') guessedOngoing = isTournamentOngoing(currentEventData);
+    else guessedOngoing = Boolean(!currentEventData.ended && (currentEventData.matches || []).length > 0);
+  }
   const guessedIsTeam = Boolean(currentEventData && String(currentEventData.id) === String(eventId) && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
-  switchEventModalTab(initialTab || (guessedIsTeam ? 'teams' : 'results'));
+  let immediateTab = 'results';
+  if (guessedOngoing) immediateTab = 'matches';
+  else if (guessedIsTeam) immediateTab = 'teams';
+  switchEventModalTab(initialTab || immediateTab);
 
   const subtabPlayerInit = document.getElementById('event-subtab-player');
   const subtabTeamsInit = document.getElementById('event-subtab-teams');
@@ -624,10 +632,16 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
 
     // Determine target tab now that all event + registration state is known
+    const isOngoing = (typeof isTournamentOngoing === 'function')
+      ? isTournamentOngoing(ev)
+      : (!isEnded && eventMatchesCache.length > 0);
+
     if (initialTab && initialTab !== 'elo' && (initialTab !== 'player' || shouldShowPlayerTab)) {
       switchEventModalTab(initialTab);
     } else if (shouldShowPlayerTab) {
       switchEventModalTab('player');
+    } else if (isOngoing && eventMatchesCache.length > 0) {
+      switchEventModalTab('matches');
     } else if (isTeamEvent || teamsList.length > 0) {
       switchEventModalTab('teams');
     } else {
@@ -3426,8 +3440,13 @@ function openEventHubFromModal(explicitTab = null) {
 
   let targetTab = explicitTab;
   if (!targetTab) {
+    const isOngoing = (typeof isTournamentOngoing === 'function')
+      ? isTournamentOngoing(currentEventData)
+      : (!ended && (currentEventData?.matches || []).length > 0);
     if (isRegistered && !ended) {
       targetTab = 'player';
+    } else if (isOngoing) {
+      targetTab = 'matches';
     } else if (isTeam) {
       targetTab = 'teams';
     } else {
@@ -3548,8 +3567,13 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       targetTab = (isTeamEvent || teamsList.length > 0) ? 'teams' : 'results';
     }
     if (!targetTab) {
+      const isOngoing = (typeof isTournamentOngoing === 'function')
+        ? isTournamentOngoing(ev)
+        : (!ended && eventMatchesCache.length > 0);
       if (shouldShowPlayerTab && !ended) {
         targetTab = 'player';
+      } else if (isOngoing && eventMatchesCache.length > 0) {
+        targetTab = 'matches';
       } else if (isTeamEvent || teamsList.length > 0) {
         targetTab = 'teams';
       } else {

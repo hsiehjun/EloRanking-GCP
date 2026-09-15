@@ -2808,6 +2808,7 @@
     const judgeCallSig = clientState.activeJudgeCall ? (clientState.activeJudgeCall.id || clientState.activeJudgeCall.status || 'pending') : 'none';
     const masterClockSig = `${tournamentMasterClock.status}_${tournamentMasterClock.round}`;
     const sig = `${clientState.matchId}_${clientState.role}_${p1Display}_${p2Display}_${isP2Ready}_${hasMyList}_${hasOppList}_${tournamentId}_${tableNum}_${judgeCallSig}_${masterClockSig}`;
+    injectMobileBottomDock();
     if (hud.dataset.sig === sig) {
       updateMasterClockDom();
       return;
@@ -2852,8 +2853,8 @@
         <span style="${isP2Ready ? 'color:#10b981;' : 'color:#94a3b8; font-style:italic;'}">${p2Display}</span>
       </div>
 
-      <!-- Right: Action Buttons -->
-      <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+      <!-- Right: Action Buttons (Desktop / Wide Screen) -->
+      <div class="gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
         <button onclick="window.gtToggleChessClock()" style="background:#0f172a; color:#38bdf8; border:1px solid rgba(56,189,248,0.4); padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:4px;" title="Open Table Chess Clock (Independent)">
           ⏱️ Table Clock
         </button>
@@ -2906,10 +2907,85 @@
       </div>
     `;
 
+    injectMobileBottomDock();
+
     if (typeof mountDiceRollerModal === 'function' && typeof diceRollerState !== 'undefined' && diceRollerState.visible) {
       mountDiceRollerModal();
     }
   }
+
+  // 8b. Mobile Bottom Action Dock (Finish, Dice, Judge, Clock, Scorecard, Lists)
+  function injectMobileBottomDock() {
+    let dock = document.getElementById('gt-mobile-bottom-dock');
+    if (!dock) {
+      dock = document.createElement('nav');
+      dock.id = 'gt-mobile-bottom-dock';
+      dock.className = 'gt-mobile-bottom-dock';
+      document.body.appendChild(dock);
+    }
+
+    document.body.classList.add('has-mobile-dock');
+    dock.style.display = 'flex';
+
+    const isSpectator = clientState.role === 'spectator';
+    const isP1 = clientState.role === 'player1';
+    const hasMyList = isP1 ? !!clientState.p1ArmyList : !!clientState.p2ArmyList;
+    const hasOppList = isP1 ? !!clientState.p2ArmyList : !!clientState.p1ArmyList;
+
+    const judgeCall = clientState.activeJudgeCall;
+    let judgeIcon = '🙋‍♂️';
+    let judgeText = 'Judge';
+    let judgeExtraClass = '';
+    if (judgeCall && judgeCall.status === 'en_route') {
+      judgeIcon = '🏃‍♂️';
+      judgeText = 'En Route';
+      judgeExtraClass = 'en-route';
+    } else if (judgeCall && judgeCall.status === 'pending') {
+      judgeIcon = '🚨';
+      judgeText = 'Pending';
+      judgeExtraClass = 'pending';
+    } else if (judgeCall && judgeCall.status === 'resolved') {
+      judgeIcon = '✅';
+      judgeText = 'Resolved';
+      judgeExtraClass = 'resolved';
+    }
+
+    const dockSig = `${clientState.role}_${judgeText}_${hasOppList}_${hasMyList}`;
+    if (dock.dataset.sig === dockSig) return;
+    dock.dataset.sig = dockSig;
+
+    dock.innerHTML = `
+      ${!isSpectator ? `
+        <button type="button" class="gt-dock-btn gt-dock-finish" onclick="window.__openCompleteModal()" title="Complete Match">
+          <span class="gt-dock-icon">🏁</span>
+          <span class="gt-dock-label">Finish</span>
+        </button>
+      ` : ''}
+      <button type="button" class="gt-dock-btn gt-dock-dice" onclick="window.gtToggleDiceRoller()" title="Dice Roller">
+        <span class="gt-dock-icon">🎲</span>
+        <span class="gt-dock-label">Dice</span>
+      </button>
+      ${!isSpectator ? `
+        <button type="button" class="gt-dock-btn gt-dock-judge ${judgeExtraClass}" onclick="window.gtOpenJudgeModal()" title="Tournament Judge">
+          <span class="gt-dock-icon">${judgeIcon}</span>
+          <span class="gt-dock-label">${judgeText}</span>
+        </button>
+      ` : ''}
+      <button type="button" class="gt-dock-btn gt-dock-clock" onclick="window.gtToggleChessClock()" title="Table Chess Clock">
+        <span class="gt-dock-icon">⏱️</span>
+        <span class="gt-dock-label">Clock</span>
+      </button>
+      <button type="button" class="gt-dock-btn" style="background:rgba(79,70,229,0.15); border-color:rgba(99,102,241,0.4); color:#a5b4fc;" onclick="window.__openScorecardModal()" title="View Scorecard">
+        <span class="gt-dock-icon">📄</span>
+        <span class="gt-dock-label">Scorecard</span>
+      </button>
+      <button type="button" class="gt-dock-btn" style="background:${hasOppList || hasMyList ? 'rgba(16,185,129,0.15)' : 'rgba(30,41,59,0.5)'}; border-color:${hasOppList || hasMyList ? 'rgba(16,185,129,0.4)' : 'rgba(255,255,255,0.1)'}; color:${hasOppList || hasMyList ? '#34d399' : '#94a3b8'};" onclick="window.gtOpenArmyListModal(hasOppList ? 'opponent' : 'my')" title="View Army Lists">
+        <span class="gt-dock-icon">📋</span>
+        <span class="gt-dock-label">Lists ${hasOppList || hasMyList ? '•' : ''}</span>
+      </button>
+    `;
+  }
+  window.injectMobileBottomDock = injectMobileBottomDock;
 
   // 9. Interactive Army List Inspector Modal & Wahapedia Rules Viewer
   async function loadRoomArmyLists() {

@@ -1053,8 +1053,15 @@ function isTournamentOngoing(ev) {
     ev.status === 'ongoing' ||
     ev.status === 'in_progress' ||
     ev.status === 'live' ||
+    ev.status === 'active' ||
+    ev.state === 'active' ||
+    ev.event_status === 'active' ||
     ev.raw_json?.started === true ||
     ev.raw_json?.isStarted === true ||
+    ev.raw_json?.status === 'active' ||
+    ev.raw_json?.status === 'ongoing' ||
+    ev.raw_json?.status === 'in_progress' ||
+    ev.raw_json?.state === 'active' ||
     ev.raw_json?.status?.started === true ||
     ev.raw_json?.status?.isStarted === true
   );
@@ -1062,13 +1069,17 @@ function isTournamentOngoing(ev) {
   const todayStr = getLocalIsoDateStr();
   const rawStart = ev.event_date || ev.eventDate || ev.start_date || ev.startDate || '';
   const startDateStr = String(rawStart).slice(0, 10);
+  const rawEnd = ev.end_date || ev.endDate || ev.raw_json?.endDate || ev.raw_json?.end_date || rawStart;
+  const endDateStr = String(rawEnd).slice(0, 10);
 
   // Future events without pairings are never ongoing
   if (startDateStr && startDateStr > todayStr && !hasPairings) {
     return false;
   }
 
-  if (hasPairings || bcpStarted) {
+  // Active today with registered competitors or ongoing flags
+  const isTodayMatch = startDateStr && startDateStr <= todayStr && (endDateStr >= todayStr || !endDateStr);
+  if (hasPairings || bcpStarted || (isTodayMatch && (Number(ev.total_players || 0) > 0 || currentRound > 0))) {
     return true;
   }
 
@@ -1241,23 +1252,13 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
               </button>
             `;
           }
-        })() : (isOngoing ? (() => {
-          if (isRegistered) {
-            return `
-              <button class="btn" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.35); cursor: default; margin-bottom: 0.45rem;">
-                ✅ Registered • Playing
-              </button>
-            `;
-          } else {
-            return `
-              <button class="btn btn-secondary" disabled style="width: 100%; font-size: 0.8rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); cursor: not-allowed; margin-bottom: 0.45rem;" title="Tournament has already started — registration is closed">
-                🔒 Registration Closed • In Progress
-              </button>
-            `;
-          }
-        })() : '')}
+        })() : (isOngoing && isRegistered ? `
+          <div style="width: 100%; font-size: 0.76rem; padding: 0.35rem 0.6rem; justify-content: center; font-weight: 700; background: rgba(16, 185, 129, 0.12); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; margin-bottom: 0.45rem; text-align: center; box-sizing: border-box;">
+            ✅ You are registered &amp; competing
+          </div>
+        ` : '')}
         <div style="display: flex; gap: 0.5rem; align-items: center;">
-          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${escapeHtml(ev.id)}', false${isOngoing ? ", 'matches'" : ''})">
+          <button class="btn btn-primary" style="flex: 1; font-size: 0.78rem; padding: 0.45rem 0.75rem; justify-content: center; font-weight: 700; ${isOngoing ? 'background: linear-gradient(135deg, #0284c7, #0369a1); box-shadow: 0 0 10px rgba(56,189,248,0.3);' : ''}" onclick="openEventModal('${escapeHtml(ev.id)}', false${isOngoing ? ", 'matches'" : ''})">
             ${isOngoing ? '⚔️ Live Pairings & Standings' : (isEnded ? '📋 Results & Placings' : '📋 Roster & Details')}
           </button>
           <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.45rem 0.65rem; color: #94a3b8;" title="View on Best Coast Pairings">

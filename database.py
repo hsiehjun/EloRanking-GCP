@@ -121,17 +121,89 @@ class PostgresDatabase:
         "top_player_name": "Gavin Grigar",
         "top_player_elo": 2040.2,
         "factions": [
-            "Beasts of Chaos", "Blades of Khorne", "Cities of Sigmar", "Disciples of Tzeentch",
-            "Flesh-eater Courts", "Fyreslayers", "Gloomspite Gitz", "Hedonites of Slaanesh",
-            "Idoneth Deepkin", "Kharadron Overlords", "Lumineth Realm-lords", "Maggotkin of Nurgle",
-            "Nighthaunt", "Ogor Mawtribes", "Ossiarch Bonereapers", "Seraphon", "Skaven",
-            "Slaves to Darkness", "Soulblight Gravelords", "Stormcast Eternals", "Sylvaneth"
+            "Beasts of Chaos", "Blades of Khorne", "Cities of Sigmar", "Daughters of Khaine",
+            "Disciples of Tzeentch", "Flesh-eater Courts", "Fyreslayers", "Gloomspite Gitz",
+            "Hedonites of Slaanesh", "Idoneth Deepkin", "Kharadron Overlords", "Lumineth Realm-lords",
+            "Maggotkin of Nurgle", "Nighthaunt", "Ogor Mawtribes", "Orruk Warclans",
+            "Ossiarch Bonereapers", "Seraphon", "Skaven", "Slaves to Darkness",
+            "Sons of Behemat", "Soulblight Gravelords", "Stormcast Eternals", "Sylvaneth"
         ],
         "game_system": "aos"
     }
+
+    WAHAPEDIA_40K_GROUPS = [
+        {
+            "group": "Imperium",
+            "factions": [
+                "Adepta Sororitas", "Adeptus Custodes", "Adeptus Mechanicus", "Astra Militarum",
+                "Grey Knights", "Imperial Agents", "Imperial Knights"
+            ]
+        },
+        {
+            "group": "Space Marines",
+            "factions": [
+                "Space Marines", "Black Templars", "Blood Angels", "Dark Angels", "Deathwatch",
+                "Imperial Fists", "Iron Hands", "Raven Guard", "Salamanders", "Space Wolves",
+                "Ultramarines", "White Scars"
+            ]
+        },
+        {
+            "group": "Chaos",
+            "factions": [
+                "Chaos Space Marines", "World Eaters", "Death Guard", "Thousand Sons",
+                "Emperor's Children", "Chaos Daemons", "Chaos Knights"
+            ]
+        },
+        {
+            "group": "Xenos",
+            "factions": [
+                "Aeldari", "Drukhari", "Genestealer Cults", "Leagues of Votann",
+                "Necrons", "Orks", "T'au Empire", "Tyranids"
+            ]
+        }
+    ]
+
+    WAHAPEDIA_AOS_GROUPS = [
+        {
+            "group": "Order",
+            "factions": [
+                "Cities of Sigmar", "Daughters of Khaine", "Fyreslayers", "Idoneth Deepkin",
+                "Kharadron Overlords", "Lumineth Realm-lords", "Seraphon", "Stormcast Eternals", "Sylvaneth"
+            ]
+        },
+        {
+            "group": "Chaos",
+            "factions": [
+                "Beasts of Chaos", "Blades of Khorne", "Disciples of Tzeentch", "Hedonites of Slaanesh",
+                "Maggotkin of Nurgle", "Skaven", "Slaves to Darkness"
+            ]
+        },
+        {
+            "group": "Death",
+            "factions": [
+                "Flesh-eater Courts", "Nighthaunt", "Ossiarch Bonereapers", "Soulblight Gravelords"
+            ]
+        },
+        {
+            "group": "Destruction",
+            "factions": [
+                "Gloomspite Gitz", "Ogor Mawtribes", "Orruk Warclans", "Sons of Behemat"
+            ]
+        }
+    ]
+
+    @classmethod
+    def get_factions(cls, game_system: Optional[str] = "40k", grouped: bool = False) -> Any:
+        sys_val = (game_system or "40k").lower().strip()
+        is_aos = sys_val in ("aos", "warhammer_aos")
+        if grouped:
+            return cls.WAHAPEDIA_AOS_GROUPS if is_aos else cls.WAHAPEDIA_40K_GROUPS
+        return cls.DEFAULT_AOS_STATS["factions"] if is_aos else cls.DEFAULT_40K_STATS["factions"]
+
     _all_teams_cache = None
     _all_teams_cache_time = 0
     _faction_meta_cache_dict = {}
+    _faction_details_cache_dict = {}
     _players_cache_dict = {}
     _teams_cache_dict = {}
     _team_roster_cache_dict = {}
@@ -1031,38 +1103,42 @@ class PostgresDatabase:
                     placeholder_re = r'^(player($|[^a-zA-Z])|fake\s*player|unknown(\s*player)?|bye|none|null|tbd|unassigned)'
                     cursor.execute("""
                     UPDATE players p
-                    SET full_name = ep.full_name
+                    SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
                     FROM event_participants ep
                     WHERE p.id = ep.player_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                      AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                      AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
+                      AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
                       AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
                     """, (placeholder_re, placeholder_re))
                     cursor.execute("""
                     UPDATE players p
-                    SET full_name = m.player1_name
+                    SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
                     FROM matches m
                     WHERE p.id = m.player1_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                      AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != ''
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                      AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
+                      AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
                       AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
                     """, (placeholder_re, placeholder_re))
                     cursor.execute("""
                     UPDATE players p
-                    SET full_name = m.player2_name
+                    SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
                     FROM matches m
                     WHERE p.id = m.player2_id
-                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                      AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != ''
+                      AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                      AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
+                      AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
                       AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
                     """, (placeholder_re, placeholder_re))
                     cursor.execute("""
                     UPDATE player_ratings pr
-                    SET player_name = p.full_name, updated_at = NOW()
+                    SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100), updated_at = NOW()
                     FROM players p
                     WHERE pr.player_id = p.id
-                      AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s)
-                      AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                      AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
+                      AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+                      AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
                       AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
                     """, (placeholder_re, placeholder_re))
                 conn.commit()
@@ -1094,10 +1170,12 @@ class PostgresDatabase:
                     # 1. Update player_ratings with latest active team from event_participants
                     cursor.execute("""
                     WITH latest_player_teams AS (
-                        SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as latest_team
+                        SELECT DISTINCT ON (ep.player_id) ep.player_id, SUBSTRING(TRIM(ep.team), 1, 100) as latest_team
                         FROM event_participants ep
                         LEFT JOIN events e ON ep.event_id = e.id
                         WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                          AND LENGTH(ep.team) <= 100
+                          AND ep.team NOT LIKE '{%%' AND ep.team NOT LIKE '[%%'
                           AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                         ORDER BY ep.player_id, e.event_date DESC NULLS LAST
                     )
@@ -1112,10 +1190,12 @@ class PostgresDatabase:
                     # 2. Update players table
                     cursor.execute("""
                     WITH latest_player_teams AS (
-                        SELECT DISTINCT ON (ep.player_id) ep.player_id, TRIM(ep.team) as latest_team
+                        SELECT DISTINCT ON (ep.player_id) ep.player_id, SUBSTRING(TRIM(ep.team), 1, 100) as latest_team
                         FROM event_participants ep
                         LEFT JOIN events e ON ep.event_id = e.id
                         WHERE ep.team IS NOT NULL AND TRIM(ep.team) != ''
+                          AND LENGTH(ep.team) <= 100
+                          AND ep.team NOT LIKE '{%%' AND ep.team NOT LIKE '[%%'
                           AND LOWER(TRIM(ep.team)) NOT IN ('none', 'n/a', 'unaligned', 'unaffiliated', 'no team', 'null', 'unknown', '-')
                         ORDER BY ep.player_id, e.event_date DESC NULLS LAST
                     )
@@ -4047,6 +4127,9 @@ class PostgresDatabase:
 
                 trend_where_clauses = ["is_done = TRUE", "match_date IS NOT NULL"]
                 trend_params: List[Any] = []
+                if game_system and game_system != "all":
+                    trend_where_clauses.append("COALESCE(game_system, '40k') = %s")
+                    trend_params.append((game_system or "40k").lower())
                 if start_date:
                     trend_where_clauses.append("match_date >= %s")
                     trend_params.append(start_date)
@@ -4296,16 +4379,47 @@ class PostgresDatabase:
 
 
 
-    def get_faction_details(self, faction_name: str, limit: int = 100, game_system: Optional[str] = "40k") -> Dict[str, Any]:
-        """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups."""
+    def get_faction_details(
+        self,
+        faction_name: str,
+        limit: int = 100,
+        game_system: Optional[str] = "40k",
+        timeframe: Optional[str] = "1yr"
+    ) -> Dict[str, Any]:
+        """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups with timeframe filtering and caching."""
+        if not faction_name:
+            return {"faction": "", "stats": {}, "top_players": [], "matches": [], "matchups": []}
+
+        system = (game_system or "40k").lower()
+        tf = (timeframe or "1yr").lower().strip()
+        cache_key = (faction_name.strip().lower(), system, tf, int(limit))
+        cached = self.get_cached(self._faction_details_cache_dict, cache_key, ttl=900)
+        if cached:
+            return cached
+
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 sys_clause = ""
                 sys_params = []
-                system = (game_system or "40k").lower()
+                sys_clause_m = ""
+                sys_params_m = []
                 if game_system and game_system != "all":
                     sys_clause = " AND COALESCE(matches.game_system, '40k') = %s"
                     sys_params = [system]
+                    sys_clause_m = " AND COALESCE(m.game_system, '40k') = %s"
+                    sys_params_m = [system]
+
+                date_clause = ""
+                date_clause_m = ""
+                if tf == "6mo":
+                    date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
+                    date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
+                elif tf == "1yr" or not tf:
+                    date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
+                    date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
+                elif tf == "all":
+                    date_clause = ""
+                    date_clause_m = ""
 
                 # 1. Pure Match-Level Commander Records strictly for games played WITH this faction
                 try:
@@ -4319,7 +4433,7 @@ class PostgresDatabase:
                             CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
-                        WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{sys_clause}
+                        WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{sys_clause}{date_clause}
                         UNION ALL
                         SELECT 
                             player2_id as p_id,
@@ -4329,7 +4443,7 @@ class PostgresDatabase:
                             CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                             CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                         FROM matches
-                        WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{sys_clause}
+                        WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{sys_clause}{date_clause}
                     )
                     SELECT 
                         fpg.p_id as player_id,
@@ -4354,7 +4468,7 @@ class PostgresDatabase:
                     conn.rollback()
                     logger.warning(f"Fallback get_faction_details top_players notice: {e}")
                     with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                        cur_safe.execute("""
+                        cur_safe.execute(f"""
                         WITH faction_player_games AS (
                             SELECT 
                                 player1_id as p_id,
@@ -4364,7 +4478,7 @@ class PostgresDatabase:
                                 CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                                 CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                             FROM matches
-                            WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE
+                            WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{date_clause}
                             UNION ALL
                             SELECT 
                                 player2_id as p_id,
@@ -4374,7 +4488,7 @@ class PostgresDatabase:
                                 CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                                 CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                             FROM matches
-                            WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE
+                            WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{date_clause}
                         )
                         SELECT 
                             fpg.p_id as player_id,
@@ -4397,7 +4511,7 @@ class PostgresDatabase:
                         top_players = [dict(r) for r in cur_safe.fetchall()]
 
                 # 2. Recent matches involving this faction
-                cursor.execute("""
+                cursor.execute(f"""
                 SELECT m.id, m.event_id, e.name as event_name, m.round, m.table_number, m.match_date,
                        CASE WHEN m.player1_faction ILIKE %s THEN m.player1_id ELSE m.player2_id END as player_id,
                        CASE WHEN m.player1_faction ILIKE %s THEN m.player1_name ELSE m.player2_name END as player_name,
@@ -4415,7 +4529,7 @@ class PostgresDatabase:
                 FROM matches m
                 LEFT JOIN events e ON m.event_id = e.id
                 WHERE (m.player1_faction ILIKE %s OR m.player2_faction ILIKE %s)
-                  AND m.is_done = TRUE
+                  AND m.is_done = TRUE{sys_clause_m}{date_clause_m}
                 ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
                 LIMIT %s;
                 """, (
@@ -4423,12 +4537,13 @@ class PostgresDatabase:
                     f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%",
                     f"%{faction_name}%", f"%{faction_name}%",
                     f"%{faction_name}%", f"%{faction_name}%",
+                    *sys_params_m,
                     limit
                 ))
                 recent_matches = [dict(r) for r in cursor.fetchall()]
 
                 # 3. Matchup win rates against other factions (Excluding Mirrors)
-                cursor.execute("""
+                cursor.execute(f"""
                 WITH faction_games AS (
                     SELECT 
                         player2_faction as opp_faction,
@@ -4437,7 +4552,7 @@ class PostgresDatabase:
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
                     WHERE player1_faction ILIKE %s AND player2_faction IS NOT NULL AND player2_faction != '' 
-                      AND player2_faction != 'Unknown Faction' AND NOT (player2_faction ILIKE %s)
+                      AND player2_faction != 'Unknown Faction' AND NOT (player2_faction ILIKE %s){sys_clause}{date_clause}
                     UNION ALL
                     SELECT 
                         player1_faction as opp_faction,
@@ -4446,7 +4561,7 @@ class PostgresDatabase:
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
                     WHERE player2_faction ILIKE %s AND player1_faction IS NOT NULL AND player1_faction != '' 
-                      AND player1_faction != 'Unknown Faction' AND is_bye = FALSE AND NOT (player1_faction ILIKE %s)
+                      AND player1_faction != 'Unknown Faction' AND is_bye = FALSE AND NOT (player1_faction ILIKE %s){sys_clause}{date_clause}
                 )
                 SELECT 
                     opp_faction as opponent_faction,
@@ -4460,7 +4575,7 @@ class PostgresDatabase:
                 HAVING COUNT(*) >= 1
                 ORDER BY win_rate DESC, total_matches DESC
                 LIMIT 35;
-                """, (f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%"))
+                """, (f"%{faction_name}%", f"%{faction_name}%", *sys_params, f"%{faction_name}%", f"%{faction_name}%", *sys_params))
                 matchups = [dict(r) for r in cursor.fetchall()]
 
                 # Summary metrics
@@ -4469,8 +4584,10 @@ class PostgresDatabase:
                 total_l = sum(1 for m in recent_matches if m.get("outcome") == "L")
                 total_d = sum(1 for m in recent_matches if m.get("outcome") == "D")
 
-                return {
+                res = {
                     "faction": faction_name,
+                    "game_system": system,
+                    "timeframe": tf,
                     "stats": {
                         "total_recent_sample": total_m,
                         "recent_wins": total_w,
@@ -4482,6 +4599,8 @@ class PostgresDatabase:
                     "matches": recent_matches,
                     "matchups": matchups
                 }
+                self._faction_details_cache_dict[cache_key] = (res, time.time())
+                return res
 
     def save_tracker_game(
         self,
@@ -7036,12 +7155,12 @@ class PostgresDatabase:
         return results
 
     def get_user_for_player(self, player_id: str, player_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        """Finds if a player is registered as an OmniTactica user."""
-        if not player_id and not player_name:
+        """Finds if a player is registered as an OmniTactica user via verified link."""
+        if not player_id:
             return None
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                # 1. Match by player_id, bcp_user_id, or user id
+                # Strictly match by player_id, bcp_user_id, or user id (never assume by name)
                 cursor.execute("""
                     SELECT id, display_name, email, role, player_id, bcp_user_id, created_at
                     FROM users
@@ -7054,20 +7173,6 @@ class PostgresDatabase:
                 user = cursor.fetchone()
                 if user:
                     return dict(user)
-
-                # 2. Fallback match by exact player name (case-insensitive) if provided
-                if player_name and player_name.strip():
-                    name_clean = player_name.strip()
-                    cursor.execute("""
-                        SELECT id, display_name, email, role, player_id, bcp_user_id, created_at
-                        FROM users
-                        WHERE LOWER(display_name) = LOWER(%s)
-                        ORDER BY updated_at DESC
-                        LIMIT 1;
-                    """, (name_clean,))
-                    user = cursor.fetchone()
-                    if user:
-                        return dict(user)
         return None
 
     def get_existing_match_request(self, user1_id: str, user2_id: str) -> Optional[Dict[str, Any]]:
@@ -7102,7 +7207,7 @@ class PostgresDatabase:
 
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor if extras else None) as cursor:
-                # 1. Resolve receiver_id to a valid users.id
+                # 1. Resolve receiver_id strictly to a valid users.id or verified competitor link
                 cursor.execute("""
                     SELECT id FROM users
                     WHERE id = %s
@@ -7111,13 +7216,6 @@ class PostgresDatabase:
                     LIMIT 1;
                 """, (receiver_id, receiver_id, receiver_id))
                 user_match = cursor.fetchone()
-
-                if not user_match:
-                    # Fallback check display_name
-                    cursor.execute("""
-                        SELECT id FROM users WHERE LOWER(display_name) = LOWER(%s) LIMIT 1;
-                    """, (receiver_id,))
-                    user_match = cursor.fetchone()
 
                 if not user_match:
                     return {

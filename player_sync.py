@@ -46,10 +46,12 @@ _PLACEHOLDER_RE = re.compile(PLACEHOLDER_REGEX_STR, re.IGNORECASE)
 
 
 def is_placeholder_name(name: Optional[str], player_id: Optional[str] = None) -> bool:
-    """Checks if a name is a generic placeholder (e.g. 'Player 1', 'Player114', 'Unknown Player') or equal to player ID."""
+    """Checks if a name is a generic placeholder (e.g. 'Player 1', 'Player114', 'Unknown Player'), equal to player ID, or an oversized/corrupted payload."""
     if not name:
         return True
     cleaned = str(name).strip()
+    if not cleaned or len(cleaned) > 100 or cleaned.startswith("{") or cleaned.startswith("["):
+        return True
     if cleaned.lower() in PLACEHOLDER_NAMES:
         return True
     if _PLACEHOLDER_RE.match(cleaned):
@@ -64,11 +66,29 @@ def is_bcp_placeholder_name(name: Optional[str], player_id: Optional[str] = None
     return is_placeholder_name(name, player_id)
 
 
-def clean_name(name: Optional[str]) -> str:
-    """Cleans and normalizes whitespace in names."""
+def clean_name(name: Optional[str], max_length: int = 100) -> str:
+    """Cleans and normalizes whitespace in names, parses JSON blobs, and enforces max length to prevent DB index page overflow."""
     if not name:
         return ""
-    return " ".join(str(name).strip().split())
+    s = str(name).strip()
+    if not s:
+        return ""
+    if s.startswith("{") and s.endswith("}"):
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, dict):
+                s = str(parsed.get("name") or parsed.get("fullName") or parsed.get("full_name") or parsed.get("playerName") or "").strip()
+        except Exception:
+            s = ""
+    elif s.startswith("{") or s.startswith("["):
+        return ""
+    if "\n" in s or "\r" in s:
+        lines = [line.strip() for line in s.replace("\r", "\n").split("\n") if line.strip()]
+        s = lines[0] if lines else ""
+    cleaned = " ".join(s.split())
+    if len(cleaned) > max_length:
+        cleaned = cleaned[:max_length].strip()
+    return cleaned
 
 
 class PlayerNameSync:
@@ -105,21 +125,24 @@ class PlayerNameSync:
                 if target_sys in ("40k", "wh40k"):
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
+                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
+                           OR LENGTH(player_name) > 100 OR player_name LIKE '{%%' OR player_name LIKE '[%%')
                       AND COALESCE(game_system, '40k') = '40k'
                     ORDER BY matches_played DESC, current_elo DESC;
                     """, (placeholder_regex,))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id)
+                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
+                           OR LENGTH(player_name) > 100 OR player_name LIKE '{%%' OR player_name LIKE '[%%')
                       AND COALESCE(game_system, '40k') = 'aos'
                     ORDER BY matches_played DESC, current_elo DESC;
                     """, (placeholder_regex,))
                 else:
                     cur.execute("""
                     SELECT player_id FROM player_ratings 
-                    WHERE player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
+                    WHERE (player_name ~* %s OR player_name IS NULL OR TRIM(player_name) = '' OR player_name = player_id
+                           OR LENGTH(player_name) > 100 OR player_name LIKE '{%%' OR player_name LIKE '[%%')
                     ORDER BY matches_played DESC, current_elo DESC;
                     """, (placeholder_regex,))
                 for r in cur.fetchall():
@@ -134,7 +157,8 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player1_id FROM matches 
-                WHERE (player1_name ~* %s OR player1_name IS NULL OR TRIM(player1_name) = '' OR player1_name = player1_id)
+                WHERE (player1_name ~* %s OR player1_name IS NULL OR TRIM(player1_name) = '' OR player1_name = player1_id
+                       OR LENGTH(player1_name) > 100 OR player1_name LIKE '{{%%' OR player1_name LIKE '[%%')
                   AND NOT (player1_id ILIKE 'BYE')
                   {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
@@ -144,7 +168,8 @@ class PlayerNameSync:
 
                 cur.execute(f"""
                 SELECT player2_id FROM matches 
-                WHERE (player2_name ~* %s OR player2_name IS NULL OR TRIM(player2_name) = '' OR player2_name = player2_id)
+                WHERE (player2_name ~* %s OR player2_name IS NULL OR TRIM(player2_name) = '' OR player2_name = player2_id
+                       OR LENGTH(player2_name) > 100 OR player2_name LIKE '{{%%' OR player2_name LIKE '[%%')
                   AND NOT (player2_id ILIKE 'BYE')
                   {sys_clause}
                 ORDER BY match_date DESC NULLS LAST;
@@ -157,21 +182,24 @@ class PlayerNameSync:
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id)
+                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id
+                           OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%' OR p.full_name LIKE '[%%')
                       AND COALESCE(pr.game_system, '40k') = '40k';
                     """, (placeholder_regex,))
                 elif target_sys in ("aos", "warhammer_aos", "sigmar"):
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id)
+                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id
+                           OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%' OR p.full_name LIKE '[%%')
                       AND COALESCE(pr.game_system, '40k') = 'aos';
                     """, (placeholder_regex,))
                 else:
                     cur.execute("""
                     SELECT DISTINCT p.id FROM players p
                     JOIN player_ratings pr ON p.id = pr.player_id
-                    WHERE p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id;
+                    WHERE (p.full_name ~* %s OR p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name = p.id
+                           OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%' OR p.full_name LIKE '[%%');
                     """, (placeholder_regex,))
                 for r in cur.fetchall():
                     add_id(r[0])
@@ -200,16 +228,18 @@ class PlayerNameSync:
                     FROM players
                     WHERE id = ANY(%s)
                       AND full_name IS NOT NULL
+                      AND LENGTH(full_name) <= 100
+                      AND full_name NOT LIKE '{%%' AND full_name NOT LIKE '[%%'
                       AND NOT (full_name ~* %s OR full_name ILIKE 'BYE');
                     """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
-                        fn, ln, full = r[1] or "", r[2] or "", clean_name(r[3])
+                        fn, ln, full = r[1] or "", r[2] or "", clean_name(r[3], max_length=100)
                         if full and not is_placeholder_name(full, pid):
                             resolved[pid] = {
                                 "full_name": full,
-                                "first_name": clean_name(fn),
-                                "last_name": clean_name(ln),
+                                "first_name": clean_name(fn, max_length=50),
+                                "last_name": clean_name(ln, max_length=50),
                                 "source": "local_players"
                             }
 
@@ -219,18 +249,20 @@ class PlayerNameSync:
                     FROM player_ratings
                     WHERE player_id = ANY(%s)
                       AND player_name IS NOT NULL
+                      AND LENGTH(player_name) <= 100
+                      AND player_name NOT LIKE '{%%' AND player_name NOT LIKE '[%%'
                       AND NOT (player_name ~* %s OR player_name ILIKE 'BYE')
                     ORDER BY player_id, matches_played DESC NULLS LAST;
                     """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
-                            full = clean_name(r[1])
+                            full = clean_name(r[1], max_length=100)
                             if full and not is_placeholder_name(full, pid):
                                 resolved[pid] = {
                                     "full_name": full,
-                                    "first_name": full.split()[0] if full else "",
-                                    "last_name": full.split()[-1] if len(full.split()) > 1 else "",
+                                    "first_name": clean_name(full.split()[0] if full else "", max_length=50),
+                                    "last_name": clean_name(full.split()[-1] if len(full.split()) > 1 else "", max_length=50),
                                     "source": "local_player_ratings"
                                 }
 
@@ -240,18 +272,20 @@ class PlayerNameSync:
                     FROM event_participants
                     WHERE player_id = ANY(%s)
                       AND full_name IS NOT NULL
+                      AND LENGTH(full_name) <= 100
+                      AND full_name NOT LIKE '{%%' AND full_name NOT LIKE '[%%'
                       AND NOT (full_name ~* %s OR full_name ILIKE 'BYE')
                     ORDER BY player_id;
                     """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
-                            fn, ln, full = r[1] or "", r[2] or "", clean_name(r[3])
+                            fn, ln, full = r[1] or "", r[2] or "", clean_name(r[3], max_length=100)
                             if full and not is_placeholder_name(full, pid):
                                 resolved[pid] = {
                                     "full_name": full,
-                                    "first_name": clean_name(fn),
-                                    "last_name": clean_name(ln),
+                                    "first_name": clean_name(fn, max_length=50),
+                                    "last_name": clean_name(ln, max_length=50),
                                     "source": "local_event_participants"
                                 }
 
@@ -261,18 +295,20 @@ class PlayerNameSync:
                     FROM matches
                     WHERE player1_id = ANY(%s)
                       AND player1_name IS NOT NULL
+                      AND LENGTH(player1_name) <= 100
+                      AND player1_name NOT LIKE '{%%' AND player1_name NOT LIKE '[%%'
                       AND NOT (player1_name ~* %s OR player1_name ILIKE 'BYE')
                     ORDER BY player1_id, match_date DESC NULLS LAST;
                     """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
-                            full = clean_name(r[1])
+                            full = clean_name(r[1], max_length=100)
                             if full and not is_placeholder_name(full, pid):
                                 resolved[pid] = {
                                     "full_name": full,
-                                    "first_name": full.split()[0] if full else "",
-                                    "last_name": full.split()[-1] if len(full.split()) > 1 else "",
+                                    "first_name": clean_name(full.split()[0] if full else "", max_length=50),
+                                    "last_name": clean_name(full.split()[-1] if len(full.split()) > 1 else "", max_length=50),
                                     "source": "local_matches_p1"
                                 }
 
@@ -281,18 +317,20 @@ class PlayerNameSync:
                     FROM matches
                     WHERE player2_id = ANY(%s)
                       AND player2_name IS NOT NULL
+                      AND LENGTH(player2_name) <= 100
+                      AND player2_name NOT LIKE '{%%' AND player2_name NOT LIKE '[%%'
                       AND NOT (player2_name ~* %s OR player2_name ILIKE 'BYE')
                     ORDER BY player2_id, match_date DESC NULLS LAST;
                     """, (chunk, placeholder_regex))
                     for r in cur.fetchall():
                         pid = str(r[0]).strip()
                         if pid not in resolved:
-                            full = clean_name(r[1])
+                            full = clean_name(r[1], max_length=100)
                             if full and not is_placeholder_name(full, pid):
                                 resolved[pid] = {
                                     "full_name": full,
-                                    "first_name": full.split()[0] if full else "",
-                                    "last_name": full.split()[-1] if len(full.split()) > 1 else "",
+                                    "first_name": clean_name(full.split()[0] if full else "", max_length=50),
+                                    "last_name": clean_name(full.split()[-1] if len(full.split()) > 1 else "", max_length=50),
                                     "source": "local_matches_p2"
                                 }
 
@@ -332,9 +370,9 @@ class PlayerNameSync:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     if isinstance(data, dict):
-                        first = clean_name(data.get("firstName"))
-                        last = clean_name(data.get("lastName"))
-                        full = f"{first} {last}".strip() or clean_name(data.get("name"))
+                        first = clean_name(data.get("firstName"), max_length=50)
+                        last = clean_name(data.get("lastName"), max_length=50)
+                        full = clean_name(f"{first} {last}".strip() or data.get("name"), max_length=100)
                         if full and not is_bcp_placeholder_name(full, player_id):
                             return {
                                 "full_name": full,
@@ -359,10 +397,10 @@ class PlayerNameSync:
                     data = json.loads(resp.read().decode("utf-8"))
                     if isinstance(data, dict):
                         u = data.get("user") or {}
-                        first = clean_name(u.get("firstName") or data.get("firstName"))
-                        last = clean_name(u.get("lastName") or data.get("lastName"))
-                        full = f"{first} {last}".strip() or clean_name(data.get("name") or data.get("playerName"))
-                        canonical_uid = clean_name(u.get("id") or data.get("userId") or data.get("user_id"))
+                        first = clean_name(u.get("firstName") or data.get("firstName"), max_length=50)
+                        last = clean_name(u.get("lastName") or data.get("lastName"), max_length=50)
+                        full = clean_name(f"{first} {last}".strip() or data.get("name") or data.get("playerName"), max_length=100)
+                        canonical_uid = clean_name(u.get("id") or data.get("userId") or data.get("user_id"), max_length=64)
                         if canonical_uid and (not full or is_bcp_placeholder_name(full, player_id)):
                             usr_res = self._query_bcp_users_endpoint(canonical_uid)
                             if usr_res and usr_res.get("full_name"):
@@ -429,11 +467,13 @@ class PlayerNameSync:
         with self.db.get_connection() as conn:
             with conn.cursor() as cur:
                 for pid, info in resolved_names.items():
-                    full = info.get("full_name") or ""
-                    first = info.get("first_name") or (full.split()[0] if full else "")
-                    last = info.get("last_name") or (full.split()[-1] if len(full.split()) > 1 else "")
-                    canonical_uid = info.get("canonical_user_id")
+                    pid = str(pid)[:64]
+                    full = clean_name(info.get("full_name") or "", max_length=100)
+                    first = clean_name(info.get("first_name") or (full.split()[0] if full else ""), max_length=50)
+                    last = clean_name(info.get("last_name") or (full.split()[-1] if len(full.split()) > 1 else ""), max_length=50)
+                    canonical_uid = str(info.get("canonical_user_id") or "").strip()[:64] or None
                     target_id = canonical_uid if (canonical_uid and canonical_uid != pid) else pid
+                    target_id = str(target_id)[:64]
                     has_valid_name = bool(full and not is_bcp_placeholder_name(full, target_id))
 
                     if not has_valid_name and target_id == pid:
@@ -630,9 +670,9 @@ class PlayerNameSync:
                 bcp_info = self.fetch_bcp_player_name(reg_id)
                 if bcp_info and bcp_info.get("canonical_user_id"):
                     uid = bcp_info["canonical_user_id"]
-            first = clean_name(user.get("firstName") or p.get("firstName"))
-            last = clean_name(user.get("lastName") or p.get("lastName"))
-            full = f"{first} {last}".strip() or clean_name(p.get("name"))
+            first = clean_name(user.get("firstName") or p.get("firstName"), max_length=50)
+            last = clean_name(user.get("lastName") or p.get("lastName"), max_length=50)
+            full = clean_name(f"{first} {last}".strip() or p.get("name"), max_length=100)
             if uid:
                 if reg_id:
                     reg_to_uid[reg_id] = uid
@@ -944,73 +984,81 @@ class PlayerNameSync:
                     with conn.cursor() as cur:
                         cur.execute("""
                         UPDATE players
-                        SET full_name = TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')))
-                        WHERE (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* %s)
+                        SET full_name = SUBSTRING(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), 1, 100)
+                        WHERE (full_name IS NULL OR TRIM(full_name) = '' OR full_name ~* %s OR LENGTH(full_name) > 100 OR full_name LIKE '{%%')
                           AND (first_name IS NOT NULL OR last_name IS NOT NULL)
                           AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) != ''
-                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) !~* %s;
+                          AND TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) !~* %s
+                          AND LENGTH(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) <= 100;
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE players p
-                        SET full_name = ep.full_name
+                        SET full_name = SUBSTRING(TRIM(ep.full_name), 1, 100)
                         FROM event_participants ep
                         WHERE p.id = ep.player_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                          AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != ''
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND ep.full_name IS NOT NULL AND TRIM(ep.full_name) != '' AND LENGTH(ep.full_name) <= 100
+                          AND ep.full_name NOT LIKE '{%%' AND ep.full_name NOT LIKE '[%%'
                           AND NOT (ep.full_name ~* %s OR ep.full_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE players p
-                        SET full_name = m.player1_name
+                        SET full_name = SUBSTRING(TRIM(m.player1_name), 1, 100)
                         FROM matches m
                         WHERE p.id = m.player1_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                          AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != ''
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND m.player1_name IS NOT NULL AND TRIM(m.player1_name) != '' AND LENGTH(m.player1_name) <= 100
+                          AND m.player1_name NOT LIKE '{%%' AND m.player1_name NOT LIKE '[%%'
                           AND NOT (m.player1_name ~* %s OR m.player1_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE players p
-                        SET full_name = m.player2_name
+                        SET full_name = SUBSTRING(TRIM(m.player2_name), 1, 100)
                         FROM matches m
                         WHERE p.id = m.player2_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                          AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != ''
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND m.player2_name IS NOT NULL AND TRIM(m.player2_name) != '' AND LENGTH(m.player2_name) <= 100
+                          AND m.player2_name NOT LIKE '{%%' AND m.player2_name NOT LIKE '[%%'
                           AND NOT (m.player2_name ~* %s OR m.player2_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE players p
-                        SET full_name = pr.player_name
+                        SET full_name = SUBSTRING(TRIM(pr.player_name), 1, 100)
                         FROM player_ratings pr
                         WHERE p.id = pr.player_id
-                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s)
-                          AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != ''
+                          AND (p.full_name IS NULL OR TRIM(p.full_name) = '' OR p.full_name ~* %s OR LENGTH(p.full_name) > 100 OR p.full_name LIKE '{%%')
+                          AND pr.player_name IS NOT NULL AND TRIM(pr.player_name) != '' AND LENGTH(pr.player_name) <= 100
+                          AND pr.player_name NOT LIKE '{%%' AND pr.player_name NOT LIKE '[%%'
                           AND NOT (pr.player_name ~* %s OR pr.player_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE player_ratings pr
-                        SET player_name = p.full_name
+                        SET player_name = SUBSTRING(TRIM(p.full_name), 1, 100)
                         FROM players p
                         WHERE pr.player_id = p.id
-                          AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s)
-                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                          AND (pr.player_name IS NULL OR TRIM(pr.player_name) = '' OR pr.player_name ~* %s OR LENGTH(pr.player_name) > 100 OR pr.player_name LIKE '{%%')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+                          AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
                           AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE matches m
-                        SET player1_name = p.full_name
+                        SET player1_name = SUBSTRING(TRIM(p.full_name), 1, 100)
                         FROM players p
                         WHERE m.player1_id = p.id
-                          AND (m.player1_name IS NULL OR TRIM(m.player1_name) = '' OR m.player1_name ~* %s)
-                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                          AND (m.player1_name IS NULL OR TRIM(m.player1_name) = '' OR m.player1_name ~* %s OR LENGTH(m.player1_name) > 100 OR m.player1_name LIKE '{%%')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+                          AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
                           AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                         cur.execute("""
                         UPDATE matches m
-                        SET player2_name = p.full_name
+                        SET player2_name = SUBSTRING(TRIM(p.full_name), 1, 100)
                         FROM players p
                         WHERE m.player2_id = p.id
-                          AND (m.player2_name IS NULL OR TRIM(m.player2_name) = '' OR m.player2_name ~* %s)
-                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != ''
+                          AND (m.player2_name IS NULL OR TRIM(m.player2_name) = '' OR m.player2_name ~* %s OR LENGTH(m.player2_name) > 100 OR m.player2_name LIKE '{%%')
+                          AND p.full_name IS NOT NULL AND TRIM(p.full_name) != '' AND LENGTH(p.full_name) <= 100
+                          AND p.full_name NOT LIKE '{%%' AND p.full_name NOT LIKE '[%%'
                           AND NOT (p.full_name ~* %s OR p.full_name ILIKE 'BYE');
                         """, (PLACEHOLDER_REGEX_STR, PLACEHOLDER_REGEX_STR))
                     conn.commit()

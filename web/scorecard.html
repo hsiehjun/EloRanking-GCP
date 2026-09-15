@@ -292,23 +292,209 @@
       background: #0284c7;
       border-color: #38bdf8;
     }
-    .btn-sc-primary:hover {
-      background: #0369a1;
+    /* Desktop: Hide mobile rounds cards container */
+    .sc-mobile-rounds-container {
+      display: none !important;
     }
-    @media(max-width: 640px) {
-      .sc-versus-grid {
-        grid-template-columns: 1fr;
-        text-align: center;
+
+    /* Universal Mobile & Tablet Scrollbar Suppression */
+    @media (max-width: 768px) {
+      ::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
       }
-      .sc-p1, .sc-p2 { text-align: center; }
-      .sc-score-box { justify-content: center; margin: 0.5rem 0; }
+      html, body, .sc-container, * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+      }
+    }
+
+    @media(max-width: 768px), (max-width: 640px) {
+      .sc-top-bar {
+        display: none !important;
+      }
+      .sc-container {
+        margin: 0.5rem auto 1.5rem auto;
+        padding: 0 0.6rem;
+      }
+      .sc-live-banner {
+        display: none !important;
+      }
+      #sc-meta-line {
+        display: none !important;
+      }
+      .sc-player-det {
+        display: none !important;
+      }
+      .sc-score-pill-row {
+        display: flex !important;
+        font-size: 0.65rem !important;
+        color: #94a3b8 !important;
+        margin-top: 3px !important;
+        flex-wrap: wrap !important;
+        gap: 3px !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+      }
+      .sc-p1 .sc-score-pill-row {
+        justify-content: flex-start !important;
+      }
+      .sc-p2 .sc-score-pill-row {
+        justify-content: flex-end !important;
+      }
+      #sc-p1-turn-label, #sc-p2-turn-label {
+        display: none !important;
+      }
+      .sc-header {
+        padding: 0.85rem 1rem;
+      }
+      .sc-title {
+        font-size: 1.05rem;
+      }
+
+      /* Streamlined clean versus layout on mobile/tablet */
+      .sc-versus-grid {
+        grid-template-columns: 1fr auto 1fr !important;
+        align-items: center !important;
+        padding: 1.15rem 0.75rem !important;
+        gap: 0.4rem !important;
+      }
+      .sc-p1 {
+        text-align: left !important;
+      }
+      .sc-p2 {
+        text-align: right !important;
+      }
+      .sc-player-name {
+        font-size: 1.05rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 145px !important;
+      }
+      .sc-player-faction {
+        font-size: 0.78rem !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        max-width: 145px !important;
+      }
+      .sc-score-box {
+        padding: 0.4rem 0.65rem !important;
+        gap: 0.45rem !important;
+        border-radius: 10px !important;
+        margin: 0 !important;
+        flex-shrink: 0 !important;
+      }
+      .sc-score-num {
+        font-size: 1.65rem !important;
+      }
+
+      #sc-matrix-table-container {
+        display: none !important;
+      }
+      #sc-matrix-toggle-btn {
+        display: none !important;
+      }
+      .sc-section {
+        padding: 0.75rem 1rem !important;
+      }
+      .sc-section-title {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        font-size: 0.85rem !important;
+        font-weight: 800 !important;
+        color: #94a3b8 !important;
+        margin-bottom: 0.5rem !important;
+      }
+      .sc-mobile-toggle-wrapper {
+        display: none !important;
+      }
+      .btn-mobile-expand-rounds {
+        display: none !important;
+      }
+      .sc-mobile-rounds-container {
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 0.65rem !important;
+        margin-top: 0.35rem !important;
+      }
+      .sc-m-card {
+        background: #0b1120;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+      }
+      .sc-m-card-header {
+        padding: 0.65rem 0.85rem;
+        background: #1e293b;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        user-select: none;
+      }
+      .sc-m-round-title {
+        font-weight: 800;
+        font-size: 0.85rem;
+        color: #f1f5f9;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        white-space: nowrap;
+      }
+      .sc-m-round-score-chip {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 0.78rem;
+        font-weight: 800;
+        padding: 2px 7px;
+        border-radius: 6px;
+        background: #0f172a;
+        border: 1px solid rgba(255,255,255,0.1);
+      }
+      .sc-m-card-body {
+        padding: 0.75rem 0.85rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+      .sc-m-player-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.35rem 0;
+        border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+      }
+      .sc-m-player-row:last-child {
+        border-bottom: none;
+      }
+      .sc-m-sec-drawer {
+        background: rgba(15, 23, 42, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 8px;
+        padding: 0.5rem 0.65rem;
+        margin-top: 0.35rem;
+        font-size: 0.75rem;
+      }
+      .sc-m-sec-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 0.25rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      }
+      .sc-m-sec-item:last-child {
+        border-bottom: none;
+      }
     }
   </style>
 </head>
 <body>
 
   <div class="sc-container">
-    <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+    <div class="sc-top-bar" style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
       <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
         <a href="/11th/tracker" class="btn-sc">🎲 Tracker Lobby</a>
         <a href="/app" id="sc-event-back-btn" class="btn-sc" style="display:none; color: #f59e0b; border-color: rgba(245,158,11,0.3);">🏆 Tournament Overview</a>
@@ -377,11 +563,11 @@
       <div class="sc-section">
         <div class="sc-section-title">
           <span>📊 Turn-by-Turn Scoring Progression</span>
-          <button class="btn-sc" style="padding: 3px 8px; font-size: 0.75rem;" onclick="toggleAllSecondaries()">
-            ▼ Toggle Secondaries Details
+          <button id="sc-matrix-toggle-btn" class="btn-sc" style="padding: 3px 8px; font-size: 0.75rem;" onclick="toggleAllSecondaries()">
+            ▲ Collapse Secondaries Details
           </button>
         </div>
-        <div style="overflow-x: auto;">
+        <div id="sc-matrix-table-container" style="overflow-x: auto;">
           <table class="sc-table">
             <thead>
               <tr>
@@ -399,6 +585,13 @@
             </tbody>
           </table>
         </div>
+        <!-- Mobile Vertical Round Cards Breakdown -->
+        <div id="sc-mobile-toggle-wrapper" class="sc-mobile-toggle-wrapper" style="display: none;">
+          <button id="sc-mobile-rounds-toggle-btn" class="btn-mobile-expand-rounds" onclick="toggleMobileRounds()">
+            📊 View Round-by-Round Breakdown ▼
+          </button>
+        </div>
+        <div id="sc-mobile-rounds-container" class="sc-mobile-rounds-container"></div>
       </div>
 
       <!-- Footer & Actions -->
@@ -415,6 +608,16 @@
   </div>
 
   <script>
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     const CARD_NAMES = {
       'cleanse': 'Cleanse',
       'bring-it-down': 'Bring It Down',
@@ -527,7 +730,7 @@
     }
 
     let globalScorecardData = null;
-    let areSecondariesExpanded = false;
+    let areSecondariesExpanded = true;
     let liveTimer = null;
     let isLivePolling = false;
 
@@ -786,7 +989,7 @@
                 }
               }
               rowsHtml += `
-                <tr class="${subClass}" style="display:none; background:rgba(15,23,42,0.7); font-size:0.8rem;">
+                <tr class="${subClass}" style="display:${areSecondariesExpanded ? 'table-row' : 'none'}; background:rgba(15,23,42,0.7); font-size:0.8rem;">
                   <td style="padding-left:1.5rem; color:#cbd5e1;">
                     <span style="color:${playerColor}; font-weight:700;">R${i}:</span> 🃏 ${s.name}
                   </td>
@@ -822,7 +1025,129 @@
           </td>
         </tr>
       `;
+
+      // Populate Mobile Vertical Round Cards Breakdown
+      const mContainer = document.getElementById('sc-mobile-rounds-container');
+      if (mContainer) {
+        let mHtml = '';
+        for (let i = 1; i <= 5; i++) {
+          const p1R = p1Rounds && p1Rounds.length >= i ? (p1Rounds.find(x => (x.round === i || x.battleRound === i)) || p1Rounds[i - 1] || {}) : {};
+          const p2R = p2Rounds && p2Rounds.length >= i ? (p2Rounds.find(x => (x.round === i || x.battleRound === i)) || p2Rounds[i - 1] || {}) : {};
+
+          const p1Pri = typeof p1R.primaryScore === 'number' ? p1R.primaryScore : 0;
+          const p2Pri = typeof p2R.primaryScore === 'number' ? p2R.primaryScore : 0;
+
+          const p1SecList = getPlayerRoundSecondaries(p1Obj, i);
+          const p2SecList = getPlayerRoundSecondaries(p2Obj, i);
+
+          const p1Sec = p1SecList.reduce((acc, s) => acc + (s.score || 0), 0);
+          const p2Sec = p2SecList.reduce((acc, s) => acc + (s.score || 0), 0);
+
+          const p1RoundTotal = p1Pri + p1Sec;
+          const p2RoundTotal = p2Pri + p2Sec;
+
+          const hasSecDetails = p1SecList.length > 0 || p2SecList.length > 0;
+
+          mHtml += `
+            <div class="sc-m-card">
+              <div class="sc-m-card-header" onclick="toggleMobileRoundDrawer(${i})">
+                <div class="sc-m-round-title">
+                  <span>⚔️ Round ${i}</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span class="sc-m-round-score-chip" style="color:#38bdf8;">${p1RoundTotal} VP</span>
+                  <span style="color:#64748b; font-size:0.75rem;">vs</span>
+                  <span class="sc-m-round-score-chip" style="color:#f43f5e;">${p2RoundTotal} VP</span>
+                </div>
+              </div>
+              <div class="sc-m-card-body">
+                <div class="sc-m-player-row">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:#38bdf8; display:inline-block;"></span>
+                    <span style="font-weight:700; color:#38bdf8; font-size:0.85rem;">${escapeHtml(p1Name)}</span>
+                  </div>
+                  <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
+                    <span title="Primary Mission VP">Pri: <b>${p1Pri}</b></span> • <span title="Secondary Mission VP">Sec: <b>${p1Sec}</b></span>
+                  </div>
+                </div>
+                <div class="sc-m-player-row">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:#f43f5e; display:inline-block;"></span>
+                    <span style="font-weight:700; color:#f43f5e; font-size:0.85rem;">${escapeHtml(p2Name)}</span>
+                  </div>
+                  <div style="font-family:monospace; font-size:0.82rem; color:#cbd5e1;">
+                    <span title="Primary Mission VP">Pri: <b>${p2Pri}</b></span> • <span title="Secondary Mission VP">Sec: <b>${p2Sec}</b></span>
+                  </div>
+                </div>
+
+                ${hasSecDetails ? `
+                  <div id="sc-m-sec-drawer-${i}" class="sc-m-sec-drawer" style="display:block;">
+                    <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.04em; color:#94a3b8; margin-bottom:0.35rem;">
+                      Secondary Missions Drawn / Scored (Round ${i})
+                    </div>
+                    ${p1SecList.map(s => `
+                      <div class="sc-m-sec-item">
+                        <span style="color:#7dd3fc; font-weight:600;">🟦 ${escapeHtml(p1Name)}: ${escapeHtml(s.name)}</span>
+                        <span style="font-family:monospace; font-weight:800; color:#fff;">+${s.score} VP</span>
+                      </div>
+                    `).join('')}
+                    ${p2SecList.map(s => `
+                      <div class="sc-m-sec-item">
+                        <span style="color:#fda4af; font-weight:600;">🟥 ${escapeHtml(p2Name)}: ${escapeHtml(s.name)}</span>
+                        <span style="font-family:monospace; font-weight:800; color:#fff;">+${s.score} VP</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          `;
+        }
+
+        // Paint bonus card
+        mHtml += `
+          <div class="sc-m-card" style="border-color:rgba(16,185,129,0.35); background:rgba(16,185,129,0.04);">
+            <div class="sc-m-card-header" style="background:rgba(16,185,129,0.12);">
+              <div class="sc-m-round-title" style="color:#10b981;">
+                <span>🎨 Battle Ready Painting (+10 VP)</span>
+              </div>
+              <span class="sc-m-round-score-chip" style="color:#10b981;">+10 Standard</span>
+            </div>
+            <div class="sc-m-card-body" style="padding:0.6rem 1rem;">
+              <div class="sc-m-player-row">
+                <span style="color:#38bdf8; font-weight:600;">🟦 ${escapeHtml(p1Name)}</span>
+                <span style="font-family:monospace; font-weight:700; color:#10b981;">${p1Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
+              </div>
+              <div class="sc-m-player-row">
+                <span style="color:#f43f5e; font-weight:600;">🟥 ${escapeHtml(p2Name)}</span>
+                <span style="font-family:monospace; font-weight:700; color:#10b981;">${p2Paint > 0 ? '✓ +10 VP' : '0 VP'}</span>
+              </div>
+            </div>
+          </div>
+        `;
+
+        mContainer.innerHTML = mHtml;
+      }
     }
+
+    function toggleMobileRoundDrawer(roundNum) {
+      const drawer = document.getElementById(`sc-m-sec-drawer-${roundNum}`);
+      if (drawer) {
+        drawer.style.display = drawer.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+    window.toggleMobileRoundDrawer = toggleMobileRoundDrawer;
+
+    function toggleMobileRounds() {
+      const container = document.getElementById('sc-mobile-rounds-container');
+      const btn = document.getElementById('sc-mobile-rounds-toggle-btn');
+      if (!container) return;
+      const isExpanded = container.classList.toggle('is-expanded');
+      if (btn) {
+        btn.innerHTML = isExpanded ? '📊 Hide Round-by-Round Breakdown ▲' : '📊 View Round-by-Round Breakdown ▼';
+      }
+    }
+    window.toggleMobileRounds = toggleMobileRounds;
 
     function togglePlayerSecondaries(className) {
       const rows = document.querySelectorAll('.' + className);
@@ -838,6 +1163,10 @@
       const disp = areSecondariesExpanded ? 'table-row' : 'none';
       p1Rows.forEach(r => r.style.display = disp);
       p2Rows.forEach(r => r.style.display = disp);
+      const btn = document.getElementById('sc-matrix-toggle-btn');
+      if (btn) {
+        btn.textContent = areSecondariesExpanded ? '▲ Collapse Secondaries Details' : '▼ Expand Secondaries Details';
+      }
     }
 
     document.addEventListener('visibilitychange', () => {

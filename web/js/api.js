@@ -551,10 +551,29 @@ window.api = {
   },
 
   // Single Faction Details & Pilots
-  async getFactionDetails(factionName, gameSystem = '') {
-    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
-    const qs = currentSys ? `?game_system=${encodeURIComponent(currentSys)}` : '';
-    return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}${qs}`);
+  async getFactionDetails(factionName, limitOrSystem = 100, gameSystem = '', timeframe = '1yr') {
+    let limit = 100;
+    let sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    let tf = timeframe || '1yr';
+
+    if (typeof limitOrSystem === 'number') {
+      limit = limitOrSystem;
+      if (gameSystem && typeof gameSystem === 'string') sys = gameSystem;
+    } else if (typeof limitOrSystem === 'string') {
+      if (limitOrSystem === '40k' || limitOrSystem === 'aos') {
+        sys = limitOrSystem;
+      }
+      if (gameSystem && typeof gameSystem === 'string') {
+        tf = gameSystem;
+      }
+    }
+
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', limit);
+    if (sys) params.set('game_system', sys);
+    if (tf) params.set('timeframe', tf);
+
+    return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}?${params.toString()}`);
   },
 
   // Match Predictor

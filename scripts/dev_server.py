@@ -9,17 +9,63 @@ import os
 import sys
 import json
 import mimetypes
+import urllib.parse
 from pathlib import Path
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 5174))
 HOST = "0.0.0.0"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 WEB_DIR = REPO_ROOT / "web"
 TRACKER_DIR = WEB_DIR / "tracker"
 TRACKER_STATIC_DIR = TRACKER_DIR / "static"
 
-ROOMS_DB = {}
+ROOMS_DB = {
+    "WH40K-DEV1": {
+        "is_finished": False,
+        "status": "active",
+        "state": {
+            "game": {
+                "p1Name": "Innes Wilson",
+                "p2Name": "David Gaylard",
+                "p1Faction": "Adeptus Custodes",
+                "p2Faction": "Necrons",
+                "p1Detachments": ["Shield Host"],
+                "p2Detachments": ["Canoptek Court"],
+                "roundNum": 3,
+                "tableNum": 1,
+                "eventId": "US Open Atlanta 2026"
+            },
+            "p1": {
+                "battleReady": True,
+                "rounds": [
+                    {"primaryScore": 8, "round": 1},
+                    {"primaryScore": 12, "round": 2},
+                    {"primaryScore": 12, "round": 3}
+                ],
+                "hand": [
+                    {"name": "Cleanse", "scoredRound": 1, "points": 4, "score": 4, "state": "scored"},
+                    {"name": "Deploy Teleport Homers", "scoredRound": 2, "points": 8, "score": 8, "state": "scored"},
+                    {"name": "Assassination", "scoredRound": 3, "points": 5, "score": 5, "state": "scored"}
+                ]
+            },
+            "p2": {
+                "battleReady": True,
+                "rounds": [
+                    {"primaryScore": 8, "round": 1},
+                    {"primaryScore": 8, "round": 2},
+                    {"primaryScore": 12, "round": 3}
+                ],
+                "hand": [
+                    {"name": "Storm Hostile Objective", "scoredRound": 1, "points": 4, "score": 4, "state": "scored"},
+                    {"name": "Establish Locus", "scoredRound": 2, "points": 4, "score": 4, "state": "scored"},
+                    {"name": "Extend Battle Lines", "scoredRound": 3, "points": 4, "score": 4, "state": "scored"}
+                ]
+            }
+        }
+    }
+}
 
 DEV_USER = {
     "authenticated": True,
@@ -40,8 +86,47 @@ AUTH_INJECTION = """<script>
       localStorage.setItem('elo_auth_token', 'dev-auth-token-123');
       localStorage.setItem('native_session_token', 'dev-auth-token-123');
       sessionStorage.setItem('elo_auth_token', 'dev-auth-token-123');
+      localStorage.setItem('pwa_install_dismissed', String(Date.now()));
       document.cookie = 'session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax';
     } catch (e) {}
+
+    window.addEventListener('load', function() {
+      var qp = new URLSearchParams(window.location.search);
+      var openModal = qp.get('open_modal');
+      var action = qp.get('action');
+      var subtab = qp.get('subtab');
+
+      setTimeout(function() {
+        if (subtab && typeof window.switchCommunitySubtab === 'function') {
+          window.switchCommunitySubtab(subtab);
+        }
+        if (action === 'reset_my_hub') {
+          if (typeof window.switchTab === 'function') window.switchTab('my-hub');
+          if (typeof window.resetMyHubToProfile === 'function') window.resetMyHubToProfile();
+        }
+        if (openModal === 'settings' && typeof window.openUserSettingsModal === 'function') {
+          window.openUserSettingsModal();
+          setTimeout(function() {
+            var el = document.getElementById('settings-primary-faction');
+            if (el) {
+              el.value = "Emperor's Children";
+              el.scrollIntoView({ behavior: 'instant', block: 'center' });
+            }
+          }, 200);
+        } else if (openModal === 'event') {
+          var eid = qp.get('event_id') || 'ev_ongoing_gt_live';
+          if (typeof window.openEventHubPage === 'function') {
+            window.openEventHubPage(eid, '40k');
+          } else if (typeof window.openEventModal === 'function') {
+            window.openEventModal(eid);
+          }
+        } else if (openModal === 'faction' && typeof window.openFactionModal === 'function') {
+          var fname = qp.get('faction') || "Emperor's Children";
+          var tf = qp.get('tf') || '1yr';
+          window.openFactionModal(fname, tf);
+        }
+      }, 400);
+    });
   })();
 </script>
 """
@@ -148,7 +233,6 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path.startswith("api/player/"):
-            import urllib.parse
             pid = urllib.parse.unquote(clean_path.replace("api/player/", "").strip("/"))
             if "john" in pid.lower():
                 res = {
@@ -310,7 +394,27 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming"):
+            ongoing_ev = {
+                "id": "ev_ongoing_gt_live",
+                "event_id": "ev_ongoing_gt_live",
+                "name": "Warhammer 40k US Open Series 2026",
+                "event_date": "2026-09-15",
+                "end_date": "2026-09-16",
+                "city": "Atlanta",
+                "state": "GA",
+                "country": "US",
+                "total_players": 16,
+                "num_tickets": 32,
+                "ticket_price": 45.0,
+                "current_round": 3,
+                "matches_count": 24,
+                "is_started": True,
+                "is_ended": False,
+                "active": True,
+                "raw_json": {"active": True, "isActive": True, "currentRound": 3, "started": True}
+            }
             upcoming_list = [
+                ongoing_ev,
                 {
                     "id": "ev_upcoming_rtt_sep",
                     "event_id": "ev_upcoming_rtt_sep",
@@ -360,7 +464,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "events_upcoming": upcoming_list,
                     "upcoming_events": upcoming_list,
                     "events_recent": [],
-                    "ongoing_events": [],
+                    "ongoing_events": [ongoing_ev],
                     "past_events": [],
                     "local_leaderboard": [],
                     "team_standings": []
@@ -369,6 +473,40 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/event/"):
             ev_param = clean_path.replace("api/event/", "")
+            if ev_param == "ev_ongoing_gt_live":
+                res = {
+                    "id": "ev_ongoing_gt_live",
+                    "name": "Warhammer 40k US Open Series 2026",
+                    "event_date": "2026-09-15",
+                    "end_date": "2026-09-16",
+                    "city": "Atlanta",
+                    "state": "GA",
+                    "country": "United States",
+                    "total_players": 16,
+                    "num_rounds": 5,
+                    "current_round": 3,
+                    "is_ended": False,
+                    "ended": False,
+                    "status": {"ended": False, "started": True},
+                    "matches": [
+                        {"round": 3, "table_number": 1, "table": 1, "player1_id": "p_innes", "player1_name": "Innes Wilson", "player1_faction": "Adeptus Custodes", "player2_id": "p_david", "player2_name": "David Gaylard", "player2_faction": "Necrons", "status": "in_progress"},
+                        {"round": 3, "table_number": 2, "table": 2, "player1_id": "p_alex", "player1_name": "Alex Spathopoulos", "player1_faction": "Chaos Space Marines", "player2_id": "p_manny", "player2_name": "Manny Cheema", "player2_faction": "Tyranids", "status": "in_progress"},
+                        {"round": 3, "table_number": 3, "table": 3, "player1_id": "p_john", "player1_name": "John Lennon", "player1_faction": "Ultramarines", "player2_id": "p_chris", "player2_name": "Chris Green", "player2_faction": "Space Marines", "status": "in_progress"}
+                    ],
+                    "players": [
+                        {"player_id": "p_innes", "full_name": "Innes Wilson", "faction": "Adeptus Custodes", "placement": 1, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 185, "current_elo": 2375.2},
+                        {"player_id": "p_david", "full_name": "David Gaylard", "faction": "Necrons", "placement": 2, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 178, "current_elo": 2150.0},
+                        {"player_id": "p_alex", "full_name": "Alex Spathopoulos", "faction": "Chaos Space Marines", "placement": 3, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 170, "current_elo": 2395.2},
+                        {"player_id": "p_manny", "full_name": "Manny Cheema", "faction": "Tyranids", "placement": 4, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 165, "current_elo": 2210.0}
+                    ],
+                    "team_standings": []
+                }
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                if not is_head:
+                    self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
             is_riverside = "riverside" in ev_param.lower() or "tacoma" in ev_param.lower()
             if is_riverside:
                 res = {
@@ -921,12 +1059,89 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps(ret).encode("utf-8"))
             return
 
-        if clean_path.startswith("api/armylists"):
+        if clean_path == "api/factions":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            is_aos = "game_system=aos" in query_str
+            is_grouped = "grouped=true" in query_str or "grouped=1" in query_str
+            from database import PostgresDatabase
+            data = PostgresDatabase.get_factions(game_system="aos" if is_aos else "40k", grouped=is_grouped)
+            self.wfile.write(json.dumps(data).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/factions/meta"):
+            sys_val = "aos" if "game_system=aos" in query_str else "40k"
+            if sys_val == "aos":
+                f_list = [
+                    {"faction": "Stormcast Eternals", "win_rate": 56.4, "total_matches": 420, "wins": 237, "losses": 183, "draws": 0, "avg_score": 19.8, "tier_label": "S-Tier (>55%)"},
+                    {"faction": "Blades of Khorne", "win_rate": 53.1, "total_matches": 310, "wins": 165, "losses": 145, "draws": 0, "avg_score": 18.5, "tier_label": "Balanced (45-55%)"},
+                    {"faction": "Skaven", "win_rate": 50.2, "total_matches": 290, "wins": 146, "losses": 144, "draws": 0, "avg_score": 17.9, "tier_label": "Balanced (45-55%)"},
+                    {"faction": "Daughters of Khaine", "win_rate": 52.0, "total_matches": 210, "wins": 109, "losses": 101, "draws": 0, "avg_score": 18.2, "tier_label": "Balanced (45-55%)"}
+                ]
+                trends = [
+                    {"month": "2026-06", "faction": "Stormcast Eternals", "win_rate": 55.0, "matches_in_month": 40},
+                    {"month": "2026-07", "faction": "Stormcast Eternals", "win_rate": 56.2, "matches_in_month": 42},
+                    {"month": "2026-08", "faction": "Stormcast Eternals", "win_rate": 56.4, "matches_in_month": 45}
+                ]
+            else:
+                f_list = [
+                    {"faction": "Emperor's Children", "win_rate": 54.8, "total_matches": 580, "wins": 318, "losses": 255, "draws": 7, "avg_score": 79.4, "tier_label": "Balanced (45-55%)"},
+                    {"faction": "Necrons", "win_rate": 53.2, "total_matches": 1200, "wins": 638, "losses": 540, "draws": 22, "avg_score": 78.1, "tier_label": "Balanced (45-55%)"},
+                    {"faction": "Space Marines", "win_rate": 51.5, "total_matches": 2100, "wins": 1081, "losses": 980, "draws": 39, "avg_score": 76.5, "tier_label": "Balanced (45-55%)"},
+                    {"faction": "Aeldari", "win_rate": 49.8, "total_matches": 950, "wins": 473, "losses": 460, "draws": 17, "avg_score": 75.2, "tier_label": "Balanced (45-55%)"}
+                ]
+                trends = [
+                    {"month": "2026-06", "faction": "Emperor's Children", "win_rate": 53.5, "matches_in_month": 80},
+                    {"month": "2026-07", "faction": "Emperor's Children", "win_rate": 54.2, "matches_in_month": 95},
+                    {"month": "2026-08", "faction": "Emperor's Children", "win_rate": 54.8, "matches_in_month": 110},
+                    {"month": "2026-08", "faction": "Necrons", "win_rate": 53.2, "matches_in_month": 150}
+                ]
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"lists": [], "count": 0}).encode("utf-8"))
+                self.wfile.write(json.dumps({
+                    "factions": f_list,
+                    "monthly_trends": trends,
+                    "total_factions_tracked": len(f_list),
+                    "filter": {"granularity": "Monthly"}
+                }).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/faction/"):
+            fname = urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/"))
+            res = {
+                "faction": fname,
+                "game_system": "aos" if "game_system=aos" in query_str else "40k",
+                "timeframe": "1yr",
+                "stats": {
+                    "total_recent_sample": 45,
+                    "recent_wins": 25,
+                    "recent_losses": 19,
+                    "recent_draws": 1,
+                    "top_player_count": 3
+                },
+                "top_players": [
+                    {"player_id": "p_innes", "player_name": "Innes Wilson", "team": "Art of War", "current_elo": 2185.4, "matches_played": 22, "wins": 19, "losses": 3, "draws": 0, "win_rate": 86.4, "avg_score": 88.5},
+                    {"player_id": "p_david", "player_name": "David Gaylard", "team": "Team Zero Comp", "current_elo": 2120.0, "matches_played": 15, "wins": 11, "losses": 4, "draws": 0, "win_rate": 73.3, "avg_score": 82.0}
+                ],
+                "matches": [
+                    {"id": "m_fac_1", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 3, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_score": 85, "opponent_id": "p_opp", "opponent_name": "David Gaylard", "opponent_faction": "Necrons", "opponent_score": 72, "outcome": "W"},
+                    {"id": "m_fac_2", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_score": 90, "opponent_id": "p_opp2", "opponent_name": "Manny Cheema", "opponent_faction": "Aeldari", "opponent_score": 68, "outcome": "W"}
+                ],
+                "matchups": [
+                    {"opponent_faction": "Necrons", "total_matches": 18, "wins": 11, "losses": 7, "draws": 0, "win_rate": 61.1},
+                    {"opponent_faction": "Space Marines", "total_matches": 15, "wins": 9, "losses": 6, "draws": 0, "win_rate": 60.0},
+                    {"opponent_faction": "Aeldari", "total_matches": 12, "wins": 5, "losses": 7, "draws": 0, "win_rate": 41.7}
+                ]
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
         if clean_path.startswith("api/"):

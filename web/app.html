@@ -23,9 +23,37 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=b3854f8837">
-  <link rel="stylesheet" href="/css/styles.css?v=b3854f8837">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=b3854f8837">
+  <link rel="stylesheet" href="/css/theme.css?v=23eb68a207">
+  <link rel="stylesheet" href="/css/styles.css?v=23eb68a207">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=23eb68a207">
+
+  <style>
+    /* Universal Mobile Scrollbar Suppression */
+    @media (max-width: 768px) {
+      ::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+      }
+      html, body, .modal-card, #user-settings-modal-body, * {
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+      }
+    }
+    #user-settings-modal-body,
+    #user-settings-modal .modal-card,
+    .modal-card {
+      scrollbar-width: none !important;
+      -ms-overflow-style: none !important;
+    }
+    #user-settings-modal-body::-webkit-scrollbar,
+    #user-settings-modal .modal-card::-webkit-scrollbar,
+    .modal-card::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+    }
+  </style>
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -1870,28 +1898,48 @@
                 </label>
                 <select id="settings-primary-faction" class="form-select form-input" style="width: 100%; min-width: 0; box-sizing: border-box; font-size: 0.82rem; padding: 0.45rem 0.5rem;">
                   <option value="">Various / Any Army</option>
-                  <option value="Space Marines">Space Marines</option>
-                  <option value="Adeptus Custodes">Adeptus Custodes</option>
-                  <option value="Adepta Sororitas">Adepta Sororitas</option>
-                  <option value="Astra Militarum">Astra Militarum</option>
-                  <option value="Grey Knights">Grey Knights</option>
-                  <option value="Imperial Knights">Imperial Knights</option>
-                  <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
-                  <option value="Imperial Agents">Imperial Agents</option>
-                  <option value="Chaos Space Marines">Chaos Space Marines</option>
-                  <option value="World Eaters">World Eaters</option>
-                  <option value="Death Guard">Death Guard</option>
-                  <option value="Thousand Sons">Thousand Sons</option>
-                  <option value="Chaos Daemons">Chaos Daemons</option>
-                  <option value="Chaos Knights">Chaos Knights</option>
-                  <option value="Tyranids">Tyranids</option>
-                  <option value="Genestealer Cults">Genestealer Cults</option>
-                  <option value="Necrons">Necrons</option>
-                  <option value="Orks">Orks</option>
-                  <option value="T'au Empire">T'au Empire</option>
-                  <option value="Aeldari">Aeldari</option>
-                  <option value="Drukhari">Drukhari</option>
-                  <option value="Leagues of Votann">Leagues of Votann</option>
+                  <optgroup label="Imperium">
+                    <option value="Adepta Sororitas">Adepta Sororitas</option>
+                    <option value="Adeptus Custodes">Adeptus Custodes</option>
+                    <option value="Adeptus Mechanicus">Adeptus Mechanicus</option>
+                    <option value="Astra Militarum">Astra Militarum</option>
+                    <option value="Grey Knights">Grey Knights</option>
+                    <option value="Imperial Agents">Imperial Agents</option>
+                    <option value="Imperial Knights">Imperial Knights</option>
+                  </optgroup>
+                  <optgroup label="Space Marines">
+                    <option value="Space Marines">Space Marines</option>
+                    <option value="Black Templars">Black Templars</option>
+                    <option value="Blood Angels">Blood Angels</option>
+                    <option value="Dark Angels">Dark Angels</option>
+                    <option value="Deathwatch">Deathwatch</option>
+                    <option value="Imperial Fists">Imperial Fists</option>
+                    <option value="Iron Hands">Iron Hands</option>
+                    <option value="Raven Guard">Raven Guard</option>
+                    <option value="Salamanders">Salamanders</option>
+                    <option value="Space Wolves">Space Wolves</option>
+                    <option value="Ultramarines">Ultramarines</option>
+                    <option value="White Scars">White Scars</option>
+                  </optgroup>
+                  <optgroup label="Chaos">
+                    <option value="Chaos Space Marines">Chaos Space Marines</option>
+                    <option value="World Eaters">World Eaters</option>
+                    <option value="Death Guard">Death Guard</option>
+                    <option value="Thousand Sons">Thousand Sons</option>
+                    <option value="Emperor's Children">Emperor's Children</option>
+                    <option value="Chaos Daemons">Chaos Daemons</option>
+                    <option value="Chaos Knights">Chaos Knights</option>
+                  </optgroup>
+                  <optgroup label="Xenos">
+                    <option value="Aeldari">Aeldari</option>
+                    <option value="Drukhari">Drukhari</option>
+                    <option value="Genestealer Cults">Genestealer Cults</option>
+                    <option value="Leagues of Votann">Leagues of Votann</option>
+                    <option value="Necrons">Necrons</option>
+                    <option value="Orks">Orks</option>
+                    <option value="T'au Empire">T'au Empire</option>
+                    <option value="Tyranids">Tyranids</option>
+                  </optgroup>
                 </select>
               </div>
             </div>
@@ -2776,12 +2824,19 @@
   <!-- Faction Details & Games Modal -->
   <div id="faction-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window" style="max-width: 900px;">
-      <div class="modal-header">
+      <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
         <div>
-          <h2 id="modal-faction-title" style="font-size: 1.35rem; font-weight: 700; color: #fff;">Faction Meta</h2>
+          <h2 id="modal-faction-title" style="font-size: 1.35rem; font-weight: 700; color: #fff; margin: 0;">Faction Meta</h2>
           <div id="modal-faction-subtitle" style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.2rem;"></div>
         </div>
-        <button class="modal-close" onclick="closeModal('faction-modal')">✕</button>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <div class="faction-timeframe-selector" style="display: inline-flex; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: 6px; padding: 2px;">
+            <button type="button" id="faction-tf-6mo" class="faction-tf-btn" onclick="changeFactionModalTimeframe('6mo')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">6 Months</button>
+            <button type="button" id="faction-tf-1yr" class="faction-tf-btn active" onclick="changeFactionModalTimeframe('1yr')" style="border:none; background:var(--accent); color:#fff; font-size:0.75rem; font-weight:700; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">1 Year</button>
+            <button type="button" id="faction-tf-all" class="faction-tf-btn" onclick="changeFactionModalTimeframe('all')" style="border:none; background:transparent; color:var(--text-secondary); font-size:0.75rem; font-weight:600; padding:0.25rem 0.65rem; border-radius:4px; cursor:pointer;">All Time</button>
+          </div>
+          <button class="modal-close" onclick="closeModal('faction-modal')">✕</button>
+        </div>
       </div>
 
       <div class="modal-body">
@@ -2867,8 +2922,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "b3854f8837";</script>
-  <script src="/js/app.bundle.min.js?v=b3854f8837"></script>
+  <script>window.APP_VERSION = "23eb68a207";</script>
+  <script src="/js/app.bundle.min.js?v=23eb68a207"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

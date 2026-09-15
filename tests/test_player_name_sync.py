@@ -58,14 +58,35 @@ def test_is_placeholder_name():
     assert is_placeholder_name("Camaron Hallford") is False
     assert is_placeholder_name("John Hsieh") is False
     assert is_placeholder_name("Fred Smith") is False
+
+    # Oversized strings (> 100 chars) and JSON payloads must be detected as placeholders
+    huge_str = "A" * 22432
+    assert is_placeholder_name(huge_str) is True
+    assert is_placeholder_name('{"name": "Corrupted Player"}') is True
+    assert is_placeholder_name('[{"id": 1}]') is True
     print("✅ test_is_placeholder_name passed")
 
 
 def test_clean_name():
-    """Verify whitespace normalization."""
+    """Verify whitespace normalization, length bounding, and JSON extraction."""
     assert clean_name("  John   Hsieh  ") == "John Hsieh"
     assert clean_name(None) == ""
     assert clean_name("") == ""
+
+    # JSON extraction
+    assert clean_name('{"name": "Valid Player"}') == "Valid Player"
+    assert clean_name('{"fullName": "John Doe"}') == "John Doe"
+    assert clean_name('[{"id": 1}]') == ""
+
+    # Multiline text (e.g. army list) extracts first line
+    army_list = "Space Marines Army\nCaptain in Gravis Armour\nIntercessor Squad (100 pts)"
+    assert clean_name(army_list) == "Space Marines Army"
+
+    # Enforces max_length
+    huge_name = "X" * 25000
+    cleaned_huge = clean_name(huge_name, max_length=100)
+    assert len(cleaned_huge) == 100
+    assert cleaned_huge == "X" * 100
     print("✅ test_clean_name passed")
 
 
