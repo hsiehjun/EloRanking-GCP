@@ -718,14 +718,14 @@ _active_event_syncs: set = set()
 def sanitize_event_faction(fac: Optional[str]) -> str:
     """Extracts a single registered tournament faction from raw or comma-separated factions."""
     if not fac:
-        return "Unknown"
+        return "-"
     cleaned = str(fac).strip()
-    if not cleaned or cleaned.lower() in ("unknown", "unassigned", "none", "various"):
-        return "Unknown"
+    if not cleaned or cleaned in ("-", "--") or cleaned.lower() in ("unknown", "unassigned", "none", "various"):
+        return "-"
     parts = [s.strip() for s in cleaned.split(",") if s.strip()]
-    return parts[0] if parts else "Unknown"
+    return parts[0] if parts else "-"
 
-def format_bcp_roster_to_players(raw_players: list, existing_players: list = None, db = None, game_system: Optional[str] = "40k") -> list:
+def format_bcp_roster_to_players(raw_players: list, existing_players: list = None, db = None, game_system: Optional[str] = "40k", is_ended: bool = False) -> list:
     """Formats raw BCP competitors preserving exact BCP tournament placing order,
     pulling Elo ratings from player_ratings DB, and official placings strictly from BCP."""
     existing_by_id = {}
@@ -854,13 +854,13 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         fac_cand = p.get("faction")
         if isinstance(fac_cand, dict):
             faction_name = str(fac_cand.get("name") or "").strip()
-        elif isinstance(fac_cand, str) and fac_cand.strip() and fac_cand.strip().lower() != "unknown":
+        elif isinstance(fac_cand, str) and fac_cand.strip() and fac_cand.strip().lower() not in ("unknown", "unassigned", "none", "various", "-"):
             faction_name = fac_cand.strip()
 
-        if not faction_name or faction_name == "Unknown":
-            for fk in ("army", "armyName", "army_name"):
+        if not faction_name or faction_name.lower() in ("unknown", "unassigned", "none", "various", "-"):
+            for fk in ("factionName", "army", "armyName", "army_name", "customFaction"):
                 val = p.get(fk)
-                if val and str(val).strip() and str(val).strip().lower() != "unknown":
+                if val and str(val).strip() and str(val).strip().lower() not in ("unknown", "unassigned", "none", "various", "-"):
                     faction_name = str(val).strip()
                     break
 
@@ -965,9 +965,10 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if not cached:
             cached = existing_by_name.get(full_name.strip().lower())
 
-        if (not faction_name or faction_name == "Unknown") and cached:
+        # For completed tournaments, allow cached faction if BCP record was missing faction
+        if (not faction_name or faction_name.lower() in ("unknown", "unassigned", "none", "various", "-")) and cached and is_ended:
             c_fac = str(cached.get("faction") or "").strip()
-            if c_fac and c_fac.lower() != "unknown":
+            if c_fac and c_fac.lower() not in ("unknown", "unassigned", "none", "various", "-"):
                 faction_name = c_fac
 
         if not detachment_name and cached:
@@ -983,7 +984,26 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if not is_checked_in and cached and cached.get("checked_in"):
             is_checked_in = True
 
-        list_text = str(p.get("armyList") or p.get("army_list") or p.get("listUrl") or p.get("armyListText") or (cached.get("army_list") if cached else "") or "")
+        # Extract army list text and list URL separately (never confuse /list/... URL with text)
+        raw_list_text = p.get("armyListText") or p.get("army_list") or p.get("armyList") or (cached.get("army_list") if cached else "") or ""
+        if isinstance(raw_list_text, dict):
+            raw_list_text = raw_list_text.get("text") or raw_list_text.get("raw_text") or ""
+        raw_list_text = str(raw_list_text).strip()
+
+        if raw_list_text.startswith(("/list/", "http://", "https://", "/v1/")):
+            list_url = raw_list_text
+            list_text = ""
+        else:
+            list_text = raw_list_text
+            list_url = str(p.get("listUrl") or p.get("list_url") or (cached.get("list_url") if cached else "") or "").strip()
+
+        if not list_url and p.get("listUrl"):
+            list_url = str(p.get("listUrl")).strip()
+
+        if list_url and list_url.startswith("/"):
+            list_url = f"https://www.bestcoastpairings.com{list_url}"
+
+        has_list = bool(list_text or list_url)
 
         db_rating = None
         for cid in candidate_ids:
@@ -1014,7 +1034,14 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             elif not player_dict.get("full_name") or player_dict["full_name"] in ("Player", "Player 1", "Player 2"):
                 player_dict["full_name"] = (db_rating.get("player_name") if db_rating else "") or full_name or "Player"
 
-            resolved_fac = faction_name if (faction_name and faction_name != "Unknown") else (player_dict.get("faction") if (player_dict.get("faction") and player_dict["faction"] != "Unknown") else ((db_rating.get("top_faction") if db_rating else "Unknown") or "Unknown"))
+            if not is_ended:
+                # Future or ongoing tournament: strictly use the faction registered on BCP for this event.
+                # If no faction was registered on BCP, do NOT use player's favorite/lifetime faction. Show "-".
+                resolved_fac = faction_name if (faction_name and faction_name.lower() not in ("unknown", "unassigned", "none", "various", "-")) else "-"
+            else:
+                # Completed tournament: use BCP faction if available, or cached event faction
+                resolved_fac = faction_name if (faction_name and faction_name.lower() not in ("unknown", "unassigned", "none", "various", "-")) else (player_dict.get("faction") if (player_dict.get("faction") and str(player_dict["faction"]).lower() not in ("unknown", "unassigned", "none", "various", "-")) else "-")
+
             player_dict["faction"] = sanitize_event_faction(resolved_fac)
             if detachment_name:
                 player_dict["detachment"] = detachment_name
@@ -1054,11 +1081,16 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             player_dict["teamPlayerId"] = player_dict["team_player_id"]
             player_dict["user_id"] = str(u.get("id") or p.get("userId") or "")
             player_dict["army_list"] = list_text
+            player_dict["list_url"] = list_url
+            player_dict["has_list"] = has_list
             formatted.append(player_dict)
         else:
             current_elo = float(db_rating.get("current_elo") or 1500.0) if db_rating else 1500.0
             peak_elo = float(db_rating.get("peak_elo") or 1500.0) if db_rating else 1500.0
-            resolved_fac = faction_name if (faction_name and faction_name != "Unknown") else ((db_rating.get("top_faction") if db_rating else "Unknown") or "Unknown")
+            if not is_ended:
+                resolved_fac = faction_name if (faction_name and faction_name.lower() not in ("unknown", "unassigned", "none", "various", "-")) else "-"
+            else:
+                resolved_fac = faction_name if (faction_name and faction_name.lower() not in ("unknown", "unassigned", "none", "various", "-")) else "-"
             resolved_fac = sanitize_event_faction(resolved_fac)
             resolved_team = team_name or (db_rating.get("team") if db_rating else "")
             team_player_id = str(p.get("teamPlayerId") or p.get("team_player_id") or "")
@@ -1071,6 +1103,8 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 "team_player_id": team_player_id,
                 "teamPlayerId": team_player_id,
                 "army_list": list_text,
+                "list_url": list_url,
+                "has_list": has_list,
                 "full_name": full_name,
                 "faction": resolved_fac,
                 "detachment": detachment_name,
@@ -1190,7 +1224,7 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         if bcp_players:
             existing_players = event_details.get("players", [])
             ev_gs = event_details.get("game_system") or "40k"
-            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db, game_system=ev_gs)
+            formatted_players = format_bcp_roster_to_players(bcp_players, existing_players, db=db, game_system=ev_gs, is_ended=is_ended)
             event_details["players"] = formatted_players
             event_details["total_players"] = len(formatted_players)
             elos = [float(p["current_elo"]) for p in formatted_players if p.get("current_elo") is not None]
@@ -1569,10 +1603,32 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         "started": bool(event_details.get("started") or (isinstance(raw_ev, dict) and raw_ev.get("started", True)))
     }
 
-    # Ensure all players in this event have clean single event factions
+    # Ensure all players in this event have clean single event factions and proper list formatting
     for pl in (event_details.get("players") or []):
-        if isinstance(pl, dict) and pl.get("faction"):
-            pl["faction"] = sanitize_event_faction(pl["faction"])
+        if isinstance(pl, dict):
+            if not is_ended:
+                raw_f = str(pl.get("faction") or "").strip()
+                if not raw_f or raw_f.lower() in ("unknown", "unassigned", "none", "various", "-"):
+                    pl["faction"] = "-"
+                else:
+                    pl["faction"] = sanitize_event_faction(raw_f)
+            else:
+                if pl.get("faction"):
+                    pl["faction"] = sanitize_event_faction(pl["faction"])
+
+            # Clean up army_list: never let /list/... or URL be treated as raw list text
+            al = str(pl.get("army_list") or "").strip()
+            if al.startswith(("/list/", "http://", "https://", "/v1/")):
+                if not pl.get("list_url"):
+                    pl["list_url"] = f"https://www.bestcoastpairings.com{al}" if al.startswith("/") else al
+                pl["army_list"] = ""
+
+            lu = str(pl.get("list_url") or pl.get("listUrl") or "").strip()
+            if lu.startswith("/"):
+                lu = f"https://www.bestcoastpairings.com{lu}"
+                pl["list_url"] = lu
+
+            pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url"))
 
     event_details["sync_in_progress"] = False
     return event_details

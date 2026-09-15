@@ -11,16 +11,16 @@ let currentEventModalTab = 'results';
 let eventModalSearchQuery = '';
 
 function formatPlayerFaction(rawFaction, maxFactions = 1, isEventContext = false) {
-  if (!rawFaction) return isEventContext ? 'Unassigned' : 'Various';
+  if (!rawFaction) return isEventContext ? '-' : 'Various';
   if (Array.isArray(rawFaction)) {
     rawFaction = rawFaction.join(', ');
   }
   const str = String(rawFaction).trim();
-  if (!str || str.toLowerCase() === 'unknown' || str.toLowerCase() === 'unassigned') {
-    return isEventContext ? 'Unassigned' : 'Various';
+  if (!str || str === '-' || str === '--' || str.toLowerCase() === 'unknown' || str.toLowerCase() === 'unassigned' || str.toLowerCase() === 'none') {
+    return isEventContext ? '-' : 'Various';
   }
   const parts = str.split(',').map(s => s.trim()).filter(Boolean);
-  if (parts.length === 0) return isEventContext ? 'Unassigned' : 'Various';
+  if (parts.length === 0) return isEventContext ? '-' : 'Various';
   if (parts.length === 1) return parts[0];
   if (isEventContext || maxFactions === 1) {
     return parts[0];
@@ -35,9 +35,37 @@ function formatEventPlayerFaction(rawFaction, maxFactions = 1) {
   return formatPlayerFaction(rawFaction, maxFactions, true);
 }
 
+function hasPlayerSubmittedList(p) {
+  if (!p) return false;
+  if (p.has_list !== undefined) return Boolean(p.has_list);
+  const text = String(p.army_list || p.army_list_text || p.raw_list || p.list_text || p.armyList || p.armyListText || '').trim();
+  const url = String(p.list_url || p.listUrl || '').trim();
+  if (url) return true;
+  if (!text) return false;
+  if (text.startsWith('/list/') || text.startsWith('http://') || text.startsWith('https://') || text.startsWith('/v1/')) return true;
+  return text.length > 5;
+}
+
+function getPlayerListDetails(p) {
+  if (!p) return { text: '', url: '', hasList: false };
+  let text = String(p.army_list || p.army_list_text || p.raw_list || p.list_text || p.armyList || p.armyListText || '').trim();
+  let url = String(p.list_url || p.listUrl || '').trim();
+  if (text.startsWith('/list/') || text.startsWith('http://') || text.startsWith('https://') || text.startsWith('/v1/')) {
+    if (!url) url = text;
+    text = '';
+  }
+  if (url && url.startsWith('/')) {
+    url = `https://www.bestcoastpairings.com${url}`;
+  }
+  const hasList = Boolean(text || url);
+  return { text, url, hasList };
+}
+
 if (typeof window !== 'undefined') {
   window.formatPlayerFaction = formatPlayerFaction;
   window.formatEventPlayerFaction = formatEventPlayerFaction;
+  window.hasPlayerSubmittedList = hasPlayerSubmittedList;
+  window.getPlayerListDetails = getPlayerListDetails;
 }
 
 function debounceEventSearch() {
@@ -1155,7 +1183,7 @@ function renderEventTeamsRows() {
               <div class="team-member-col-elo team-col-checkin" style="text-align:right; display:flex; align-items:center; justify-content:flex-end; gap:4px;">
                 <span class="elo-badge ${mBadge}" style="font-size:0.82rem; font-weight:700; padding:2px 7px;">${mElo}</span>
                 ${deltaBadge}
-                <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="View Army Roster">📋 List</button>
+                ${hasPlayerSubmittedList(m) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; margin-left:4px; cursor:pointer;" title="View Army Roster">📋 List</button>` : ''}
               </div>
             `;
           } else {
@@ -1167,7 +1195,7 @@ function renderEventTeamsRows() {
             col4Html = `
               <div class="team-member-col-elo team-col-checkin" style="text-align:right; display:flex; align-items:center; justify-content:flex-end; gap:6px;">
                 ${checkinTag}
-                <button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" title="View Army Roster">📋 List</button>
+                ${hasPlayerSubmittedList(m) ? `<button type="button" class="btn-xs btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(m.player_id || mName)}')" style="font-size:0.7rem; padding:2px 6px; cursor:pointer;" title="View Army Roster">📋 List</button>` : ''}
               </div>
             `;
           }
@@ -1506,9 +1534,11 @@ function renderEventResultsRows() {
         </div>
       </td>
       <td style="max-width:200px;">
-        <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
-          ${escapeHtml(displayFac)}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}
-        </span>
+        ${displayFac && displayFac !== '-' ? `
+          <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
+            ${escapeHtml(displayFac)}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}
+          </span>
+        ` : `<span style="color:var(--text-muted); font-size:0.85rem; font-weight:500;">-</span>`}
       </td>
       ${recordDisplay}
       ${pointsDisplay}
@@ -1519,9 +1549,11 @@ function renderEventResultsRows() {
         </div>
       </td>
       <td style="text-align: right;">
-        <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;">
-          📋 Roster
-        </button>
+        ${hasPlayerSubmittedList(p) ? `
+          <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.74rem; padding:3px 9px; font-weight:600; cursor:pointer;" title="View submitted army roster">
+            📋 Roster
+          </button>
+        ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.45rem;">—</span>`}
       </td>
     `;
     tbody.appendChild(tr);
@@ -3038,12 +3070,14 @@ function getEventKpiSummary(ev) {
         leaderName = topPlayer.full_name || topPlayer.player_name || topPlayer.name || 'Competitor';
         const recStr = `${topPlayer.event_wins || topPlayer.wins || 0}W-${topPlayer.event_losses || topPlayer.losses || 0}L${topPlayer.event_draws || topPlayer.draws ? '-' + (topPlayer.event_draws || topPlayer.draws) + 'D' : ''}`;
         const topPlayerFac = formatEventPlayerFaction(topPlayer.faction || topPlayer.army_name);
-        leaderSub = `${topPlayerFac} • ${recStr}`;
+        leaderSub = (topPlayerFac && topPlayerFac !== '-') ? `${topPlayerFac} • ${recStr}` : recStr;
       }
     } else if (topSeedPlayer) {
       leaderName = topSeedPlayer.full_name || topSeedPlayer.player_name || topSeedPlayer.name || 'Competitor';
       const seedFac = formatEventPlayerFaction(topSeedPlayer.faction || topSeedPlayer.army_name);
-      leaderSub = `${seedFac} • ${Number(topSeedPlayer.current_elo || topSeedPlayer.elo || 1500).toFixed(1)} Elo`;
+      leaderSub = (seedFac && seedFac !== '-')
+        ? `${seedFac} • ${Number(topSeedPlayer.current_elo || topSeedPlayer.elo || 1500).toFixed(1)} Elo`
+        : `${Number(topSeedPlayer.current_elo || topSeedPlayer.elo || 1500).toFixed(1)} Elo`;
     }
   }
 
@@ -3308,9 +3342,11 @@ function renderQuickModalTable() {
           ${p.team ? `<div style="font-size:0.72rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.team)}">🛡️ ${escapeHtml(p.team)}</div>` : ''}
         </td>
         <td style="min-width:110px; max-width:160px; padding:0.5rem 0.65rem;">
-          <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.74rem; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
-            ${escapeHtml(displayFac)}
-          </span>
+          ${displayFac && displayFac !== '-' ? `
+            <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.74rem; max-width:150px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
+              ${escapeHtml(displayFac)}
+            </span>
+          ` : `<span style="color:var(--text-muted); font-size:0.85rem; font-weight:500;">-</span>`}
         </td>
         <td style="width:105px; text-align:center; padding:0.5rem 0.65rem; white-space:nowrap;">${recordHtml}</td>
         <td style="width:95px; text-align:center; padding:0.5rem 0.65rem; white-space:nowrap;">
@@ -3318,9 +3354,11 @@ function renderQuickModalTable() {
           ${netPill}
         </td>
         <td style="width:60px; padding:0.5rem 0.65rem; text-align:right;">
-          <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;">
-            📋 List
-          </button>
+          ${hasPlayerSubmittedList(p) ? `
+            <button type="button" class="btn-sm btn-outline" onclick="event.stopPropagation(); openEventPlayerListModal('${escapeHtml(safePid || safeName)}')" style="font-size:0.72rem; padding:2px 8px; cursor:pointer;" title="View submitted army roster">
+              📋 List
+            </button>
+          ` : `<span style="color:var(--text-muted); font-size:0.85rem; padding-right:0.4rem;">—</span>`}
         </td>
       </tr>
     `;
@@ -3967,17 +4005,48 @@ function openEventPlayerListModal(playerIdentifier) {
   const subEl = document.getElementById('event-army-list-modal-subtitle');
   const contentEl = document.getElementById('event-army-list-modal-content');
   const btnProfile = document.getElementById('btn-army-list-view-profile');
+  const btnCopy = document.getElementById('btn-army-list-copy');
 
-  const modalFac = formatEventPlayerFaction(p?.faction || p?.army_name || 'Faction Unspecified');
+  const modalFac = formatEventPlayerFaction(p?.faction || p?.army_name);
+  const facSub = (modalFac && modalFac !== '-') ? modalFac : 'Faction Unselected';
   if (titleEl) titleEl.innerText = `${p?.full_name || playerIdentifier || 'Competitor'} — Army Roster`;
-  if (subEl) subEl.innerText = `${modalFac}${p?.detachment ? ` • ${p.detachment}` : ''}${p?.team ? ` • 🛡️ ${p.team}` : ''}`;
+  if (subEl) subEl.innerText = `${facSub}${p?.detachment ? ` • ${p.detachment}` : ''}${p?.team ? ` • 🛡️ ${p.team}` : ''}`;
 
-  const listText = (p?.army_list || p?.army_list_text || p?.raw_list || p?.list_text || '').trim();
+  const listInfo = getPlayerListDetails(p);
   if (contentEl) {
-    if (listText) {
-      contentEl.innerText = listText;
+    if (listInfo.text) {
+      contentEl.style.whiteSpace = 'pre-wrap';
+      contentEl.style.fontFamily = 'var(--font-mono, monospace)';
+      contentEl.style.lineHeight = '1.45';
+      contentEl.innerText = listInfo.text;
+      if (btnCopy) btnCopy.style.display = 'inline-flex';
+    } else if (listInfo.url) {
+      contentEl.style.whiteSpace = 'normal';
+      contentEl.style.fontFamily = 'inherit';
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:1.75rem 1rem;">
+          <div style="font-size:2.2rem; margin-bottom:0.6rem;">📋</div>
+          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Official Best Coast Pairings Roster</div>
+          <div style="font-size:0.84rem; color:var(--text-secondary); max-width:440px; margin:0 auto 1.35rem auto; line-height:1.45;">
+            This competitor registered their tournament army roster via Best Coast Pairings.
+          </div>
+          <a href="${escapeHtml(listInfo.url)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; font-weight:700; font-size:0.84rem; padding:0.55rem 1.25rem; text-decoration:none; background:#0284c7; border:1px solid #38bdf8; color:#fff; border-radius:6px;">
+            📄 Open Roster on Best Coast Pairings ↗
+          </a>
+        </div>
+      `;
+      if (btnCopy) btnCopy.style.display = 'none';
     } else {
-      contentEl.innerText = `No army list text has been published on BCP for ${p?.full_name || 'this competitor'} yet.\n\nCompetitor Details:\n• Faction: ${modalFac}\n• Detachment: ${p?.detachment || 'Unspecified'}\n• Current Elo: ${Number(p?.current_elo || 1500).toFixed(1)}`;
+      contentEl.style.whiteSpace = 'normal';
+      contentEl.style.fontFamily = 'inherit';
+      contentEl.innerHTML = `
+        <div style="text-align:center; padding:1.75rem 1rem; color:var(--text-muted);">
+          <div style="font-size:2rem; margin-bottom:0.6rem;">📄</div>
+          <div style="font-size:1rem; font-weight:700; color:#fff; margin-bottom:0.35rem;">No Roster Submitted</div>
+          <div style="font-size:0.82rem; line-height:1.45;">No army list text or link has been published on BCP for ${escapeHtml(p?.full_name || 'this competitor')} yet.</div>
+        </div>
+      `;
+      if (btnCopy) btnCopy.style.display = 'none';
     }
   }
 
