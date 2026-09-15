@@ -124,45 +124,41 @@ async function loadMyHubDashboard() {
   }
 }
 
-let currentHubMobileTab = 'overview';
+let currentHubSubtab = 'active';
 
-function switchHubMobileTab(tab) {
-  currentHubMobileTab = tab || 'overview';
-  const hubContainer = document.getElementById('my-hub-container');
-  if (hubContainer) {
-    hubContainer.setAttribute('data-active-tab', currentHubMobileTab);
+function switchHubSubtab(tabId) {
+  // Map legacy mobile tab names if called
+  if (tabId === 'overview' || tabId === 'events') tabId = 'active';
+  if (tabId === 'matches') tabId = 'journey';
+  if (tabId === 'matrix') tabId = 'matchups';
+  if (tabId === 'mastery') tabId = 'factions';
+
+  currentHubSubtab = tabId || 'active';
+  const bar = document.getElementById('hub-subtabs-bar');
+  if (bar) {
+    bar.querySelectorAll('.profile-subtab-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.getAttribute('data-tab') === currentHubSubtab);
+    });
   }
 
-  // Update mobile tab buttons
-  document.querySelectorAll('.hub-mobile-tab-btn').forEach(btn => {
-    if (btn.getAttribute('data-tab') === currentHubMobileTab) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
+  const panels = ['active', 'journey', 'trajectory', 'factions', 'matchups'];
+  panels.forEach(id => {
+    const el = document.getElementById(`hub-panel-${id}`);
+    if (el) {
+      el.classList.toggle('active', id === currentHubSubtab);
     }
   });
 
-  // Re-render SVG trajectory if returning to overview
-  if (currentHubMobileTab === 'overview' && myHubData && myHubData.history) {
-    setTimeout(() => renderHubTrajectory(myHubData.history), 50);
-  }
-
-  // Scroll to proper viewport position on mobile
-  if (window.innerWidth <= 768) {
-    if (currentHubMobileTab === 'overview') {
-      window.scrollTo({ top: 0, behavior: 'instant' });
-    } else {
-      const tabsBar = document.querySelector('.hub-mobile-tabs-bar');
-      if (tabsBar) {
-        const header = document.getElementById('app-header');
-        const headerH = header ? header.offsetHeight : 52;
-        const tabsRect = tabsBar.getBoundingClientRect();
-        const targetY = window.pageYOffset + tabsRect.top - headerH;
-        window.scrollTo({ top: Math.max(0, targetY), behavior: 'instant' });
-      }
-    }
+  if (currentHubSubtab === 'trajectory' && myHubData && myHubData.history) {
+    setTimeout(() => renderHubTrajectory(myHubData.history), 20);
   }
 }
+
+function switchHubMobileTab(tab) {
+  switchHubSubtab(tab);
+}
+window.switchHubSubtab = switchHubSubtab;
+window.switchHubMobileTab = switchHubMobileTab;
 
 function filterHubHistory(query) {
   const q = (query || '').trim().toLowerCase();
@@ -813,7 +809,7 @@ function renderMyHub(data) {
   }
 
   let html = `
-    <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubMobileTab || 'overview'}">
+    <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubSubtab || 'active'}">
       <!-- Upgraded 16-Tier Competitor Hero Card -->
       <div class="profile-hero-card ${tier.themeClass || ''}" style="margin-bottom: 1.25rem;">
         <div class="profile-hero-top">
@@ -903,245 +899,268 @@ function renderMyHub(data) {
 
 
 
-    <!-- Mobile Subtabs Navigation Bar (Visible <=768px only) -->
-    <div class="hub-mobile-tabs-bar">
-      <button class="hub-mobile-tab-btn ${(!currentHubMobileTab || currentHubMobileTab === 'overview') ? 'active' : ''}" data-tab="overview" onclick="switchHubMobileTab('overview')">
-        <span>🌟 Overview</span>
+    <!-- Desktop, Tablet & Mobile Sub-Tab Navigation Bar -->
+    <div class="profile-subtabs-bar" id="hub-subtabs-bar">
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'active' ? 'active' : ''}" data-tab="active" onclick="switchHubSubtab('active')">
+        <span>⚡ Active & Rosters</span>
+        <span class="profile-subtab-count">${(activeMatches.length || 0) + (registeredTournaments.length || 0)}</span>
       </button>
-      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'events' ? 'active' : ''}" data-tab="events" onclick="switchHubMobileTab('events')">
-        <span>📅 Events</span>
-        ${registeredTournaments.length > 0 ? `<span class="hub-tab-count">${registeredTournaments.length}</span>` : ''}
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'journey' ? 'active' : ''}" data-tab="journey" onclick="switchHubSubtab('journey')">
+        <span>🏆 <span class="tab-label-full">Tournament </span>Journey</span>
+        <span class="profile-subtab-count">${hubEventsList.length}</span>
       </button>
-      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matches' ? 'active' : ''}" data-tab="matches" onclick="switchHubMobileTab('matches')">
-        <span>🏆 Journey</span>
-        ${hubEventsList.length > 0 ? `<span class="hub-tab-count">${hubEventsList.length}</span>` : ''}
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'trajectory' ? 'active' : ''}" data-tab="trajectory" onclick="switchHubSubtab('trajectory')">
+        <span>📈 Elo Trajectory</span>
+        <span class="profile-subtab-count">${history.length}G</span>
       </button>
-      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matrix' ? 'active' : ''}" data-tab="matrix" onclick="switchHubMobileTab('matrix')">
-        <span>🎯 Matrix</span>
-        ${matchups.length > 0 ? `<span class="hub-tab-count">${matchups.length}</span>` : ''}
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'factions' ? 'active' : ''}" data-tab="factions" onclick="switchHubSubtab('factions')">
+        <span>🛡️ Faction Mastery</span>
+        <span class="profile-subtab-count">${factionMastery.length}</span>
       </button>
-      <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'mastery' ? 'active' : ''}" data-tab="mastery" onclick="switchHubMobileTab('mastery')">
-        <span>🛡️ Mastery</span>
-        ${factionMastery.length > 0 ? `<span class="hub-tab-count">${factionMastery.length}</span>` : ''}
+      <button type="button" class="profile-subtab-btn ${currentHubSubtab === 'matchups' ? 'active' : ''}" data-tab="matchups" onclick="switchHubSubtab('matchups')">
+        <span>🎯 Matchup Matrix</span>
+        <span class="profile-subtab-count">${matchups.length}</span>
       </button>
     </div>
 
-    <!-- Full-Width Elo Trajectory Progression at Top -->
-    <div class="hub-card hub-fullwidth-trajectory" style="margin-top: 1.25rem;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-        <div style="display: flex; align-items: center; gap: 0.5rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📈 Elo Rating Trajectory</h3>
-          <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Career Timeline</span>
+    <!-- TAB PANEL 1: Active Matches, Army Lists & Registered Tournaments -->
+    <div id="hub-panel-active" class="profile-tab-panel ${currentHubSubtab === 'active' ? 'active' : ''}">
+      <!-- 2-Column Row: Army Lists & Rosters + Registered Tournaments -->
+      <div class="hub-grid-2col hub-row-prep">
+        <!-- Card: Army Lists & Rosters -->
+        <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
+              </div>
+              <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.75rem; padding: 0.3rem 0.75rem; background: var(--accent); color: #0f172a; font-weight: 800;">
+                ➕ Import
+              </button>
+            </div>
+
+            <div id="hub-armylists-list-container" class="hub-armylists-list-container">
+              <div style="text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.82rem;">
+                <div class="spinner"></div>
+                <div style="margin-top: 0.5rem;">Loading your army lists...</div>
+              </div>
+            </div>
+          </div>
         </div>
-        <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} games logged</span>
-      </div>
-      <div style="overflow-x: auto;">
-        <svg id="hub-trajectory-svg" style="width: 100%; height: 140px;"></svg>
-      </div>
-    </div>
 
-    <!-- 2-Column Row 1: Army Lists & Rosters + Registered Tournaments -->
-    <div class="hub-grid-2col hub-row-prep" style="margin-top: 1.25rem;">
+        <!-- Card: Registered Tournaments (Beside Army Lists) -->
+        ${renderRegisteredTournamentsCard(registeredTournaments, isBcpConnected)}
+      </div>
 
-      <!-- Card: Army Lists & Rosters -->
-      <div class="hub-card" id="hub-armylists-card" style="display:flex; flex-direction:column; justify-content:space-between;">
-        <div>
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.5rem;">
+      <!-- Full-Width Card: Live Game Tracker & Scorecard History -->
+      <div class="hub-row-matches-tracker" style="margin-top: 1.25rem;">
+        <div class="hub-card hub-card-tracker">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <h3 style="font-size: 1.05rem; font-weight: 800; color: #fff; margin: 0;">📋 Army Lists & Rosters</h3>
+              <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Active Matches & History</h3>
+              <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
             </div>
-            <button class="bcp-login-btn" onclick="openImportArmyListModal()" style="font-size: 0.75rem; padding: 0.3rem 0.75rem; background: var(--accent); color: #0f172a; font-weight: 800;">
-              ➕ Import
-            </button>
-          </div>
-
-          <div id="hub-armylists-list-container" class="hub-armylists-list-container">
-            <div style="text-align: center; padding: 1.5rem; color: var(--text-muted); font-size: 0.82rem;">
-              <div class="spinner"></div>
-              <div style="margin-top: 0.5rem;">Loading your army lists...</div>
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+              <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
             </div>
           </div>
-        </div>
-      </div>
 
-      <!-- Card: Registered Tournaments (Beside Army Lists) -->
-      ${renderRegisteredTournamentsCard(registeredTournaments, isBcpConnected)}
-
-    </div>
-
-    <!-- Mobile Overview Quick-Jump Preview Cards (Mobile-Only) -->
-    <div class="hub-overview-previews" style="margin-top: 1.25rem;">
-      ${renderNextEventOverviewPreview(registeredTournaments, isBcpConnected)}
-      ${(activeMatches && activeMatches.length > 0) ? `
-        <div class="hub-card" style="border-color: rgba(16,185,129,0.3); background: rgba(16,185,129,0.05);">
-          <div style="font-size: 0.72rem; color: #10b981; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between;">
-            <span>🟢 ACTIVE MATCH IN PROGRESS</span>
-            <span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Live Game</span>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 8px;">
-            ${activeMatches.slice(0, 1).map(m => {
-              const mid = m.match_id || m.id || '';
-              const rNum = m.round || m.current_round || 1;
-              return `
-                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                  <div>
-                    <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(m.p1_name || 'Player 1')} (${m.p1_score || 0}) vs ${escapeHtml(m.p2_name || 'Player 2')} (${m.p2_score || 0})</b>
-                    <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
-                      Round ${rNum} • ${escapeHtml(m.p1_faction || 'Army 1')} vs ${escapeHtml(m.p2_faction || 'Army 2')}
-                    </div>
-                  </div>
-                  <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
-                    ▶️ Resume
-                  </a>
-                </div>
-              `;
-            }).join('')}
-          </div>
-        </div>
-      ` : ''}
-
-      <!-- Overview Preview 1: Recent Matches (Latest 3) -->
-      <div class="hub-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🏆 Recent Matches</h3>
-            <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Latest 3</span>
-          </div>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} career matches</span>
-        </div>
-        ${sortedHistory.length > 0 ? `
-          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-            ${sortedHistory.slice(0, 3).map(h => {
-              const delta = Number(h.delta_elo || 0);
-              const isPos = delta >= 0;
-              const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
-              const oppTarget = h.opponent_id || h.opponent_name || '';
-              return `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.65rem 0.8rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
-                  <div style="display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;">
-                    <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                      <span style="color: var(--text-muted); font-size: 0.72rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</span>
-                      ${oppTarget ? `
-                        <span class="player-link cell-ellipsis" style="font-size: 0.82rem; font-weight: 700;" onclick="event.stopPropagation(); openPlayerModal('${encodeURIComponent(oppTarget)}')">
-                          ${escapeHtml(h.opponent_name || 'Opponent')}
+          <!-- Active Matches (All in Green Cards) -->
+          ${(activeMatches && activeMatches.length > 0) ? `
+            <div style="margin-bottom: 14px;">
+              <div style="font-size: 0.72rem; color: #10b981; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
+                <span>🟢 ACTIVE MATCHES (${activeMatches.length})</span>
+                <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: normal;">⏳ Uncompleted games auto-purge after 14 days</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                ${activeMatches.map(m => {
+                  const mid = m.match_id || m.id || '';
+                  const shortId = mid.replace('WH40K-', '');
+                  const rNum = m.round || m.current_round || 1;
+                  const createdDate = m.created_at || m.date || m.timestamp;
+                  const dateLabel = createdDate ? new Date(createdDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Recent';
+                  return `
+                    <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; padding: 12px 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
+                        <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 800; color: #10b981; text-transform: uppercase; font-family: var(--font-mono);">
+                          <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                          🟢 Active Match (Round ${rNum})
                         </span>
-                      ` : `
-                        <span class="cell-ellipsis" style="color: #fff; font-size: 0.82rem; font-weight: 700;">${escapeHtml(h.opponent_name || 'Opponent')}</span>
-                      `}
+                        <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                          <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(m.p1_name || 'Player 1')} (${m.p1_score || 0}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(m.p2_name || 'Player 2')} (${m.p2_score || 0})</b>
+                          <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
+                            ${escapeHtml(m.p1_faction || 'Army 1')} vs ${escapeHtml(m.p2_faction || 'Army 2')}
+                            ${m.primary_mission ? ` • 🎯 ${escapeHtml(m.primary_mission)}` : ''}
+                          </div>
+                        </div>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                          <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
+                            ▶️ Resume Match
+                          </a>
+                          ${!(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
+                            <button onclick="discardTrackerSession('${escapeHtml(mid)}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Casual Match">
+                              🗑️
+                            </button>
+                          ` : ''}
+                        </div>
+                      </div>
                     </div>
-                    ${h.event_id ? `
-                      <span class="player-link cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;" onclick="event.stopPropagation(); openEventModal('${encodeURIComponent(h.event_id)}', false)">
-                        ${escapeHtml(h.event_name || 'Event')}
-                      </span>
-                    ` : `
-                      <div class="cell-ellipsis" style="color: var(--text-secondary); font-size: 0.72rem;">${escapeHtml(h.event_name || 'Event')}</div>
-                    `}
-                  </div>
-                  <div style="display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0;">
-                    ${res}
-                    <span style="color: ${isPos ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono); font-size:0.75rem; font-weight:700; min-width: 44px; text-align: right;">
-                      ${isPos ? '+' : ''}${delta.toFixed(1)}
-                    </span>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-          <button class="hub-view-all-btn" onclick="switchHubMobileTab('matches')">
-            <span>View Full Tournament Journey (${hubEventsList.length} Events)</span>
-            <span class="hub-btn-arrow">➔</span>
-          </button>
-        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
-      </div>
-
-      <!-- Overview Preview 2: Matchup Matrix Highlights -->
-      <div class="hub-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎯 Matchup Highlights</h3>
-            <span class="badge" style="background: rgba(168,85,247,0.12); color: #c084fc; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Versus</span>
-          </div>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">${matchups.length} Armies Faced</span>
-        </div>
-        ${matchups.length > 0 ? `
-          ${renderMatchupSpotlightCards(matchupSpotlights)}
-          <div style="display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.65rem;">
-            ${matchups.slice(0, 3).map(m => `
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
-                <div style="min-width: 0; flex: 1;">
-                  <div style="font-size: 0.82rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(m.enemy_faction)}</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted);">${m.total_encounters} encounters • <span style="color:var(--win); font-weight:600;">${m.wins}W</span> - <span style="color:var(--loss); font-weight:600;">${m.losses}L</span></div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 100px; justify-content: flex-end;">
-                  <div style="width: 50px; background: rgba(255,255,255,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
-                    <div style="width: ${Math.min(100, Number(m.win_rate))}%; background: ${Number(m.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height: 100%;"></div>
-                  </div>
-                  <b style="font-size: 0.78rem; font-family: var(--font-mono); color: #fff;">${Number(m.win_rate).toFixed(0)}%</b>
-                </div>
+                  `;
+                }).join('')}
               </div>
-            `).join('')}
-          </div>
-          <button class="hub-view-all-btn" onclick="switchHubMobileTab('matrix')">
-            <span>Explore Full Matchup Matrix (${matchups.length} Armies)</span>
-            <span class="hub-btn-arrow">➔</span>
-          </button>
-        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>'}
-      </div>
+            </div>
+          ` : ''}
 
-      <!-- Overview Preview 3: Faction Mastery Overview -->
-      <div class="hub-card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🛡️ Faction Mastery Overview</h3>
-            <span class="badge" style="background: rgba(16,185,129,0.12); color: #10b981; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Career</span>
-          </div>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">${factionMastery.length} Armies Logged</span>
+          <!-- Verified Match History / Completed Scorecards -->
+          ${(data.completed_history && data.completed_history.length > 0) ? `
+            <div class="hub-table-wrapper" style="margin-top: 10px;">
+              <table id="hub-tracker-history-table" class="hub-table">
+                <thead>
+                  <tr>
+                    <th style="width: 75px;">Match</th>
+                    <th style="width: 48%;">Players / Armies</th>
+                    <th style="width: 65px; text-align: center;">Score</th>
+                    <th style="width: 80px; text-align: right;">Scorecard</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${data.completed_history.map(th => {
+                    const p1 = th.p1_name || 'Player 1';
+                    const p2 = th.p2_name || 'Player 2';
+                    const p1Score = th.p1_score || 0;
+                    const p2Score = th.p2_score || 0;
+                    const matchId = th.match_id || '';
+                    const shortId = matchId.replace('WH40K-', '');
+                    const dateStr = th.date || (th.updated_at ? th.updated_at.substring(5, 10) : '-');
+
+                    return `
+                      <tr>
+                        <td style="white-space: nowrap;">
+                          <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; color:var(--accent); text-decoration:none;">
+                            #${escapeHtml(shortId)} ↗
+                          </a>
+                          <div style="font-size:0.7rem; color:var(--text-muted);">${dateStr}</div>
+                        </td>
+                        <td class="cell-ellipsis">
+                          <div style="color:#fff; font-size:0.8rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            ${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}
+                          </div>
+                          <div style="font-size:0.7rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            ${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}
+                          </div>
+                        </td>
+                        <td style="text-align: center;">
+                          <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
+                        </td>
+                        <td style="text-align: right;">
+                          <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="display:inline-flex; align-items:center; gap:3px; background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:6px; text-decoration:none; border:1px solid rgba(16,185,129,0.3);">
+                            📄 Scorecard ↗
+                          </a>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          ` : (!data.primary_active && (!data.unfinished_sessions || data.unfinished_sessions.length === 0)) ? `
+            <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
+              <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
+              <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live 11th Edition games with automated VP scoring & real-time sync!</div>
+              <a href="/11th/tracker" target="_blank" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
+            </div>
+          ` : ''}
         </div>
-        ${factionMastery.length > 0 ? `
-          ${renderFactionMasterySpotlightCards(factionSpotlights)}
-          <div style="display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.65rem;">
-            ${factionMastery.slice(0, 2).map(fm => `
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; gap: 0.5rem;">
-                <div style="min-width: 0; flex: 1;">
-                  <div style="font-size: 0.82rem; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(fm.faction)}</div>
-                  <div style="font-size: 0.72rem; color: var(--text-muted);">${fm.games} games • <span style="color:var(--win); font-weight:600;">${fm.wins}W</span> - <span style="color:var(--loss); font-weight:600;">${fm.losses}L</span></div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 0.4rem; min-width: 100px; justify-content: flex-end;">
-                  <div style="width: 50px; background: rgba(255,255,255,0.08); height: 6px; border-radius: 3px; overflow: hidden;">
-                    <div style="width: ${Math.min(100, Number(fm.win_rate))}%; background: ${Number(fm.win_rate) >= 50 ? 'var(--win)' : 'var(--loss)'}; height: 100%;"></div>
-                  </div>
-                  <b style="font-size: 0.78rem; font-family: var(--font-mono); color: #fff;">${Number(fm.win_rate).toFixed(0)}%</b>
-                </div>
-              </div>
-            `).join('')}
-          </div>
-          <button class="hub-view-all-btn" onclick="switchHubMobileTab('mastery')">
-            <span>View Full Faction Mastery & Intel</span>
-            <span class="hub-btn-arrow">➔</span>
-          </button>
-        ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>'}
       </div>
     </div>
 
-    <!-- 2-Column Row 2: Faction Mastery & Matchup Matrix -->
-    <div class="hub-grid-2col hub-row-mastery-matrix" style="margin-top: 1.25rem;">
-      
-      <!-- Card 3: Faction Mastery Breakdown -->
-      <div class="hub-card hub-card-mastery">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.25rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
-          ${factionMastery.length > 0 ? `
-            <span style="font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 10px; font-family: var(--font-mono); white-space: nowrap;" title="${unrecordedFactionGames > 0 ? `${unrecordedFactionGames} matches unrecorded on BCP (no army list submitted)` : 'All matches recorded'}">
-              ${unrecordedFactionGames > 0 ? `${totalFactionGames} of ${totalHistoryMatches} logged` : `${totalFactionGames} matches`}
+    <!-- TAB PANEL 2: Tournament Journey Accordion -->
+    <div id="hub-panel-journey" class="profile-tab-panel ${currentHubSubtab === 'journey' ? 'active' : ''}">
+      <div class="hub-card hub-fullwidth-journey profile-journey-section">
+        <div class="profile-journey-header">
+          <div style="display: flex; flex-direction: column; gap: 2px;">
+            <h3 class="profile-journey-title" style="font-size: 1.05rem;">
+              <span>🏆 My Tournament Journey</span>
+              <span class="profile-journey-count">(${hubEventsList.length} Event${hubEventsList.length === 1 ? '' : 's'})</span>
+            </h3>
+            <span class="profile-journey-subtitle">
+              Official tournament history ordered newest first • Click any event title to open Tournament Standings
             </span>
+          </div>
+          ${hubEventsList.length > 0 ? `
+            <button type="button" id="btn-hub-toggle-all-events" class="btn btn-outline btn-sm" onclick="toggleAllProfileEventCards('#hub-events-accordion-container', 'btn-hub-toggle-all-events')" style="font-size: 0.76rem; padding: 0.32rem 0.75rem; border-color: rgba(56,189,248,0.35); color: #38bdf8; background: rgba(56,189,248,0.08); font-weight: 700; white-space: nowrap;">
+              ▼ Expand All
+            </button>
+          ` : ''}
+        </div>
+
+        <div id="hub-events-accordion-container">
+          ${hubEventsAccordionHtml}
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB PANEL 3: Career Elo Trajectory -->
+    <div id="hub-panel-trajectory" class="profile-tab-panel ${currentHubSubtab === 'trajectory' ? 'active' : ''}">
+      <div class="hub-card" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">📈 Career Elo Rating Trajectory</h3>
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+              Match-by-match rating progression across ${history.length} official games in ${sysLabel}
+            </div>
+          </div>
+          <div style="display: flex; gap: 0.65rem; flex-wrap: wrap;">
+            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+              <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Current Elo</div>
+              <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: #38bdf8;">${currentElo}</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+              <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">All-Time Peak</div>
+              <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: #fbbf24;">${peakElo} 👑</div>
+            </div>
+            <div style="background: rgba(15,23,42,0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.4rem 0.75rem;">
+              <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase;">Net Career Δ</div>
+              <div style="font-family: var(--font-mono); font-size: 0.95rem; font-weight: 800; color: ${(currentEloNum - 1500) >= 0 ? 'var(--win)' : 'var(--loss)'};">${(currentEloNum - 1500) >= 0 ? '+' : ''}${(currentEloNum - 1500).toFixed(1)}</div>
+            </div>
+          </div>
+        </div>
+        <div style="overflow-x: auto; padding-top: 0.25rem;">
+          <svg id="hub-trajectory-svg" style="width: 100%; height: 220px; display: block;"></svg>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted); flex-wrap: wrap; gap: 0.5rem;">
+          <span>Hover over any data point to inspect match details & rating delta</span>
+          <div style="display: flex; align-items: center; gap: 0.85rem;">
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span> Win</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #ef4444;"></span> Loss</span>
+            <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #38bdf8;"></span> Starting / Draw</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB PANEL 4: Faction Mastery -->
+    <div id="hub-panel-factions" class="profile-tab-panel ${currentHubSubtab === 'factions' ? 'active' : ''}">
+      <div class="hub-card hub-card-mastery" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🛡️ Faction Mastery & Win Rates</h3>
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+              Performance breakdown across ${factionMastery.length} faction${factionMastery.length === 1 ? '' : 's'} piloted in official events
+            </div>
+          </div>
+          ${factionMastery.length > 0 ? `
+            <div style="width: 240px; max-width: 100%;">
+              <input type="text" class="hub-search-input" placeholder="🔍 Search army..." oninput="filterHubFaction(this.value)">
+            </div>
           ` : ''}
         </div>
         ${factionMastery.length > 0 ? `
-          <div style="margin-bottom: 0.65rem;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Search army..." oninput="filterHubFaction(this.value)">
-          </div>
           ${renderFactionMasterySpotlightCards(factionSpotlights)}
-          <div class="hub-table-wrapper">
+          <div class="hub-table-wrapper" style="margin-top: 0.75rem;">
             <table id="hub-faction-table" class="hub-table">
               <thead>
                 <tr>
@@ -1173,30 +1192,29 @@ function renderMyHub(data) {
             </table>
           </div>
           ${renderFactionIntelPanel(factionIntel)}
-          ${unrecordedFactionGames > 0 ? `
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; text-align: right;">
-              ℹ️ ${unrecordedFactionGames} career matches unrecorded on BCP (no army list submitted)
-            </div>
-          ` : ''}
         ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading faction data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No faction games recorded.</div>')}
       </div>
+    </div>
 
-      <!-- Card 4: Matchup Matrix vs Enemy Factions -->
-      <div class="hub-card hub-card-matrix">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.25rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎯 Matchup Matrix (vs Opponent Armies)</h3>
+    <!-- TAB PANEL 5: Matchup Matrix -->
+    <div id="hub-panel-matchups" class="profile-tab-panel ${currentHubSubtab === 'matchups' ? 'active' : ''}">
+      <div class="hub-card hub-card-matrix" style="padding: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div>
+            <h3 style="font-size: 1.1rem; font-weight: 800; color: #fff; margin: 0;">🎯 Opponent Matchup Matrix</h3>
+            <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+              Head-to-head record against ${matchups.length} enemy armies faced in tournament play
+            </div>
+          </div>
           ${matchups.length > 0 ? `
-            <span style="font-size: 0.72rem; color: var(--text-muted); background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 10px; font-family: var(--font-mono); white-space: nowrap;" title="${unrecordedMatchupGames > 0 ? `${unrecordedMatchupGames} matches vs opponents with unrecorded armies on BCP` : 'All matches recorded'}">
-              ${unrecordedMatchupGames > 0 ? `${totalMatchupGames} of ${totalHistoryMatches} logged` : `${totalMatchupGames} matches`}
-            </span>
+            <div style="width: 240px; max-width: 100%;">
+              <input type="text" class="hub-search-input" placeholder="🔍 Search enemy faction..." oninput="filterHubMatrix(this.value)">
+            </div>
           ` : ''}
         </div>
         ${matchups.length > 0 ? `
-          <div style="margin-bottom: 0.65rem;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Search enemy faction..." oninput="filterHubMatrix(this.value)">
-          </div>
           ${renderMatchupSpotlightCards(matchupSpotlights)}
-          <div class="hub-table-wrapper">
+          <div class="hub-table-wrapper" style="margin-top: 0.75rem;">
             <table id="hub-matchup-table" class="hub-table">
               <thead>
                 <tr>
@@ -1225,166 +1243,10 @@ function renderMyHub(data) {
               </tbody>
             </table>
           </div>
-          ${unrecordedMatchupGames > 0 ? `
-            <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.5rem; text-align: right;">
-              ℹ️ ${unrecordedMatchupGames} matches vs opponents with unrecorded armies on BCP
-            </div>
-          ` : ''}
         ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading matchup data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>')}
       </div>
-
     </div>
 
-    <!-- Full-Width Tournament Journey Accordion (Collapsed by Default) -->
-    <div class="hub-card hub-fullwidth-journey profile-journey-section" style="margin-top: 1.25rem;">
-      <div class="profile-journey-header">
-        <div style="display: flex; flex-direction: column; gap: 2px;">
-          <h3 class="profile-journey-title" style="font-size: 1.05rem;">
-            <span>🏆 My Tournament Journey</span>
-            <span class="profile-journey-count">(${hubEventsList.length} Event${hubEventsList.length === 1 ? '' : 's'})</span>
-          </h3>
-          <span class="profile-journey-subtitle">
-            Showing your official tournament match history grouped by event (click any event to expand rounds)
-          </span>
-        </div>
-        ${hubEventsList.length > 0 ? `
-          <button type="button" id="btn-hub-toggle-all-events" class="btn btn-outline btn-sm" onclick="toggleAllProfileEventCards('#hub-events-accordion-container', 'btn-hub-toggle-all-events')" style="font-size: 0.76rem; padding: 0.32rem 0.75rem; border-color: rgba(56,189,248,0.35); color: #38bdf8; background: rgba(56,189,248,0.08); font-weight: 700; white-space: nowrap;">
-            ▼ Expand All
-          </button>
-        ` : ''}
-      </div>
-
-      <div id="hub-events-accordion-container">
-        ${hubEventsAccordionHtml}
-      </div>
-    </div>
-
-    <!-- Full-Width Row 3: Live Game Tracker & Scorecard History -->
-    <div class="hub-row-matches-tracker" style="margin-top: 1.25rem;">
-
-      <!-- Card 6: 3-Tier 11th Edition Live Game Tracker & Match History -->
-      <div class="hub-card hub-card-tracker">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🎲 Active Matches & History</h3>
-            <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
-          </div>
-          <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
-          </div>
-        </div>
-
-        <!-- 1. Active Matches (All in Green Cards) -->
-        ${(activeMatches && activeMatches.length > 0) ? `
-          <div style="margin-bottom: 14px;">
-            <div style="font-size: 0.72rem; color: #10b981; font-weight: 800; font-family: var(--font-mono); margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
-              <span>🟢 ACTIVE MATCHES (${activeMatches.length})</span>
-              <span style="font-size: 0.68rem; color: var(--text-muted); font-weight: normal;">⏳ Uncompleted games auto-purge after 14 days</span>
-            </div>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-              ${activeMatches.map(m => {
-                const mid = m.match_id || m.id || '';
-                const shortId = mid.replace('WH40K-', '');
-                const rNum = m.round || m.current_round || 1;
-                const createdDate = m.created_at || m.date || m.timestamp;
-                const dateLabel = createdDate ? new Date(createdDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'Recent';
-                return `
-                  <div style="background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.3); border-radius: 12px; padding: 12px 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 4px;">
-                      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 800; color: #10b981; text-transform: uppercase; font-family: var(--font-mono);">
-                        <span style="width: 7px; height: 7px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
-                        🟢 Active Match (Round ${rNum})
-                      </span>
-                      <span style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">#${escapeHtml(shortId)} • 📅 Created ${dateLabel}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                      <div>
-                        <b style="color: #fff; font-size: 0.88rem;">${escapeHtml(m.p1_name || 'Player 1')} (${m.p1_score || 0}) <span style="color: var(--text-muted); font-weight: normal;">vs</span> ${escapeHtml(m.p2_name || 'Player 2')} (${m.p2_score || 0})</b>
-                        <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
-                          ${escapeHtml(m.p1_faction || 'Army 1')} vs ${escapeHtml(m.p2_faction || 'Army 2')}
-                          ${m.primary_mission ? ` • 🎯 ${escapeHtml(m.primary_mission)}` : ''}
-                        </div>
-                      </div>
-                      <div style="display: flex; gap: 6px; align-items: center;">
-                        <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" target="_blank" class="btn btn-sm btn-primary" style="font-size: 0.75rem; padding: 5px 12px; text-decoration: none; font-weight: 700;">
-                          ▶️ Resume Match
-                        </a>
-                        ${!(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
-                          <button onclick="discardTrackerSession('${escapeHtml(mid)}')" style="background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px; padding: 5px 8px; font-size: 0.75rem; cursor: pointer; font-weight: 700;" title="Discard / Abandon Casual Match">
-                            🗑️
-                          </button>
-                        ` : ''}
-                      </div>
-                    </div>
-                  </div>
-                `;
-              }).join('')}
-            </div>
-          </div>
-        ` : ''}
-
-        <!-- 3. Verified Match History / Completed Scorecards -->
-        ${(data.completed_history && data.completed_history.length > 0) ? `
-          <div class="hub-table-wrapper" style="margin-top: 10px;">
-            <table id="hub-tracker-history-table" class="hub-table">
-              <thead>
-                <tr>
-                  <th style="width: 75px;">Match</th>
-                  <th style="width: 48%;">Players / Armies</th>
-                  <th style="width: 65px; text-align: center;">Score</th>
-                  <th style="width: 80px; text-align: right;">Scorecard</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${data.completed_history.map(th => {
-                  const p1 = th.p1_name || 'Player 1';
-                  const p2 = th.p2_name || 'Player 2';
-                  const p1Score = th.p1_score || 0;
-                  const p2Score = th.p2_score || 0;
-                  const matchId = th.match_id || '';
-                  const shortId = matchId.replace('WH40K-', '');
-                  const dateStr = th.date || (th.updated_at ? th.updated_at.substring(5, 10) : '-');
-
-                  return `
-                    <tr>
-                      <td style="white-space: nowrap;">
-                        <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="font-family:var(--font-mono); font-size:0.75rem; font-weight:700; color:var(--accent); text-decoration:none;">
-                          #${escapeHtml(shortId)} ↗
-                        </a>
-                        <div style="font-size:0.7rem; color:var(--text-muted);">${dateStr}</div>
-                      </td>
-                      <td class="cell-ellipsis">
-                        <div style="color:#fff; font-size:0.8rem; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                          ${escapeHtml(p1)} <span style="color:var(--text-muted); font-weight:normal;">vs</span> ${escapeHtml(p2)}
-                        </div>
-                        <div style="font-size:0.7rem; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                          ${escapeHtml(th.p1_faction || 'Army 1')} vs ${escapeHtml(th.p2_faction || 'Army 2')}
-                        </div>
-                      </td>
-                      <td style="text-align: center;">
-                        <span style="font-weight:700; color:#38bdf8; font-family:var(--font-mono); font-size:0.85rem;">${p1Score} - ${p2Score}</span>
-                      </td>
-                      <td style="text-align: right;">
-                        <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="display:inline-flex; align-items:center; gap:3px; background:rgba(16,185,129,0.15); color:#10b981; font-size:0.7rem; font-weight:700; padding:0.2rem 0.5rem; border-radius:6px; text-decoration:none; border:1px solid rgba(16,185,129,0.3);">
-                          📄 Scorecard ↗
-                        </a>
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        ` : (!data.primary_active && (!data.unfinished_sessions || data.unfinished_sessions.length === 0)) ? `
-          <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
-            <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
-            <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live 11th Edition games with automated VP scoring & real-time sync!</div>
-            <a href="/11th/tracker" target="_blank" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
-          </div>
-        ` : ''}
-      </div>
-
-    </div>
   </div> <!-- /my-hub-container -->
   `;
 
@@ -1396,78 +1258,9 @@ function renderMyHub(data) {
 }
 
 function renderHubTrajectory(history) {
-  const svg = document.getElementById('hub-trajectory-svg');
-  if (!svg || !history || history.length === 0) return;
-
-  const w = svg.clientWidth || 480;
-  const h = 140;
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.innerHTML = '';
-
-  const padX = 45;
-  const padY = 18;
-  const plotW = w - padX * 2;
-  const plotH = h - padY * 2;
-
-  const elos = history.map(h => Number(h.new_elo || 1500));
-  const minElo = Math.floor(Math.min(...elos, 1400) / 50) * 50;
-  const maxElo = Math.ceil(Math.max(...elos, 1600) / 50) * 50;
-  const range = maxElo - minElo || 100;
-
-  // Grid Lines
-  const step = Math.max(50, Math.round(range / 4 / 25) * 25);
-  for (let val = minElo; val <= maxElo; val += step) {
-    const y = padY + plotH - ((val - minElo) / range) * plotH;
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', padX);
-    line.setAttribute('y1', y);
-    line.setAttribute('x2', w - padX);
-    line.setAttribute('y2', y);
-    line.setAttribute('stroke', 'rgba(255,255,255,0.08)');
-    svg.appendChild(line);
-
-    const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    txt.setAttribute('x', padX - 8);
-    txt.setAttribute('y', y + 4);
-    txt.setAttribute('fill', '#64748b');
-    txt.setAttribute('font-size', '9');
-    txt.setAttribute('font-family', 'monospace');
-    txt.setAttribute('text-anchor', 'end');
-    txt.textContent = val;
-    svg.appendChild(txt);
+  if (typeof renderProfileTrajectoryChart === 'function') {
+    renderProfileTrajectoryChart(history, 'hub-trajectory-svg');
   }
-
-  // Plot Line
-  const pts = history.map((pt, idx) => {
-    const x = padX + (idx / (history.length - 1 || 1)) * plotW;
-    const y = padY + plotH - ((Number(pt.new_elo) - minElo) / range) * plotH;
-    return { x, y, elo: pt.new_elo };
-  });
-
-  if (pts.length > 1) {
-    let dStr = `M ${pts[0].x} ${pts[0].y}`;
-    for (let i = 1; i < pts.length; i++) {
-      dStr += ` L ${pts[i].x} ${pts[i].y}`;
-    }
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', dStr);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#38bdf8');
-    path.setAttribute('stroke-width', '2.5');
-    path.setAttribute('stroke-linecap', 'round');
-    svg.appendChild(path);
-  }
-
-  pts.forEach(pt => {
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', pt.x);
-    circle.setAttribute('cy', pt.y);
-    circle.setAttribute('r', '3.5');
-    circle.setAttribute('fill', '#38bdf8');
-    circle.setAttribute('stroke', '#0a0c10');
-    circle.setAttribute('stroke-width', '1.5');
-    svg.appendChild(circle);
-  });
 }
 
 

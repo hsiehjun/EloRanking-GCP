@@ -4037,96 +4037,7 @@ input, select, textarea {
     color: #38bdf8;
   }
 
-  /* Responsive Display Rules for Hub Tabs on Mobile */
-  
-  /* Overview Tab: show trajectory, journey, and overview previews, hide heavy rows */
-  .my-hub-container[data-active-tab="overview"] .hub-fullwidth-trajectory,
-  .my-hub-container[data-active-tab="overview"] .hub-fullwidth-journey {
-    display: block !important;
-    margin-bottom: 1.25rem !important;
-  }
-  .my-hub-container[data-active-tab="overview"] .hub-overview-previews {
-    display: flex !important;
-    flex-direction: column;
-    gap: 1.25rem;
-    margin-top: 1.25rem !important;
-  }
-  .my-hub-container[data-active-tab="overview"] .hub-row-prep,
-  .my-hub-container[data-active-tab="overview"] .hub-row-mastery-matrix,
-  .my-hub-container[data-active-tab="overview"] .hub-row-matches-tracker {
-    display: none !important;
-  }
-
-  /* Events Tab: show only registered tournaments card */
-  .my-hub-container[data-active-tab="events"] .hub-fullwidth-trajectory,
-  .my-hub-container[data-active-tab="events"] .hub-fullwidth-journey,
-  .my-hub-container[data-active-tab="events"] .hub-overview-previews,
-  .my-hub-container[data-active-tab="events"] .hub-row-mastery-matrix,
-  .my-hub-container[data-active-tab="events"] .hub-row-matches-tracker,
-  .my-hub-container[data-active-tab="events"] #hub-armylists-card {
-    display: none !important;
-  }
-  .my-hub-container[data-active-tab="events"] .hub-row-prep {
-    display: flex !important;
-    flex-direction: column;
-  }
-  .my-hub-container[data-active-tab="events"] #hub-registered-tournaments-card {
-    display: flex !important;
-  }
-
-  /* Matches Tab: hide trajectory & previews, hide mastery-matrix row & prep, show journey and matches-tracker row */
-  .my-hub-container[data-active-tab="matches"] .hub-fullwidth-trajectory,
-  .my-hub-container[data-active-tab="matches"] .hub-row-prep,
-  .my-hub-container[data-active-tab="matches"] .hub-row-mastery-matrix,
-  .my-hub-container[data-active-tab="matches"] .hub-overview-previews {
-    display: none !important;
-  }
-  .my-hub-container[data-active-tab="matches"] .hub-fullwidth-journey {
-    display: block !important;
-  }
-  .my-hub-container[data-active-tab="matches"] .hub-row-matches-tracker {
-    display: flex !important;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  /* Matrix Tab: hide trajectory, previews, prep, matches row; in mastery-matrix row show only matrix */
-  .my-hub-container[data-active-tab="matrix"] .hub-fullwidth-trajectory,
-  .my-hub-container[data-active-tab="matrix"] .hub-fullwidth-journey,
-  .my-hub-container[data-active-tab="matrix"] .hub-row-prep,
-  .my-hub-container[data-active-tab="matrix"] .hub-row-matches-tracker,
-  .my-hub-container[data-active-tab="matrix"] .hub-overview-previews {
-    display: none !important;
-  }
-  .my-hub-container[data-active-tab="matrix"] .hub-row-mastery-matrix {
-    display: flex !important;
-    flex-direction: column;
-  }
-  .my-hub-container[data-active-tab="matrix"] .hub-card-mastery {
-    display: none !important;
-  }
-  .my-hub-container[data-active-tab="matrix"] .hub-card-matrix {
-    display: block !important;
-  }
-
-  /* Mastery Tab: hide trajectory, previews, prep, matches row; in mastery-matrix row show only mastery */
-  .my-hub-container[data-active-tab="mastery"] .hub-fullwidth-trajectory,
-  .my-hub-container[data-active-tab="mastery"] .hub-fullwidth-journey,
-  .my-hub-container[data-active-tab="mastery"] .hub-row-prep,
-  .my-hub-container[data-active-tab="mastery"] .hub-row-matches-tracker,
-  .my-hub-container[data-active-tab="mastery"] .hub-overview-previews {
-    display: none !important;
-  }
-  .my-hub-container[data-active-tab="mastery"] .hub-row-mastery-matrix {
-    display: flex !important;
-    flex-direction: column;
-  }
-  .my-hub-container[data-active-tab="mastery"] .hub-card-matrix {
-    display: none !important;
-  }
-  .my-hub-container[data-active-tab="mastery"] .hub-card-mastery {
-    display: block !important;
-  }
+  /* Unified Tab System (.profile-subtabs-bar & .profile-tab-panel) handles visibility on all viewports */
 }
 
 
@@ -7191,10 +7102,13 @@ body.is-authenticated #floating-chat-widget {
 /* ==========================================================================
    DEDICATED PLAYER PROFILE PAGE STYLES
    ========================================================================== */
-.player-profile-view {
+.player-profile-view,
+.my-hub-container {
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding: 0.25rem 0.5rem 3rem;
+  box-sizing: border-box;
 }
 
 .profile-hero-card {
@@ -7901,6 +7815,8 @@ body.is-authenticated #floating-chat-widget {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  width: 100%;
+  box-sizing: border-box;
   background: rgba(15, 23, 42, 0.75);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
@@ -7912,12 +7828,12 @@ body.is-authenticated #floating-chat-widget {
 
 .profile-subtab-btn {
   flex: 1;
-  min-width: 140px;
+  min-width: 135px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.45rem;
-  padding: 0.6rem 1rem;
+  padding: 0.6rem 0.9rem;
   border-radius: 8px;
   border: 1px solid transparent;
   background: transparent;
@@ -7957,11 +7873,15 @@ body.is-authenticated #floating-chat-widget {
 
 .profile-tab-panel {
   display: none;
+  width: 100%;
+  box-sizing: border-box;
   animation: fadeIn 0.2s ease;
 }
 
 .profile-tab-panel.active {
   display: block;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .profile-spotlight-grid {
@@ -7969,6 +7889,8 @@ body.is-authenticated #floating-chat-widget {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 0.85rem;
   margin-bottom: 1.1rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .profile-spotlight-card {
@@ -7979,13 +7901,56 @@ body.is-authenticated #floating-chat-widget {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  box-sizing: border-box;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
+  .profile-subtabs-bar {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+    padding: 0.45rem !important;
+    overflow: visible !important;
+  }
   .profile-subtab-btn {
-    min-width: 115px;
-    padding: 0.5rem 0.65rem;
-    font-size: 0.78rem;
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 0.58rem 0.7rem !important;
+    font-size: 0.8rem !important;
+    justify-content: space-between !important;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .profile-subtab-btn > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .profile-subtab-count {
+    flex-shrink: 0;
+  }
+  #hub-subtabs-bar .profile-subtab-btn:first-child {
+    grid-column: 1 / -1;
+    justify-content: center !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .tab-label-full {
+    display: none;
+  }
+  .profile-subtabs-bar {
+    gap: 0.38rem !important;
+    padding: 0.38rem !important;
+  }
+  .profile-subtab-btn {
+    padding: 0.5rem 0.55rem !important;
+    font-size: 0.75rem !important;
+    gap: 0.3rem !important;
+  }
+  .profile-subtab-count {
+    font-size: 0.68rem !important;
+    padding: 0.08rem 0.38rem !important;
   }
 }
 

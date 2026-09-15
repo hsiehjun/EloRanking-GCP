@@ -576,7 +576,7 @@ function renderDedicatedPlayerProfile(data, gameSystem) {
     <!-- Desktop & Mobile Sub-Tab Navigation Bar -->
     <div class="profile-subtabs-bar" id="profile-subtabs-bar">
       <button type="button" class="profile-subtab-btn active" data-tab="journey" onclick="switchProfileSubtab('journey')">
-        <span>🏆 Tournament Journey</span>
+        <span>🏆 <span class="tab-label-full">Tournament </span>Journey</span>
         <span class="profile-subtab-count">${eventsList.length}</span>
       </button>
       <button type="button" class="profile-subtab-btn" data-tab="trajectory" onclick="switchProfileSubtab('trajectory')">
@@ -1107,8 +1107,8 @@ function computeProfileMatchupMatrix(history, existingMatrix) {
 /**
  * Render Interactive SVG Elo Rating Trajectory Chart for Public Player Profile
  */
-function renderProfileTrajectoryChart(rawHistory) {
-  const svg = document.getElementById('profile-trajectory-svg');
+function renderProfileTrajectoryChart(rawHistory, svgId = 'profile-trajectory-svg') {
+  const svg = document.getElementById(svgId);
   if (!svg || !rawHistory || rawHistory.length === 0) return;
 
   // Ensure chronological oldest-to-newest order for left-to-right trajectory plotting
@@ -1129,7 +1129,10 @@ function renderProfileTrajectoryChart(rawHistory) {
   const plotW = w - padX * 2;
   const plotH = h - padY * 2;
 
-  const pointsData = [{ new_elo: 1500, event_name: 'Starting Rating', result: '-' }, ...chronHistory];
+  const startElo = (chronHistory.length > 0 && chronHistory[0].old_elo !== undefined)
+    ? Number(chronHistory[0].old_elo)
+    : 1500;
+  const pointsData = [{ new_elo: startElo, event_name: 'Starting Rating', result: '-' }, ...chronHistory];
   const elos = pointsData.map(pt => Number(pt.new_elo || 1500));
   const minElo = Math.floor(Math.min(...elos, 1450) / 50) * 50;
   const maxElo = Math.ceil(Math.max(...elos, 1550) / 50) * 50;
@@ -1167,10 +1170,11 @@ function renderProfileTrajectoryChart(rawHistory) {
   });
 
   // Area Gradient Fill under trajectory line
+  const gradId = `${svgId}-grad`;
   if (pts.length > 1) {
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
     defs.innerHTML = `
-      <linearGradient id="profile-elo-grad" x1="0" y1="0" x2="0" y2="1">
+      <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
         <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.28"/>
         <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0"/>
       </linearGradient>
@@ -1184,7 +1188,7 @@ function renderProfileTrajectoryChart(rawHistory) {
     areaD += ` L ${pts[pts.length - 1].x} ${padY + plotH} Z`;
     const areaPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     areaPath.setAttribute('d', areaD);
-    areaPath.setAttribute('fill', 'url(#profile-elo-grad)');
+    areaPath.setAttribute('fill', `url(#${gradId})`);
     svg.appendChild(areaPath);
 
     // Stroke Path
@@ -1214,7 +1218,7 @@ function renderProfileTrajectoryChart(rawHistory) {
 
     const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
     title.textContent = idx === 0
-      ? `Starting Rating: 1500.0`
+      ? `Starting Rating: ${startElo.toFixed(1)}`
       : `Match #${idx}: ${pt.elo.toFixed(1)} Elo (${pt.raw.result || '-'} vs ${pt.raw.opponent_name || 'Opponent'} @ ${pt.raw.event_name || 'Event'})`;
     circle.appendChild(title);
     svg.appendChild(circle);
