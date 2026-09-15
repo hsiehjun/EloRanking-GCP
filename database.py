@@ -7844,21 +7844,16 @@ class PostgresDatabase:
             if end_date_str and end_date_str < today_utc_str:
                 is_ended = True
 
-            is_started = bool(
-                is_ended or
-                ev.get("isStarted") or ev.get("is_started") or ev.get("started") or
-                ev.get("active") or ev.get("isActive") or
-                status_obj.get("started") or status_obj.get("isStarted") or status_obj.get("active") or
-                current_round >= 1 or
-                (ev_date_str and ev_date_str < today_utc_str)
+            matches_cnt = int(ev.get("matches_count") or ev.get("total_matches") or len(ev.get("matches") or []) or 0)
+            has_pairings = bool(current_round >= 1 or matches_cnt > 0)
+            bcp_started = bool(
+                ev.get("started") is True or ev.get("isStarted") is True or
+                status_obj.get("started") is True or status_obj.get("isStarted") is True
             )
-            if not is_started and event_date and "T" in str(event_date) and not str(event_date).endswith("T00:00:00.000Z") and not str(event_date).endswith("T00:00:00Z"):
-                try:
-                    dt_parsed = datetime.fromisoformat(str(event_date).replace("Z", "+00:00"))
-                    if dt_parsed <= now_utc:
-                        is_started = True
-                except Exception:
-                    pass
+            if ev_date_str and ev_date_str > today_utc_str and not has_pairings:
+                is_started = False
+            else:
+                is_started = bool(is_ended or has_pairings or bcp_started)
 
             circuits = ev.get("circuits") or []
 
@@ -8264,6 +8259,8 @@ class PostgresDatabase:
                     ev_dt_str = (ev_dt_val.isoformat() if hasattr(ev_dt_val, "isoformat") else str(ev_dt_val or ""))[:10]
                     end_dt_str = (end_dt_val.isoformat() if hasattr(end_dt_val, "isoformat") else str(end_dt_val or ""))[:10]
                     c_round = int(db_ev.get("current_round") or rj.get("currentRound") or 0)
+                    matches_cnt = int(db_ev.get("matches_count") or db_ev.get("total_matches") or len(rj.get("matches") or []) or 0)
+                    has_pairings = bool(c_round >= 1 or matches_cnt > 0)
                     is_ended_val = bool(
                         db_ev.get("is_ended") or
                         rj.get("isEnded") or rj.get("is_ended") or rj.get("ended") or
@@ -8271,16 +8268,15 @@ class PostgresDatabase:
                         (end_dt_str and end_dt_str < today_utc_ov_str)
                     )
                     db_ev["is_ended"] = is_ended_val
-                    is_started_val = bool(
-                        is_ended_val or
-                        db_ev.get("is_started") or
-                        rj.get("isStarted") or rj.get("is_started") or rj.get("started") or
-                        rj.get("active") or rj.get("isActive") or
-                        status_obj.get("started") or status_obj.get("isStarted") or status_obj.get("active") or
-                        c_round >= 1 or
-                        (ev_dt_str and ev_dt_str < today_utc_ov_str)
+                    bcp_started_val = bool(
+                        rj.get("isStarted") is True or rj.get("started") is True or
+                        status_obj.get("started") is True or status_obj.get("isStarted") is True
                     )
-                    db_ev.setdefault("is_started", is_started_val)
+                    if ev_dt_str and ev_dt_str > today_utc_ov_str and not has_pairings:
+                        is_started_val = False
+                    else:
+                        is_started_val = bool(is_ended_val or has_pairings or bcp_started_val)
+                    db_ev["is_started"] = is_started_val
                     db_ev.setdefault("using_online_reg", bool(rj.get("usingOnlineReg", rj.get("using_online_reg", True))))
                     t_price = 0.0
                     try:

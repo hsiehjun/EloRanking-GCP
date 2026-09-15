@@ -852,6 +852,47 @@ function openDatePicker(id) {
   el.focus();
 }
 
+/**
+ * Deterministically sorts an array of match history objects in descending chronological order
+ * (most recent game first / on top).
+ * Preserves a stable tie-breaker if timestamps/rounds are identical by detecting if input was oldest-first.
+ */
+function sortMatchesNewestFirst(matches) {
+  if (!Array.isArray(matches) || matches.length <= 1) {
+    return Array.isArray(matches) ? [...matches] : [];
+  }
+
+  const firstDate = String(matches[0]?.match_date || matches[0]?.event_date || matches[0]?.date || '').slice(0, 10);
+  const lastDate = String(matches[matches.length - 1]?.match_date || matches[matches.length - 1]?.event_date || matches[matches.length - 1]?.date || '').slice(0, 10);
+  const inputIsAscending = Boolean(firstDate && lastDate && firstDate <= lastDate);
+
+  return matches
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const mA = a.item;
+      const mB = b.item;
+      const dateA = String(mA?.match_date || mA?.event_date || mA?.date || '').slice(0, 10);
+      const dateB = String(mB?.match_date || mB?.event_date || mB?.date || '').slice(0, 10);
+
+      if (dateA && dateB && dateA !== dateB) {
+        return dateB.localeCompare(dateA); // Newest date first
+      }
+      if (dateA && !dateB) return -1;
+      if (!dateA && dateB) return 1;
+
+      // Same date / event: sort by round descending (e.g., Round 5 before Round 4)
+      const roundA = Number(mA?.round || 0);
+      const roundB = Number(mB?.round || 0);
+      if (roundA !== roundB) {
+        return roundB - roundA; // Most recent round on top
+      }
+
+      // Fallback tie-breaker: if input was ascending (oldest first), reverse original index
+      return inputIsAscending ? (b.index - a.index) : (a.index - b.index);
+    })
+    .map(entry => entry.item);
+}
+
 if (typeof window !== 'undefined') {
   window.GLOBAL_CITY_COORDS = GLOBAL_CITY_COORDS;
   window.lookupCityCoordinates = lookupCityCoordinates;
@@ -861,6 +902,7 @@ if (typeof window !== 'undefined') {
   window.formatNumber = formatNumber;
   window.getEloBadgeClass = getEloBadgeClass;
   window.sortClientArray = sortClientArray;
+  window.sortMatchesNewestFirst = sortMatchesNewestFirst;
   window.handlePlayerChatClick = handlePlayerChatClick;
   window.openDatePicker = openDatePicker;
 }

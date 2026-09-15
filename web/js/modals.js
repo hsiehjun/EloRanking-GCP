@@ -460,7 +460,10 @@ async function openPlayerModal(playerId, playerName = '') {
     if (streakEl) streakEl.innerText = `${data.longest_win_streak || data.max_streak || 0} Wins`;
 
     currentPlayerTrajectory = data.trajectory || [];
-    const matchesList = data.history || data.win_path || [];
+    const rawMatchesList = data.history || data.win_path || [];
+    const matchesList = typeof sortMatchesNewestFirst === 'function'
+      ? sortMatchesNewestFirst(rawMatchesList)
+      : rawMatchesList;
     currentPlayerMatches = matchesList;
 
     // Render Recent Form beads

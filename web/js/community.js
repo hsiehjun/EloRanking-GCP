@@ -1037,57 +1037,47 @@ function isTournamentEnded(ev) {
 
 function isTournamentOngoing(ev) {
   if (!ev || isTournamentEnded(ev)) return false;
-  if (
-    ev.is_started === true ||
-    ev.isStarted === true ||
-    ev.started === true ||
-    ev.is_ongoing === true ||
-    ev.active === true ||
-    ev.isActive === true ||
-    ev.status?.started === true ||
-    ev.status?.isStarted === true ||
-    ev.status?.active === true ||
-    ev.status === 'ongoing' ||
-    ev.status === 'in_progress' ||
-    ev.status === 'live' ||
-    ev.status === 'active' ||
-    ev.raw_json?.started === true ||
-    ev.raw_json?.isStarted === true ||
-    ev.raw_json?.active === true ||
-    ev.raw_json?.status?.started === true ||
-    ev.raw_json?.status?.active === true
-  ) {
-    return true;
-  }
+
   const currentRound = Number(
     ev.current_round || ev.currentRound || ev.activeRound ||
     ev.raw_json?.currentRound || ev.raw_json?.current_round || 0
   );
-  if (currentRound >= 1) {
-    return true;
-  }
   const matchesCount = Number(ev.matches_count || ev.total_matches || 0);
-  if (matchesCount > 0 || (Array.isArray(ev.matches) && ev.matches.length > 0)) {
-    return true;
-  }
+  const hasPairings = currentRound >= 1 || matchesCount > 0 || (Array.isArray(ev.matches) && ev.matches.length > 0);
+
+  const bcpStarted = Boolean(
+    ev.started === true ||
+    ev.isStarted === true ||
+    ev.status?.started === true ||
+    ev.status?.isStarted === true ||
+    ev.status === 'ongoing' ||
+    ev.status === 'in_progress' ||
+    ev.status === 'live' ||
+    ev.raw_json?.started === true ||
+    ev.raw_json?.isStarted === true ||
+    ev.raw_json?.status?.started === true ||
+    ev.raw_json?.status?.isStarted === true
+  );
+
   const todayStr = getLocalIsoDateStr();
   const rawStart = ev.event_date || ev.eventDate || ev.start_date || ev.startDate || '';
   const startDateStr = String(rawStart).slice(0, 10);
-  if (startDateStr) {
-    if (startDateStr < todayStr) {
-      return true;
-    }
-    if (startDateStr === todayStr) {
-      const sStr = String(rawStart);
-      if (sStr.includes('T') && !sStr.endsWith('T00:00:00.000Z') && !sStr.endsWith('T00:00:00Z') && !sStr.endsWith('T00:00:00')) {
-        const startMs = new Date(sStr).getTime();
-        if (!isNaN(startMs) && Date.now() >= startMs) {
-          return true;
-        }
-      }
-    }
+
+  // Future events without pairings are never ongoing
+  if (startDateStr && startDateStr > todayStr && !hasPairings) {
+    return false;
   }
-  return false;
+
+  if (hasPairings || bcpStarted) {
+    return true;
+  }
+
+  // If raw_json is present, rely strictly on pairings or explicit started flags above
+  if (ev.raw_json && typeof ev.raw_json === 'object') {
+    return false;
+  }
+
+  return Boolean(ev.is_started === true || ev.is_ongoing === true);
 }
 window.isTournamentEnded = isTournamentEnded;
 window.isTournamentOngoing = isTournamentOngoing;
@@ -3680,7 +3670,7 @@ window.syncRegistrationFullName = syncRegistrationFullName;
         statusEl.textContent = '✓ You are registered for this tournament. Updating details will sync to your roster.';
       }
       if (submitBtn) submitBtn.textContent = 'Update Registration Details';
-    } else if (data.is_started || data.is_ongoing || data.is_ended || isTournamentOngoing(data) || isTournamentEnded(data)) {
+    } else if (isTournamentOngoing(data) || isTournamentEnded(data)) {
       if (statusEl) {
         statusEl.style.display = 'block';
         statusEl.style.background = 'rgba(239, 68, 68, 0.15)';
@@ -3810,9 +3800,6 @@ async function submitEventRegistration() {
   const statusEl = document.getElementById('event-reg-status');
 
   if (!activeRegistrationEvent.is_registered && (
-    activeRegistrationEvent.is_started ||
-    activeRegistrationEvent.is_ongoing ||
-    activeRegistrationEvent.is_ended ||
     isTournamentOngoing(activeRegistrationEvent) ||
     isTournamentEnded(activeRegistrationEvent)
   )) {

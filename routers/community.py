@@ -473,25 +473,23 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
     except (ValueError, TypeError):
         c_round = 0
 
-    is_started = bool(
-        is_ended or
-        ev.get("is_started") or ev.get("isStarted") or ev.get("started") or
-        ev.get("active") or ev.get("isActive") or
-        rj.get("isStarted") or rj.get("is_started") or rj.get("started") or
-        rj.get("active") or rj.get("isActive") or
-        status_obj.get("started") or status_obj.get("isStarted") or status_obj.get("active") or
-        c_round >= 1 or
-        (ev_date_str and ev_date_str < today_utc_str)
+    matches_cnt = 0
+    try:
+        matches_cnt = int(ev.get("matches_count") or ev.get("total_matches") or len(ev.get("matches") or []) or 0)
+    except (ValueError, TypeError):
+        matches_cnt = 0
+
+    has_pairings = bool(c_round >= 1 or matches_cnt > 0)
+    bcp_explicit_started = bool(
+        ev.get("started") is True or ev.get("isStarted") is True or
+        rj.get("started") is True or rj.get("isStarted") is True or
+        status_obj.get("started") is True or status_obj.get("isStarted") is True
     )
-    if not is_started and ev_date_val:
-        raw_s = ev_date_val.isoformat() if hasattr(ev_date_val, "isoformat") else str(ev_date_val)
-        if "T" in raw_s and not raw_s.endswith("T00:00:00.000Z") and not raw_s.endswith("T00:00:00Z"):
-            try:
-                dt_parsed = datetime.fromisoformat(raw_s.replace("Z", "+00:00"))
-                if dt_parsed <= now_utc:
-                    is_started = True
-            except Exception:
-                pass
+
+    if ev_date_str and ev_date_str > today_utc_str and not has_pairings:
+        is_started = False
+    else:
+        is_started = bool(is_ended or has_pairings or bcp_explicit_started)
 
     return is_started, is_ended
 

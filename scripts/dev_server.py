@@ -240,8 +240,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                         },
                         {
                             "match_date": "2022-04-16",
+                            "event_id": "ev_gemhammer_2022",
                             "event_name": "GemHammer RTT April 2022",
-                            "round": "R4",
+                            "round": 4,
                             "result": "W",
                             "player_score": 95,
                             "opponent_score": 50,
@@ -250,7 +251,52 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "opponent_faction": "Aeldari",
                             "opponent_elo": 2150.0,
                             "delta_elo": 14.1,
-                            "new_elo": 2516.4
+                            "new_elo": 2450.0
+                        },
+                        {
+                            "match_date": "2026-06-21",
+                            "event_id": "ev_tacoma_gt_2026",
+                            "event_name": "Battle For The Crown GT 2026",
+                            "round": 1,
+                            "result": "W",
+                            "player_score": 100,
+                            "opponent_score": 45,
+                            "player_faction": "Aeldari",
+                            "opponent_name": "Richard Siegler",
+                            "opponent_faction": "Tau Empire",
+                            "opponent_elo": 2380.0,
+                            "delta_elo": 18.2,
+                            "new_elo": 2468.2
+                        },
+                        {
+                            "match_date": "2026-06-21",
+                            "event_id": "ev_tacoma_gt_2026",
+                            "event_name": "Battle For The Crown GT 2026",
+                            "round": 2,
+                            "result": "W",
+                            "player_score": 92,
+                            "opponent_score": 71,
+                            "player_faction": "Aeldari",
+                            "opponent_name": "Jack Harpster",
+                            "opponent_faction": "Blood Angels",
+                            "opponent_elo": 2250.0,
+                            "delta_elo": 13.5,
+                            "new_elo": 2481.7
+                        },
+                        {
+                            "match_date": "2026-06-21",
+                            "event_id": "ev_tacoma_gt_2026",
+                            "event_name": "Battle For The Crown GT 2026",
+                            "round": 3,
+                            "result": "W",
+                            "player_score": 98,
+                            "opponent_score": 60,
+                            "player_faction": "Aeldari",
+                            "opponent_name": "John Lennon",
+                            "opponent_faction": "Ultramarines",
+                            "opponent_elo": 2340.5,
+                            "delta_elo": 13.5,
+                            "new_elo": 2495.2
                         }
                     ]
                 }
@@ -259,6 +305,64 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming"):
+            upcoming_list = [
+                {
+                    "id": "ev_upcoming_rtt_sep",
+                    "event_id": "ev_upcoming_rtt_sep",
+                    "name": "Critical Hit Games September RTT 2026",
+                    "event_date": "2026-09-26",
+                    "end_date": "2026-09-26",
+                    "city": "Seattle",
+                    "state": "WA",
+                    "country": "US",
+                    "total_players": 24,
+                    "num_tickets": 32,
+                    "ticket_price": 25.0,
+                    "current_round": 0,
+                    "matches_count": 0,
+                    "is_started": False,
+                    "is_ended": False,
+                    "active": True,
+                    "raw_json": {"active": True, "isActive": True, "currentRound": 0, "started": False}
+                },
+                {
+                    "id": "ev_upcoming_gt_oct",
+                    "event_id": "ev_upcoming_gt_oct",
+                    "name": "Pacific Northwest Autumn GT 2026",
+                    "event_date": "2026-10-24",
+                    "end_date": "2026-10-25",
+                    "city": "Portland",
+                    "state": "OR",
+                    "country": "US",
+                    "total_players": 58,
+                    "num_tickets": 64,
+                    "ticket_price": 65.0,
+                    "current_round": 0,
+                    "matches_count": 0,
+                    "is_started": False,
+                    "is_ended": False,
+                    "active": True,
+                    "raw_json": {"active": True, "isActive": True, "currentRound": 0, "started": False}
+                }
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "events": upcoming_list,
+                    "events_upcoming": upcoming_list,
+                    "upcoming_events": upcoming_list,
+                    "events_recent": [],
+                    "ongoing_events": [],
+                    "past_events": [],
+                    "local_leaderboard": [],
+                    "team_standings": []
+                }).encode("utf-8"))
             return
 
         if clean_path.startswith("api/event/"):
@@ -603,8 +707,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 "history": [
                     {
                         "match_date": "2026-05-10",
+                        "event_id": "ev_atlanta_2026",
                         "event_name": "Warhammer Open Atlanta",
-                        "round": "R1",
+                        "round": 1,
                         "result": "W",
                         "player_score": 85,
                         "opponent_score": 45,
@@ -617,8 +722,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     {
                         "match_date": "2026-06-14",
+                        "event_id": "ev_lso_2026",
                         "event_name": "Lone Star Open 2026",
-                        "round": "R2",
+                        "round": 2,
                         "result": "L",
                         "player_score": 52,
                         "opponent_score": 78,
@@ -631,8 +737,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     {
                         "match_date": "2026-07-20",
-                        "event_name": "Crucible GT 2026",
-                        "round": "R3",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "event_name": "US Open Tacoma GT 2026",
+                        "round": 3,
                         "result": "W",
                         "player_score": 90,
                         "opponent_score": 55,
@@ -645,8 +752,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     {
                         "match_date": "2026-08-01",
+                        "event_id": "ev_bayarea_2026",
                         "event_name": "Bay Area Cup 2026",
-                        "round": "R4",
+                        "round": 4,
                         "result": "W",
                         "player_score": 88,
                         "opponent_score": 60,
@@ -659,8 +767,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     {
                         "match_date": "2026-08-15",
+                        "event_id": "ev_nova_2026",
                         "event_name": "Nova Open 2026",
-                        "round": "R5",
+                        "round": 5,
                         "result": "L",
                         "player_score": 45,
                         "opponent_score": 82,
@@ -673,8 +782,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     {
                         "match_date": "2026-08-28",
+                        "event_id": "ev_lgt_2026",
                         "event_name": "LGT Masters 2026",
-                        "round": "R6",
+                        "round": 6,
                         "result": "L",
                         "player_score": 58,
                         "opponent_score": 80,
@@ -687,8 +797,9 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     },
                     {
                         "match_date": "2026-09-02",
-                        "event_name": "Ironclad Invitational 2026",
-                        "round": "R7",
+                        "event_id": "ev_tacoma_gt_2026",
+                        "event_name": "US Open Tacoma GT 2026",
+                        "round": 7,
                         "result": "W",
                         "player_score": 95,
                         "opponent_score": 42,
@@ -737,6 +848,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({"success": True, "match_id": room_id or "WH40K-DEV1", "data": data, "state": None}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/armylists"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"lists": [], "count": 0}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "status": "ok", "data": [], "events": [], "players": [], "lists": [], "count": 0}).encode("utf-8"))
             return
 
         if clean_path in ("app", "app.html", "aos", "aos/app", "40k", "40k/app"):

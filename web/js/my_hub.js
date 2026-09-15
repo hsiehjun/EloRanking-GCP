@@ -655,10 +655,15 @@ function renderMyHub(data) {
     `;
   }
 
-  // Recent Form Beads (Latest 8 matches)
+  // Sort matches newest-first deterministically
+  const sortedHistory = typeof sortMatchesNewestFirst === 'function'
+    ? sortMatchesNewestFirst(history)
+    : history.slice().reverse();
+
+  // Recent Form Beads (Latest 8 matches, newest on left)
   let recentFormHtml = '';
-  if (history.length > 0) {
-    const recentMatches = history.slice(-8);
+  if (sortedHistory.length > 0) {
+    const recentMatches = sortedHistory.slice(0, 8);
     const beads = recentMatches.map(m => {
       const res = m.result === 'W' ? 'form-win' : (m.result === 'L' ? 'form-loss' : 'form-draw');
       const score = m.player_score !== undefined && m.opponent_score !== undefined ? `${m.player_score}-${m.opponent_score}` : m.result;
@@ -682,15 +687,15 @@ function renderMyHub(data) {
     return `<span class="faction-pill" title="${escapeHtml(f.faction)} (${f.games} matches)">#${i+1} ${escapeHtml(f.faction)} <strong style="color:var(--text-main); margin-left:2px;">${f.games}G</strong></span>`;
   }).join(' ');
 
-  // Build Tournament Journey Accordion for My Hub (defaulted to collapsed all)
+  // Build Tournament Journey Accordion for My Hub (defaulted to collapsed all, newest event first)
   const hubEventsMap = new Map();
-  history.slice().reverse().forEach(m => {
+  sortedHistory.forEach(m => {
     const evKey = m.event_id || m.event_name || 'Tournament Match';
     if (!hubEventsMap.has(evKey)) {
       hubEventsMap.set(evKey, {
         event_id: m.event_id || '',
         event_name: m.event_name || 'Tournament Match',
-        date: m.match_date ? m.match_date.substring(0, 10) : '',
+        date: (m.match_date || m.event_date || '').substring(0, 10),
         faction: m.player_faction || p.top_faction || '',
         wins: 0,
         losses: 0,
@@ -706,7 +711,12 @@ function renderMyHub(data) {
     ev.totalEloDelta += Number(m.delta_elo || 0);
     ev.rounds.push(m);
   });
-  const hubEventsList = Array.from(hubEventsMap.values());
+  const hubEventsList = Array.from(hubEventsMap.values()).sort((a, b) => {
+    const dA = a.date || '';
+    const dB = b.date || '';
+    if (dA !== dB) return dB.localeCompare(dA);
+    return 0;
+  });
 
   let hubEventsAccordionHtml = '';
   if (hubEventsList.length === 0) {
@@ -762,7 +772,12 @@ function renderMyHub(data) {
           <div class="profile-event-header" onclick="toggleProfileEventCard(${idx}, '#hub-events-accordion-container', 'btn-hub-toggle-all-events')">
             <div class="profile-event-title-group">
               <div class="profile-event-name">
-                <span>${escapeHtml(ev.event_name)}</span>
+                ${ev.event_id ? `
+                  <span class="player-link" style="color: #38bdf8; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem;" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.event_id)}')" title="Click to view Tournament Standings & Details">
+                    <span>${escapeHtml(ev.event_name)}</span>
+                    <span style="font-size: 0.72rem; opacity: 0.85;">↗</span>
+                  </span>
+                ` : `<span>${escapeHtml(ev.event_name)}</span>`}
                 ${isFlawless ? '<span class="badge" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); font-size:0.68rem; margin-left:0.35rem; white-space:nowrap;">🥇 Flawless</span>' : ''}
               </div>
               <div class="profile-event-sub">
@@ -898,8 +913,8 @@ function renderMyHub(data) {
         ${registeredTournaments.length > 0 ? `<span class="hub-tab-count">${registeredTournaments.length}</span>` : ''}
       </button>
       <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matches' ? 'active' : ''}" data-tab="matches" onclick="switchHubMobileTab('matches')">
-        <span>📜 Matches</span>
-        ${totalHistoryMatches > 0 ? `<span class="hub-tab-count">${totalHistoryMatches}</span>` : ''}
+        <span>🏆 Journey</span>
+        ${hubEventsList.length > 0 ? `<span class="hub-tab-count">${hubEventsList.length}</span>` : ''}
       </button>
       <button class="hub-mobile-tab-btn ${currentHubMobileTab === 'matrix' ? 'active' : ''}" data-tab="matrix" onclick="switchHubMobileTab('matrix')">
         <span>🎯 Matrix</span>
@@ -989,14 +1004,14 @@ function renderMyHub(data) {
       <div class="hub-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
           <div style="display: flex; align-items: center; gap: 0.5rem;">
-            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📜 Recent Matches</h3>
+            <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">🏆 Recent Matches</h3>
             <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">Latest 3</span>
           </div>
           <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} career matches</span>
         </div>
-        ${history.length > 0 ? `
+        ${sortedHistory.length > 0 ? `
           <div style="display: flex; flex-direction: column; gap: 0.5rem;">
-            ${history.slice().reverse().slice(0, 3).map(h => {
+            ${sortedHistory.slice(0, 3).map(h => {
               const delta = Number(h.delta_elo || 0);
               const isPos = delta >= 0;
               const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
@@ -1033,7 +1048,7 @@ function renderMyHub(data) {
             }).join('')}
           </div>
           <button class="hub-view-all-btn" onclick="switchHubMobileTab('matches')">
-            <span>View All Career Matches (${history.length})</span>
+            <span>View Full Tournament Journey (${hubEventsList.length} Events)</span>
             <span class="hub-btn-arrow">➔</span>
           </button>
         ` : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>'}
@@ -1244,64 +1259,8 @@ function renderMyHub(data) {
       </div>
     </div>
 
-    <!-- 2-Column Row 3: Career Match History & Live Game Tracker History -->
-    <div class="hub-grid-2col hub-row-matches-tracker" style="margin-top: 1.25rem;">
-
-      <!-- Card 5: Half-Sized Career Match History -->
-      <div class="hub-card hub-card-history">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <h3 style="font-size: 1.05rem; font-weight: 700; color: #fff; margin: 0;">📜 Career Match History</h3>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">${history.length} matches</span>
-        </div>
-        ${history.length > 0 ? `
-          <div style="margin-bottom: 0.65rem;">
-            <input type="text" class="hub-search-input" placeholder="🔍 Filter matches by opponent, tournament, or result..." oninput="filterHubHistory(this.value)">
-          </div>
-          <div class="hub-table-wrapper">
-            <table id="hub-history-table" class="hub-table">
-              <thead>
-                <tr>
-                  <th style="width: 52px;">Date</th>
-                  <th style="width: 38%;">Tournament</th>
-                  <th style="width: 32%;">Opponent</th>
-                  <th style="width: 50px; text-align: center;">Result</th>
-                  <th style="width: 54px; text-align: right;">Elo</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${history.slice().reverse().map(h => {
-                  const delta = Number(h.delta_elo || 0);
-                  const isPos = delta >= 0;
-                  const res = h.result === 'W' ? '<span class="res-badge res-w" style="font-size:0.68rem; padding:0.1rem 0.35rem;">WIN</span>' : (h.result === 'L' ? '<span class="res-badge res-l" style="font-size:0.68rem; padding:0.1rem 0.35rem;">LOSS</span>' : '<span class="res-badge res-d" style="font-size:0.68rem; padding:0.1rem 0.35rem;">DRAW</span>');
-                  return `
-                    <tr>
-                      <td style="color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono);">${h.match_date ? h.match_date.substring(5, 10) : '-'}</td>
-                      <td class="cell-ellipsis" title="${escapeHtml(h.event_name || 'Event')}">
-                        <span class="player-link" style="font-size:0.78rem;" onclick="openEventModal('${h.event_id}', false)">${escapeHtml(h.event_name || 'Event')}</span>
-                      </td>
-                      <td class="cell-ellipsis" title="${escapeHtml(h.opponent_name || 'Opponent')}">
-                        ${(h.opponent_id || h.opponent_name) ? `
-                          <span class="player-link" style="font-size:0.78rem; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${encodeURIComponent(h.opponent_id || h.opponent_name)}')">
-                            ${escapeHtml(h.opponent_name || 'Opponent')}
-                          </span>
-                        ` : `
-                          <b style="font-size:0.78rem; color:#e2e8f0;">${escapeHtml(h.opponent_name || 'Opponent')}</b>
-                        `}
-                      </td>
-                      <td style="text-align: center;">${res}</td>
-                      <td style="text-align: right;">
-                        <span style="color: ${isPos ? 'var(--win)' : 'var(--loss)'}; font-family:var(--font-mono); font-size:0.75rem; font-weight:700;">
-                          ${isPos ? '+' : ''}${delta.toFixed(1)}
-                        </span>
-                      </td>
-                    </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-        ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading match history...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No historical matches recorded.</div>')}
-      </div>
+    <!-- Full-Width Row 3: Live Game Tracker & Scorecard History -->
+    <div class="hub-row-matches-tracker" style="margin-top: 1.25rem;">
 
       <!-- Card 6: 3-Tier 11th Edition Live Game Tracker & Match History -->
       <div class="hub-card hub-card-tracker">
