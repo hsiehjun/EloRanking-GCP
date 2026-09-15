@@ -1191,13 +1191,32 @@ async def api_event_details(event_id: str, force_sync: bool = False):
         if not event_details:
             raise HTTPException(status_code=404, detail=f"Tournament '{event_id_str}' not found on Best Coast Pairings")
 
+    # Canonical ended status check
+    raw_ev = event_details.get("raw_json") or {}
+    if isinstance(raw_ev, str):
+        try:
+            raw_ev = json.loads(raw_ev)
+        except Exception:
+            raw_ev = {}
+
+    is_ended = bool(
+        event_details.get("is_ended") or
+        event_details.get("ended") or
+        (isinstance(raw_ev, dict) and (
+            raw_ev.get("ended") is True or
+            raw_ev.get("isEnded") is True or
+            (isinstance(raw_ev.get("status"), dict) and raw_ev["status"].get("ended") is True)
+        ))
+    )
+    event_details["is_ended"] = is_ended
+    event_details["ended"] = is_ended
+
     # For BCP events: Event info / Matches come from DB.
     # Tournament placing and live roster come strictly from BCP API (strictly zero DB writes).
     try:
         scraper = BestCoastPairingsScraper(db=db, request_delay=0.0)
 
         # 1. Detect if event is a Team or Doubles event
-        raw_ev = event_details.get("raw_json") or {}
         is_team_event = bool(
             raw_ev.get("teamEvent") or 
             (raw_ev.get("totalTeamPlayers", 0) > 0) or
