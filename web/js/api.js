@@ -1331,6 +1331,17 @@ window.api = {
       headers,
       body: JSON.stringify(payload)
     });
+  },
+
+  // BCP: Fetch Army List by List ID
+  async getBcpArmyList(listId, options = {}) {
+    const token = this.getAuthToken();
+    const bcpToken = options.bcp_token || this.getBcpToken();
+    const headers = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (bcpToken) headers['X-BCP-Token'] = bcpToken;
+    const cleanId = encodeURIComponent(String(listId || '').replace(/^\/list\//, '').trim());
+    return this._fetchJson(`/api/bcp/armylist/${cleanId}`, { headers });
   }
 };
 

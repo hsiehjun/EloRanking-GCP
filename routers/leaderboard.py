@@ -1003,7 +1003,13 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
         if list_url and list_url.startswith("/"):
             list_url = f"https://www.bestcoastpairings.com{list_url}"
 
-        has_list = bool(list_text or list_url)
+        list_id = str(p.get("listId") or p.get("list_id") or (cached.get("list_id") if cached else "") or "").strip()
+        if not list_id and list_url:
+            m_lid = re.search(r'/list/([a-zA-Z0-9_-]+)', list_url)
+            if m_lid:
+                list_id = m_lid.group(1)
+
+        has_list = bool(list_text or list_url or list_id)
 
         db_rating = None
         for cid in candidate_ids:
@@ -1082,6 +1088,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
             player_dict["user_id"] = str(u.get("id") or p.get("userId") or "")
             player_dict["army_list"] = list_text
             player_dict["list_url"] = list_url
+            player_dict["list_id"] = list_id
             player_dict["has_list"] = has_list
             formatted.append(player_dict)
         else:
@@ -1104,6 +1111,7 @@ def format_bcp_roster_to_players(raw_players: list, existing_players: list = Non
                 "teamPlayerId": team_player_id,
                 "army_list": list_text,
                 "list_url": list_url,
+                "list_id": list_id,
                 "has_list": has_list,
                 "full_name": full_name,
                 "faction": resolved_fac,
@@ -1647,7 +1655,12 @@ async def api_event_details(event_id: str, force_sync: bool = False):
                 lu = f"https://www.bestcoastpairings.com{lu}"
                 pl["list_url"] = lu
 
-            pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url"))
+            if not pl.get("list_id") and lu:
+                m_lid = re.search(r'/list/([a-zA-Z0-9_-]+)', lu)
+                if m_lid:
+                    pl["list_id"] = m_lid.group(1)
+
+            pl["has_list"] = bool(pl.get("army_list") or pl.get("list_url") or pl.get("list_id"))
 
     event_details["sync_in_progress"] = False
     return event_details

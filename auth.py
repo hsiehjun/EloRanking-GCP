@@ -1646,6 +1646,34 @@ class AuthManager:
         tokens = self.get_valid_bcp_tokens(user_id, force_refresh=force_refresh)
         return tokens.get("id_token") or tokens.get("access_token")
 
+    def get_any_valid_bcp_token(self) -> Optional[str]:
+        """Returns any active BCP token available from environment or linked users."""
+        env_tok = os.environ.get("BCP_ACCESS_TOKEN") or os.environ.get("BCP_TOKEN") or os.environ.get("BCP_JWT")
+        if env_tok:
+            return env_tok.strip()
+
+        try:
+            from psycopg2 import extras
+            with self.db.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("""
+                    SELECT id FROM users
+                    WHERE (bcp_access_token IS NOT NULL OR bcp_refresh_token IS NOT NULL)
+                      AND bcp_user_id IS NOT NULL
+                    ORDER BY bcp_token_expires_at DESC NULLS LAST, updated_at DESC
+                    LIMIT 5;
+                    """)
+                    rows = cur.fetchall() or []
+                    for row in rows:
+                        uid = row.get("id")
+                        if uid:
+                            tok = self.get_valid_bcp_token(uid)
+                            if tok:
+                                return tok
+        except Exception as e:
+            logger.debug(f"Notice finding valid BCP token across users: {e}")
+        return None
+
 
     def get_user_competitor_hub(self, player_id: Optional[str] = None, user_id: Optional[str] = None, game_system: Optional[str] = "40k") -> Dict[str, Any]:
         """Generates comprehensive personalized Competitor Hub analytics."""

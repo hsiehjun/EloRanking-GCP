@@ -35,21 +35,52 @@ function formatEventPlayerFaction(rawFaction, maxFactions = 1) {
   return formatPlayerFaction(rawFaction, maxFactions, true);
 }
 
+function isUserBcpConnected() {
+  const user = (typeof currentUser !== 'undefined' && currentUser) ? currentUser : null;
+  const bcpTok = (window.api?.getBcpToken?.()) ||
+                 localStorage.getItem('bcp_jwt') ||
+                 localStorage.getItem('bcp_token') ||
+                 localStorage.getItem('bcp_access_token') || '';
+  if (bcpTok && bcpTok.length > 10) return true;
+  if (user && (user.bcp_connected || user.bcp_user_id || user.bcp_email || user.bcp_token)) return true;
+  return false;
+}
+
+function renderBcpLinkRequiredCard(listUrl) {
+  return `
+    <div style="text-align:center; padding:1.75rem 1rem;">
+      <div style="font-size:2.5rem; margin-bottom:0.75rem;">🔒</div>
+      <div style="font-size:1.15rem; font-weight:800; color:#38bdf8; margin-bottom:0.45rem;">Best Coast Pairings Account Required</div>
+      <div style="font-size:0.86rem; color:var(--text-secondary); max-width:440px; margin:0 auto 1.35rem auto; line-height:1.5;">
+        This competitor registered their tournament army roster on Best Coast Pairings. Link your Best Coast Pairings account to view army rosters directly inside OmniTactica.
+      </div>
+      <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:0.75rem;">
+        <button type="button" class="btn btn-primary" onclick="closeModal('event-army-list-modal'); if (typeof openBcpLinkModal === 'function') openBcpLinkModal();" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:700; font-size:0.86rem; padding:0.6rem 1.35rem; background:linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border:1px solid #38bdf8; color:#fff; border-radius:6px; cursor:pointer;">
+          🔗 Link BCP Account
+        </button>
+        ${listUrl ? `
+          <a href="${escapeHtml(listUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:600; font-size:0.86rem; padding:0.6rem 1.15rem; text-decoration:none; border:1px solid var(--border); color:var(--text-secondary); border-radius:6px;">
+            Open on BCP ↗
+          </a>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
 function hasPlayerSubmittedList(p) {
   if (!p) return false;
   if (p.has_list !== undefined) return Boolean(p.has_list);
-  const text = String(p.army_list || p.army_list_text || p.raw_list || p.list_text || p.armyList || p.armyListText || '').trim();
-  const url = String(p.list_url || p.listUrl || '').trim();
-  if (url) return true;
-  if (!text) return false;
-  if (text.startsWith('/list/') || text.startsWith('http://') || text.startsWith('https://') || text.startsWith('/v1/')) return true;
-  return text.length > 5;
+  const info = getPlayerListDetails(p);
+  return info.hasList;
 }
 
 function getPlayerListDetails(p) {
-  if (!p) return { text: '', url: '', hasList: false };
+  if (!p) return { text: '', url: '', listId: '', hasList: false };
   let text = String(p.army_list || p.army_list_text || p.raw_list || p.list_text || p.armyList || p.armyListText || '').trim();
   let url = String(p.list_url || p.listUrl || '').trim();
+  let listId = String(p.list_id || p.listId || '').trim();
+
   if (text.startsWith('/list/') || text.startsWith('http://') || text.startsWith('https://') || text.startsWith('/v1/')) {
     if (!url) url = text;
     text = '';
@@ -57,8 +88,15 @@ function getPlayerListDetails(p) {
   if (url && url.startsWith('/')) {
     url = `https://www.bestcoastpairings.com${url}`;
   }
-  const hasList = Boolean(text || url);
-  return { text, url, hasList };
+  if (!listId && url) {
+    const m = url.match(/\/list\/([a-zA-Z0-9_-]+)/);
+    if (m) listId = m[1];
+  }
+  if (listId && !url) {
+    url = `https://www.bestcoastpairings.com/list/${listId}`;
+  }
+  const hasList = Boolean(text || url || listId);
+  return { text, url, listId, hasList };
 }
 
 if (typeof window !== 'undefined') {
@@ -66,6 +104,8 @@ if (typeof window !== 'undefined') {
   window.formatEventPlayerFaction = formatEventPlayerFaction;
   window.hasPlayerSubmittedList = hasPlayerSubmittedList;
   window.getPlayerListDetails = getPlayerListDetails;
+  window.isUserBcpConnected = isUserBcpConnected;
+  window.renderBcpLinkRequiredCard = renderBcpLinkRequiredCard;
 }
 
 function debounceEventSearch() {
@@ -4018,27 +4058,83 @@ function openEventPlayerListModal(playerIdentifier) {
       contentEl.style.whiteSpace = 'pre-wrap';
       contentEl.style.fontFamily = 'var(--font-mono, monospace)';
       contentEl.style.lineHeight = '1.45';
+      contentEl.style.background = 'rgba(15, 23, 42, 0.9)';
       contentEl.innerText = listInfo.text;
       if (btnCopy) btnCopy.style.display = 'inline-flex';
-    } else if (listInfo.url) {
-      contentEl.style.whiteSpace = 'normal';
-      contentEl.style.fontFamily = 'inherit';
-      contentEl.innerHTML = `
-        <div style="text-align:center; padding:1.75rem 1rem;">
-          <div style="font-size:2.2rem; margin-bottom:0.6rem;">📋</div>
-          <div style="font-size:1.1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Official Best Coast Pairings Roster</div>
-          <div style="font-size:0.84rem; color:var(--text-secondary); max-width:440px; margin:0 auto 1.35rem auto; line-height:1.45;">
-            This competitor registered their tournament army roster via Best Coast Pairings.
+    } else if (listInfo.listId || listInfo.url) {
+      const isLinked = isUserBcpConnected();
+      if (!isLinked) {
+        contentEl.style.whiteSpace = 'normal';
+        contentEl.style.fontFamily = 'inherit';
+        contentEl.style.background = 'transparent';
+        contentEl.innerHTML = renderBcpLinkRequiredCard(listInfo.url);
+        if (btnCopy) btnCopy.style.display = 'none';
+      } else {
+        // User is BCP linked: fetch directly via BCP API
+        contentEl.style.whiteSpace = 'normal';
+        contentEl.style.fontFamily = 'inherit';
+        contentEl.style.background = 'transparent';
+        contentEl.innerHTML = `
+          <div style="text-align:center; padding:2.5rem 1rem;">
+            <div style="display:inline-block; width:34px; height:34px; border:3px solid rgba(56,189,248,0.2); border-top-color:#38bdf8; border-radius:50%; animation:spin 0.8s linear infinite; margin-bottom:0.85rem;"></div>
+            <div style="font-size:1rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Fetching Roster from Best Coast Pairings...</div>
+            <div style="font-size:0.8rem; color:var(--text-secondary);">Connecting via your linked BCP credentials</div>
           </div>
-          <a href="${escapeHtml(listInfo.url)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; font-weight:700; font-size:0.84rem; padding:0.55rem 1.25rem; text-decoration:none; background:#0284c7; border:1px solid #38bdf8; color:#fff; border-radius:6px;">
-            📄 Open Roster on Best Coast Pairings ↗
-          </a>
-        </div>
-      `;
-      if (btnCopy) btnCopy.style.display = 'none';
+        `;
+        if (btnCopy) btnCopy.style.display = 'none';
+
+        const targetListId = listInfo.listId || listInfo.url;
+        window.api.getBcpArmyList(targetListId)
+          .then(res => {
+            if (res && res.success && res.text) {
+              const trimmed = res.text.trim();
+              if (p) {
+                p.army_list = trimmed;
+                p.army_list_text = trimmed;
+              }
+              contentEl.style.whiteSpace = 'pre-wrap';
+              contentEl.style.fontFamily = 'var(--font-mono, monospace)';
+              contentEl.style.lineHeight = '1.45';
+              contentEl.style.background = 'rgba(15, 23, 42, 0.9)';
+              contentEl.innerText = trimmed;
+              if (btnCopy) btnCopy.style.display = 'inline-flex';
+            } else if (res && res.requires_bcp_link) {
+              contentEl.style.whiteSpace = 'normal';
+              contentEl.style.fontFamily = 'inherit';
+              contentEl.style.background = 'transparent';
+              contentEl.innerHTML = renderBcpLinkRequiredCard(listInfo.url);
+              if (btnCopy) btnCopy.style.display = 'none';
+            } else {
+              contentEl.style.whiteSpace = 'normal';
+              contentEl.style.fontFamily = 'inherit';
+              contentEl.style.background = 'transparent';
+              contentEl.innerHTML = `
+                <div style="text-align:center; padding:1.75rem 1rem;">
+                  <div style="font-size:2.2rem; margin-bottom:0.6rem;">📋</div>
+                  <div style="font-size:1.05rem; font-weight:700; color:#38bdf8; margin-bottom:0.35rem;">Official Best Coast Pairings Roster</div>
+                  <div style="font-size:0.84rem; color:var(--text-secondary); max-width:440px; margin:0 auto 1.35rem auto; line-height:1.45;">
+                    ${escapeHtml(res?.error || 'Full roster text could not be loaded automatically.')}
+                  </div>
+                  <a href="${escapeHtml(listInfo.url)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display:inline-flex; align-items:center; gap:0.5rem; font-weight:700; font-size:0.84rem; padding:0.55rem 1.25rem; text-decoration:none; background:#0284c7; border:1px solid #38bdf8; color:#fff; border-radius:6px;">
+                    📄 Open Roster on Best Coast Pairings ↗
+                  </a>
+                </div>
+              `;
+              if (btnCopy) btnCopy.style.display = 'none';
+            }
+          })
+          .catch(err => {
+            contentEl.style.whiteSpace = 'normal';
+            contentEl.style.fontFamily = 'inherit';
+            contentEl.style.background = 'transparent';
+            contentEl.innerHTML = renderBcpLinkRequiredCard(listInfo.url);
+            if (btnCopy) btnCopy.style.display = 'none';
+          });
+      }
     } else {
       contentEl.style.whiteSpace = 'normal';
       contentEl.style.fontFamily = 'inherit';
+      contentEl.style.background = 'transparent';
       contentEl.innerHTML = `
         <div style="text-align:center; padding:1.75rem 1rem; color:var(--text-muted);">
           <div style="font-size:2rem; margin-bottom:0.6rem;">📄</div>

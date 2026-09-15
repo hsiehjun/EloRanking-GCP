@@ -119,6 +119,95 @@ async def api_get_armylist(list_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Army list not found")
     return {"success": True, "army_list": item}
 
+@router.get("/api/bcp/armylist/{list_id}", summary="Fetch official army list text from Best Coast Pairings")
+async def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Optional[str] = Query(None)):
+    """
+    Fetches raw army list text from BCP via GET /v1/armylists/{list_id}.
+    Requires user BCP authorization token. If unauthenticated, returns requires_bcp_link=True.
+    """
+    clean_lid = str(list_id or "").strip()
+    if clean_lid.startswith("/list/"):
+        clean_lid = clean_lid.replace("/list/", "")
+    clean_lid = clean_lid.strip()
+
+    if not clean_lid:
+        raise HTTPException(status_code=400, detail="Missing list_id")
+
+    # 1. Resolve BCP Token from header or query param
+    tok = bcp_token or request.headers.get("X-BCP-Token")
+    auth_mgr = get_auth_manager()
+
+    user_id = None
+    session_token = request.cookies.get("session_token")
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        bearer_val = auth_header.split(" ", 1)[1].strip()
+        if not tok and (bearer_val.startswith("eyJ") and len(bearer_val) > 100):
+            try:
+                claims = _decode_jwt_payload(bearer_val)
+                if claims and ("cognito:username" in claims or "sub" in claims):
+                    tok = bearer_val
+            except Exception:
+                pass
+        if not tok:
+            session_token = bearer_val
+
+    if session_token:
+        user = auth_mgr.get_session(session_token)
+        if user:
+            user_id = user["id"]
+
+    # 2. If no explicit BCP token passed, try resolving from authenticated user's profile
+    if not tok and user_id:
+        tok = auth_mgr.get_valid_bcp_token(user_id)
+
+    # 3. If still no BCP token, check if any active BCP token is on the server
+    if not tok:
+        tok = auth_mgr.get_any_valid_bcp_token()
+
+    if not tok:
+        return {
+            "success": False,
+            "requires_bcp_link": True,
+            "error": "Best Coast Pairings account linking is required to view this roster",
+            "list_id": clean_lid
+        }
+
+    # 4. Fetch from BCP via BcpAdapter
+    from bcp_adapter import BcpAdapter
+    succ, err, data = BcpAdapter.fetch_armylist(clean_lid, user_id=user_id, explicit_token=tok)
+    if not succ or not data:
+        is_auth_err = any(w in str(err).lower() for w in ["401", "403", "unauthorized", "invalid authorization", "token"])
+        return {
+            "success": False,
+            "requires_bcp_link": is_auth_err,
+            "error": err or "Failed to fetch army list from Best Coast Pairings",
+            "list_id": clean_lid
+        }
+
+    # Extract raw text from BCP payload
+    raw_text = (
+        data.get("armyListText") or
+        data.get("listText") or
+        data.get("rawText") or
+        data.get("raw_text") or
+        data.get("text") or
+        data.get("body") or
+        ""
+    )
+    if isinstance(raw_text, dict):
+        raw_text = raw_text.get("text") or raw_text.get("raw_text") or ""
+    raw_text = str(raw_text).strip()
+
+    return {
+        "success": True,
+        "list_id": clean_lid,
+        "text": raw_text,
+        "name": data.get("name") or data.get("armyName") or "",
+        "army_id": data.get("armyId") or data.get("army_id") or "",
+        "sub_faction_id": data.get("subFactionId") or data.get("sub_faction_id") or ""
+    }
+
 # =========================================================================
 # WAHAPEDIA 11TH EDITION REFERENCE & SYNC ENDPOINTS
 # =========================================================================

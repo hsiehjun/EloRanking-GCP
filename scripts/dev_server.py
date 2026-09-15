@@ -400,6 +400,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "current_elo": 2395.2,
                             "army_list": "",
                             "list_url": "https://www.bestcoastpairings.com/list/fnC5PtZin8ev",
+                            "list_id": "fnC5PtZin8ev",
                             "has_list": True
                         },
                         {
@@ -502,6 +503,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                             "current_elo": 2153.2,
                             "army_list": "",
                             "list_url": "https://www.bestcoastpairings.com/list/BtRNRqITthMM",
+                            "list_id": "BtRNRqITthMM",
                             "has_list": True,
                             "checked_in": False
                         },
@@ -875,6 +877,48 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({"success": True, "match_id": room_id or "WH40K-DEV1", "data": data, "state": None}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/bcp/armylist/"):
+            lid = clean_path.replace("api/bcp/armylist/", "").strip("/")
+            mock_armylists = {
+                "fnC5PtZin8ev": {
+                    "success": True,
+                    "list_id": "fnC5PtZin8ev",
+                    "name": "Alex Spathopoulos - Chaos Space Marines",
+                    "text": "++ Army Roster ++ (Chaos - Chaos Space Marines) [2,000 pts] \n\nDetachment Choice: Raiders\n\nCharacters:\nChaos Lord with Jump Pack [90 pts]: Daemon hammer, Plasma pistol\nDark Apostle [75 pts]: Accursed crozius, Bolt pistol\n\nBattleline:\n10x Cultist Mob [50 pts]: Cultist firearms\n5x Legionaries [90 pts]: Astartes chainsword, Heavy melee weapon\n\nDedicated Transport:\nChaos Rhino [75 pts]: Combi-bolter, Havoc launcher\n\nOther Datasheets:\n5x Warp Talons [135 pts]: Warp claws\n5x Chosen [125 pts]: Paired accursed weapons\nForgefiend [190 pts]: 3x Ectoplasma cannon\nPredator Destructor [130 pts]: Predator autocannon, 2x Lascannon\n\nCreated with Best Coast Pairings"
+                },
+                "BtRNRqITthMM": {
+                    "success": True,
+                    "list_id": "BtRNRqITthMM",
+                    "name": "Donovan Sailo - Grey Knights",
+                    "text": "++ Army Roster ++ (Imperium - Grey Knights) [2,000 pts]\n\nDetachment Choice: Teleport Strike Force\n\nCharacters:\nKaldor Draigo [125 pts]: Scourging, Titansword (Warlord)\nGrand Master in Nemesis Dreadknight [200 pts]: Heavy psycannon, Nemesis daemon greathammer\n\nBattleline:\n5x Strike Squad [120 pts]: Nemesis force weapons, Storm bolters\n5x Strike Squad [120 pts]: Nemesis force weapons, Storm bolters\n\nOther Datasheets:\nNemesis Dreadknight [185 pts]: Heavy incinator, Heavy psycannon\n5x Grey Knights Terminator Squad [210 pts]: Nemesis force weapons\n\nCreated with Best Coast Pairings"
+                }
+            }
+            auth_header = self.headers.get("Authorization", "")
+            bcp_header = self.headers.get("X-BCP-Token", "")
+            cookie_hdr = self.headers.get("Cookie", "")
+            has_bcp_auth = bool(bcp_header or "dev-auth-token" in auth_header or "Bearer " in auth_header or "session_token" in cookie_hdr)
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                if not has_bcp_auth:
+                    self.wfile.write(json.dumps({
+                        "success": False,
+                        "requires_bcp_link": True,
+                        "error": "Best Coast Pairings account linking is required to view this roster",
+                        "list_id": lid
+                    }).encode("utf-8"))
+                else:
+                    ret = mock_armylists.get(lid, {
+                        "success": True,
+                        "list_id": lid,
+                        "name": "Best Coast Pairings Roster",
+                        "text": f"++ Official BCP Army Roster [{lid}] ++\n\nCompetitor roster fetched live from Best Coast Pairings API.\nDetachment: Tournament Standard (2,000 pts)\n\nCreated with Best Coast Pairings"
+                    })
+                    self.wfile.write(json.dumps(ret).encode("utf-8"))
             return
 
         if clean_path.startswith("api/armylists"):

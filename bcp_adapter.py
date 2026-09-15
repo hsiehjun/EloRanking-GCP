@@ -638,7 +638,7 @@ class BcpAdapter:
             return False, "Missing list_id", None
 
         url = f"{BCP_API_BASE}/armylists/{clean_lid}"
-        data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=True)
+        data, err = cls.execute_call(url, method="GET", user_id=user_id, explicit_token=explicit_token, allow_unauthenticated=False)
         if data and isinstance(data, dict):
             return True, None, data
         return False, (err or "Failed to fetch army list from BCP"), None
