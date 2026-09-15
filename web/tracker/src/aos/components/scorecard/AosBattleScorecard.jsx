@@ -46,12 +46,19 @@ export function AosBattleScorecard() {
       <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2">
-            <span className="font-black text-white text-lg tracking-tight">OmniTactica AoS</span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#f59e0b]/20 text-[#f59e0b] border border-[#f59e0b]/30">
+            <span className="gtk-display text-[22px] font-bold uppercase text-white tracking-wide">OmniTactica AoS</span>
+            <span
+              className="gtk-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded border"
+              style={{
+                background: "var(--gtk-tile)",
+                color: "var(--gtk-accent)",
+                borderColor: "rgba(245, 158, 11, 0.4)"
+              }}
+            >
               GHB 2024-25
             </span>
           </div>
-          <div className="text-xs text-[#94a3b8] mt-0.5">
+          <div className="gtk-mono text-[11px] uppercase mt-0.5" style={{ color: "var(--gtk-muted)" }}>
             🎯 Battleplan: <strong className="text-white">{battleplan.name}</strong> • Max 50 VP
           </div>
         </div>
@@ -59,15 +66,24 @@ export function AosBattleScorecard() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setIsSummaryOpen(true)}
-            className="px-3 py-1.5 rounded-xl bg-[#181d28] hover:bg-[#273042] border border-[#273042] text-xs text-[#38bdf8] font-bold flex items-center gap-1.5 transition-colors"
+            className="gtk-mono px-3 py-1.5 rounded-[10px] border text-[11px] font-bold uppercase flex items-center gap-1.5 transition-colors"
+            style={{
+              background: "var(--gtk-tile)",
+              borderColor: "var(--gtk-line)",
+              color: "#38bdf8"
+            }}
           >
-            <TrophyIcon className="w-4 h-4" /> Scorecard
+            <TrophyIcon className="w-3.5 h-3.5" /> Scorecard
           </button>
           <button
             onClick={() => {
               if (confirm("Reset current match and return to setup?")) resetGame();
             }}
-            className="px-3 py-1.5 rounded-xl border border-[#ef4444]/40 text-[#ef4444] text-xs font-bold hover:bg-[#ef4444]/10 transition-colors"
+            className="gtk-mono px-3 py-1.5 rounded-[10px] border text-[11px] font-bold uppercase hover:bg-[#ef4444]/10 transition-colors"
+            style={{
+              borderColor: "rgba(239, 68, 68, 0.4)",
+              color: "#ef4444"
+            }}
           >
             Reset
           </button>
@@ -75,31 +91,44 @@ export function AosBattleScorecard() {
       </div>
 
       {/* Score Header Comparison Card */}
-      <div className="bg-[#12161f] border border-[#273042] rounded-2xl p-4 sm:p-5 mb-4 shadow-xl">
+      <div
+        className="gtk-card p-4 sm:p-5 mb-4 rounded-[14px] border shadow-xl"
+        style={{
+          background: "var(--gtk-tile)",
+          borderColor: "var(--gtk-line)"
+        }}
+      >
         <div className="grid grid-cols-3 items-center text-center">
           {/* Player 1 Left */}
           <div className="text-left sm:text-center">
-            <div className="text-xs font-bold text-[#38bdf8] truncate">{p1.name}</div>
-            <div className="text-2xl sm:text-4xl font-black font-mono text-white my-1">{s1}</div>
-            <div className="text-[10px] sm:text-xs text-[#94a3b8] font-mono">
+            <div className="gtk-display text-[18px] font-bold uppercase text-[#38bdf8] truncate">{p1.name}</div>
+            <div className="gtk-display text-[44px] font-bold text-white my-0.5 leading-none">{s1}</div>
+            <div className="gtk-mono text-[10px] sm:text-[11px] uppercase" style={{ color: "var(--gtk-muted)" }}>
               PRI: {getTotalPrimaryScore(p1)}/30 • TAC: {getTotalTacticsScore(p1)}/20
             </div>
           </div>
 
           {/* Center VS & Round Pill */}
           <div className="flex flex-col items-center justify-center">
-            <span className="text-xs font-black font-mono text-[#64748b]">VS</span>
-            <div className="my-1.5 px-3 py-1 rounded-full bg-[#181d28] border border-[#f59e0b]/40 text-[#f59e0b] text-[11px] font-mono font-bold">
+            <span className="gtk-mono text-[11px] font-bold text-[#64748b]">VS</span>
+            <div
+              className="gtk-mono my-1.5 px-3 py-1 rounded-full border text-[11px] font-bold uppercase tracking-wider"
+              style={{
+                background: "var(--gtk-panel)",
+                borderColor: "rgba(245, 158, 11, 0.4)",
+                color: "var(--gtk-accent)"
+              }}
+            >
               Round {round} / 5
             </div>
-            <span className="text-[10px] text-[#94a3b8] font-mono">50 VP Cap</span>
+            <span className="gtk-mono text-[10px] uppercase" style={{ color: "var(--gtk-muted)" }}>50 VP Cap</span>
           </div>
 
           {/* Player 2 Right */}
           <div className="text-right sm:text-center">
-            <div className="text-xs font-bold text-[#ef4444] truncate">{p2.name}</div>
-            <div className="text-2xl sm:text-4xl font-black font-mono text-white my-1">{s2}</div>
-            <div className="text-[10px] sm:text-xs text-[#94a3b8] font-mono">
+            <div className="gtk-display text-[18px] font-bold uppercase text-[#ef4444] truncate">{p2.name}</div>
+            <div className="gtk-display text-[44px] font-bold text-white my-0.5 leading-none">{s2}</div>
+            <div className="gtk-mono text-[10px] sm:text-[11px] uppercase" style={{ color: "var(--gtk-muted)" }}>
               PRI: {getTotalPrimaryScore(p2)}/30 • TAC: {getTotalTacticsScore(p2)}/20
             </div>
           </div>
@@ -112,13 +141,12 @@ export function AosBattleScorecard() {
           <button
             key={r}
             onClick={() => setActiveTabRound(r)}
-            className={`flex-1 min-w-[65px] py-2 px-3 rounded-xl border text-xs font-mono font-bold transition-all text-center ${
-              activeTabRound === r
-                ? "bg-[#181d28] border-[#f59e0b] text-white shadow-md"
-                : r <= round
-                ? "bg-[#0e131d] border-[#273042] text-[#cbd5e1] hover:text-white"
-                : "bg-[#0e131d]/60 border-[#1e2533] text-[#64748b]"
-            }`}
+            className="gtk-mono flex-1 min-w-[65px] py-2 px-3 rounded-[12px] border text-[11px] font-bold uppercase transition-all text-center"
+            style={{
+              background: activeTabRound === r ? "var(--gtk-panel)" : "var(--gtk-tile)",
+              borderColor: activeTabRound === r ? "var(--gtk-accent)" : "var(--gtk-line)",
+              color: activeTabRound === r ? "#fff" : r <= round ? "#cbd5e1" : "#64748b"
+            }}
           >
             Round {r}
           </button>
@@ -126,29 +154,44 @@ export function AosBattleScorecard() {
       </div>
 
       {/* Priority Roll & Initiative Bar for Selected Round */}
-      <div className="bg-[#12161f] border border-[#273042] rounded-xl p-3 mb-4 flex items-center justify-between flex-wrap gap-2 text-xs">
+      <div
+        className="gtk-card p-3 mb-4 rounded-[12px] border flex items-center justify-between flex-wrap gap-2 text-xs"
+        style={{
+          background: "var(--gtk-tile)",
+          borderColor: "var(--gtk-line)"
+        }}
+      >
         <div className="flex items-center gap-2">
           <span className="text-base">🎲</span>
           <div>
-            <span className="text-[#94a3b8]">Round {activeTabRound} Priority:</span>{" "}
+            <span className="gtk-mono text-[11px] uppercase font-bold" style={{ color: "var(--gtk-muted)" }}>
+              Round {activeTabRound} Priority:
+            </span>{" "}
             {isRoundRolled ? (
-              <strong className="text-white">
+              <strong className="gtk-display text-[16px] uppercase font-bold text-white tracking-wide">
                 {currentRoundState.firstTurn === "p1" ? p1.name : p2.name} (Takes 1st Turn)
                 {currentRoundState.isDoubleTurn && (
-                  <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/40 font-mono">
+                  <span className="gtk-mono ml-2 text-[10px] px-1.5 py-0.5 rounded bg-[#ef4444]/20 text-[#ef4444] border border-[#ef4444]/40 font-bold uppercase">
                     ⚡ Double Turn
                   </span>
                 )}
               </strong>
             ) : (
-              <span className="text-[#f59e0b] font-mono">Priority Roll Pending</span>
+              <span className="gtk-mono text-[11px] font-bold uppercase" style={{ color: "var(--gtk-accent)" }}>
+                Priority Roll Pending
+              </span>
             )}
           </div>
         </div>
 
         <button
           onClick={() => setIsPriorityModalOpen(true)}
-          className="px-3 py-1 rounded-lg bg-[#181d28] hover:bg-[#273042] border border-[#273042] text-xs font-mono text-[#38bdf8] flex items-center gap-1"
+          className="gtk-mono px-3 py-1 rounded-[8px] border text-[11px] font-bold uppercase flex items-center gap-1.5 transition-colors"
+          style={{
+            background: "var(--gtk-panel)",
+            borderColor: "var(--gtk-line)",
+            color: "#38bdf8"
+          }}
         >
           <DiceIcon className="w-3.5 h-3.5" />
           {isRoundRolled ? "Edit Priority" : "Roll Priority"}
@@ -172,24 +215,35 @@ export function AosBattleScorecard() {
       </div>
 
       {/* Bottom Sticky Action Dock */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#0e131d]/95 backdrop-blur border-t border-[#273042] p-3">
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 border-t p-3 backdrop-blur-md"
+        style={{
+          background: "rgba(10, 12, 16, 0.95)",
+          borderColor: "var(--gtk-line)"
+        }}
+      >
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-3">
-          <div className="text-xs font-mono text-[#94a3b8] hidden sm:block">
+          <div className="gtk-mono text-[11px] font-bold uppercase hidden sm:block" style={{ color: "var(--gtk-muted)" }}>
             Round {round} • Active Turn: <strong className="text-white">{currentTurnPlayer === "p1" ? p1.name : p2.name}</strong>
           </div>
 
           <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
             <button
               onClick={() => setIsPriorityModalOpen(true)}
-              className="px-3 py-2 rounded-xl bg-[#181d28] hover:bg-[#273042] border border-[#273042] text-xs text-[#38bdf8] font-mono font-bold flex items-center gap-1"
+              className="gtk-mono px-4 py-2.5 rounded-[12px] border text-[11px] font-bold uppercase flex items-center gap-1.5 transition-colors"
+              style={{
+                background: "var(--gtk-tile)",
+                borderColor: "var(--gtk-line)",
+                color: "#38bdf8"
+              }}
             >
               <DiceIcon className="w-4 h-4" /> Priority
             </button>
 
             <button
               onClick={advanceTurn}
-              className="flex-1 sm:flex-initial px-6 py-2.5 rounded-xl bg-[#f59e0b] hover:bg-[#d97706] text-black font-black text-xs tracking-wider shadow-lg transition-all"
-              style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#000000' }}
+              className="gtk-display flex-1 sm:flex-initial px-8 py-2.5 rounded-[12px] text-[16px] font-bold uppercase tracking-wider text-black transition-all shadow-md"
+              style={{ background: "var(--gtk-accent)" }}
             >
               {round >= 5 && currentTurnPlayer === (currentRoundState.secondTurn || "p2")
                 ? "🏁 Complete Battle"

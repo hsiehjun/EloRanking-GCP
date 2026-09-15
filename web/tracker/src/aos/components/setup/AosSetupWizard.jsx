@@ -3,7 +3,21 @@ import { useAosTracker } from "../../context/AosTrackerContext.jsx";
 import { AOS_BATTLEPLANS } from "../../data/aosBattleplans.js";
 import { AOS_FACTIONS, getFactionsByAlliance } from "../../data/aosFactions.js";
 import { GRAND_ALLIANCES, GRAND_ALLIANCE_COLORS } from "../../data/aosConstants.js";
-import { SwordsIcon, ShieldIcon } from "../common/Icons.jsx";
+import { CheckIcon } from "../common/Icons.jsx";
+
+const STEP_TITLES = [
+  "Battleplan",
+  "Player 1",
+  "Player 2",
+  "First Turn"
+];
+
+const STEP_SUBTITLES = [
+  "Select the Matched Play Battleplan",
+  "Grand Alliance, Faction & Formation",
+  "Grand Alliance, Faction & Formation",
+  "Determine Initiative for Battle Round 1"
+];
 
 export function AosSetupWizard() {
   const { state, updateGameSetup, startGame } = useAosTracker();
@@ -11,12 +25,12 @@ export function AosSetupWizard() {
 
   // Local form state
   const [battleplanId, setBattleplanId] = useState(state.battleplan?.id || AOS_BATTLEPLANS[0].id);
-  const [p1Name, setP1Name] = useState(state.p1.name);
+  const [p1Name, setP1Name] = useState(state.p1.name || "Player 1");
   const [p1Alliance, setP1Alliance] = useState(state.p1.grandAlliance || "Order");
   const [p1Faction, setP1Faction] = useState(state.p1.faction || "stormcast-eternals");
   const [p1Formation, setP1Formation] = useState(state.p1.battleFormation || "Lightning Echelon");
 
-  const [p2Name, setP2Name] = useState(state.p2.name);
+  const [p2Name, setP2Name] = useState(state.p2.name || "Player 2");
   const [p2Alliance, setP2Alliance] = useState(state.p2.grandAlliance || "Chaos");
   const [p2Faction, setP2Faction] = useState(state.p2.faction || "skaven");
   const [p2Formation, setP2Formation] = useState(state.p2.battleFormation || "Warpcog Convocation");
@@ -43,352 +57,467 @@ export function AosSetupWizard() {
         grandAlliance: p2Alliance,
         faction: p2Faction,
         battleFormation: p2Formation
-      }
+      },
+      firstTurn: round1First
     });
     startGame();
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-4 sm:p-6">
-      {/* Wizard Header */}
-      <div className="text-center mb-8">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#181d28] border border-[#273042] text-xs font-mono text-[#f59e0b] mb-3">
-          ⚡ AGE OF SIGMAR 4TH EDITION • MATCHED PLAY
-        </div>
-        <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-          Game Setup Wizard
-        </h1>
-        <p className="text-xs sm:text-sm text-[#94a3b8] mt-1">
-          Configure battleplan, grand alliances, and battle formations
-        </p>
+    <div className="gtk gtk-page max-w-2xl mx-auto px-3 pb-28 pt-2">
+      {/* Top Stepper Indicator (Matching 40k Circular Stepper) */}
+      <div className="mb-6">
+        <div className="flex items-center justify-center gap-1">
+          {[1, 2, 3, 4].map(num => {
+            const isCompleted = num < step;
+            const isCurrent = num === step;
 
-        {/* Step Indicator */}
-        <div className="flex items-center justify-center gap-2 mt-6">
-          {[1, 2, 3, 4].map(s => (
-            <div
-              key={s}
-              className={`h-2 rounded-full transition-all ${
-                s === step ? "w-8 bg-[#f59e0b]" : s < step ? "w-5 bg-[#10b981]" : "w-5 bg-[#273042]"
-              }`}
-            />
-          ))}
+            return (
+              <React.Fragment key={num}>
+                <div
+                  className="gtk-mono flex h-7 w-7 items-center justify-center rounded-full border text-[12px] font-bold transition-all"
+                  style={
+                    isCurrent
+                      ? {
+                          background: "var(--gtk-accent)",
+                          color: "#15171b",
+                          borderColor: "var(--gtk-accent)"
+                        }
+                      : isCompleted
+                      ? {
+                          background: "#1e9d52",
+                          color: "#fff",
+                          borderColor: "#1e9d52"
+                        }
+                      : {
+                          color: "var(--gtk-muted)",
+                          borderColor: "var(--gtk-line)",
+                          background: "var(--gtk-tile)"
+                        }
+                  }
+                >
+                  {isCompleted ? <CheckIcon className="h-4 w-4" strokeWidth={3} /> : num}
+                </div>
+                {num < 4 && (
+                  <span
+                    className="h-px w-2.5"
+                    style={{ background: "var(--gtk-line)" }}
+                  />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
+
+        {/* Step Title & Subtitle */}
+        <h2 className="gtk-h2 mt-3 text-center text-[28px] font-bold uppercase leading-tight text-white">
+          {STEP_TITLES[step - 1]}
+        </h2>
+        <p
+          className="gtk-mono mt-1 text-center text-[11px] font-bold uppercase tracking-[0.14em]"
+          style={{ color: "var(--gtk-muted)" }}
+        >
+          Step {step} of 4 • {STEP_SUBTITLES[step - 1]}
+        </p>
       </div>
 
-      <div className="bg-[#12161f] border border-[#273042] rounded-2xl p-5 sm:p-7 shadow-xl">
+      <div className="mb-6">
         {/* STEP 1: BATTLEPLAN SELECTION */}
         {step === 1 && (
-          <div>
-            <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              📜 Step 1: Select General's Handbook Battleplan
-            </h2>
-            <p className="text-xs text-[#94a3b8] mb-5">
-              Select the matched play battleplan for objective scoring criteria and layout.
+          <section className="flex flex-col gap-4">
+            <p className="gtk-mono text-center text-[12px] leading-snug" style={{ color: "var(--gtk-muted)" }}>
+              Select an official General's Handbook 2024–2025 battleplan for scoring rules and deployment.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[420px] overflow-y-auto pr-1">
-              {AOS_BATTLEPLANS.map(bp => (
-                <div
-                  key={bp.id}
-                  onClick={() => setBattleplanId(bp.id)}
-                  className={`p-4 rounded-xl border cursor-pointer transition-all ${
-                    battleplanId === bp.id
-                      ? "bg-[#181d28] border-[#f59e0b] ring-1 ring-[#f59e0b]"
-                      : "bg-[#0e131d] border-[#273042] hover:border-[#38bdf8]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-white text-sm">{bp.name}</span>
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-[#12161f] text-[#38bdf8] border border-[#273042]">
-                      {bp.objectivesCount} Objectives
-                    </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[460px] overflow-y-auto pr-1">
+              {AOS_BATTLEPLANS.map(bp => {
+                const isSelected = battleplanId === bp.id;
+                return (
+                  <div
+                    key={bp.id}
+                    onClick={() => setBattleplanId(bp.id)}
+                    className="gtk-card p-3.5 cursor-pointer transition-all border rounded-[13px]"
+                    style={{
+                      borderColor: isSelected ? "var(--gtk-accent)" : "var(--gtk-line)",
+                      background: isSelected ? "rgba(245, 158, 11, 0.08)" : "var(--gtk-tile)"
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="gtk-display text-[18px] font-bold uppercase text-white tracking-wide">
+                        {bp.name}
+                      </span>
+                      <span
+                        className="gtk-mono text-[10px] font-bold uppercase px-2 py-0.5 rounded border"
+                        style={{
+                          background: "var(--gtk-panel)",
+                          color: "var(--gtk-accent)",
+                          borderColor: "rgba(245, 158, 11, 0.3)"
+                        }}
+                      >
+                        {bp.objectivesCount} Objs
+                      </span>
+                    </div>
+                    <p className="text-[12px] line-clamp-2 leading-relaxed" style={{ color: "var(--gtk-muted)" }}>
+                      {bp.description}
+                    </p>
+                    <div className="gtk-mono text-[10.5px] mt-2 font-bold uppercase" style={{ color: "var(--gtk-accent)" }}>
+                      🗺️ {bp.deployment}
+                    </div>
                   </div>
-                  <p className="text-xs text-[#94a3b8] line-clamp-2">{bp.description}</p>
-                  <div className="mt-2 text-[11px] text-[#f59e0b] font-mono">
-                    🗺️ {bp.deployment}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
-
-            <div className="mt-6 flex justify-end">
-              <button
-                onClick={() => setStep(2)}
-                className="px-5 py-2.5 rounded-xl bg-[#f59e0b] hover:bg-[#d97706] text-black font-bold text-sm transition-all"
-              >
-                Next: Player 1 Setup →
-              </button>
-            </div>
-          </div>
+          </section>
         )}
 
         {/* STEP 2: PLAYER 1 SETUP */}
         {step === 2 && (
-          <div>
-            <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#3b82f6]"></span> Step 2: Player 1 (Blue)
-            </h2>
-            <p className="text-xs text-[#94a3b8] mb-5">
-              Choose Player 1's name, Grand Alliance, Faction, and Battle Formation.
+          <section className="flex flex-col gap-5">
+            <p className="gtk-mono text-center text-[12px] leading-snug" style={{ color: "var(--gtk-muted)" }}>
+              Name Player 1 and pick their Grand Alliance, Faction, and Battle Formation.
             </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Player Name</label>
-                <input
-                  type="text"
-                  value={p1Name}
-                  onChange={e => setP1Name(e.target.value)}
-                  className="w-full bg-[#0e131d] border border-[#273042] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#38bdf8]"
-                  placeholder="e.g. Innes Wilson"
-                />
-              </div>
+            <div className="flex flex-col gap-2">
+              <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: "#38bdf8" }}>
+                Player 1 Name
+              </span>
+              <input
+                type="text"
+                value={p1Name}
+                onChange={e => setP1Name(e.target.value)}
+                maxLength={24}
+                placeholder="Player 1"
+                aria-label="Player 1 name"
+                className="gtk-display w-full rounded-[12px] border-2 px-4 py-3 text-[22px] font-bold uppercase leading-none outline-none"
+                style={{
+                  borderColor: "#38bdf8",
+                  background: "var(--gtk-tile)",
+                  color: "var(--gtk-text)"
+                }}
+              />
+            </div>
 
-              <div>
-                <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Grand Alliance</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {Object.values(GRAND_ALLIANCES).map(ga => (
-                    <button
-                      key={ga}
-                      type="button"
-                      onClick={() => {
-                        setP1Alliance(ga);
-                        const facs = getFactionsByAlliance(ga);
-                        if (facs.length > 0) {
-                          setP1Faction(facs[0].id);
-                          setP1Formation(facs[0].battleFormations[0] || "");
-                        }
-                      }}
-                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                        p1Alliance === ga
-                          ? "bg-[#181d28] border-[#38bdf8] text-white"
-                          : "bg-[#0e131d] border-[#273042] text-[#94a3b8] hover:text-white"
-                      }`}
-                      style={{ borderLeftColor: GRAND_ALLIANCE_COLORS[ga], borderLeftWidth: "4px" }}
-                    >
-                      {ga}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Faction</label>
-                  <select
-                    value={p1Faction}
-                    onChange={e => {
-                      setP1Faction(e.target.value);
-                      const f = AOS_FACTIONS.find(fac => fac.id === e.target.value);
-                      if (f && f.battleFormations.length > 0) {
-                        setP1Formation(f.battleFormations[0]);
+            <div className="flex flex-col gap-2">
+              <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
+                Grand Alliance
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {Object.values(GRAND_ALLIANCES).map(ga => (
+                  <button
+                    key={ga}
+                    type="button"
+                    onClick={() => {
+                      setP1Alliance(ga);
+                      const facs = getFactionsByAlliance(ga);
+                      if (facs.length > 0) {
+                        setP1Faction(facs[0].id);
+                        setP1Formation(facs[0].battleFormations[0] || "");
                       }
                     }}
-                    className="w-full bg-[#0e131d] border border-[#273042] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#38bdf8]"
+                    className="gtk-mono p-2.5 rounded-[12px] border text-[11px] font-bold uppercase transition-all text-center"
+                    style={{
+                      background: p1Alliance === ga ? "rgba(56, 189, 248, 0.12)" : "var(--gtk-tile)",
+                      borderColor: p1Alliance === ga ? "#38bdf8" : "var(--gtk-line)",
+                      color: p1Alliance === ga ? "#fff" : "var(--gtk-muted)",
+                      borderLeftWidth: "4px",
+                      borderLeftColor: GRAND_ALLIANCE_COLORS[ga]
+                    }}
                   >
-                    {p1Factions.map(f => (
-                      <option key={f.id} value={f.id}>{f.icon} {f.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Battle Formation</label>
-                  <select
-                    value={p1Formation}
-                    onChange={e => setP1Formation(e.target.value)}
-                    className="w-full bg-[#0e131d] border border-[#273042] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#38bdf8]"
-                  >
-                    {(selectedP1FacObj?.battleFormations || []).map(bf => (
-                      <option key={bf} value={bf}>{bf}</option>
-                    ))}
-                  </select>
-                </div>
+                    {ga}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="mt-6 flex justify-between">
-              <button
-                onClick={() => setStep(1)}
-                className="px-4 py-2 rounded-xl border border-[#273042] text-sm text-[#94a3b8] hover:text-white"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={() => setStep(3)}
-                className="px-5 py-2.5 rounded-xl bg-[#f59e0b] hover:bg-[#d97706] text-black font-bold text-sm transition-all"
-              >
-                Next: Player 2 Setup →
-              </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
+                  Faction
+                </span>
+                <select
+                  value={p1Faction}
+                  onChange={e => {
+                    setP1Faction(e.target.value);
+                    const f = AOS_FACTIONS.find(fac => fac.id === e.target.value);
+                    if (f && f.battleFormations.length > 0) {
+                      setP1Formation(f.battleFormations[0]);
+                    }
+                  }}
+                  className="gtk-mono w-full rounded-[12px] border px-3 py-2.5 text-[12px] font-bold uppercase outline-none"
+                  style={{
+                    background: "var(--gtk-tile)",
+                    borderColor: "var(--gtk-line)",
+                    color: "var(--gtk-text)"
+                  }}
+                >
+                  {p1Factions.map(f => (
+                    <option key={f.id} value={f.id}>{f.icon} {f.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
+                  Battle Formation
+                </span>
+                <select
+                  value={p1Formation}
+                  onChange={e => setP1Formation(e.target.value)}
+                  className="gtk-mono w-full rounded-[12px] border px-3 py-2.5 text-[12px] font-bold uppercase outline-none"
+                  style={{
+                    background: "var(--gtk-tile)",
+                    borderColor: "var(--gtk-line)",
+                    color: "var(--gtk-text)"
+                  }}
+                >
+                  {(selectedP1FacObj?.battleFormations || []).map(bf => (
+                    <option key={bf} value={bf}>{bf}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          </section>
         )}
 
         {/* STEP 3: PLAYER 2 SETUP */}
         {step === 3 && (
-          <div>
-            <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              <span className="w-3 h-3 rounded-full bg-[#ef4444]"></span> Step 3: Player 2 (Red)
-            </h2>
-            <p className="text-xs text-[#94a3b8] mb-5">
-              Choose Player 2's name, Grand Alliance, Faction, and Battle Formation.
+          <section className="flex flex-col gap-5">
+            <p className="gtk-mono text-center text-[12px] leading-snug" style={{ color: "var(--gtk-muted)" }}>
+              Name Player 2 and pick their Grand Alliance, Faction, and Battle Formation.
             </p>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Player Name</label>
-                <input
-                  type="text"
-                  value={p2Name}
-                  onChange={e => setP2Name(e.target.value)}
-                  className="w-full bg-[#0e131d] border border-[#273042] rounded-xl px-3.5 py-2 text-white text-sm focus:outline-none focus:border-[#38bdf8]"
-                  placeholder="e.g. David Gaylard"
-                />
-              </div>
+            <div className="flex flex-col gap-2">
+              <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: "#ef4444" }}>
+                Player 2 Name
+              </span>
+              <input
+                type="text"
+                value={p2Name}
+                onChange={e => setP2Name(e.target.value)}
+                maxLength={24}
+                placeholder="Player 2"
+                aria-label="Player 2 name"
+                className="gtk-display w-full rounded-[12px] border-2 px-4 py-3 text-[22px] font-bold uppercase leading-none outline-none"
+                style={{
+                  borderColor: "#ef4444",
+                  background: "var(--gtk-tile)",
+                  color: "var(--gtk-text)"
+                }}
+              />
+            </div>
 
-              <div>
-                <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Grand Alliance</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {Object.values(GRAND_ALLIANCES).map(ga => (
-                    <button
-                      key={ga}
-                      type="button"
-                      onClick={() => {
-                        setP2Alliance(ga);
-                        const facs = getFactionsByAlliance(ga);
-                        if (facs.length > 0) {
-                          setP2Faction(facs[0].id);
-                          setP2Formation(facs[0].battleFormations[0] || "");
-                        }
-                      }}
-                      className={`p-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                        p2Alliance === ga
-                          ? "bg-[#181d28] border-[#38bdf8] text-white"
-                          : "bg-[#0e131d] border-[#273042] text-[#94a3b8] hover:text-white"
-                      }`}
-                      style={{ borderLeftColor: GRAND_ALLIANCE_COLORS[ga], borderLeftWidth: "4px" }}
-                    >
-                      {ga}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Faction</label>
-                  <select
-                    value={p2Faction}
-                    onChange={e => {
-                      setP2Faction(e.target.value);
-                      const f = AOS_FACTIONS.find(fac => fac.id === e.target.value);
-                      if (f && f.battleFormations.length > 0) {
-                        setP2Formation(f.battleFormations[0]);
+            <div className="flex flex-col gap-2">
+              <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
+                Grand Alliance
+              </span>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {Object.values(GRAND_ALLIANCES).map(ga => (
+                  <button
+                    key={ga}
+                    type="button"
+                    onClick={() => {
+                      setP2Alliance(ga);
+                      const facs = getFactionsByAlliance(ga);
+                      if (facs.length > 0) {
+                        setP2Faction(facs[0].id);
+                        setP2Formation(facs[0].battleFormations[0] || "");
                       }
                     }}
-                    className="w-full bg-[#0e131d] border border-[#273042] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#38bdf8]"
+                    className="gtk-mono p-2.5 rounded-[12px] border text-[11px] font-bold uppercase transition-all text-center"
+                    style={{
+                      background: p2Alliance === ga ? "rgba(239, 68, 68, 0.12)" : "var(--gtk-tile)",
+                      borderColor: p2Alliance === ga ? "#ef4444" : "var(--gtk-line)",
+                      color: p2Alliance === ga ? "#fff" : "var(--gtk-muted)",
+                      borderLeftWidth: "4px",
+                      borderLeftColor: GRAND_ALLIANCE_COLORS[ga]
+                    }}
                   >
-                    {p2Factions.map(f => (
-                      <option key={f.id} value={f.id}>{f.icon} {f.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-mono text-[#94a3b8] mb-1.5 uppercase">Battle Formation</label>
-                  <select
-                    value={p2Formation}
-                    onChange={e => setP2Formation(e.target.value)}
-                    className="w-full bg-[#0e131d] border border-[#273042] rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-[#38bdf8]"
-                  >
-                    {(selectedP2FacObj?.battleFormations || []).map(bf => (
-                      <option key={bf} value={bf}>{bf}</option>
-                    ))}
-                  </select>
-                </div>
+                    {ga}
+                  </button>
+                ))}
               </div>
             </div>
 
-            <div className="mt-6 flex justify-between">
-              <button
-                onClick={() => setStep(2)}
-                className="px-4 py-2 rounded-xl border border-[#273042] text-sm text-[#94a3b8] hover:text-white"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={() => setStep(4)}
-                className="px-5 py-2.5 rounded-xl bg-[#f59e0b] hover:bg-[#d97706] text-black font-bold text-sm transition-all"
-              >
-                Next: Round 1 Turn Order →
-              </button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-2">
+                <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
+                  Faction
+                </span>
+                <select
+                  value={p2Faction}
+                  onChange={e => {
+                    setP2Faction(e.target.value);
+                    const f = AOS_FACTIONS.find(fac => fac.id === e.target.value);
+                    if (f && f.battleFormations.length > 0) {
+                      setP2Formation(f.battleFormations[0]);
+                    }
+                  }}
+                  className="gtk-mono w-full rounded-[12px] border px-3 py-2.5 text-[12px] font-bold uppercase outline-none"
+                  style={{
+                    background: "var(--gtk-tile)",
+                    borderColor: "var(--gtk-line)",
+                    color: "var(--gtk-text)"
+                  }}
+                >
+                  {p2Factions.map(f => (
+                    <option key={f.id} value={f.id}>{f.icon} {f.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <span className="gtk-mono text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: "var(--gtk-muted)" }}>
+                  Battle Formation
+                </span>
+                <select
+                  value={p2Formation}
+                  onChange={e => setP2Formation(e.target.value)}
+                  className="gtk-mono w-full rounded-[12px] border px-3 py-2.5 text-[12px] font-bold uppercase outline-none"
+                  style={{
+                    background: "var(--gtk-tile)",
+                    borderColor: "var(--gtk-line)",
+                    color: "var(--gtk-text)"
+                  }}
+                >
+                  {(selectedP2FacObj?.battleFormations || []).map(bf => (
+                    <option key={bf} value={bf}>{bf}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-          </div>
+          </section>
         )}
 
         {/* STEP 4: ROUND 1 TURN ORDER */}
         {step === 4 && (
-          <div>
-            <h2 className="text-lg font-bold text-white mb-2 flex items-center gap-2">
-              🎲 Step 4: Round 1 Priority & Turn Order
-            </h2>
-            <p className="text-xs text-[#94a3b8] mb-5">
-              In AoS 4th Edition, the player who finished deploying first chooses who takes the first turn in Round 1.
+          <section className="flex flex-col gap-5">
+            <p className="gtk-mono text-center text-[12px] leading-snug" style={{ color: "var(--gtk-muted)" }}>
+              The player who finished deploying first chooses who takes the first turn in Round 1.
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 my-2">
               <div
                 onClick={() => setRound1First("p1")}
-                className={`p-4 rounded-xl border cursor-pointer text-center transition-all ${
-                  round1First === "p1"
-                    ? "bg-[#181d28] border-[#3b82f6] ring-1 ring-[#3b82f6]"
-                    : "bg-[#0e131d] border-[#273042]"
-                }`}
+                className="gtk-card p-4 cursor-pointer text-center transition-all border-2 rounded-[14px]"
+                style={{
+                  borderColor: round1First === "p1" ? "#38bdf8" : "var(--gtk-line)",
+                  background: round1First === "p1" ? "rgba(56, 189, 248, 0.12)" : "var(--gtk-tile)"
+                }}
               >
-                <div className="w-10 h-10 rounded-full bg-[#3b82f6]/20 text-[#3b82f6] mx-auto flex items-center justify-center font-bold text-lg mb-2">
+                <div
+                  className="gtk-mono w-8 h-8 rounded-full mx-auto flex items-center justify-center font-bold text-sm mb-2"
+                  style={{ background: "#38bdf8", color: "#070b14" }}
+                >
                   1
                 </div>
-                <div className="font-bold text-white text-sm">{p1Name || "Player 1"}</div>
-                <div className="text-xs text-[#38bdf8] font-mono mt-1">Takes First Turn</div>
+                <div className="gtk-display text-[20px] font-bold uppercase text-white">
+                  {p1Name || "Player 1"}
+                </div>
+                <div className="gtk-mono text-[11px] uppercase font-bold mt-1" style={{ color: "#38bdf8" }}>
+                  Takes First Turn
+                </div>
               </div>
 
               <div
                 onClick={() => setRound1First("p2")}
-                className={`p-4 rounded-xl border cursor-pointer text-center transition-all ${
-                  round1First === "p2"
-                    ? "bg-[#181d28] border-[#ef4444] ring-1 ring-[#ef4444]"
-                    : "bg-[#0e131d] border-[#273042]"
-                }`}
+                className="gtk-card p-4 cursor-pointer text-center transition-all border-2 rounded-[14px]"
+                style={{
+                  borderColor: round1First === "p2" ? "#ef4444" : "var(--gtk-line)",
+                  background: round1First === "p2" ? "rgba(239, 68, 68, 0.12)" : "var(--gtk-tile)"
+                }}
               >
-                <div className="w-10 h-10 rounded-full bg-[#ef4444]/20 text-[#ef4444] mx-auto flex items-center justify-center font-bold text-lg mb-2">
+                <div
+                  className="gtk-mono w-8 h-8 rounded-full mx-auto flex items-center justify-center font-bold text-sm mb-2"
+                  style={{ background: "#ef4444", color: "#fff" }}
+                >
                   2
                 </div>
-                <div className="font-bold text-white text-sm">{p2Name || "Player 2"}</div>
-                <div className="text-xs text-[#ef4444] font-mono mt-1">Takes First Turn</div>
+                <div className="gtk-display text-[20px] font-bold uppercase text-white">
+                  {p2Name || "Player 2"}
+                </div>
+                <div className="gtk-mono text-[11px] uppercase font-bold mt-1" style={{ color: "#ef4444" }}>
+                  Takes First Turn
+                </div>
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-[#0e131d] border border-[#273042] text-xs text-[#94a3b8] flex items-center gap-3">
-              <span className="text-lg">💡</span>
-              <span>The player taking the <strong>second turn</strong> in Round 1 will receive <strong>+1 bonus Command Point (2 CP total)</strong>.</span>
+            <div
+              className="gtk-card p-3 rounded-[12px] border text-[11.5px] flex items-center gap-2.5"
+              style={{ background: "var(--gtk-tile)", borderColor: "var(--gtk-line)", color: "var(--gtk-muted)" }}
+            >
+              <span className="text-base">💡</span>
+              <span>The player taking the <strong>second turn</strong> in Round 1 receives <strong>+1 bonus Command Point (2 CP total)</strong>.</span>
             </div>
-
-            <div className="mt-8 flex justify-between">
-              <button
-                onClick={() => setStep(3)}
-                className="px-4 py-2 rounded-xl border border-[#273042] text-sm text-[#94a3b8] hover:text-white"
-              >
-                ← Back
-              </button>
-              <button
-                onClick={handleFinish}
-                className="px-6 py-3 rounded-xl bg-gradient-to-r from-[#f59e0b] to-[#d97706] text-black font-black text-sm tracking-wide shadow-lg hover:brightness-110 transition-all"
-              >
-                ⚔️ Start Age of Sigmar Match
-              </button>
-            </div>
-          </div>
+          </section>
         )}
+      </div>
+
+      {/* Sticky Bottom Navigation Bar (Matching 40k) */}
+      <div
+        className="fixed bottom-0 left-0 right-0 z-20 border-t p-3 backdrop-blur-md"
+        style={{
+          background: "rgba(10, 12, 16, 0.95)",
+          borderColor: "var(--gtk-line)"
+        }}
+      >
+        <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">
+          {step > 1 ? (
+            <button
+              type="button"
+              onClick={() => setStep(prev => prev - 1)}
+              className="gtk-display rounded-[12px] border px-6 py-2.5 text-[15px] font-bold uppercase tracking-wider transition-colors"
+              style={{ borderColor: "var(--gtk-line)", color: "var(--gtk-muted)" }}
+            >
+              ← Back
+            </button>
+          ) : (
+            <div />
+          )}
+
+          {step === 1 && (
+            <button
+              type="button"
+              onClick={() => setStep(2)}
+              className="gtk-display flex-1 sm:flex-initial rounded-[12px] px-8 py-2.5 text-[16px] font-bold uppercase tracking-wider text-black transition-all shadow-md"
+              style={{ background: "var(--gtk-accent)" }}
+            >
+              Next: Player 1 →
+            </button>
+          )}
+
+          {step === 2 && (
+            <button
+              type="button"
+              onClick={() => setStep(3)}
+              className="gtk-display flex-1 sm:flex-initial rounded-[12px] px-8 py-2.5 text-[16px] font-bold uppercase tracking-wider text-black transition-all shadow-md"
+              style={{ background: "var(--gtk-accent)" }}
+            >
+              Next: Player 2 →
+            </button>
+          )}
+
+          {step === 3 && (
+            <button
+              type="button"
+              onClick={() => setStep(4)}
+              className="gtk-display flex-1 sm:flex-initial rounded-[12px] px-8 py-2.5 text-[16px] font-bold uppercase tracking-wider text-black transition-all shadow-md"
+              style={{ background: "var(--gtk-accent)" }}
+            >
+              Next: Round 1 →
+            </button>
+          )}
+
+          {step === 4 && (
+            <button
+              type="button"
+              onClick={handleFinish}
+              className="gtk-display flex-1 sm:flex-initial rounded-[12px] px-8 py-2.5 text-[16px] font-bold uppercase tracking-wider text-black transition-all shadow-md"
+              style={{ background: "var(--gtk-accent)" }}
+            >
+              ⚔️ Start Age of Sigmar Match
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
