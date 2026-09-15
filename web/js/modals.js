@@ -77,6 +77,22 @@ function closeModal(modalId) {
 }
 window.closeModal = closeModal;
 
+function closeAllModals() {
+  const stackCopy = [...modalStack];
+  stackCopy.forEach(id => closeModal(id));
+  document.querySelectorAll('.modal-backdrop.active').forEach(el => {
+    if (el.id) closeModal(el.id);
+    else {
+      el.classList.remove('active');
+      el.style.display = 'none';
+    }
+  });
+  modalStack = [];
+  window.modalStack = modalStack;
+  modalZIndexCounter = 10000;
+}
+window.closeAllModals = closeAllModals;
+
 function closeModalOnBackdrop(e) {
   if (e && e.target && e.target.classList && e.target.classList.contains('modal-backdrop')) {
     closeModal(e.target.id);
@@ -112,10 +128,24 @@ function togglePlayerEloChart() {
   }
 }
 
+let currentModalPlayerId = null;
+let currentModalPlayerName = '';
+window.currentModalPlayerId = currentModalPlayerId;
+window.currentModalPlayerName = currentModalPlayerName;
+
 async function openPlayerModal(playerId, playerName = '') {
   if (!playerId && !playerName) return;
   const modal = document.getElementById('player-modal');
   if (!modal) return;
+
+  const targetId = String(playerId || '').trim();
+  const targetName = String(playerName || '').trim();
+
+  currentModalPlayerId = targetId;
+  currentModalPlayerName = targetName;
+  window.currentModalPlayerId = currentModalPlayerId;
+  window.currentModalPlayerName = currentModalPlayerName;
+
   bringModalToFront(modal);
 
   const nameEl = document.getElementById('modal-player-name');
@@ -140,16 +170,30 @@ async function openPlayerModal(playerId, playerName = '') {
   if (searchSummary) searchSummary.style.display = 'none';
 
   const tbody = document.getElementById('modal-matches-body');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="11" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading match history...</div></td></tr>';
+  if (tbody) tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading match highlights...</div></td></tr>';
 
   const chatContainer = document.getElementById('modal-player-chat-container');
   if (chatContainer) chatContainer.innerHTML = '';
 
   try {
-    const data = await window.api.getPlayerProfile(playerId || 'unknown', '', playerName);
+    const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const data = await window.api.getPlayerProfile(targetId || 'unknown', sys, targetName);
     const p = data.player || data || {};
-    const resolvedName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || playerName || 'Player Profile');
-    if (nameEl) nameEl.innerText = resolvedName;
+    const resolvedName = (p.player_name && p.player_name !== 'Unknown') ? p.player_name : (p.full_name || targetName || 'Player Profile');
+    currentModalPlayerName = resolvedName;
+    window.currentModalPlayerName = currentModalPlayerName;
+    if (nameEl) {
+      nameEl.innerText = resolvedName;
+      nameEl.style.cursor = 'pointer';
+      nameEl.onclick = () => openDedicatedPlayerProfileFromModal();
+      nameEl.title = 'Click to open full player profile';
+    }
+
+    const predictBtn = document.getElementById('btn-modal-scout-predict');
+    if (predictBtn) {
+      const shortName = resolvedName && resolvedName !== 'Player Profile' ? resolvedName.split(' ')[0] : 'Player';
+      predictBtn.innerHTML = `🔮 Predict Match vs ${escapeHtml(shortName)}`;
+    }
 
     // OmniTactica Registered User & Chat Request Handler
     if (chatContainer) {
@@ -269,7 +313,7 @@ async function openPlayerModal(playerId, playerName = '') {
           badge.style.fontWeight = isCurrent ? '700' : '500';
           badge.title = isCurrent ? `${tm} (Current Active Team) - Click to view team` : `${tm} (Past Team) - Click to view team`;
           badge.innerHTML = `🛡️ ${escapeHtml(tm)}${isCurrent && teamsList.length > 1 ? ' <span style="font-size:0.68rem; opacity:0.85; margin-left:0.2rem;">(Current)</span>' : ''}`;
-          badge.onclick = (e) => { e.stopPropagation(); closeModal('player-modal'); openTeamModal(tm); };
+          badge.onclick = (e) => { e.stopPropagation(); openTeamModal(tm); };
           return badge;
         }
 
@@ -400,20 +444,73 @@ async function openPlayerModal(playerId, playerName = '') {
       }
     }
 
-    document.getElementById('modal-elo').innerText = Number(p.current_elo || 1500).toFixed(1);
-    document.getElementById('modal-peak').innerText = Number(p.peak_elo || p.current_elo || 1500).toFixed(1);
+    const eloMatches = p.matches_played || p.total_matches || (p.wins + p.losses + (p.draws || 0));
+    document.getElementById('modal-elo').innerHTML = typeof renderEloBadgePill === 'function' 
+      ? renderEloBadgePill(p.current_elo, eloMatches, { showTierName: true }) 
+      : Number(p.current_elo || 1500).toFixed(1);
+    document.getElementById('modal-peak').innerHTML = typeof renderEloBadgePill === 'function'
+      ? (renderEloBadgePill(p.peak_elo || p.current_elo, eloMatches, { showTierName: false }) + ' 👑')
+      : Number(p.peak_elo || p.current_elo || 1500).toFixed(1);
     document.getElementById('modal-record').innerHTML = `<span style="color:var(--win);">${p.wins || 0}W</span> - <span style="color:var(--loss);">${p.losses || 0}L</span>${p.draws ? ` - <span style="color:var(--draw);">${p.draws}D</span>` : ''}`;
     const totalM = p.total_matches || p.matches_played || (p.wins + p.losses + (p.draws || 0)) || 0;
     const wr = p.win_rate !== undefined ? p.win_rate : (totalM > 0 ? ((p.wins / totalM) * 100).toFixed(1) : 0);
-    document.getElementById('modal-winrate').innerText = `${wr}%`;
-    document.getElementById('modal-streak').innerText = `${data.longest_win_streak || data.max_streak || 0} Wins`;
+    const winrateEl = document.getElementById('modal-winrate');
+    if (winrateEl) winrateEl.innerText = `${wr}%`;
+    const streakEl = document.getElementById('modal-streak');
+    if (streakEl) streakEl.innerText = `${data.longest_win_streak || data.max_streak || 0} Wins`;
 
     currentPlayerTrajectory = data.trajectory || [];
     const matchesList = data.history || data.win_path || [];
     currentPlayerMatches = matchesList;
+
+    // Render Recent Form beads
+    const formBeadsEl = document.getElementById('modal-recent-form-beads');
+    if (formBeadsEl) {
+      formBeadsEl.innerHTML = '';
+      const recentForForm = matchesList.slice(0, 5);
+      if (recentForForm.length > 0) {
+        recentForForm.forEach(m => {
+          const bead = document.createElement('span');
+          const isW = m.result === 'W';
+          const isL = m.result === 'L';
+          const cls = isW ? 'win' : (isL ? 'loss' : 'draw');
+          bead.className = `scout-form-bead ${cls}`;
+          bead.innerText = m.result || '-';
+          bead.title = `${m.result || '-'} vs ${m.opponent_name || 'Opponent'} (${(m.match_date || '').slice(0, 10)})`;
+          formBeadsEl.appendChild(bead);
+        });
+      } else {
+        formBeadsEl.innerHTML = '<span style="font-size:0.7rem; color:var(--text-muted);">-</span>';
+      }
+    }
+
+    // Matches Count note and More prompt
+    const morePromptEl = document.getElementById('modal-matches-more-prompt');
+    const noteEl = document.getElementById('modal-matches-count-note');
+    if (matchesList.length > 0) {
+      if (noteEl) noteEl.innerText = `Last ${Math.min(5, matchesList.length)} of ${matchesList.length} matches`;
+      if (morePromptEl) {
+        morePromptEl.style.display = 'flex';
+        if (matchesList.length > 5) {
+          morePromptEl.innerHTML = `
+            <span>Showing <strong>5</strong> of <strong>${matchesList.length}</strong> career matches</span>
+            <span class="scout-more-link" onclick="openDedicatedPlayerProfileFromModal()">View all in full profile ↗</span>
+          `;
+        } else {
+          morePromptEl.innerHTML = `
+            <span>Showing all <strong>${matchesList.length}</strong> recorded match${matchesList.length === 1 ? '' : 'es'}</span>
+            <span class="scout-more-link" onclick="openDedicatedPlayerProfileFromModal()">Open full profile ↗</span>
+          `;
+        }
+      }
+    } else {
+      if (noteEl) noteEl.innerText = '0 recorded matches';
+      if (morePromptEl) morePromptEl.style.display = 'none';
+    }
+
     renderPlayerMatches(matchesList);
   } catch (err) {
-    if (tbody) tbody.innerHTML = `<tr><td colspan="11" class="empty-state" style="color:var(--loss);">Error loading profile: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-state" style="color:var(--loss);">Error loading profile: ${err.message}</td></tr>`;
   }
 }
 
@@ -468,15 +565,13 @@ function renderPlayerMatches(history, isFiltered = false) {
   if (!tbody) return;
   tbody.innerHTML = '';
   if (!history || history.length === 0) {
-    if (isFiltered) {
-      tbody.innerHTML = `<tr><td colspan="11" class="empty-state" style="padding:2rem 1rem;"><div style="font-size:0.95rem; font-weight:600; color:#fff;">🔍 No Matching Matches</div><div style="margin-top:0.35rem; color:var(--text-secondary); font-size:0.82rem;">No matches match "<strong>${escapeHtml(playerModalSearchQuery)}</strong>" in this player's career history.</div></td></tr>`;
-    } else {
-      tbody.innerHTML = '<tr><td colspan="11" class="empty-state">No match trajectory records stored.</td></tr>';
-    }
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state" style="padding: 1.5rem 1rem; color: var(--text-muted);">No match records stored yet.</td></tr>';
     return;
   }
 
-  history.forEach(h => {
+  // Display at most 5 recent matches in the quick scout card
+  const previewMatches = history.slice(0, 5);
+  previewMatches.forEach(h => {
     const tr = document.createElement('tr');
     const isWin = h.result === 'W';
     const isLoss = h.result === 'L';
@@ -485,26 +580,38 @@ function renderPlayerMatches(history, isFiltered = false) {
     const dStr = `${dVal >= 0 ? '+' : ''}${dVal.toFixed(1)}`;
     const dColor = dVal > 0 ? 'var(--win)' : (dVal < 0 ? 'var(--loss)' : 'var(--text-muted)');
 
+    const oppName = h.opponent_name || (h.result === 'BYE' ? 'BYE' : 'Opponent');
+    const oppFac = h.opponent_faction ? `<span class="scout-opp-fac">${escapeHtml(h.opponent_faction)}</span>` : '';
+    const isBye = Boolean(h.is_bye || h.result === 'BYE' || (oppName && oppName.toUpperCase() === 'BYE'));
+    const oppId = h.opponent_id || '';
+    const canOpenOpp = !isBye && (oppId || (oppName && oppName !== 'Opponent' && oppName !== 'Unknown'));
+    const oppLink = canOpenOpp
+      ? `<span class="player-link scout-opp-name" style="cursor:pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(oppId)}', '${escapeHtml(oppName)}')">${escapeHtml(oppName)}</span>`
+      : `<span class="scout-opp-name" style="color:#fff;">${escapeHtml(oppName)}</span>`;
+
+    const evDate = (h.match_date || '').slice(0, 10);
+    const evSub = [evDate, h.round ? `R${h.round}` : ''].filter(Boolean).join(' · ');
+
     tr.innerHTML = `
-      <td style="font-family:var(--font-mono); color:var(--text-muted); font-size:0.82rem;">${(h.match_date || '').slice(0, 10)}</td>
-      <td style="font-weight:600; color:#fff; font-size:0.85rem;" onclick="event.stopPropagation(); openEventModal('${h.event_id}')">
-        <span class="player-link">${escapeHtml(h.event_name || 'Tournament')}</span>
-      </td>
-      <td style="font-family:var(--font-mono);">R${h.round || 1}</td>
-      <td><span class="badge ${resClass}">${h.result || '-'}</span></td>
-      <td style="font-family:var(--font-mono);">${h.player_score !== null && h.opponent_score !== null ? `${h.player_score} - ${h.opponent_score}` : '-'}</td>
-      <td><span class="faction-pill" style="font-size:0.72rem;">${escapeHtml(h.player_faction || '-')}</span></td>
+      <td style="text-align: center;"><span class="badge ${resClass}" style="font-size: 0.72rem; padding: 0.15rem 0.4rem; min-width: 22px;">${h.result || '-'}</span></td>
       <td>
-        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${h.opponent_id}')">
-          ${escapeHtml(h.opponent_name || (h.result === 'BYE' ? 'BYE' : 'Opponent'))}
-        </span>
+        <div class="scout-cell-stack">
+          ${oppLink}
+          ${oppFac}
+        </div>
       </td>
-      <td>
-        ${h.opponent_faction ? `<span class="faction-pill" style="font-size:0.72rem; background:rgba(148,163,184,0.1); border-color:rgba(148,163,184,0.3); color:var(--text-secondary);">${escapeHtml(h.opponent_faction)}</span>` : '<span style="color:var(--text-muted); font-size:0.78rem;">-</span>'}
+      <td class="scout-col-event">
+        <div class="scout-cell-stack">
+          <span class="player-link scout-event-name" onclick="event.stopPropagation(); openEventModal('${h.event_id}')" title="${escapeHtml(h.event_name || 'Tournament')}">${escapeHtml(h.event_name || 'Tournament')}</span>
+          <span class="scout-event-meta">${escapeHtml(evSub)}</span>
+        </div>
       </td>
-      <td style="font-family:var(--font-mono); color:var(--text-secondary); font-size:0.85rem;">${h.opponent_elo ? Number(h.opponent_elo).toFixed(1) : '-'}</td>
-      <td style="font-family:var(--font-mono); font-weight:700; color:${dColor};">${dStr}</td>
-      <td class="elo-badge ${getEloBadgeClass(h.new_elo)}" style="font-size:0.88rem;">${Number(h.new_elo).toFixed(1)}</td>
+      <td style="text-align: center; font-family: var(--font-mono); font-size: 0.82rem; color: #e2e8f0;">
+        ${h.player_score !== null && h.opponent_score !== null ? `${h.player_score} - ${h.opponent_score}` : '-'}
+      </td>
+      <td style="text-align: right; font-family: var(--font-mono); font-weight: 700; font-size: 0.85rem; color: ${dColor};">
+        ${dStr}
+      </td>
     `;
     tbody.appendChild(tr);
   });
@@ -610,8 +717,15 @@ async function openTeamModal(teamName) {
     currentTeamRoster = roster;
 
     if (subEl) subEl.innerText = `Gaming Club / Team • ${roster.length} registered competitors`;
+    const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
     const pwrEl = document.getElementById('team-modal-power');
-    if (pwrEl) pwrEl.innerText = stats.power_rating ? Number(stats.power_rating).toFixed(1) : '-';
+    if (pwrEl) {
+      if (stats.power_rating && typeof renderEloBadgePill === 'function') {
+        pwrEl.innerHTML = renderEloBadgePill(stats.power_rating, null, { showTierName: true, size: 'md', gameSystem: sys });
+      } else {
+        pwrEl.innerText = stats.power_rating ? Number(stats.power_rating).toFixed(1) : '-';
+      }
+    }
     const rosEl = document.getElementById('team-modal-roster');
     if (rosEl) rosEl.innerText = stats.active_roster_count !== undefined && stats.active_roster_count !== null ? `${stats.active_roster_count} Active (${stats.roster_count || roster.length} Total)` : `${stats.roster_count || roster.length} Players`;
     const matEl = document.getElementById('team-modal-matches');
@@ -630,7 +744,11 @@ async function openTeamModal(teamName) {
     }
     if (top5El) {
       if (top5Avg && Number(top5Avg) > 0) {
-        top5El.innerText = Number(top5Avg).toFixed(1);
+        if (typeof renderEloBadgePill === 'function') {
+          top5El.innerHTML = renderEloBadgePill(top5Avg, null, { showTierName: true, size: 'md', gameSystem: sys });
+        } else {
+          top5El.innerText = Number(top5Avg).toFixed(1);
+        }
         if (top5Pill) top5Pill.style.display = 'inline-flex';
       } else {
         if (top5Pill) top5Pill.style.display = 'none';
@@ -659,9 +777,14 @@ function renderTeamRosterRows(roster) {
 
   function createPlayerRow(p, displayRank) {
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
+    const safeName = p.player_name || p.full_name || 'Player';
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, safeName); };
 
-    const eloBadgeClass = getEloBadgeClass(p.current_elo);
+    const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+    const totalMatches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 10);
+    const eloBadgeHtml = typeof renderEloBadgePill === 'function'
+      ? renderEloBadgePill(p.current_elo || 1500, totalMatches, { showTierName: true, size: 'md', gameSystem: sys })
+      : `<span class="elo-badge ${getEloBadgeClass(p.current_elo)}">${Number(p.current_elo || 1500).toFixed(1)}</span>`;
     const winRate = p.win_rate !== undefined ? p.win_rate : (p.matches_played > 0 ? ((p.wins / p.matches_played) * 100).toFixed(1) : 0);
 
     const isAce = p.is_ace === true;
@@ -693,12 +816,12 @@ function renderTeamRosterRows(roster) {
       <td class="${rankCellClass}">${rankContent}</td>
       <td>
         <div class="player-name-cell">
-          <span class="player-link">${escapeHtml(p.player_name || p.full_name || 'Player')}</span>
+          <span class="player-link">${escapeHtml(safeName)}</span>
           ${badgeHtml}
         </div>
       </td>
-      <td class="elo-badge ${eloBadgeClass}">
-        ${Number(p.current_elo || 1500).toFixed(1)}
+      <td>
+        ${eloBadgeHtml}
       </td>
       <td style="font-family:var(--font-mono); color:var(--text-secondary);">
         ${Number(p.peak_elo || p.current_elo || 1500).toFixed(1)}
@@ -878,7 +1001,7 @@ function renderFactionMatchesRows(matches) {
         <span style="font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">R${m.round || 1}</span>
       </td>
       <td>
-        <span class="player-link" style="font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${m.player_id}')">
+        <span class="player-link" style="font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.player_id || '')}', '${escapeHtml(String(m.player_name || '').replace(/'/g, "\\'"))}')">
           ${escapeHtml(m.player_name || 'Player')}
         </span>
       </td>
@@ -887,7 +1010,7 @@ function renderFactionMatchesRows(matches) {
       </td>
       <td>
         <div style="font-weight:600;">
-          <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${m.opponent_id}')">${escapeHtml(m.opponent_name || 'Opponent')}</span>
+          <span class="player-link" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(m.opponent_id || '')}', '${escapeHtml(String(m.opponent_name || '').replace(/'/g, "\\'"))}')">${escapeHtml(m.opponent_name || 'Opponent')}</span>
         </div>
         <div style="font-size:0.75rem; color:var(--text-secondary);">${escapeHtml(m.opponent_faction || 'Various')}</div>
       </td>
@@ -909,21 +1032,23 @@ function renderFactionPlayersRows(players) {
 
   players.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
+    const safeName = String(p.player_name || 'Player').replace(/'/g, "\\'");
+    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id, p.player_name || ''); };
 
     const rank = idx + 1;
-    const eloBadgeClass = getEloBadgeClass(p.current_elo);
+    const eloBadgeClass = getEloBadgeClass(p.current_elo, p.matches_played);
+    const teamPill = p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(p.team)}')" title="View ${escapeHtml(p.team)} Roster">🛡️ ${escapeHtml(p.team)}</span>` : '';
 
     tr.innerHTML = `
       <td class="rank-cell">#${rank}</td>
       <td>
         <div class="player-name-cell">
           <span class="player-link">${escapeHtml(p.player_name || 'Player')}</span>
-          ${p.team ? `<span class="badge" style="font-size:0.7rem; background:var(--bg-primary); border:1px solid var(--border);">${escapeHtml(p.team)}</span>` : ''}
+          ${teamPill}
         </div>
       </td>
-      <td class="elo-badge ${eloBadgeClass}">
-        ${Number(p.current_elo || 1500).toFixed(1)}
+      <td>
+        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(p.current_elo || 1500, p.matches_played || 10) : `<span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>`}
       </td>
       <td style="font-family:var(--font-mono); color:var(--text-secondary);">
         ${Number(p.peak_elo || p.current_elo || 1500).toFixed(1)}

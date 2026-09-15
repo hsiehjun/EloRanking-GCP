@@ -17,13 +17,354 @@ function formatNumber(num) {
   return Number(num).toLocaleString();
 }
 
-function getEloBadgeClass(elo) {
+function getEloTier(elo, matchesCount = null, gameSystem = '') {
   const val = Number(elo) || 1500;
-  if (val >= 1800) return 'elo-grandmaster'; // Mythic Gold
-  if (val >= 1700) return 'elo-master';      // Epic Purple
-  if (val >= 1600) return 'elo-diamond';     // Diamond Blue
-  if (val >= 1500) return 'elo-platinum';    // Emerald Green
-  return 'elo-silver';                       // Slate Silver
+  const sys = (gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k')).toLowerCase();
+  
+  // Uncalibrated / Aspirant for < 5 tournament matches
+  const hasMatchesCount = (matchesCount !== null && matchesCount !== undefined && !isNaN(Number(matchesCount)));
+  const matchesNum = hasMatchesCount ? Number(matchesCount) : null;
+  const isUncalibrated = (matchesNum !== null && matchesNum < 5);
+
+  if (isUncalibrated) {
+    const needed = Math.max(0, 5 - matchesNum);
+    return {
+      tierKey: 'aspirant',
+      name: 'Aspirant',
+      shortName: 'Aspirant',
+      icon: '❔',
+      badgeClass: 'elo-aspirant',
+      accentColor: '#94a3b8',
+      minElo: 0,
+      maxElo: 1500,
+      isUncalibrated: true,
+      matchesPlayed: matchesNum,
+      matchesNeeded: needed,
+      progressPercent: Math.min(100, Math.round((matchesNum / 5) * 100)),
+      themeClass: 'profile-theme-aspirant'
+    };
+  }
+
+  // Apex Tiers (2400+)
+  if (val >= 2400) {
+    return {
+      tierKey: 'everchosen',
+      name: 'Everchosen',
+      shortName: 'Everchosen',
+      icon: '👑',
+      badgeClass: 'elo-everchosen',
+      accentColor: '#fbbf24',
+      minElo: 2400,
+      maxElo: 3000,
+      isApex: true,
+      nextTier: null,
+      progressPercent: 100,
+      themeClass: 'profile-theme-everchosen'
+    };
+  }
+
+  // 2350 - 2399
+  if (val >= 2350) {
+    const progress = (val - 2350) / 50;
+    return {
+      tierKey: 'godbeast-2',
+      name: 'Celestial God-Beast II',
+      shortName: 'God-Beast II',
+      icon: '🌠',
+      badgeClass: 'elo-godbeast-2',
+      accentColor: '#ec4899',
+      minElo: 2350,
+      maxElo: 2400,
+      nextTier: { name: 'Everchosen', targetElo: 2400, ptsNeeded: (2400 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-godbeast'
+    };
+  }
+
+  // 2300 - 2349
+  if (val >= 2300) {
+    const progress = (val - 2300) / 50;
+    return {
+      tierKey: 'godbeast-1',
+      name: 'Celestial God-Beast I',
+      shortName: 'God-Beast I',
+      icon: '☀️',
+      badgeClass: 'elo-godbeast-1',
+      accentColor: '#f59e0b',
+      minElo: 2300,
+      maxElo: 2350,
+      nextTier: { name: 'Celestial God-Beast II', targetElo: 2350, ptsNeeded: (2350 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-godbeast'
+    };
+  }
+
+  // 2250 - 2299
+  if (val >= 2250) {
+    const progress = (val - 2250) / 50;
+    return {
+      tierKey: 'primarch-2',
+      name: 'Apex Primarch II',
+      shortName: 'Primarch II',
+      icon: '🌌',
+      badgeClass: 'elo-primarch-2',
+      accentColor: '#818cf8',
+      minElo: 2250,
+      maxElo: 2300,
+      nextTier: { name: 'Celestial God-Beast I', targetElo: 2300, ptsNeeded: (2300 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-primarch'
+    };
+  }
+
+  // 2200 - 2249
+  if (val >= 2200) {
+    const progress = (val - 2200) / 50;
+    return {
+      tierKey: 'primarch-1',
+      name: 'Apex Primarch I',
+      shortName: 'Primarch I',
+      icon: '🌌',
+      badgeClass: 'elo-primarch-1',
+      accentColor: '#38bdf8',
+      minElo: 2200,
+      maxElo: 2250,
+      nextTier: { name: 'Apex Primarch II', targetElo: 2250, ptsNeeded: (2250 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-primarch'
+    };
+  }
+
+  // 2150 - 2199
+  if (val >= 2150) {
+    const progress = (val - 2150) / 50;
+    return {
+      tierKey: 'ascendant-2',
+      name: 'Ascendant II',
+      shortName: 'Ascendant II',
+      icon: '🔱',
+      badgeClass: 'elo-ascendant-2',
+      accentColor: '#c026d3',
+      minElo: 2150,
+      maxElo: 2200,
+      nextTier: { name: 'Apex Primarch I', targetElo: 2200, ptsNeeded: (2200 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-ascendant'
+    };
+  }
+
+  // 2100 - 2149
+  if (val >= 2100) {
+    const progress = (val - 2100) / 50;
+    return {
+      tierKey: 'ascendant-1',
+      name: 'Ascendant I',
+      shortName: 'Ascendant I',
+      icon: '🔱',
+      badgeClass: 'elo-ascendant-1',
+      accentColor: '#d946ef',
+      minElo: 2100,
+      maxElo: 2150,
+      nextTier: { name: 'Ascendant II', targetElo: 2150, ptsNeeded: (2150 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-ascendant'
+    };
+  }
+
+  // 2050 - 2099
+  if (val >= 2050) {
+    const progress = (val - 2050) / 50;
+    return {
+      tierKey: 'warmaster-2',
+      name: 'Warmaster II',
+      shortName: 'Warmaster II',
+      icon: '⚡',
+      badgeClass: 'elo-warmaster-2',
+      accentColor: '#e11d48',
+      minElo: 2050,
+      maxElo: 2100,
+      nextTier: { name: 'Ascendant I', targetElo: 2100, ptsNeeded: (2100 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-warmaster'
+    };
+  }
+
+  // 2000 - 2049
+  if (val >= 2000) {
+    const progress = (val - 2000) / 50;
+    return {
+      tierKey: 'warmaster-1',
+      name: 'Warmaster I',
+      shortName: 'Warmaster I',
+      icon: '⚡',
+      badgeClass: 'elo-warmaster-1',
+      accentColor: '#f43f5e',
+      minElo: 2000,
+      maxElo: 2050,
+      nextTier: { name: 'Warmaster II', targetElo: 2050, ptsNeeded: (2050 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-warmaster'
+    };
+  }
+
+  // 1900 - 1999
+  if (val >= 1900) {
+    const progress = (val - 1900) / 100;
+    return {
+      tierKey: 'high-warlord',
+      name: 'High Warlord',
+      shortName: 'High Warlord',
+      icon: '🔥',
+      badgeClass: 'elo-high-warlord',
+      accentColor: '#fb923c',
+      minElo: 1900,
+      maxElo: 2000,
+      nextTier: { name: 'Warmaster I', targetElo: 2000, ptsNeeded: (2000 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-high-warlord'
+    };
+  }
+
+  // 1800 - 1899
+  if (val >= 1800) {
+    const progress = (val - 1800) / 100;
+    return {
+      tierKey: 'grand-marshal',
+      name: 'Grand Marshal',
+      shortName: 'Grand Marshal',
+      icon: '🔮',
+      badgeClass: 'elo-grand-marshal',
+      accentColor: '#c084fc',
+      minElo: 1800,
+      maxElo: 1900,
+      nextTier: { name: 'High Warlord', targetElo: 1900, ptsNeeded: (1900 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-grand-marshal'
+    };
+  }
+
+  // 1700 - 1799
+  if (val >= 1700) {
+    const progress = (val - 1700) / 100;
+    const title = (sys === 'aos') ? 'Lord-Celestant' : 'Chapter Master';
+    return {
+      tierKey: 'commander',
+      name: title,
+      shortName: title,
+      icon: '💠',
+      badgeClass: 'elo-commander',
+      accentColor: '#38bdf8',
+      minElo: 1700,
+      maxElo: 1800,
+      nextTier: { name: 'Grand Marshal', targetElo: 1800, ptsNeeded: (1800 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-commander'
+    };
+  }
+
+  // 1600 - 1699
+  if (val >= 1600) {
+    const progress = (val - 1600) / 100;
+    return {
+      tierKey: 'captain',
+      name: 'Captain',
+      shortName: 'Captain',
+      icon: '💎',
+      badgeClass: 'elo-captain',
+      accentColor: '#10b981',
+      minElo: 1600,
+      maxElo: 1700,
+      nextTier: { name: (sys === 'aos') ? 'Lord-Celestant' : 'Chapter Master', targetElo: 1700, ptsNeeded: (1700 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-captain'
+    };
+  }
+
+  // 1500 - 1599
+  if (val >= 1500) {
+    const progress = (val - 1500) / 100;
+    return {
+      tierKey: 'veteran',
+      name: 'Veteran',
+      shortName: 'Veteran',
+      icon: '⚜️',
+      badgeClass: 'elo-veteran',
+      accentColor: '#facc15',
+      minElo: 1500,
+      maxElo: 1600,
+      nextTier: { name: 'Captain', targetElo: 1600, ptsNeeded: (1600 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-veteran'
+    };
+  }
+
+  // 1450 - 1499
+  if (val >= 1450) {
+    const progress = (val - 1450) / 50;
+    return {
+      tierKey: 'battle-brother',
+      name: 'Battle-Brother',
+      shortName: 'Battle-Brother',
+      icon: '⚔️',
+      badgeClass: 'elo-battle-brother',
+      accentColor: '#94a3b8',
+      minElo: 1450,
+      maxElo: 1500,
+      nextTier: { name: 'Veteran', targetElo: 1500, ptsNeeded: (1500 - val).toFixed(1) },
+      progressPercent: Math.min(100, Math.max(0, Math.round(progress * 100))),
+      themeClass: 'profile-theme-battle-brother'
+    };
+  }
+
+  // < 1450
+  return {
+    tierKey: 'scout',
+    name: 'Scout',
+    shortName: 'Scout',
+    icon: '🛡️',
+    badgeClass: 'elo-scout',
+    accentColor: '#64748b',
+    minElo: 0,
+    maxElo: 1450,
+    nextTier: { name: 'Battle-Brother', targetElo: 1450, ptsNeeded: (1450 - val).toFixed(1) },
+    progressPercent: Math.min(100, Math.max(0, Math.round((val / 1450) * 100))),
+    themeClass: 'profile-theme-scout'
+  };
+}
+
+function getEloBadgeClass(elo, matchesCount = null, gameSystem = '') {
+  const tier = getEloTier(elo, matchesCount, gameSystem);
+  return tier.badgeClass;
+}
+
+function renderEloBadgePill(elo, matchesCount = null, options = {}) {
+  const val = Number(elo) || 1500;
+  const gameSys = options.gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const tier = getEloTier(val, matchesCount, gameSys);
+  const showTier = options.showTierName || false;
+  const sizeClass = options.size === 'lg' ? 'elo-pill-lg' : (options.size === 'sm' ? 'elo-pill-sm' : '');
+  const formattedVal = val.toFixed(1);
+
+  if (tier.isUncalibrated) {
+    const tooltip = `Aspirant · Uncalibrated (${tier.matchesPlayed}/5 matches completed)`;
+    return `<span class="elo-pill ${tier.badgeClass} ${sizeClass}" title="${tooltip}">` +
+      `<span class="elo-pill-icon">${tier.icon}</span>` +
+      (showTier ? `<span class="elo-pill-tier">${escapeHtml(tier.shortName)}</span><span class="elo-pill-sep">·</span>` : '') +
+      `<span class="elo-pill-value">${formattedVal}</span>` +
+      `</span>`;
+  }
+
+  const tooltip = `${tier.name} · ${formattedVal} Elo`;
+  return `<span class="elo-pill ${tier.badgeClass} ${sizeClass}" title="${tooltip}">` +
+    `<span class="elo-pill-icon">${tier.icon}</span>` +
+    (showTier ? `<span class="elo-pill-tier">${escapeHtml(tier.shortName)}</span><span class="elo-pill-sep">·</span>` : '') +
+    `<span class="elo-pill-value">${formattedVal}</span>` +
+    `</span>`;
+}
+
+if (typeof window !== 'undefined') {
+  window.getEloTier = getEloTier;
+  window.renderEloBadgePill = renderEloBadgePill;
 }
 
 function sortClientArray(arr, field, asc = true) {

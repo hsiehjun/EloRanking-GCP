@@ -559,12 +559,16 @@ function renderMyHub(data) {
     ? data.active_sessions
     : [data.primary_active, ...(data.unfinished_sessions || [])].filter(Boolean);
 
-  const currentElo = Number(p.current_elo || 1500.0).toFixed(1);
-  const peakElo = Number(p.peak_elo || 1500.0).toFixed(1);
+  const currentEloNum = Number(p.current_elo || 1500.0);
+  const peakEloNum = Number(p.peak_elo || currentEloNum);
+  const currentElo = currentEloNum.toFixed(1);
+  const peakElo = peakEloNum.toFixed(1);
   const winRate = Number(p.win_rate || 0.0).toFixed(1);
   const totalMatches = Number(p.matches_played || (Number(p.wins || 0) + Number(p.losses || 0) + Number(p.draws || 0)) || 0);
   const isBcpConnected = !!((currentUser && (currentUser.bcp_connected || currentUser.bcp_user_id || currentUser.bcp_token || currentUser.bcp_email)) || (p && p.is_bcp_connected));
   const bcpEmail = (currentUser && currentUser.bcp_email) || (p && p.bcp_email) || '';
+  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
 
   const competitorName = (currentUser && currentUser.display_name && currentUser.display_name.trim() !== '' && currentUser.display_name.toLowerCase() !== 'competitor')
     ? currentUser.display_name
@@ -572,62 +576,315 @@ function renderMyHub(data) {
         ? p.player_name
         : (currentUser && currentUser.display_name) || (currentUser && currentUser.email ? currentUser.email.split('@')[0] : 'Competitor'));
 
+  const playerIdForActions = p.player_id || (currentUser && currentUser.player_id) || competitorName;
+
+  const tier = typeof getEloTier === 'function' ? getEloTier(currentEloNum, totalMatches, sys) : {
+    name: 'Veteran', shortName: 'Veteran', icon: '⚔️', badgeClass: 'tier-veteran',
+    themeClass: 'tier-theme-emerald', progressPercent: 50, isUncalibrated: false,
+    matchesPlayed: totalMatches, matchesNeeded: 0, isApex: false, nextTier: null, minElo: 1500
+  };
+
+  // Compute Peak Streak & Current Streak from history
+  let peakStreak = Number(p.peak_streak || p.streak || 0);
+  let currentStreak = 0;
+  if (history.length > 0) {
+    let tempStreak = 0;
+    history.forEach(m => {
+      if (m.result === 'W') {
+        tempStreak++;
+        if (tempStreak > peakStreak) peakStreak = tempStreak;
+      } else {
+        tempStreak = 0;
+      }
+    });
+    for (let i = history.length - 1; i >= 0; i--) {
+      if (history[i].result === 'W') currentStreak++;
+      else break;
+    }
+  }
+
+  // Build Milestone XP Bar or Calibration Bar
+  let xpSectionHtml = '';
+  if (tier.isUncalibrated) {
+    xpSectionHtml = `
+      <div class="profile-xp-section">
+        <div class="profile-xp-header">
+          <span>🎯 Calibration Status: ${tier.matchesPlayed} of 5 Matches Completed</span>
+          <span style="font-family: var(--font-mono); color: var(--accent);">${tier.progressPercent}%</span>
+        </div>
+        <div class="profile-xp-track">
+          <div class="profile-xp-fill" style="width: ${tier.progressPercent}%;"></div>
+        </div>
+        <div class="profile-xp-footer">
+          <span>Play ${tier.matchesNeeded} more tournament match${tier.matchesNeeded === 1 ? '' : 'es'} to calibrate official rank</span>
+          <span>Target: Veteran (1500.0)</span>
+        </div>
+      </div>
+    `;
+  } else if (tier.isApex) {
+    xpSectionHtml = `
+      <div class="profile-xp-section">
+        <div class="profile-xp-header">
+          <span>👑 Everchosen Apex Milestone</span>
+          <span style="color: #fbbf24; font-weight: 700;">Rank Pinnacle Achieved</span>
+        </div>
+        <div class="profile-xp-track">
+          <div class="profile-xp-fill" style="width: 100%;"></div>
+        </div>
+        <div class="profile-xp-footer">
+          <span>2400.0+ Top Tier Bracket</span>
+          <span>Sovereign Mastery</span>
+        </div>
+      </div>
+    `;
+  } else if (tier.nextTier) {
+    xpSectionHtml = `
+      <div class="profile-xp-section">
+        <div class="profile-xp-header">
+          <span>Progress to Next Tier: <strong style="color:#fff;">${escapeHtml(tier.nextTier.name)}</strong></span>
+          <span style="font-family: var(--font-mono); color: var(--accent);">${tier.nextTier.ptsNeeded} pts needed</span>
+        </div>
+        <div class="profile-xp-track">
+          <div class="profile-xp-fill" style="width: ${tier.progressPercent}%;"></div>
+        </div>
+        <div class="profile-xp-footer">
+          <span>${tier.minElo}.0</span>
+          <span>${tier.nextTier.targetElo}.0 (${tier.progressPercent}%)</span>
+        </div>
+      </div>
+    `;
+  }
+
+  // Recent Form Beads (Latest 8 matches)
+  let recentFormHtml = '';
+  if (history.length > 0) {
+    const recentMatches = history.slice(-8);
+    const beads = recentMatches.map(m => {
+      const res = m.result === 'W' ? 'form-win' : (m.result === 'L' ? 'form-loss' : 'form-draw');
+      const score = m.player_score !== undefined && m.opponent_score !== undefined ? `${m.player_score}-${m.opponent_score}` : m.result;
+      const tooltip = `vs ${escapeHtml(m.opponent_name || 'Opponent')} (${m.event_name || 'Event'})`;
+      return `<span class="form-bead ${res}" title="${tooltip}">${m.result} ${score}</span>`;
+    }).join('');
+
+    recentFormHtml = `
+      <div class="profile-recent-form">
+        <span style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; margin-right: 0.25rem;">
+          Recent Form:
+        </span>
+        ${beads}
+        ${currentStreak >= 3 ? `<span style="font-size: 0.78rem; font-weight: 700; color: #fb923c; margin-left: 0.4rem;">🔥 ${currentStreak}-Match Streak</span>` : ''}
+      </div>
+    `;
+  }
+
+  // Top Factions pills
+  const topFactionsHtml = factionMastery.slice(0, 3).map((f, i) => {
+    return `<span class="faction-pill" title="${escapeHtml(f.faction)} (${f.games} matches)">#${i+1} ${escapeHtml(f.faction)} <strong style="color:var(--text-main); margin-left:2px;">${f.games}G</strong></span>`;
+  }).join(' ');
+
+  // Build Tournament Journey Accordion for My Hub (defaulted to collapsed all)
+  const hubEventsMap = new Map();
+  history.slice().reverse().forEach(m => {
+    const evKey = m.event_id || m.event_name || 'Tournament Match';
+    if (!hubEventsMap.has(evKey)) {
+      hubEventsMap.set(evKey, {
+        event_id: m.event_id || '',
+        event_name: m.event_name || 'Tournament Match',
+        date: m.match_date ? m.match_date.substring(0, 10) : '',
+        faction: m.player_faction || p.top_faction || '',
+        wins: 0,
+        losses: 0,
+        draws: 0,
+        totalEloDelta: 0,
+        rounds: []
+      });
+    }
+    const ev = hubEventsMap.get(evKey);
+    if (m.result === 'W') ev.wins++;
+    else if (m.result === 'L') ev.losses++;
+    else ev.draws++;
+    ev.totalEloDelta += Number(m.delta_elo || 0);
+    ev.rounds.push(m);
+  });
+  const hubEventsList = Array.from(hubEventsMap.values());
+
+  let hubEventsAccordionHtml = '';
+  if (hubEventsList.length === 0) {
+    hubEventsAccordionHtml = `
+      <div class="empty-state" style="padding: 1.5rem 1rem;">
+        <div style="font-size: 1.25rem; margin-bottom: 0.35rem;">📜</div>
+        <div style="font-weight: 600; color: var(--text-secondary); font-size: 0.85rem;">No recorded tournament matches in ${sysLabel}</div>
+      </div>
+    `;
+  } else {
+    hubEventsAccordionHtml = hubEventsList.map((ev, idx) => {
+      const isExpanded = false; // Default collapsed all
+      const recordStr = `${ev.wins}W - ${ev.losses}L${ev.draws > 0 ? ` - ${ev.draws}D` : ''}`;
+      const isFlawless = (ev.losses === 0 && ev.wins >= 3);
+      const eloDelta = ev.totalEloDelta;
+      const eloSign = eloDelta > 0 ? `+${eloDelta.toFixed(1)}` : eloDelta.toFixed(1);
+      const eloColor = eloDelta > 0 ? 'var(--win)' : (eloDelta < 0 ? 'var(--loss)' : 'var(--text-muted)');
+
+      const roundsRows = ev.rounds.map((r, rIdx) => {
+        const isWin = r.result === 'W';
+        const isLoss = r.result === 'L';
+        const isBye = Boolean(r.is_bye || (r.opponent_name && r.opponent_name.toUpperCase() === 'BYE'));
+        const resColor = isWin ? 'var(--win)' : (isLoss ? 'var(--loss)' : 'var(--draw)');
+        const delta = Number(r.delta_elo || 0);
+        const deltaStr = delta > 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1);
+        const deltaColor = delta > 0 ? 'var(--win)' : (delta < 0 ? 'var(--loss)' : 'var(--text-muted)');
+        const scoreStr = (r.player_score !== undefined && r.opponent_score !== undefined) ? `${r.player_score} - ${r.opponent_score}` : '-';
+        const oppBadge = !isBye && r.opponent_elo
+          ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(r.opponent_elo, null, { size: 'sm', gameSystem: sys }) : `<span class="badge">${Number(r.opponent_elo).toFixed(1)}</span>`)
+          : '';
+
+        return `
+          <tr>
+            <td class="col-rnd" style="font-family: var(--font-mono); font-weight: 700; color: var(--text-secondary);">R${r.round || (ev.rounds.length - rIdx)}</td>
+            <td class="col-opp">
+              ${isBye ? '<span class="bye-pill">🛡️ TOURNAMENT BYE</span>' : `
+                <div style="display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;">
+                  <span class="player-link" style="font-weight: 600; color: #38bdf8; cursor: pointer;" onclick="event.stopPropagation(); openPlayerModal('${escapeHtml(r.opponent_id || '')}', '${escapeHtml(r.opponent_name || 'Opponent')}')" title="Quick scout ${escapeHtml(r.opponent_name || 'Opponent')}">${escapeHtml(r.opponent_name || 'Opponent')}</span>
+                  ${oppBadge}
+                </div>
+                ${r.opponent_faction ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 1px;">${escapeHtml(r.opponent_faction)}</div>` : ''}
+              `}
+            </td>
+            <td class="col-res" style="font-family: var(--font-mono); font-weight: 700; color: ${resColor};">${r.result || '-'}</td>
+            <td class="col-score" style="font-family: var(--font-mono); white-space: nowrap;">${scoreStr}</td>
+            <td class="col-delta" style="font-family: var(--font-mono); font-weight: 700; color: ${deltaColor}; text-align: right; white-space: nowrap;">${deltaStr}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div class="profile-event-card ${isExpanded ? 'expanded' : ''}" id="hub-event-card-${idx}">
+          <div class="profile-event-header" onclick="toggleProfileEventCard(${idx}, '#hub-events-accordion-container', 'btn-hub-toggle-all-events')">
+            <div class="profile-event-title-group">
+              <div class="profile-event-name">
+                <span>${escapeHtml(ev.event_name)}</span>
+                ${isFlawless ? '<span class="badge" style="background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.3); font-size:0.68rem; margin-left:0.35rem; white-space:nowrap;">🥇 Flawless</span>' : ''}
+              </div>
+              <div class="profile-event-sub">
+                <span>${ev.date || 'Event Record'}</span>
+                ${ev.faction ? `<span>· 🛡️ ${escapeHtml(ev.faction)}</span>` : ''}
+              </div>
+            </div>
+            <div class="profile-event-stats">
+              <span style="font-family: var(--font-mono); font-weight: 700; font-size: 0.86rem; white-space: nowrap;">${recordStr}</span>
+              <span style="font-family: var(--font-mono); font-weight: 800; font-size: 0.86rem; color: ${eloColor}; min-width: 50px; text-align: right; white-space: nowrap;">${eloSign}</span>
+              <span class="profile-event-chevron">▼</span>
+            </div>
+          </div>
+          <div class="profile-event-body">
+            <table class="profile-rounds-table">
+              <thead>
+                <tr>
+                  <th class="col-rnd">Rnd</th>
+                  <th class="col-opp">Opponent</th>
+                  <th class="col-res">Res</th>
+                  <th class="col-score">Score</th>
+                  <th class="col-delta" style="text-align: right;">Elo Δ</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${roundsRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
   let html = `
     <div id="my-hub-container" class="my-hub-container" data-active-tab="${currentHubMobileTab || 'overview'}">
-      <!-- Top Competitor Banner -->
-      <div class="competitor-banner">
-      <div style="display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap;">
-        <div class="competitor-avatar">🏆</div>
-        <div>
-          <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-            <h2 style="font-size: 1.5rem; font-weight: 800; color: #fff; margin: 0;">${escapeHtml(competitorName)}</h2>
-            ${p.player_name && p.player_name !== competitorName && p.player_name.toLowerCase() !== 'competitor' ? `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">(Ranked as: ${escapeHtml(p.player_name)})</span>` : ''}
-            ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.82rem; padding: 0.2rem 0.6rem;">World Rank #${rankings.global_rank}</span>` : ''}
-            ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.82rem; padding: 0.2rem 0.6rem;">${escapeHtml(p.top_faction || '')} Rank #${rankings.faction_rank}</span>` : ''}
-          </div>
-          <div style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 0.35rem; display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
-            <span>Primary Army: <b style="color: var(--accent);">${escapeHtml(p.top_faction || (window.connectState?.userProfile?.factions) || 'General (Any Army)')}</b></span>
-            <button onclick="openUserSettingsModal()" style="background: transparent; border: none; color: #38bdf8; font-size: 0.76rem; cursor: pointer; text-decoration: underline; font-weight: 600; padding: 0 4px;" title="Set your primary Warhammer 40k army and sparring preferences">✏️ Edit</button>
-            ${p.team ? `<span>• Gaming Club: <b style="color: #fff;">${escapeHtml(p.team)}</b></span>` : ''}
+      <!-- Upgraded 16-Tier Competitor Hero Card -->
+      <div class="profile-hero-card ${tier.themeClass || ''}" style="margin-bottom: 1.25rem;">
+        <div class="profile-hero-top">
+          <div class="profile-identity-group">
+            <div class="profile-rank-crest" title="${escapeHtml(tier.name)}">
+              ${tier.icon}
+            </div>
+            <div class="profile-name-meta">
+              <div class="profile-badges-row">
+                <h1 class="profile-name-title">${escapeHtml(competitorName)}</h1>
+                ${p.player_name && p.player_name !== competitorName && p.player_name.toLowerCase() !== 'competitor' ? `<span style="font-size: 0.8rem; color: #94a3b8; font-weight: 500;">(Ranked as: ${escapeHtml(p.player_name)})</span>` : ''}
+                ${rankings.global_rank ? `<span class="tier-badge tier-S" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">World #${rankings.global_rank}</span>` : ''}
+                ${rankings.faction_rank ? `<span class="tier-badge tier-A" style="font-size: 0.78rem; padding: 0.15rem 0.55rem;">${escapeHtml(p.top_faction || '')} #${rankings.faction_rank}</span>` : ''}
+              </div>
+              <div class="profile-badges-row" style="margin-top: 0.15rem;">
+                ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(currentEloNum, totalMatches, { showTierName: true, size: 'lg', gameSystem: sys }) : `<span class="badge">${currentElo}</span>`}
+                <span class="profile-standing-badge" title="All-Time Peak Rating">
+                  Peak: ${peakElo} 👑
+                </span>
+                ${p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); cursor:pointer;" onclick="openTeamModal('${escapeHtml(p.team)}')" title="Click to view ${escapeHtml(p.team)} roster">🛡️ ${escapeHtml(p.team)}</span>` : ''}
+              </div>
+              <div style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 0.45rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <span style="display: inline-flex; align-items: center; gap: 4px;">
+                  Primary Army: <b style="color: var(--accent);">${escapeHtml(p.top_faction || (window.connectState?.userProfile?.factions) || 'General (Any Army)')}</b>
+                  <button onclick="openUserSettingsModal()" style="background: transparent; border: none; color: #38bdf8; font-size: 0.74rem; cursor: pointer; text-decoration: underline; font-weight: 600; padding: 0 2px;" title="Set your primary army and sparring preferences">✏️ Edit</button>
+                </span>
+                ${isBcpConnected ? `
+                  <span class="badge badge-win" style="font-size: 0.72rem; padding: 0.18rem 0.55rem; display: inline-flex; align-items: center; gap: 0.3rem;">
+                    <span>✅ BCP Linked:</span> <b>${escapeHtml(bcpEmail || 'Active')}</b>
+                  </span>
+                  <button onclick="handleDisconnectBcp()" style="background:transparent; border:none; color:var(--text-muted); font-size:0.72rem; text-decoration:underline; cursor:pointer;">Unlink</button>
+                ` : `
+                  <button class="bcp-login-btn" style="padding: 0.2rem 0.65rem; font-size: 0.72rem;" onclick="openBcpLinkModal()">
+                    <span>🔗</span> Connect Best Coast Pairings
+                  </button>
+                `}
+              </div>
+            </div>
           </div>
 
-          <!-- BCP Linked Account Status Badge -->
-          <div style="margin-top: 0.65rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-            ${isBcpConnected ? `
-              <span class="badge badge-win" style="font-size: 0.75rem; padding: 0.25rem 0.6rem; display: inline-flex; align-items: center; gap: 0.3rem;">
-                <span>✅ BCP Linked:</span> <b>${escapeHtml(bcpEmail || 'Active')}</b>
-              </span>
-              <button onclick="handleDisconnectBcp()" style="background:transparent; border:none; color:var(--text-muted); font-size:0.75rem; text-decoration:underline; cursor:pointer;">Unlink</button>
-            ` : `
-              <button class="bcp-login-btn" style="padding: 0.25rem 0.75rem; font-size: 0.75rem;" onclick="openBcpLinkModal()">
-                <span>🔗</span> Connect Best Coast Pairings
-              </button>
-            `}
+          <div class="profile-hero-actions">
+            <button type="button" class="btn btn-primary" onclick="openPlayerProfilePage('${escapeHtml(playerIdForActions)}', '${sys}')" style="font-weight: 700; font-size: 0.82rem; padding: 0.45rem 0.9rem;">
+              ↗ Public Profile
+            </button>
+            <button type="button" class="btn btn-outline" onclick="copyPlayerProfileLink('${escapeHtml(playerIdForActions)}', '${sys}')" title="Copy shareable link to your public profile" style="font-weight: 600; font-size: 0.82rem; padding: 0.45rem 0.85rem;">
+              🔗 Share Profile
+            </button>
           </div>
         </div>
-      </div>
 
-      <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.75rem; width:100%; max-width:480px;">
-        <div class="competitor-stat-grid">
-          <div class="c-stat-box">
-            <div class="c-stat-val" style="color: var(--accent);">${currentElo}</div>
-            <div class="c-stat-lbl">Current Elo</div>
+        <!-- Milestone XP Progress Bar -->
+        ${xpSectionHtml}
+
+        <!-- Key Metrics Grid -->
+        <div class="profile-metrics-grid">
+          <div class="profile-metric-box">
+            <div class="m-lbl">Record</div>
+            <div class="m-val" style="font-size: 1.05rem;">
+              <span style="color:var(--win);">${p.wins || 0}W</span> - <span style="color:var(--loss);">${p.losses || 0}L</span>${(p.draws || 0) > 0 ? ` - <span style="color:var(--draw);">${p.draws}D</span>` : ''}
+            </div>
           </div>
-          <div class="c-stat-box">
-            <div class="c-stat-val" style="color: #a855f7;">${peakElo}</div>
-            <div class="c-stat-lbl">Peak Elo</div>
+          <div class="profile-metric-box">
+            <div class="m-lbl">Win Rate</div>
+            <div class="m-val" style="color: ${Number(winRate) >= 60 ? 'var(--win)' : (Number(winRate) >= 45 ? 'var(--accent)' : '#fff')};">
+              ${winRate}%
+            </div>
           </div>
-          <div class="c-stat-box">
-            <div class="c-stat-val" style="color: var(--win);">${winRate}%</div>
-            <div class="c-stat-lbl">Career Win Rate</div>
+          <div class="profile-metric-box">
+            <div class="m-lbl">Matches</div>
+            <div class="m-val">${totalMatches}</div>
           </div>
-          <div class="c-stat-box">
-            <div class="c-stat-val" style="color: #fff;">${p.wins || 0}W - ${p.losses || 0}L</div>
-            <div class="c-stat-lbl">${totalMatches} Matches</div>
+          <div class="profile-metric-box">
+            <div class="m-lbl">Peak Streak</div>
+            <div class="m-val" style="color: var(--win);">${peakStreak} Wins</div>
+          </div>
+          <div class="profile-metric-box" style="grid-column: span 2;">
+            <div class="m-lbl">Top Armies</div>
+            <div style="margin-top: 0.25rem; display: flex; gap: 0.35rem; justify-content: center; flex-wrap: wrap;">
+              ${topFactionsHtml || `<span style="color:var(--text-muted); font-size:0.8rem;">${escapeHtml(p.top_faction || 'Various')}</span>`}
+            </div>
           </div>
         </div>
+
+        <!-- Recent Form Beads -->
+        ${recentFormHtml}
       </div>
-    </div>
 
 
 
@@ -961,6 +1218,30 @@ function renderMyHub(data) {
         ` : (data._isSkeleton ? '<div style="text-align:center; padding:1.5rem; color:var(--text-muted);"><div class="spinner"></div><div style="margin-top:0.5rem; font-size:0.8rem;">Loading matchup data...</div></div>' : '<div style="color:var(--text-muted); font-size:0.85rem; padding:1rem;">No opponent matchup data recorded.</div>')}
       </div>
 
+    </div>
+
+    <!-- Full-Width Tournament Journey Accordion (Collapsed by Default) -->
+    <div class="hub-card hub-fullwidth-journey profile-journey-section" style="margin-top: 1.25rem;">
+      <div class="profile-journey-header">
+        <div style="display: flex; flex-direction: column; gap: 2px;">
+          <h3 class="profile-journey-title" style="font-size: 1.05rem;">
+            <span>🏆 My Tournament Journey</span>
+            <span class="profile-journey-count">(${hubEventsList.length} Event${hubEventsList.length === 1 ? '' : 's'})</span>
+          </h3>
+          <span class="profile-journey-subtitle">
+            Showing your official tournament match history grouped by event (click any event to expand rounds)
+          </span>
+        </div>
+        ${hubEventsList.length > 0 ? `
+          <button type="button" id="btn-hub-toggle-all-events" class="btn btn-outline btn-sm" onclick="toggleAllProfileEventCards('#hub-events-accordion-container', 'btn-hub-toggle-all-events')" style="font-size: 0.76rem; padding: 0.32rem 0.75rem; border-color: rgba(56,189,248,0.35); color: #38bdf8; background: rgba(56,189,248,0.08); font-weight: 700; white-space: nowrap;">
+            ▼ Expand All
+          </button>
+        ` : ''}
+      </div>
+
+      <div id="hub-events-accordion-container">
+        ${hubEventsAccordionHtml}
+      </div>
     </div>
 
     <!-- 2-Column Row 3: Career Match History & Live Game Tracker History -->

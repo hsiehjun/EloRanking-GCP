@@ -217,7 +217,11 @@ function renderLeaderboardRows() {
   const list = Array.isArray(leaderboardData) ? leaderboardData : (leaderboardData && Array.isArray(leaderboardData.items) ? leaderboardData.items : []);
   list.forEach((p, idx) => {
     const tr = document.createElement('tr');
-    tr.onclick = (e) => { e.stopPropagation(); openPlayerModal(p.player_id); };
+    const safeName = String(p.player_name || 'Unknown').replace(/'/g, "\\'");
+    tr.onclick = (e) => { 
+      e.stopPropagation(); 
+      openPlayerModal(p.player_id, p.player_name || '');
+    };
 
     const rank = offset + idx + 1;
     let rankClass = '';
@@ -225,9 +229,9 @@ function renderLeaderboardRows() {
     else if (rank === 2) rankClass = 'rank-top-2';
     else if (rank === 3) rankClass = 'rank-top-3';
 
-    const eloBadgeClass = getEloBadgeClass(p.current_elo);
+    const eloBadgeClass = getEloBadgeClass(p.current_elo, p.matches_played);
     const winRate = p.win_rate !== undefined ? p.win_rate : (p.matches_played > 0 ? ((p.wins / p.matches_played) * 100).toFixed(1) : 0);
-    const teamHtml = p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); filterByTeam('${escapeHtml(p.team)}')">🛡️ ${escapeHtml(p.team)}</span>` : '';
+    const teamHtml = p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(p.team)}')" title="View ${escapeHtml(p.team)} Roster">🛡️ ${escapeHtml(p.team)}</span>` : '';
     const isSelf = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === p.player_id || currentUser.id === p.account_user_id));
     const chatPill = (p.has_account && !isSelf) ? `
       <button type="button" class="btn-chat-pill" title="Send Chat Request" onclick="event.stopPropagation(); handlePlayerChatClick('${escapeHtml(p.player_id)}', '${escapeHtml(p.player_name || '')}', '${p.account_user_id || ''}')">
@@ -246,7 +250,9 @@ function renderLeaderboardRows() {
           ${teamHtml}
         </div>
       </td>
-      <td class="elo-badge ${eloBadgeClass}">${Number(p.current_elo).toFixed(1)}</td>
+      <td>
+        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(p.current_elo, p.matches_played) : `<span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo).toFixed(1)}</span>`}
+      </td>
       <td class="col-peak" style="font-family:var(--font-mono); color:var(--text-secondary);">${Number(p.peak_elo || p.current_elo).toFixed(1)}</td>
       <td style="font-family:var(--font-mono); font-size:0.85rem;">
         <span style="color:var(--win); font-weight:600;">${p.wins}W</span> - 
@@ -397,17 +403,19 @@ function renderLeaderboardTeamsRows() {
           <span class="player-link">${escapeHtml(t.team || 'Team')}</span>
         </div>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:#a855f7;">
-        ${pRating}
+      <td>
+        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(pRating, 10) : `<span style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:#a855f7;">${pRating}</span>`}
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600; color:var(--accent);" title="${escapeHtml(avgEloTitle)}">
-        ${activeAvg}
+      <td title="${escapeHtml(avgEloTitle)}">
+        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(activeAvg, 10) : `<span style="font-family:var(--font-mono); font-weight:600; color:var(--accent);">${activeAvg}</span>`}
       </td>
       <td>
-        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
-          ${escapeHtml(t.top_player_name || 'Top Player')}
-        </span>
-        <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${topElo})</span>
+        <div style="display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;">
+          <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
+            ${escapeHtml(t.top_player_name || 'Top Player')}
+          </span>
+          ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(topElo, 10) : `<span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted);">(${topElo})</span>`}
+        </div>
       </td>
       <td>
         <span class="roster-badge" title="${escapeHtml(rosterTitle)}">

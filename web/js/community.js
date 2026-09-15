@@ -320,6 +320,7 @@ async function loadCommunityHub(lat = null, lng = null, radius = null, locationN
 
   // If data for this exact location & radius is already in memory and fresh (< 60s), avoid redundant network round-trip
   if (!force && hasExistingData && communityState.overviewLoadedAt && (Date.now() - communityState.overviewLoadedAt < 60000)) {
+    renderCurrentSubtab();
     return communityState.overview;
   }
 
@@ -1192,14 +1193,14 @@ function renderTournamentCard(ev, isUpcomingSection, userElo) {
       <div style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 4px;">
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; gap: 6px;">
           <span style="color: #94a3b8; white-space: nowrap;">⭐ Field Avg:</span>
-          <span id="field-avg-${escapeHtml(ev.id)}" style="font-weight: 800; color: #fff; font-family: monospace; white-space: nowrap;">
-            ${fieldAvg ? `${fieldAvg} Elo ${deltaMarkup}` : fieldAvgFallbackHtml}
+          <span id="field-avg-${escapeHtml(ev.id)}" style="font-weight: 800; color: #fff; font-family: monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">
+            ${fieldAvg ? `${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(fieldAvg) : `${fieldAvg} Elo`} ${deltaMarkup}` : fieldAvgFallbackHtml}
           </span>
         </div>
         <div id="top-seed-container-${escapeHtml(ev.id)}" style="${topSeed ? '' : 'display: none;'}">
           <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.78rem; gap: 6px;">
             <span style="color: #94a3b8; white-space: nowrap;">👑 Top Seed:</span>
-            <span id="top-seed-val-${escapeHtml(ev.id)}" style="font-weight: 700; color: #f59e0b; font-family: monospace; white-space: nowrap;">${topSeed ? `${topSeed} Elo` : ''}</span>
+            <span id="top-seed-val-${escapeHtml(ev.id)}" style="font-weight: 700; color: #f59e0b; font-family: monospace; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">${topSeed ? (typeof renderEloBadgePill === 'function' ? renderEloBadgePill(topSeed) : `${topSeed} Elo`) : ''}</span>
           </div>
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.76rem; color: #64748b; margin-top: 2px;">
@@ -1334,7 +1335,7 @@ async function hydrateUpcomingFieldStats(eventIds, userElo) {
               delta = `<span style="font-size: 0.72rem; color: #94a3b8; font-weight: 700; margin-left: 4px; white-space: nowrap;" title="Your Elo is identical to this tournament's average field">(Even)</span>`;
             }
           }
-          avgEl.innerHTML = `${avg} Elo ${delta}`;
+          avgEl.innerHTML = `${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(avg) : `${avg} Elo`} ${delta}`;
         } else if (data.total_enrolled > 0) {
           avgEl.innerHTML = `<span style="color: #94a3b8; font-weight: 600; font-size: 0.78rem;">Provisional Field (${data.total_enrolled} ${data.total_enrolled === 1 ? 'player' : 'players'})</span>`;
         } else {
@@ -1353,7 +1354,8 @@ async function hydrateUpcomingFieldStats(eventIds, userElo) {
       const topSeedContainer = document.getElementById(`top-seed-container-${eid}`);
       const topSeedVal = document.getElementById(`top-seed-val-${eid}`);
       if (topSeedContainer && topSeedVal && data.top_seed_elo != null && data.rated_players_count > 0) {
-        topSeedVal.innerText = `${Math.round(Number(data.top_seed_elo))} Elo`;
+        const topElo = Math.round(Number(data.top_seed_elo));
+        topSeedVal.innerHTML = typeof renderEloBadgePill === 'function' ? renderEloBadgePill(topElo) : `${topElo} Elo`;
         topSeedContainer.style.display = '';
       }
 
@@ -1475,7 +1477,7 @@ function renderCommunityCompetitors() {
   if (!container) return;
 
   const overview = communityState.overview;
-  const competitors = overview?.local_competitors || [];
+  const competitors = overview?.local_competitors || overview?.local_leaderboard || [];
   const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
   const locName = overview?.location?.location_name || communityState.locationName || 'Your Location';
 
@@ -1619,7 +1621,7 @@ function renderCompetitorCard(c) {
           ${escapeHtml(initials)}
         </div>
         <div style="flex: 1; min-width: 0;">
-          <div style="font-weight: 800; font-size: 1.02rem; color: #fff; line-height: 1.3; cursor: pointer; word-break: break-word;" data-player-id="${escapeHtml(c.player_id)}" onclick="openPlayerModal(this.dataset.playerId)" title="Click to view profile">
+          <div style="font-weight: 800; font-size: 1.02rem; color: #fff; line-height: 1.3; cursor: pointer; word-break: break-word;" data-player-id="${escapeHtml(c.player_id)}" onclick="openPlayerModal(this.dataset.playerId, '${escapeHtml(name)}')" title="Click to view profile">
             ${escapeHtml(name)}
           </div>
           <div style="display: flex; align-items: center; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
@@ -1627,9 +1629,7 @@ function renderCompetitorCard(c) {
               📍 ${localElo} Local
             </span>
             ${provBadge}
-            <span class="badge" style="background: rgba(255,255,255,0.06); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12); font-size: 0.70rem; font-weight: 600; padding: 2px 6px;" title="Global Rating: ${globalElo}">
-              🌐 ${globalElo}
-            </span>
+            ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(c.current_elo || globalElo, c.matches_played || c.local_matches || 10, { showTierName: true, size: 'sm', gameSystem: (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k' }) : `<span class="badge" style="background: rgba(255,255,255,0.06); color: #94a3b8; border: 1px solid rgba(255,255,255,0.12); font-size: 0.70rem; font-weight: 600; padding: 2px 6px;" title="Global Rating: ${globalElo}">🌐 ${globalElo}</span>`}
             ${eloDeltaBadge}
             ${accountBadge}
           </div>
@@ -1757,7 +1757,7 @@ function renderCommunityTeamsLeaderboard() {
   if (!container) return;
 
   const overview = communityState.overview;
-  const teams = overview?.local_teams_leaderboard || [];
+  const teams = overview?.local_teams_leaderboard || overview?.local_teams || [];
   const rad = overview?.location?.radius_miles || communityState.radiusMiles || 50;
 
   const sumEl = document.getElementById('comm-scene-summary');
@@ -1795,40 +1795,44 @@ function renderCommunityTeamsLeaderboard() {
       </tr>
     `;
   } else {
-    teams.forEach(t => {
-      const rank = t.rank;
+    teams.forEach((t, idx) => {
+      const rank = t.rank != null ? Number(t.rank) : (idx + 1);
       let rankDisplay = `#${rank}`;
       if (rank === 1) rankDisplay = '🥇 1';
       else if (rank === 2) rankDisplay = '🥈 2';
       else if (rank === 3) rankDisplay = '🥉 3';
 
+      const teamName = t.team_name || t.team || 'Team';
       const avgElo = t.avg_elo ? Math.round(Number(t.avg_elo)) : 1500;
       const topElo = t.top_player_elo ? Math.round(Number(t.top_player_elo)) : avgElo;
-      const winRate = t.team_win_rate != null ? `${Number(t.team_win_rate).toFixed(1)}%` : '-';
-      const membersCount = t.local_members_count || 1;
-      const eventsCount = t.regional_events_count || 1;
-      const topName = t.top_player_name || 'Competitor';
+      const winRate = t.team_win_rate != null ? `${Number(t.team_win_rate).toFixed(1)}%` : (t.regional_wins != null ? `${((t.regional_wins / Math.max(1, t.regional_wins + (t.regional_losses || 0))) * 100).toFixed(1)}%` : '-');
+      const membersCount = t.local_members_count || t.active_members || 1;
+      const eventsCount = t.regional_events_count || 3;
+      const topName = t.top_player_name || 'Top Competitor';
+      const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
 
       html += `
-        <tr data-team-name="${escapeHtml(t.team_name)}" onclick="if(typeof openTeamModal==='function') openTeamModal(this.dataset.teamName)" style="cursor: pointer;">
+        <tr data-team-name="${escapeHtml(teamName)}" onclick="if(typeof openTeamModal==='function') openTeamModal(this.dataset.teamName)" style="cursor: pointer;">
           <td style="text-align: center; font-weight: 800; font-family: monospace; color: ${rank <= 3 ? '#f59e0b' : '#94a3b8'};">
             ${rankDisplay}
           </td>
           <td>
             <div style="font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px;">
               <span>🛡️</span>
-              <span>${escapeHtml(t.team_name)}</span>
+              <span class="player-link">${escapeHtml(teamName)}</span>
             </div>
           </td>
           <td style="text-align: center; color: #cbd5e1; font-weight: 600;">
             ${membersCount} player${membersCount > 1 ? 's' : ''}
           </td>
           <td>
-            <div style="color: #fff; font-weight: 600;">${escapeHtml(topName)}</div>
-            <div style="font-size: 0.72rem; color: #f59e0b; font-family: monospace; font-weight: 700;">${topElo} Elo</div>
+            <div style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="color: #fff; font-weight: 600;">${escapeHtml(topName)}</span>
+              ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(topElo, 10, { showTierName: false, size: 'sm', gameSystem: sys }) : `<span style="font-size: 0.72rem; color: #f59e0b; font-family: monospace; font-weight: 700;">${topElo} Elo</span>`}
+            </div>
           </td>
-          <td style="font-weight: 800; color: #38bdf8; font-family: monospace;">
-            ${avgElo}
+          <td>
+            ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(avgElo, 10, { showTierName: true, size: 'sm', gameSystem: sys }) : `<span style="font-weight: 800; color: #38bdf8; font-family: monospace;">${avgElo}</span>`}
           </td>
           <td style="text-align: center; color: #cbd5e1;">
             ${eventsCount}
@@ -1894,8 +1898,9 @@ function renderCommunityLeaderboard() {
       </tr>
     `;
   } else {
-    leaderboard.forEach(row => {
-      const rank = row.rank;
+    const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+    leaderboard.forEach((row, idx) => {
+      const rank = row.rank != null ? Number(row.rank) : (idx + 1);
       let rankDisplay = `#${rank}`;
       if (rank === 1) rankDisplay = '🥇 1';
       else if (rank === 2) rankDisplay = '🥈 2';
@@ -1904,7 +1909,7 @@ function renderCommunityLeaderboard() {
       const localElo = row.local_elo ? Math.round(Number(row.local_elo)) : 1500;
       const localMatches = row.local_matches || 0;
       const localWinRate = (row.local_win_rate != null && localMatches > 0) ? `${Number(row.local_win_rate).toFixed(1)}%` : '-';
-      const localRecord = row.local_record || '0-0-0';
+      const localRecord = row.local_record || (row.local_wins != null ? `${row.local_wins}-${row.local_losses || 0}-${row.local_draws || 0}` : '0-0-0');
       const globalElo = row.current_elo ? Math.round(Number(row.current_elo)) : 1500;
       const globalPeak = row.peak_elo ? Math.round(Number(row.peak_elo)) : globalElo;
 
@@ -1924,8 +1929,11 @@ function renderCommunityLeaderboard() {
       const wrNum = Number(row.local_win_rate || 0);
       const wrColor = (localMatches > 0 && wrNum >= 60) ? '#10b981' : (localMatches > 0 && wrNum >= 45 ? '#38bdf8' : '#94a3b8');
 
+      const safeRowName = String(row.player_name || 'Competitor').replace(/'/g, "\\'");
+      const teamPill = row.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(row.team)}')" title="View ${escapeHtml(row.team)} Roster">🛡️ ${escapeHtml(row.team)}</span>` : '';
+
       html += `
-        <tr data-player-id="${escapeHtml(row.player_id)}" onclick="openPlayerModal(this.dataset.playerId)" style="cursor: pointer;">
+        <tr data-player-id="${escapeHtml(row.player_id)}" onclick="openPlayerModal(this.dataset.playerId, '${escapeHtml(safeRowName)}')" style="cursor: pointer;">
           <td style="text-align: center; font-weight: 800; font-family: monospace; color: ${rank <= 3 ? '#f59e0b' : '#94a3b8'};">
             ${rankDisplay}
           </td>
@@ -1934,13 +1942,13 @@ function renderCommunityLeaderboard() {
               <div style="font-weight: 700; color: #fff;">${escapeHtml(row.player_name || 'Competitor')}</div>
               ${chatPill}
             </div>
-            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px;">
-              ${row.team ? `<span style="font-size: 0.72rem; color: #94a3b8;">${escapeHtml(row.team)}</span>` : ''}
+            <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 3px;">
+              ${teamPill}
               ${row.has_shared_events ? `<span style="font-size: 0.68rem; color: #10b981; font-weight: 700;">★ Shared Tournament Competitor</span>` : ''}
             </div>
           </td>
-          <td style="font-weight: 800; color: #38bdf8; font-family: monospace; white-space: nowrap;">
-            <span>${localElo}</span>
+          <td style="white-space: nowrap;">
+            ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(localElo, localMatches || 10, { showTierName: false, size: 'sm', gameSystem: sys }) : `<span style="font-weight: 800; color: #38bdf8; font-family: monospace;">${localElo}</span>`}
             ${provBadge}
           </td>
           <td>
@@ -1957,9 +1965,7 @@ function renderCommunityLeaderboard() {
             ${escapeHtml(row.top_faction || 'Unknown')}
           </td>
           <td>
-            <div style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 0.75rem; color: #cbd5e1;" title="Global Rating: ${globalElo} (Peak: ${globalPeak})">
-              <span>🌐</span> <strong>${globalElo}</strong>
-            </div>
+            ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(row.current_elo || globalElo, row.matches_played || localMatches || 10, { showTierName: true, size: 'sm', gameSystem: sys }) : `<div style="display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 6px; font-family: monospace; font-size: 0.75rem; color: #cbd5e1;" title="Global Rating: ${globalElo} (Peak: ${globalPeak})"><span>🌐</span> <strong>${globalElo}</strong></div>`}
           </td>
         </tr>
       `;

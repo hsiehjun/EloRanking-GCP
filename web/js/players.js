@@ -73,9 +73,11 @@ function renderPlayersDirectoryRows() {
 
   playersDirectoryData.forEach(p => {
     const tr = document.createElement('tr');
-    tr.onclick = () => openPlayerModal(p.player_id);
+    tr.onclick = () => {
+      openPlayerModal(p.player_id, p.player_name || p.full_name || '');
+    };
 
-    const eloBadgeClass = getEloBadgeClass(p.current_elo);
+    const eloBadgeClass = getEloBadgeClass(p.current_elo, p.matches_played);
     const winRate = p.win_rate !== undefined ? p.win_rate : (p.matches_played > 0 ? ((p.wins / p.matches_played) * 100).toFixed(1) : 0);
     const teamHtml = p.team ? `<span class="badge" style="background:rgba(168,85,247,0.12); color:#c084fc; border:1px solid rgba(168,85,247,0.25); font-size:0.68rem; margin-top:0.2rem; cursor:pointer;" onclick="event.stopPropagation(); openTeamModal('${escapeHtml(p.team)}')">🛡️ ${escapeHtml(p.team)}</span>` : '';
     const isSelf = (typeof currentUser !== 'undefined' && currentUser && (currentUser.player_id === p.player_id || currentUser.id === p.account_user_id));
@@ -98,8 +100,8 @@ function renderPlayersDirectoryRows() {
       <td class="col-faction">
         ${(p.top_faction || 'Various').split(',').map(f => `<span class="faction-pill" title="${escapeHtml(f.trim())}" style="margin:2px 3px 2px 0; display:inline-block;">${escapeHtml(f.trim())}</span>`).join('')}
       </td>
-      <td class="elo-badge ${eloBadgeClass}">
-        ${Number(p.current_elo || 1500).toFixed(1)}
+      <td>
+        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(p.current_elo, p.matches_played) : `<span class="elo-badge ${eloBadgeClass}">${Number(p.current_elo || 1500).toFixed(1)}</span>`}
       </td>
       <td class="col-peak" style="font-family:var(--font-mono); color:var(--text-secondary);">
         ${Number(p.peak_elo || p.current_elo || 1500).toFixed(1)}

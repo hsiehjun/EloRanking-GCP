@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=440a7784ad">
-  <link rel="stylesheet" href="/css/styles.css?v=440a7784ad">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=440a7784ad">
+  <link rel="stylesheet" href="/css/theme.css?v=961f762d18">
+  <link rel="stylesheet" href="/css/styles.css?v=961f762d18">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=961f762d18">
 
   <!-- Mobile Navigation Helper & Standalone iOS Link Handler -->
   <script>
@@ -465,6 +465,16 @@
 
     <!-- TAB: DEDICATED SPARRING & MATCH CHAT (Transformed to Persistent Floating Chat Widget) -->
     <section id="tab-chat" class="tab-panel" style="display: none !important;" aria-hidden="true"></section>
+
+    <!-- TAB: DEDICATED PUBLIC PLAYER PROFILE -->
+    <section id="tab-player-profile" class="tab-panel">
+      <div id="player-profile-container" class="player-profile-view">
+        <div class="empty-state">
+          <div class="spinner"></div>
+          <div style="margin-top: 0.75rem;">Loading player profile...</div>
+        </div>
+      </div>
+    </section>
 
     <!-- TAB 2: COMPETITIVE LEADERBOARDS -->
     <section id="tab-leaderboard" class="tab-panel active">
@@ -1841,93 +1851,102 @@
     </div>
   </div>
 
-  <!-- Player Win Path Modal -->
+  <!-- Player Win Path Modal (Streamlined Quick Scout Card) -->
   <div id="player-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
-    <div class="modal-window">
+    <div class="modal-window player-scout-modal">
       <div class="modal-header player-modal-header">
         <div class="player-modal-top-row">
-          <h2 id="modal-player-name" class="player-modal-name">Player Profile</h2>
+          <div class="player-modal-title-wrap">
+            <h2 id="modal-player-name" class="player-modal-name" onclick="openDedicatedPlayerProfileFromModal()" title="Click to view full player profile">Player Profile</h2>
+            <div id="modal-player-submeta" class="player-modal-submeta">
+              <div id="modal-player-team" class="player-modal-teams"></div>
+              <div id="modal-player-factions" class="player-modal-factions faction-pill-group"></div>
+            </div>
+          </div>
           <div class="player-modal-actions">
+            <button type="button" class="btn btn-primary btn-sm btn-modal-full-profile" id="btn-modal-open-full-profile" onclick="openDedicatedPlayerProfileFromModal()" title="Open dedicated, full-page player profile">
+              <span>↗ Full Profile</span>
+            </button>
             <div id="modal-player-chat-container"></div>
             <button class="modal-close" onclick="closeModal('player-modal')" aria-label="Close modal">✕</button>
           </div>
         </div>
-        <div id="modal-player-submeta" class="player-modal-submeta">
-          <div id="modal-player-team" class="player-modal-teams"></div>
-          <div id="modal-player-factions" class="player-modal-factions faction-pill-group"></div>
-        </div>
       </div>
 
-      <div class="modal-body">
-        <div class="profile-hero">
-          <div class="profile-metric">
-            <div class="lbl">Current Elo</div>
-            <div class="val" id="modal-elo" style="color: var(--accent);">-</div>
+      <div class="modal-body player-modal-body">
+        <!-- Core Stats Grid (4 compact metric cards) -->
+        <div class="player-scout-stats-grid">
+          <div class="scout-stat-card">
+            <div class="scout-stat-label">CURRENT RATING</div>
+            <div class="scout-stat-val" id="modal-elo">-</div>
           </div>
-          <div class="profile-metric">
-            <div class="lbl">Peak Elo</div>
-            <div class="val" id="modal-peak">-</div>
+          <div class="scout-stat-card">
+            <div class="scout-stat-label">ALL-TIME PEAK</div>
+            <div class="scout-stat-val" id="modal-peak">-</div>
           </div>
-          <div class="profile-metric">
-            <div class="lbl">Record</div>
-            <div class="val" id="modal-record" style="font-size: 1.1rem;">-</div>
+          <div class="scout-stat-card">
+            <div class="scout-stat-label">RECORD &amp; WIN RATE</div>
+            <div class="scout-stat-val">
+              <span id="modal-record">-</span>
+              <span id="modal-winrate" class="scout-wr-pill">-</span>
+            </div>
           </div>
-          <div class="profile-metric">
-            <div class="lbl">Win Rate</div>
-            <div class="val" id="modal-winrate">-</div>
-          </div>
-          <div class="profile-metric">
-            <div class="lbl">Max Win Streak</div>
-            <div class="val" id="modal-streak" style="color: var(--win);">-</div>
+          <div class="scout-stat-card">
+            <div class="scout-stat-label">MAX WIN STREAK</div>
+            <div class="scout-stat-val" id="modal-streak" style="color: var(--win);">-</div>
           </div>
         </div>
 
-        <!-- Collapsible Rating History & Elo Progression Chart -->
-        <div class="chart-collapsible-section" style="margin-bottom: 1.25rem;">
-          <button id="toggle-chart-btn" class="chart-toggle-btn" onclick="togglePlayerEloChart()">
-            <span>📈 View Elo Progression Graph</span>
-            <span id="toggle-chart-arrow">▼</span>
-          </button>
-          <div id="chart-collapsible-content" class="chart-container" style="display: none; margin-top: 0.75rem;">
-            <div class="chart-title">📈 Rating History & Elo Progression</div>
-            <div id="chart-wrap" style="position: relative;">
-              <svg id="trajectory-svg" class="elo-chart"></svg>
+        <!-- Recent Form & Matches Section -->
+        <div class="scout-recent-section">
+          <div class="scout-recent-header">
+            <div class="scout-recent-title-group">
+              <span class="scout-recent-title">Recent Form</span>
+              <div id="modal-recent-form-beads" class="scout-form-beads"></div>
             </div>
+            <div id="modal-matches-count-note" class="scout-recent-note">Last 5 matches</div>
           </div>
-        </div>
 
-        <div>
-          <div class="player-modal-search-wrap" style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap;">
-            <h4 style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin: 0; letter-spacing: 0.05em;">
-              Match-by-Match Win Path
-            </h4>
-            <div class="player-modal-search-box" style="position: relative; width: 260px; max-width: 100%;">
-              <input type="search" id="player-modal-search" class="search-input" placeholder="Search opponents, events, factions..." oninput="handlePlayerModalSearch(this.value)" onkeyup="handlePlayerModalSearch(this.value)" onsearch="handlePlayerModalSearch(this.value)" enterkeyhint="search" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" style="width: 100%; box-sizing: border-box; padding: 0.42rem 0.65rem 0.42rem 2rem; font-size: 0.82rem; height: 34px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff;" />
-              <span style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.75rem; color: var(--text-muted); pointer-events: none;">🔍</span>
-              <button id="player-modal-search-clear" onclick="clearPlayerModalSearch()" style="display: none; position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; padding: 2px 4px;" title="Clear search">✕</button>
-            </div>
-          </div>
-          <div id="player-modal-search-summary" style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; display: none;"></div>
-          <div class="table-container" style="max-height: 280px;">
-            <table id="player-matches-table">
+          <!-- Compact Recent Matches Preview Table -->
+          <div class="scout-matches-wrapper">
+            <table class="scout-matches-table" id="player-matches-table">
               <thead>
                 <tr>
-                  <th>Date</th>
-                  <th>Tournament</th>
-                  <th>Rnd</th>
-                  <th>Result</th>
-                  <th>Score</th>
-                  <th>Faction</th>
+                  <th style="width: 44px; text-align: center;">Res</th>
                   <th>Opponent</th>
-                  <th>Opp Faction</th>
-                  <th>Opp Elo</th>
-                  <th>Δ Elo</th>
-                  <th>New Elo</th>
+                  <th class="scout-col-event">Event</th>
+                  <th style="text-align: center;">Score</th>
+                  <th style="text-align: right;">Δ Elo</th>
                 </tr>
               </thead>
               <tbody id="modal-matches-body"></tbody>
             </table>
           </div>
+          <div id="modal-matches-more-prompt" class="scout-more-prompt" style="display: none;"></div>
+        </div>
+
+        <!-- Full Profile Navigation CTA Card -->
+        <div class="scout-full-profile-banner" onclick="openDedicatedPlayerProfileFromModal()" role="button" tabindex="0" title="Open complete player profile with tournament journey, Nemesis matchups and career trajectory">
+          <div class="scout-banner-content">
+            <div class="scout-banner-icon">📊</div>
+            <div class="scout-banner-text">
+              <div class="scout-banner-heading">Open Full Tournament Journey &amp; Analytics ↗</div>
+              <div class="scout-banner-desc">Interactive Elo graph, faction win rates, Nemesis rivalries &amp; match history</div>
+            </div>
+          </div>
+          <button type="button" class="btn btn-primary btn-sm scout-banner-action" onclick="event.stopPropagation(); openDedicatedPlayerProfileFromModal();">
+            Full Profile ↗
+          </button>
+        </div>
+
+        <!-- Secondary Actions Row -->
+        <div class="scout-footer-actions">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-modal-scout-predict" onclick="closeModal('player-modal'); openPredictorWithPlayer(currentModalPlayerId, currentModalPlayerName);" style="gap: 0.35rem; color: #a855f7; border-color: rgba(168,85,247,0.35); background: rgba(168,85,247,0.08);">
+            🔮 Predict Match vs Player
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('player-modal')">
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -2778,8 +2797,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "440a7784ad";</script>
-  <script src="/js/app.bundle.min.js?v=440a7784ad"></script>
+  <script>window.APP_VERSION = "961f762d18";</script>
+  <script src="/js/app.bundle.min.js?v=961f762d18"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

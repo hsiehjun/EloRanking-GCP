@@ -158,19 +158,22 @@ function renderFactionMetaRows() {
     if (wr >= 55) wrClass = 'wr-over';
     else if (wr < 45) wrClass = 'wr-under';
 
-    let tierBadge = `<span class="tier-badge tier-${f.tier}">${f.tier}</span>`;
+    const tier = f.tier || (wr >= 55 ? 'S' : (wr >= 50 ? 'A' : (wr >= 45 ? 'B' : 'C')));
+    const tierLabel = f.tier_label || (tier === 'S' ? 'Dominant' : (tier === 'A' ? 'Strong' : 'Balanced'));
+    const totalMatches = f.total_matches != null ? f.total_matches : (f.games || ((f.wins || 0) + (f.losses || 0) + (f.draws || 0)));
+    let tierBadge = `<span class="tier-badge tier-${tier}">${tier}</span>`;
 
     tr.innerHTML = `
       <td style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.85rem;">#${idx + 1}</td>
       <td>
         <span class="player-link" style="font-weight:700;">${escapeHtml(f.faction)}</span>
       </td>
-      <td>${tierBadge} <span style="font-size:0.75rem; color:var(--text-secondary); margin-left:0.35rem;">${f.tier_label || ''}</span></td>
+      <td>${tierBadge} <span style="font-size:0.75rem; color:var(--text-secondary); margin-left:0.35rem;">${tierLabel}</span></td>
       <td>
         <span class="${wrClass}" style="font-size:0.95rem; font-weight:700; font-family:var(--font-mono);">${wr.toFixed(1)}%</span>
       </td>
       <td style="font-family:var(--font-mono); color:var(--text-secondary);">
-        ${formatNumber(f.total_matches)} matches
+        ${formatNumber(totalMatches)} matches
       </td>
       <td style="font-family:var(--font-mono); font-size:0.85rem;">
         <span style="color:var(--win); font-weight:600;">${formatNumber(f.wins)}W</span> - 

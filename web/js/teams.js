@@ -69,11 +69,19 @@ function renderTeamsDirectoryRows() {
     return;
   }
 
+  const sys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
   const list = Array.isArray(teamsDirectoryData) ? teamsDirectoryData : (teamsDirectoryData && Array.isArray(teamsDirectoryData.items) ? teamsDirectoryData.items : []);
   list.forEach((t, idx) => {
     const tr = document.createElement('tr');
     tr.onclick = () => openTeamModal(t.team);
     const safeTopName = String(t.top_player_name || '').replace(/'/g, "\\'");
+    const activeAvg = Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500));
+    const avgBadge = typeof renderEloBadgePill === 'function'
+      ? renderEloBadgePill(activeAvg, null, { showTierName: true, size: 'sm', gameSystem: sys })
+      : `<span style="font-family:var(--font-mono); font-weight:600; color:var(--accent);">${activeAvg.toFixed(1)}</span>`;
+    const topBadge = typeof renderEloBadgePill === 'function'
+      ? renderEloBadgePill(t.top_player_elo || 1500, null, { showTierName: false, size: 'sm', gameSystem: sys })
+      : `<span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${Number(t.top_player_elo).toFixed(1)})</span>`;
 
     tr.innerHTML = `
       <td>
@@ -82,17 +90,19 @@ function renderTeamsDirectoryRows() {
           <span class="player-link">${escapeHtml(t.team)}</span>
         </div>
       </td>
-      <td style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:#a855f7;">
-        ${Number(t.power_rating).toFixed(1)}
+      <td>
+        ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(t.power_rating, 10) : `<span style="font-family:var(--font-mono); font-weight:800; font-size:1.05rem; color:#a855f7;">${Number(t.power_rating).toFixed(1)}</span>`}
       </td>
-      <td style="font-family:var(--font-mono); font-weight:600; color:var(--accent);" title="${Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1)} Active Club Avg (${Number(t.avg_elo || t.active_avg_elo || 1500).toFixed(1)} All-Time Registered Avg)">
-        ${Number(t.active_avg_elo != null ? t.active_avg_elo : (t.avg_elo || 1500)).toFixed(1)}
+      <td title="${activeAvg.toFixed(1)} Active Club Avg (${Number(t.avg_elo || t.active_avg_elo || 1500).toFixed(1)} All-Time Registered Avg)">
+        ${avgBadge}
       </td>
       <td>
-        <span class="player-link" style="font-size:0.85rem;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
-          ${escapeHtml(t.top_player_name || 'Top Player')}
-        </span>
-        <span style="font-family:var(--font-mono); font-size:0.75rem; color:var(--text-muted); margin-left:0.3rem;">(${Number(t.top_player_elo).toFixed(1)})</span>
+        <div style="display:flex; align-items:center; gap:0.35rem; flex-wrap:wrap;">
+          <span class="player-link" style="font-size:0.85rem; font-weight:600;" onclick="event.stopPropagation(); openPlayerModal('${t.top_player_id || ''}', '${escapeHtml(safeTopName)}')">
+            ${escapeHtml(t.top_player_name || 'Top Player')}
+          </span>
+          ${topBadge}
+        </div>
       </td>
       <td>
         <span class="roster-badge" title="${escapeHtml((t.roster_count || 1) + ' Total Registered Competitors (' + (t.active_roster_count != null ? t.active_roster_count : (t.roster_count || 1)) + ' Active in last 180 days)')}">

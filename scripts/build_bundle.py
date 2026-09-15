@@ -20,6 +20,7 @@ BUNDLE_MODULES = [
     "leaderboard.js",
     "teams.js",
     "players.js",
+    "player_profile.js",
     "tournaments.js",
     "factions.js",
     "predictor.js",

@@ -799,16 +799,15 @@ async function loadNearbyPlayers() {
         <div class="oc-player-card">
           <div>
             <div class="oc-player-header">
-              <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer;" onclick="openPlayerModal('${escapeHtml(player.player_id || player.id || '')}', '${escapeHtml(player.display_name || 'Player')}')" title="Click to scout player profile">
                 <div class="oc-player-avatar">${initials}</div>
                 <div>
-                  <div style="font-weight: 800; color: #fff; font-size: 0.95rem;">${escapeHtml(player.display_name || 'Player')}</div>
+                  <div class="player-link" style="font-weight: 800; color: #fff; font-size: 0.95rem;">${escapeHtml(player.display_name || 'Player')}</div>
                   <div style="font-size: 0.76rem; color: #38bdf8; margin-top: 1px;">📍 ${player.distance_miles} miles away</div>
                 </div>
               </div>
               <div style="text-align: right;">
-                <div style="font-weight: 800; font-family: var(--font-heading); color: #fff; font-size: 1.05rem;">${elo}</div>
-                <div style="font-size: 0.68rem;">${tierBadge}</div>
+                ${typeof renderEloBadgePill === 'function' ? renderEloBadgePill(elo, player.matches_played || 15, { showTierName: true, size: 'sm', gameSystem: (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k' }) : `<div style="font-weight: 800; font-family: var(--font-heading); color: #fff; font-size: 1.05rem;">${elo}</div><div style="font-size: 0.68rem;">${tierBadge}</div>`}
               </div>
             </div>
 

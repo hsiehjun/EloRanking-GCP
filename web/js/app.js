@@ -161,6 +161,18 @@ function switchGameSystem(sys) {
     } else {
       if (typeof loadPlayersDirectory === 'function') loadPlayersDirectory();
     }
+  } else if (activeTab === 'player-profile') {
+    if (typeof openPlayerProfilePage === 'function' && typeof currentProfilePlayerId !== 'undefined' && currentProfilePlayerId) {
+      openPlayerProfilePage(currentProfilePlayerId, sys);
+    }
+  }
+
+  // If quick player modal is currently active, reload it under the newly selected game system
+  const playerModal = document.getElementById('player-modal');
+  if (playerModal && playerModal.classList.contains('active') && typeof currentModalPlayerId !== 'undefined' && currentModalPlayerId) {
+    if (typeof openPlayerModal === 'function') {
+      openPlayerModal(currentModalPlayerId, typeof currentModalPlayerName !== 'undefined' ? currentModalPlayerName : '', true);
+    }
   }
 }
 
@@ -201,6 +213,9 @@ window.closeAosTrackerModal = closeAosTrackerModal;
 window.handleTrackerNavClick = handleTrackerNavClick;
 
 function switchTab(tabName) {
+  if (typeof handleAppRoute === 'function' && handleAppRoute(tabName)) {
+    return;
+  }
   // Normalize alias names & target subtabs for Community Hub & Chat
   let communitySubtab = null;
   let metaSubtab = null;
@@ -267,7 +282,7 @@ function switchTab(tabName) {
   window.scrollTo({ top: 0, behavior: 'instant' });
 
   // Update URL hash history and clean away any query parameters
-  if (window.history && window.history.replaceState) {
+  if (tabName !== 'player-profile' && window.history && window.history.replaceState) {
     let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');
     if (currentGameSystem === 'aos') {
       if (!cleanPath.startsWith('/aos')) cleanPath = '/aos';
@@ -384,22 +399,46 @@ function handleMobileNavChange(val) {
 }
 window.handleMobileNavChange = handleMobileNavChange;
 
+function handleAppRoute(routeStr) {
+  if (!routeStr) return false;
+  let clean = routeStr.replace(/^[#/]+/, '').trim();
+
+  // Route: /#/aos/player/:id or /#/40k/player/:id or /#/player/:id
+  const playerMatch = clean.match(/^(?:(aos|40k)\/)?player\/([^/?#]+)/i);
+  if (playerMatch) {
+    const routeSys = playerMatch[1] ? playerMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const pid = decodeURIComponent(playerMatch[2]);
+    if (typeof openPlayerProfilePage === 'function') {
+      openPlayerProfilePage(pid, routeSys, { replaceUrl: true });
+      return true;
+    }
+  }
+  return false;
+}
+window.handleAppRoute = handleAppRoute;
+
 // Support hash navigation and reactive updates across tabs
 window.addEventListener('hashchange', () => {
-  const hash = window.location.hash.replace('#', '').trim();
-  if (hash) switchTab(hash);
+  const hash = window.location.hash.trim();
+  if (!hash) return;
+  if (handleAppRoute(hash)) return;
+  switchTab(hash.replace(/^[#/]+/, ''));
 });
 
 // Support browser back / forward navigation across game systems and tabs
-window.addEventListener('popstate', () => {
+window.addEventListener('popstate', (e) => {
   const path = (window.location.pathname || '').toLowerCase();
   const targetSys = path.startsWith('/aos') ? 'aos' : '40k';
   if (typeof currentGameSystem !== 'undefined' && targetSys !== currentGameSystem) {
     if (typeof switchGameSystem === 'function') switchGameSystem(targetSys);
   }
-  const hash = window.location.hash.replace('#', '').trim();
-  if (hash && typeof activeTab !== 'undefined' && hash !== activeTab) {
-    if (typeof switchTab === 'function') switchTab(hash);
+  const hash = window.location.hash.trim();
+  if (hash) {
+    if (handleAppRoute(hash)) return;
+    const cleanHash = hash.replace(/^[#/]+/, '');
+    if (typeof activeTab !== 'undefined' && cleanHash !== activeTab) {
+      if (typeof switchTab === 'function') switchTab(cleanHash);
+    }
   }
 });
 
@@ -799,9 +838,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     attachUserSyncSnapshot();
   }
 
-  const hashVal = window.location.hash ? window.location.hash.replace('#', '').trim() : null;
+  const hashVal = window.location.hash ? window.location.hash.trim() : null;
+  if (hashVal && typeof handleAppRoute === 'function' && handleAppRoute(hashVal)) {
+    return;
+  }
   const params = new URLSearchParams(window.location.search);
-  let targetTab = hashVal || params.get('tab');
+  let targetTab = hashVal ? hashVal.replace(/^[#/]+/, '') : params.get('tab');
   if (targetTab === 'my_hub' || targetTab === 'myhub') targetTab = 'my-hub';
   const shouldOpenChat = (targetTab === 'chat' || targetTab === 'messages' || targetTab === 'chats');
   if (targetTab === 'tournaments' || targetTab === 'events' || targetTab === 'sparring' || targetTab === 'connect' || targetTab === 'omniconnect' || targetTab === 'radar') {
