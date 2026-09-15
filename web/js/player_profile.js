@@ -1038,10 +1038,24 @@ function renderFactionMasteryTabContent(profileFactionMastery, tableId = 'profil
 function renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory = [], tableId = 'profile-matchup-table', filterFnName = 'filterProfileMatchups') {
   let matchupSpotlightsHtml = '';
   if (profileMatchupMatrix && profileMatchupMatrix.length > 0) {
-    const qualifiedMatchups = profileMatchupMatrix.filter(m => m.total_encounters >= 2);
-    const pool = qualifiedMatchups.length > 0 ? qualifiedMatchups : profileMatchupMatrix;
-    const preyArmy = pool.slice().sort((a, b) => b.win_rate - a.win_rate || b.wins - a.wins)[0];
-    const nemesisArmy = pool.slice().sort((a, b) => a.win_rate - b.win_rate || b.losses - a.losses)[0];
+    // Sort by highest Net Elo (+ Elo) for Favorite Prey
+    const sortedByBestElo = profileMatchupMatrix.slice().sort((a, b) => {
+      const eloDiff = Number(b.net_elo || 0) - Number(a.net_elo || 0);
+      if (Math.abs(eloDiff) > 0.01) return eloDiff;
+      return (Number(b.wins || 0) - Number(a.wins || 0)) || (Number(b.win_rate || 0) - Number(a.win_rate || 0));
+    });
+    const preyArmy = sortedByBestElo[0];
+
+    // Sort by lowest Net Elo (- Elo) for Toughest Nemesis (exclude preyArmy if multiple armies exist)
+    const nemesisPool = profileMatchupMatrix.length > 1
+      ? profileMatchupMatrix.filter(m => m.enemy_faction !== preyArmy.enemy_faction)
+      : profileMatchupMatrix.slice();
+    const sortedByWorstElo = nemesisPool.sort((a, b) => {
+      const eloDiff = Number(a.net_elo || 0) - Number(b.net_elo || 0);
+      if (Math.abs(eloDiff) > 0.01) return eloDiff;
+      return (Number(b.losses || 0) - Number(a.losses || 0)) || (Number(a.win_rate || 0) - Number(b.win_rate || 0));
+    });
+    const nemesisArmy = sortedByWorstElo[0];
 
     // Most frequent rival player
     const rivalMap = new Map();
@@ -1060,6 +1074,14 @@ function renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory = [], ta
     }
     const topRival = Array.from(rivalMap.values()).sort((a, b) => b.games - a.games)[0];
 
+    const preyEloNum = preyArmy ? Number(preyArmy.net_elo || 0) : 0;
+    const preyEloStr = (preyEloNum >= 0 ? '+' : '') + preyEloNum.toFixed(1) + ' Elo';
+    const preyEloCol = preyEloNum >= 0 ? 'var(--win)' : 'var(--loss)';
+
+    const nemEloNum = nemesisArmy ? Number(nemesisArmy.net_elo || 0) : 0;
+    const nemEloStr = (nemEloNum >= 0 ? '+' : '') + nemEloNum.toFixed(1) + ' Elo';
+    const nemEloCol = nemEloNum < 0 ? 'var(--loss)' : (nemEloNum > 0 ? 'var(--win)' : 'var(--text-secondary)');
+
     matchupSpotlightsHtml = `
       <div class="profile-spotlight-grid">
         ${preyArmy ? `
@@ -1067,7 +1089,7 @@ function renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory = [], ta
             <span style="font-size: 0.7rem; font-weight: 800; color: #10b981; text-transform: uppercase; letter-spacing: 0.05em;">🦅 Favorite Prey Army</span>
             <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(preyArmy.enemy_faction)}</div>
             <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b style="color:var(--win);">${preyArmy.win_rate.toFixed(0)}% Win Rate</b> (${preyArmy.wins}W - ${preyArmy.losses}L in ${preyArmy.total_encounters} encounters)
+              <b style="color:${preyEloCol}; font-family:var(--font-mono);">${preyEloStr}</b> (${preyArmy.wins}W - ${preyArmy.losses}L • ${preyArmy.win_rate.toFixed(0)}% WR)
             </div>
           </div>
         ` : ''}
@@ -1076,7 +1098,7 @@ function renderMatchupMatrixTabContent(profileMatchupMatrix, rawHistory = [], ta
             <span style="font-size: 0.7rem; font-weight: 800; color: #ef4444; text-transform: uppercase; letter-spacing: 0.05em;">💀 Toughest Nemesis Army</span>
             <div style="font-size: 0.95rem; font-weight: 800; color: #fff;">${escapeHtml(nemesisArmy.enemy_faction)}</div>
             <div style="font-size: 0.78rem; color: var(--text-secondary);">
-              <b style="color:var(--loss);">${nemesisArmy.win_rate.toFixed(0)}% Win Rate</b> (${nemesisArmy.wins}W - ${nemesisArmy.losses}L in ${nemesisArmy.total_encounters} encounters)
+              <b style="color:${nemEloCol}; font-family:var(--font-mono);">${nemEloStr}</b> (${nemesisArmy.wins}W - ${nemesisArmy.losses}L • ${nemesisArmy.win_rate.toFixed(0)}% WR)
             </div>
           </div>
         ` : ''}
