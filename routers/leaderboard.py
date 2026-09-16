@@ -1705,6 +1705,12 @@ async def api_cron_sync_tournaments(
             engine = get_elo_engine()
             recon_res = engine.reconstruct_incremental(game_system=target_sys)
             logger.info(f"⏰ [CRON SYNC] Elo Reconstruction complete: {recon_res}")
+
+            if hasattr(db, "prewarm_faction_details_cache"):
+                if target_sys in ("40k", "all"):
+                    db.prewarm_faction_details_cache("40k", "1yr", 25)
+                if target_sys in ("aos", "warhammer_aos", "all"):
+                    db.prewarm_faction_details_cache("aos", "1yr", 25)
         except Exception as err:
             logger.error(f"❌ [CRON SYNC] Error running scheduled tournament sync: {err}", exc_info=True)
 

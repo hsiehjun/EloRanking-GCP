@@ -93,6 +93,55 @@ class TestFactionMetaIntel(unittest.TestCase):
         except Exception as e:
             self.fail(f"Failed to connect to dev server on port 5178: {e}")
 
+    def test_dev_server_faction_endpoint_aos(self):
+        url = "http://127.0.0.1:5178/api/faction/Stormcast%20Eternals?game_system=aos&timeframe=1yr"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "OmniTacticaTest/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                self.assertEqual(resp.status, 200)
+                data = json.loads(resp.read().decode("utf-8"))
+                self.assertEqual(data["faction"], "Stormcast Eternals")
+                self.assertEqual(data["game_system"], "aos")
+                self.assertEqual(data["timeframe"], "1yr")
+                self.assertIn("matches", data)
+                self.assertIn("top_players", data)
+                self.assertIn("matchups", data)
+                self.assertGreater(len(data["matches"]), 0)
+        except Exception as e:
+            self.fail(f"Failed to connect to dev server on port 5178: {e}")
+
+    def test_database_faction_details_cache_hit_aos(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        PostgresDatabase._faction_details_cache_dict = {}
+        mock_data = {
+            "faction": "Stormcast Eternals",
+            "game_system": "aos",
+            "timeframe": "1yr",
+            "stats": {"total_recent_sample": 15},
+            "top_players": [],
+            "matches": [],
+            "matchups": []
+        }
+        cache_key = ("stormcast eternals", "aos", "1yr", 100)
+        PostgresDatabase.set_cached(PostgresDatabase._faction_details_cache_dict, cache_key, mock_data)
+
+        # Call get_faction_details with aos and verify cache hit
+        res = db.get_faction_details("Stormcast Eternals", limit=100, game_system="aos", timeframe="1yr")
+        self.assertEqual(res["faction"], "Stormcast Eternals")
+        self.assertEqual(res["game_system"], "aos")
+        self.assertEqual(res["stats"]["total_recent_sample"], 15)
+
+    def test_prewarm_faction_details_cache_aos(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        PostgresDatabase._faction_details_cache_dict = {}
+        # Prewarm aos factions in-memory
+        db.get_factions = lambda game_system="40k", grouped=False: ["Stormcast Eternals", "Skaven"]
+        db.get_faction_details = lambda f, limit=100, game_system="40k", timeframe="1yr": {
+            "faction": f, "game_system": game_system, "timeframe": timeframe
+        }
+        warmed = db.prewarm_faction_details_cache(game_system="aos", timeframe="1yr", max_factions=2)
+        self.assertEqual(warmed, 2)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -290,6 +290,43 @@ async function runMetaIntelFactionLatencyTests() {
     }
 
     // ------------------------------------------------------------------
+    // TEST 5b: Age of Sigmar (AoS) Faction Modal Verification
+    // ------------------------------------------------------------------
+    console.log('\n[Test 5b] Testing Age of Sigmar (AoS) Faction Modal...');
+    await client.eval(`
+      if (typeof setGameSystem === 'function') setGameSystem('aos');
+      else { window.currentGameSystem = 'aos'; }
+      openFactionModal('Stormcast Eternals', '1yr');
+    `);
+    await sleep(1000);
+
+    const aosModalState = await client.eval(`
+      (function() {
+        const title = document.getElementById('modal-faction-title');
+        const sub = document.getElementById('modal-faction-subtitle');
+        const matchRows = document.querySelectorAll('#faction-matches-body tr:not(.skeleton-row)');
+        return {
+          title: title ? title.innerText : null,
+          subtitle: sub ? sub.innerText : null,
+          matchesCount: matchRows.length
+        };
+      })()
+    `);
+    console.log(`  ✓ AoS Modal state:`, aosModalState);
+    if (!aosModalState.subtitle || !aosModalState.subtitle.includes('Age of Sigmar')) {
+      throw new Error('AoS modal subtitle does not reflect Age of Sigmar system!');
+    }
+    await takeScreenshot(client, '19_faction_modal_aos_stormcast.png', { width: 1440, height: 900 });
+
+    // Switch back to 40k
+    await client.eval(`
+      if (typeof setGameSystem === 'function') setGameSystem('40k');
+      else { window.currentGameSystem = '40k'; }
+      if (typeof closeModal === 'function') closeModal('faction-modal');
+    `);
+    await sleep(400);
+
+    // ------------------------------------------------------------------
     // TEST 6: User Journey Regression Verification (Leaderboard, Tournaments, My Hub, Predictor)
     // ------------------------------------------------------------------
     console.log('\n[Test 6] Verifying other user journeys to ensure zero regressions...');

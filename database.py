@@ -4674,13 +4674,23 @@ class PostgresDatabase:
         try:
             factions = self.get_factions(game_system=game_system)
             if not factions or not isinstance(factions, list):
-                factions = [
-                    "Aeldari", "Chaos Space Marines", "Drukhari", "Genestealer Cults",
-                    "Grey Knights", "Imperial Knights", "Leagues of Votann", "Necrons",
-                    "Orks", "Space Marines", "T'au Empire", "Tyranids", "World Eaters",
-                    "Death Guard", "Thousand Sons", "Adeptus Custodes", "Adeptus Mechanicus",
-                    "Adepta Sororitas", "Astra Militarum", "Chaos Daemons", "Chaos Knights"
-                ]
+                if (game_system or "").lower() in ("aos", "warhammer_aos"):
+                    factions = [
+                        "Stormcast Eternals", "Skaven", "Blades of Khorne", "Maggotkin of Nurgle",
+                        "Disciples of Tzeentch", "Hedonites of Slaanesh", "Slaves to Darkness",
+                        "Cities of Sigmar", "Daughters of Khaine", "Fyreslayers", "Idoneth Deepkin",
+                        "Kharadron Overlords", "Lumineth Realm-lords", "Seraphon", "Sylvaneth",
+                        "Flesh-eater Courts", "Nighthaunt", "Ossiarch Bonereapers", "Soulblight Gravelords",
+                        "Gloomspite Gitz", "Ogor Mawtribes", "Orruk Warclans", "Sons of Behemat"
+                    ]
+                else:
+                    factions = [
+                        "Aeldari", "Chaos Space Marines", "Drukhari", "Genestealer Cults",
+                        "Grey Knights", "Imperial Knights", "Leagues of Votann", "Necrons",
+                        "Orks", "Space Marines", "T'au Empire", "Tyranids", "World Eaters",
+                        "Death Guard", "Thousand Sons", "Adeptus Custodes", "Adeptus Mechanicus",
+                        "Adepta Sororitas", "Astra Militarum", "Chaos Daemons", "Chaos Knights"
+                    ]
             target_factions = factions[:max_factions]
             warmed = 0
             for f in target_factions:
