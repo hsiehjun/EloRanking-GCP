@@ -939,16 +939,30 @@
     const isP1 = role === 'player1';
 
     hud.innerHTML = `
-      <!-- Left: Match and Player ID -->
-      <div style="display:flex; align-items:center; gap:8px; min-width:0; flex-shrink:1; overflow:hidden;">
-        <span style="color:#f59e0b; font-weight:800; white-space:nowrap;">⚡ AOS:</span>
-        <span style="color:#38bdf8; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${matchId || 'LOCAL'}</span>
-        ${isSpectator ? '<span style="background:rgba(239,68,68,0.2); color:#ef4444; padding:1px 5px; border-radius:4px; font-weight:700; font-size:10px; white-space:nowrap;">SPECTATOR</span>' : '<span style="background:rgba(16,185,129,0.2); color:#10b981; padding:1px 5px; border-radius:4px; font-weight:700; font-size:10px; white-space:nowrap;">SYNC</span>'}
-        <span class="gt-desktop-actions" style="color:#94a3b8; font-size:10px; margin-left:4px;">
-          <span style="${isP1 ? 'color:#38bdf8; font-weight:700;' : 'color:#cbd5e1;'}">${escapeHtml(p1Name)}</span>
-          <span style="color:#64748b;">vs</span>
-          <span style="${!isP1 ? 'color:#f43f5e; font-weight:700;' : 'color:#cbd5e1;'}">${escapeHtml(p2Name)}</span>
+      <!-- Left: Hub & Lobby Navigation & Match Tag -->
+      <div style="display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+        <a href="/#my-hub" style="display:inline-flex; align-items:center; gap:3px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:800; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+          🏠 Hub
+        </a>
+        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:3px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:800; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:4px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; cursor:pointer;">
+          🎲 Lobby
+        </a>
+        <span style="font-family:'JetBrains Mono',monospace; color:#f59e0b; font-size:11px; background:#070b14; padding:4px 7px; border-radius:6px; border:1px solid #334155; font-weight:800;">
+          #${matchId || 'AOS-LOCAL'}
         </span>
+        ${isSpectator ? `
+          <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1; font-size:11px; background:rgba(100,116,139,0.25); border:1px solid rgba(148,163,184,0.3); padding:4px 8px; border-radius:6px; font-weight:800; display:inline-flex; align-items:center; gap:4px;">
+            👀 Spectator
+          </span>
+        ` : ''}
+      </div>
+
+      <!-- Center: Connected Players Matchup -->
+      <div class="gt-desktop-actions" style="display:inline-flex; align-items:center; gap:6px; font-weight:800; font-family:'JetBrains Mono',monospace; font-size:11px; padding:0 6px; flex-shrink:0;">
+        <span style="width:7px; height:7px; border-radius:50%; background:#10b981; flex-shrink:0;"></span>
+        <span style="${isP1 ? 'color:#38bdf8; font-weight:700;' : 'color:#cbd5e1;'}">${escapeHtml(p1Name)}</span>
+        <span style="color:#64748b; font-size:10px;">vs</span>
+        <span style="${!isP1 ? 'color:#f43f5e; font-weight:700;' : 'color:#cbd5e1;'}">${escapeHtml(p2Name)}</span>
       </div>
 
       <!-- Right: Action Buttons (Desktop / Wide Screen) -->

@@ -254,6 +254,14 @@ export function AosTrackerProvider({ children }) {
     });
   }, []);
 
+  // Set Active Round
+  const setRound = useCallback((targetRound) => {
+    setState((prev) => ({
+      ...prev,
+      round: targetRound
+    }));
+  }, []);
+
   // Reset Game
   const resetGame = useCallback(() => {
     const fresh = createInitialAosGameState();
@@ -278,6 +286,7 @@ export function AosTrackerProvider({ children }) {
         resolveBattleTactic,
         setPrimaryScore,
         adjustCP,
+        setRound,
         advanceTurn,
         resetGame
       }}
