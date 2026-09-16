@@ -101,7 +101,7 @@
 
   // Broadcast state updates to dev_server and Cloud Firestore
   function broadcastAosState() {
-    if (!matchId || isSpectator || role === 'player2' || isRemoteUpdating) return;
+    if (!matchId || isSpectator || isRemoteUpdating) return;
     if (broadcastTimer) clearTimeout(broadcastTimer);
 
     broadcastTimer = setTimeout(async () => {
@@ -193,14 +193,12 @@
 
   if (matchId) {
     initFirestoreDirectSync();
-    if (isSpectator || role === 'player2') {
-      syncFromRemote();
-      setInterval(() => {
-        if (!firestoreConnected) {
-          syncFromRemote();
-        }
-      }, 1000);
-    }
+    syncFromRemote();
+    setInterval(() => {
+      if (!firestoreConnected) {
+        syncFromRemote();
+      }
+    }, 1000);
   }
 
   // Listen to state mutations
