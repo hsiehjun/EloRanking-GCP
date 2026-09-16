@@ -141,9 +141,35 @@ class TestCreatorHubAndLivestreams(unittest.TestCase):
         self.assertEqual(len(streams_after), 1)
         self.assertEqual(streams_after[0]["id"], new_stream["id"])
 
-        # 3. Delete livestream
-        del_ok = engine.delete_event_livestream(test_ev, new_stream["id"])
-        self.assertTrue(del_ok)
+        # 3. Add table 0 (Main Desk) and table 250 (Large 500-player tournament table)
+        main_desk_stream = engine.save_event_livestream(
+            test_ev,
+            {
+                "table_number": 0,
+                "channel": "OmniTactica Desk",
+                "stream_url": "https://youtube.com/watch?v=dQw4w9WgXcQ",
+                "platform": "youtube"
+            }
+        )
+        self.assertEqual(main_desk_stream["table_number"], 0)
+        self.assertEqual(main_desk_stream["title"], "Main Desk Live Broadcast")
+
+        table_250_stream = engine.save_event_livestream(
+            test_ev,
+            {
+                "table_number": 250,
+                "channel": "Community Streamer",
+                "stream_url": "https://youtube.com/watch?v=dQw4w9WgXcQ",
+                "platform": "youtube"
+            }
+        )
+        self.assertEqual(table_250_stream["table_number"], 250)
+        self.assertEqual(table_250_stream["title"], "Table 250 Live Broadcast")
+
+        # 4. Delete livestreams
+        engine.delete_event_livestream(test_ev, new_stream["id"])
+        engine.delete_event_livestream(test_ev, main_desk_stream["id"])
+        engine.delete_event_livestream(test_ev, table_250_stream["id"])
         streams_empty = engine.get_event_livestreams(test_ev)
         self.assertEqual(len(streams_empty), 0)
 

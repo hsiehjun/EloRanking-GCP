@@ -711,9 +711,13 @@ class FirestoreRoomEngine:
         existing = self.get_event_livestreams(event_id)
         
         stream_id = stream_data.get("id") or f"stream_{int(datetime.now(timezone.utc).timestamp())}_{_uuid.uuid4().hex[:6]}"
-        table_num = int(stream_data.get("table_number") or stream_data.get("tableNumber") or 1)
+        raw_t = stream_data.get("table_number")
+        if raw_t is None:
+            raw_t = stream_data.get("tableNumber")
+        table_num = int(raw_t) if raw_t is not None else 1
         channel = str(stream_data.get("channel") or "Feature Stream").strip()
-        title = str(stream_data.get("title") or f"Table {table_num} Live Broadcast").strip()
+        default_title = "Main Desk Live Broadcast" if table_num == 0 else f"Table {table_num} Live Broadcast"
+        title = str(stream_data.get("title") or default_title).strip()
         url = str(stream_data.get("stream_url") or stream_data.get("streamUrl") or "").strip()
         platform, embed_url = self._parse_stream_embed(url, stream_data.get("platform"))
         

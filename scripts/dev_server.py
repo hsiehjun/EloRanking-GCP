@@ -534,14 +534,18 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 embed = f"https://www.youtube-nocookie.com/embed/{v_id}?autoplay=1&mute=1"
             
             s_id = p_data.get("id") or f"stream_{secrets.token_hex(4)}"
-            t_num = int(p_data.get("table_number") or p_data.get("tableNumber") or 1)
+            raw_t = p_data.get("table_number")
+            if raw_t is None:
+                raw_t = p_data.get("tableNumber")
+            t_num = int(raw_t) if raw_t is not None else 1
+            default_t_title = "Main Desk Live Broadcast" if t_num == 0 else f"Table {t_num} Live Broadcast"
             record = {
                 "id": s_id,
                 "event_id": ev_id,
                 "table_number": t_num,
                 "channel": p_data.get("channel") or "Feature Stream",
                 "platform": plat,
-                "title": p_data.get("title") or f"Table {t_num} Live Broadcast",
+                "title": p_data.get("title") or default_t_title,
                 "stream_url": s_url or "https://www.youtube.com/watch?v=live",
                 "embed_url": embed,
                 "is_live": True,

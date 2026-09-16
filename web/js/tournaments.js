@@ -2151,12 +2151,12 @@ function renderEventPairingsRows() {
       const p2ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p2Prob}%</span>` : '';
 
       const tableNumVal = Number(m.table_number || m.table || 1);
-      const matchStream = (typeof eventLiveStreams !== 'undefined')
-        ? eventLiveStreams.find(s => Number(s.tableNumber) === tableNumVal)
+      const matchStream = (typeof eventLiveStreams !== 'undefined' && eventLiveStreams)
+        ? (eventLiveStreams.find(s => Number(s.tableNumber) === tableNumVal) || eventLiveStreams.find(s => Number(s.tableNumber) === 0))
         : null;
 
       const streamBtn = matchStream ? `
-        <button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:rgba(239,68,68,0.18); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation(); openEventStreamModal(${tableNumVal})" title="Watch ${escapeHtml(matchStream.channel)} Live Stream on Table ${tableNumVal}">
+        <button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:rgba(239,68,68,0.18); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation(); openEventStreamModal(${matchStream.tableNumber})" title="Watch ${escapeHtml(matchStream.channel)} Live Stream ${Number(matchStream.tableNumber) === 0 ? '(Main Desk)' : `on Table ${matchStream.tableNumber}`}">
           <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef4444; box-shadow:0 0 6px #ef4444;"></span>
           🔴 Watch Live
         </button>
@@ -4695,11 +4695,18 @@ let creatorActiveStreamIndex = 0;
 
 function normalizeStreamRecord(s) {
   if (!s) return s;
+  const rawTable = (s.table_number !== undefined && s.table_number !== null)
+    ? s.table_number
+    : ((s.tableNumber !== undefined && s.tableNumber !== null) ? s.tableNumber : 1);
+  const tNum = Number(rawTable);
+  const defaultTitle = tNum === 0
+    ? `${s.channel || 'Live'} - Main Desk Coverage`
+    : `${s.channel || 'Live'} - Table ${tNum} Coverage`;
   return {
     ...s,
     id: s.id || `stream-${Date.now()}`,
-    tableNumber: Number(s.table_number !== undefined ? s.table_number : (s.tableNumber || 1)),
-    table_number: Number(s.table_number !== undefined ? s.table_number : (s.tableNumber || 1)),
+    tableNumber: tNum,
+    table_number: tNum,
     streamUrl: s.stream_url || s.streamUrl || '',
     stream_url: s.stream_url || s.streamUrl || '',
     embedUrl: s.embed_url || s.embedUrl || '',
@@ -4707,13 +4714,14 @@ function normalizeStreamRecord(s) {
     isLive: s.is_live !== undefined ? Boolean(s.is_live) : (s.isLive !== undefined ? Boolean(s.isLive) : true),
     is_live: s.is_live !== undefined ? Boolean(s.is_live) : (s.isLive !== undefined ? Boolean(s.isLive) : true),
     channel: s.channel || 'Broadcaster',
-    title: s.title || `${s.channel || 'Live'} - Table ${s.table_number || s.tableNumber || 1}`,
+    title: s.title || defaultTitle,
     platform: s.platform || 'youtube',
     viewers: s.viewers || 100
   };
 }
 
 let eventLiveStreams = [];
+window.eventLiveStreams = eventLiveStreams;
 
 async function loadEventLivestreams(eventId) {
   const targetId = eventId || currentOpenEventId || currentEventData?.id || '';
@@ -4724,12 +4732,14 @@ async function loadEventLivestreams(eventId) {
       const rawStreams = Array.isArray(res) ? res : (res?.livestreams || []);
       if (Array.isArray(rawStreams)) {
         eventLiveStreams = rawStreams.map(normalizeStreamRecord);
+        window.eventLiveStreams = eventLiveStreams;
         return eventLiveStreams;
       }
     }
   } catch (err) {
     console.warn('Failed to load event livestreams from API:', err);
   }
+  window.eventLiveStreams = eventLiveStreams;
   return eventLiveStreams;
 }
 window.loadEventLivestreams = loadEventLivestreams;
@@ -4792,24 +4802,29 @@ function updateEventStreamModalContent() {
 
   // Populate select options
   if (select) {
-    select.innerHTML = eventLiveStreams.map(s => `
-      <option value="${s.tableNumber}" ${Number(s.tableNumber) === Number(currentModalStreamTable) ? 'selected' : ''}>
-        Table ${s.tableNumber}: ${escapeHtml(s.channel)} (${s.platform === 'twitch' ? 'Twitch' : 'YouTube'})
-      </option>
-    `).join('');
+    select.innerHTML = eventLiveStreams.map(s => {
+      const isMainDesk = Number(s.tableNumber) === 0;
+      const label = isMainDesk ? 'Main Desk / All Tables' : `Table ${s.tableNumber}`;
+      return `
+        <option value="${s.tableNumber}" ${Number(s.tableNumber) === Number(currentModalStreamTable) ? 'selected' : ''}>
+          ${label}: ${escapeHtml(s.channel)} (${s.platform === 'twitch' ? 'Twitch' : 'YouTube'})
+        </option>
+      `;
+    }).join('');
   }
 
   // Find active stream for current table
   const activeStream = eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable)) || eventLiveStreams[0];
-  const tableNum = activeStream?.tableNumber || currentModalStreamTable || 1;
+  const tableNum = activeStream?.tableNumber !== undefined ? activeStream.tableNumber : (currentModalStreamTable !== undefined ? currentModalStreamTable : 1);
 
   if (iframe && activeStream) {
     iframe.src = activeStream.embedUrl;
   }
 
   if (titleEl && activeStream) {
+    const isMainDesk = Number(tableNum) === 0;
     titleEl.innerHTML = `
-      <span>🔴 Table ${tableNum} Live Broadcast</span>
+      <span>🔴 ${isMainDesk ? 'Main Desk Broadcast' : `Table ${tableNum} Live Broadcast`}</span>
       <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; font-size: 0.72rem; padding: 2px 7px;">
         ${escapeHtml(activeStream.channel)} • ${activeStream.platform.toUpperCase()}
       </span>
@@ -4825,6 +4840,20 @@ function updateEventStreamModalContent() {
   if (extLink && activeStream) {
     extLink.href = activeStream.streamUrl;
     extLink.title = `Watch directly on ${activeStream.channel}'s ${activeStream.platform} stream`;
+  }
+
+  if (!matchupContainer) return;
+
+  if (Number(tableNum) === 0) {
+    matchupContainer.innerHTML = `
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 1rem; text-align: center;">
+        <div style="font-size: 1.05rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">🎙️ Main Desk & Tournament-Wide Coverage</div>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); max-width: 480px; margin: 0 auto;">
+          Broadcasting tournament overview, top seed analysis, and multi-table commentary across all active games.
+        </div>
+      </div>
+    `;
+    return;
   }
 
   // Find active round & matchup for this table
@@ -4940,22 +4969,52 @@ function selectActiveStream(idx) {
 }
 window.selectActiveStream = selectActiveStream;
 
+function handleStreamTableSelectChange(val) {
+  const customEl = document.getElementById('new-stream-custom-table');
+  if (customEl) {
+    if (val === 'custom') {
+      customEl.style.display = 'inline-block';
+      customEl.focus();
+    } else {
+      customEl.style.display = 'none';
+    }
+  }
+}
+window.handleStreamTableSelectChange = handleStreamTableSelectChange;
+
 async function addCreatorLiveStream(e) {
   if (e) e.preventDefault();
   const channelEl = document.getElementById('new-stream-channel');
   const urlEl = document.getElementById('new-stream-url');
   const tableEl = document.getElementById('new-stream-table');
+  const customTableEl = document.getElementById('new-stream-custom-table');
   const platformEl = document.getElementById('new-stream-platform');
 
   const channel = (channelEl?.value || 'Broadcaster').trim();
   const url = (urlEl?.value || '').trim();
-  const table = Number(tableEl?.value) || 1;
   const platform = platformEl?.value || 'youtube';
+
+  let table = 1;
+  if (tableEl?.value === 'custom') {
+    const parsed = parseInt(customTableEl?.value, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      alert('Please enter a valid table number (e.g. 1 to 500, or 0 for Main Desk).');
+      if (customTableEl) customTableEl.focus();
+      return;
+    }
+    table = parsed;
+  } else if (tableEl) {
+    const parsed = parseInt(tableEl.value, 10);
+    table = isNaN(parsed) ? 1 : parsed;
+  }
 
   if (!url) {
     alert('Please enter a valid livestream URL.');
     return;
   }
+
+  const isMainDesk = table === 0;
+  const defaultStreamTitle = isMainDesk ? `${channel} - Main Desk Broadcast` : `${channel} - Table ${table} Coverage`;
 
   const eventId = currentOpenEventId || currentEventData?.id || 'ev_ongoing_gt_live';
   const streamPayload = {
@@ -4963,7 +5022,7 @@ async function addCreatorLiveStream(e) {
     stream_url: url,
     table_number: table,
     platform: platform,
-    title: `${channel} - Table ${table} Coverage`,
+    title: defaultStreamTitle,
     is_live: true
   };
 
@@ -4987,7 +5046,7 @@ async function addCreatorLiveStream(e) {
         id: `stream-${Date.now()}`,
         channel: channel,
         platform: platform,
-        title: `${channel} - Table ${table} Coverage`,
+        title: defaultStreamTitle,
         stream_url: url,
         embed_url: embed,
         table_number: table,
@@ -5669,15 +5728,42 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
   curRound = curRound || selectedCasterRound || ev.current_round || 1;
   const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
 
+  const playersCount = Number(ev.players_count || ev.registered_players_count || (players ? players.length : 0)) || 0;
+  const matchTables = Array.from(new Set((matches || []).map(m => Number(m.table_number || m.table)).filter(n => !isNaN(n) && n > 0))).sort((a, b) => a - b);
+  const maxMatchTable = matchTables.length > 0 ? Math.max(...matchTables) : 0;
+  const estTablesFromPlayers = Math.ceil(playersCount / 2);
+  const totalTables = Math.max(maxMatchTable, estTablesFromPlayers, 8);
+
+  const curRoundMatches = (matches || []).filter(m => Number(m.round || 1) === Number(curRound));
+  const curRoundTableMap = new Map();
+  curRoundMatches.forEach(m => {
+    const t = Number(m.table_number || m.table);
+    if (t) curRoundTableMap.set(t, m);
+  });
+
+  const tableOptions = [];
+  const t1Match = curRoundTableMap.get(1);
+  const t1Desc = t1Match ? ` — ${escapeHtml((t1Match.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((t1Match.player2_name || 'P2').split(' ')[0])}` : '';
+  tableOptions.push(`<option value="1" selected>Table 1 (Feature Table)${t1Desc}</option>`);
+
+  for (let t = 2; t <= totalTables; t++) {
+    const tm = curRoundTableMap.get(t);
+    const mDesc = tm ? ` — ${escapeHtml((tm.player1_name || 'P1').split(' ')[0])} vs ${escapeHtml((tm.player2_name || 'P2').split(' ')[0])}` : '';
+    tableOptions.push(`<option value="${t}">Table ${t}${mDesc}</option>`);
+  }
+  tableOptions.push('<option value="0">All Tables / Main Desk (General Coverage)</option>');
+  tableOptions.push('<option value="custom">✏️ Enter Custom Table #...</option>');
+
   const streamListHtml = eventLiveStreams.map((s, idx) => {
     const isAct = idx === creatorActiveStreamIndex;
+    const isMainDesk = Number(s.tableNumber) === 0;
     return `
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 0.85rem; background: ${isAct ? 'rgba(168, 85, 247, 0.15)' : 'rgba(15, 23, 42, 0.6)'}; border: 1px solid ${isAct ? 'rgba(168, 85, 247, 0.4)' : 'rgba(255,255,255,0.06)'}; border-radius: 8px;">
         <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
           <span style="font-size: 1.2rem;">${s.platform === 'twitch' ? '🟣' : '🔴'}</span>
           <div style="min-width: 0; flex: 1;">
             <div style="font-weight: 700; color: #fff; font-size: 0.84rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
-              ${escapeHtml(s.channel)} <span style="color: var(--text-muted); font-size: 0.74rem;">(Table ${s.tableNumber})</span>
+              ${escapeHtml(s.channel)} <span style="color: var(--text-muted); font-size: 0.74rem;">(${isMainDesk ? 'Main Desk' : `Table ${s.tableNumber}`})</span>
             </div>
             <div style="font-size: 0.72rem; color: var(--text-secondary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
               ${escapeHtml(s.title)}
@@ -5740,16 +5826,13 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
               <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem;">Live Stream URL</label>
               <input type="url" id="new-stream-url" required placeholder="https://youtube.com/watch?v=... or https://twitch.tv/..." class="search-input" style="width: 100%; box-sizing: border-box; height: 34px; padding: 0.35rem 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.8rem;" />
             </div>
-            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
-              <div style="display: flex; align-items: center; gap: 0.4rem;">
-                <label style="font-size: 0.72rem; color: var(--text-muted);">Assigned Table:</label>
-                <select id="new-stream-table" style="height: 32px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.78rem;">
-                  <option value="1">Table 1 (Feature Table)</option>
-                  <option value="2">Table 2</option>
-                  <option value="3">Table 3</option>
-                  <option value="4">Table 4</option>
-                  <option value="0">All Tables / Main Desk</option>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+              <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                <label style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap;">Assigned Table:</label>
+                <select id="new-stream-table" onchange="handleStreamTableSelectChange(this.value)" style="height: 32px; max-width: 230px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.78rem; cursor: pointer;">
+                  ${tableOptions.join('')}
                 </select>
+                <input type="number" id="new-stream-custom-table" min="0" max="9999" placeholder="Table #" style="display: none; width: 85px; height: 32px; box-sizing: border-box; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid #a855f7; border-radius: 6px; color: #fff; font-size: 0.78rem;" />
               </div>
               <button type="submit" class="btn btn-primary" style="font-size: 0.78rem; font-weight: 700; padding: 0.4rem 1rem; background: #a855f7; border-color: #9333ea; color: #fff; cursor: pointer;">
                 + Link Stream
@@ -5780,7 +5863,7 @@ function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1E
               <span class="badge" style="background: #ef4444; color: #fff; font-size: 0.65rem; padding: 2px 6px;">ON AIR</span>
             </div>
             <span style="font-size: 0.74rem; color: var(--text-muted);">
-              ${escapeHtml(activeStream?.channel || 'Stream')} • Table ${activeStream?.tableNumber || 1}
+              ${escapeHtml(activeStream?.channel || 'Stream')} • ${Number(activeStream?.tableNumber) === 0 ? 'Main Desk / All Tables' : `Table ${activeStream?.tableNumber || 1}`}
             </span>
           </div>
 
