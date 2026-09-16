@@ -1,52 +1,48 @@
 # Strategic Partnership Proposal: Best Coast Pairings & OmniTactica
-## Unlocking Year-Round Player Engagement, Competitive Retention, and BCP Subscription Growth
+## Supercharging Player Engagement, Community Growth, and BCP Subscription Revenue
 
 **Prepared by:** OmniTactica Leadership  
 **Target Partner:** Best Coast Pairings (BCP) Executive Team  
 **Subject:** Collaborative Data Integration & Ecosystem Revenue Synergy  
-**Status:** Confidential Partnership Proposal  
+**Status:** Partnership Proposal  
 
 ---
 
-## 1. Executive Summary: The Mutual Opportunity
+## 1. Executive Summary: What OmniTactica Is & How It Helps BCP
 
-Tabletop wargaming is experiencing an unprecedented golden era of competitive participation. At the heart of this thriving ecosystem stands **Best Coast Pairings (BCP)**—the definitive gold standard for tournament organization, Swiss pairings, and live match logging.
+Best Coast Pairings (BCP) is the premier tournament software platform in tabletop wargaming, serving as the trusted authority for event registration, live Swiss pairings, and official roster submissions. BCP monetizes primarily through two subscription offerings:
+1. **Player Subscriptions:** Unlocking the ability to view opponent and tournament **"Lists"** (army rosters) and pairings.
+2. **Event Organizer (TO) Subscriptions:** Subscriptions for tournament organizers to create, manage, and ticket events.
 
-However, BCP’s monetization model faces an inherent industry dynamic:
-1. **Player Subscriptions:** Monetized primarily through the ability to view opponent and tournament **"Lists"** (army rosters) and pairings.
-2. **Event Organizer (TO) Subscriptions:** Monetized through tournament management software subscriptions and player ticket processing.
+**OmniTactica is an engagement and progression companion built to supplement Best Coast Pairings—not compete with it.**
 
-Because competitive tournaments predominantly occur on weekends, player activity exhibits sharp spikes on Saturday and Sunday, followed by drop-offs throughout the workweek. Once a tournament concludes, match records sit archived in static standings tables. Players lack a persistent, week-round progression loop to track cumulative skill growth, analyze past match data, and scout future competition.
+OmniTactica utilizes official BCP tournament match data to provide players with what they love most: **tracking their personal growth through a standardized Elo rating system, scouting upcoming opponents' stats and matchup histories, and discovering local community events**.
 
-**OmniTactica is designed as the engagement companion to Best Coast Pairings—not a competitor.** 
-
-By partnering to utilize BCP's tournament match data via a secure, read-only backend sync:
-- **For Players:** OmniTactica transforms raw tournament match results into a standardized, chess-grade **Elo Rating System**, **Tier Milestones**, **Opponent Matchup Matrices**, and **Local Event Discovery**.
-- **For Best Coast Pairings:** OmniTactica serves as an **active conversion funnel for BCP's core subscriptions**. Every time a player scouts an upcoming opponent's Elo or faction record, OmniTactica directs them to BCP with an explicit call-to-action: *"Unlock & View Full Roster on Best Coast Pairings (BCP Subscription Required)"*. Furthermore, our event discovery engine directly promotes BCP tournaments, driving ticket sales and expanding TO subscription adoption.
+By connecting player enthusiasm directly to BCP's core services, OmniTactica serves as an organic conversion funnel for BCP:
+- **Drives Player Subscriptions:** When players scout an opponent’s Elo, win rate, and faction trends on OmniTactica, OmniTactica provides a direct call-to-action: *"View Full Army List on Best Coast Pairings (BCP Subscription Required)"*, turning tactical curiosity into paying BCP subscribers.
+- **Drives TO Subscriptions:** OmniTactica's event search and community directory direct local players to register and purchase tickets for upcoming BCP tournaments, filling brackets faster and increasing TO retention.
 
 ---
 
-## 2. Understanding BCP's Business Model & Growth Levers
+## 2. How OmniTactica Helps Tabletop Players
 
-| BCP Revenue Stream | Core Value Metric | Current Growth Challenge | OmniTactica Partnership Solution |
-| :--- | :--- | :--- | :--- |
-| **Player Subscriptions** | Ability to view published army lists, rosters, and pairings. | Casual & semi-competitive players only subscribe right before an event, leading to off-season churn. | **Continuous Scouting Incentive:** When players review their opponent's 70%+ win rate and matchup history on OmniTactica, their natural next action is to view the exact army list on BCP—driving recurring, year-round player subscriptions. |
-| **Event Organizer (TO) Subscriptions** | Tournament planning tools, player check-in, scoring, and ticketing. | TOs need filled tables to justify organizing events and maintaining active BCP subscriptions. | **Event Discovery & Ticket Funnel:** Integrated regional tournament search and Sparring Radar direct local players straight to BCP registration pages, increasing event fill rates and TO retention. |
+Tabletop competitors are passionate about self-improvement and community connection. OmniTactica delivers three key capabilities that players actively seek:
 
----
-
-## 3. The Tabletop Player Experience: Easing Friction & Driving Retention
-
-Modern competitive players across all esports and tabletop games share three psychological drivers:
-1. **Visualizing Personal Skill Growth:** Players want proof of their development. Standard win-loss records do not capture whether a victory was against a national champion or a beginner. A chess-grade Elo system gives every game lasting stakes and prestige.
-2. **Opponent Intelligence & Scouting:** Players experience anxiety before round 1. They want to know: *Who is my opponent? What factions do they master? What are their recent trends?*
-3. **Discovering Competition:** Players actively seek local game stores, active sparring partners, and nearby RTTs/GTs.
-
-By resolving these friction points, players stay engaged in the hobby 7 days a week, keeping the competitive circuit top-of-mind and dramatically increasing tournament participation.
+1. **Standardized Elo Rating & Personal Growth:**
+   - Gives players lasting milestones across their tournament journey (from Apprentice to Everchosen).
+   - Allows competitors to visualize their skill progression over time, making every game played at a BCP event feel meaningful and rewarding.
+2. **Opponent Stats & Matchup Scouting:**
+   - Gives players instant visibility into their upcoming opponent's win rate, top factions, and historical performance.
+   - Generates Opponent Matchup Matrices showing performance against different armies, Favorite Prey factions, and Toughest Nemeses.
+3. **Event & Community Discovery:**
+   - Features an integrated tournament search and local game store directory.
+   - Connects players to active local sparring groups and nearby tournaments, lowering barriers to competitive participation.
 
 ---
 
-## 4. The BCP Monetization Flywheel
+## 3. How OmniTactica Directly Expands BCP Revenue
+
+OmniTactica aligns seamlessly with BCP's two primary revenue streams:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -60,7 +56,7 @@ By resolving these friction points, players stay engaged in the hobby 7 days a w
                                     │
                                     ▼
        2. Strategic Intent & List Curiosity Triggered
-          - "What exact units & enhancements are they running?"
+          - "What exact units and enhancements are they running?"
                                     │
                                     ▼
        3. Direct Funnel to Best Coast Pairings
@@ -72,8 +68,8 @@ By resolving these friction points, players stay engaged in the hobby 7 days a w
                                     │
                                     ▼
        4. Elo Progression Inspires Next Competition
-          - Player needs 30 Elo points to reach High Warlord tier
-          - Discovers upcoming local RTT via OmniTactica Event Search
+          - Player seeks next Elo tier (e.g., High Warlord)
+          - Discovers upcoming local GT via OmniTactica Event Search
                                     │
                                     ▼
        5. Direct Registration via BCP
@@ -86,75 +82,53 @@ By resolving these friction points, players stay engaged in the hobby 7 days a w
 
 ---
 
-## 5. Ecosystem Demarcation: Collaboration vs. Competition
+## 4. Collaboration vs. Competition: Strict Demarcation
 
-We respect BCP’s position as the tournament pairing and data authority. OmniTactica strictly delineates its scope to ensure zero overlap or friction:
+OmniTactica respects BCP’s role as the authoritative tournament engine and maintains strict operational boundaries:
 
-| Functional Area | Best Coast Pairings (Core Authority) | OmniTactica (Synergistic Companion) | Why This Protects BCP |
+| Functional Area | Best Coast Pairings (Sole Authority) | OmniTactica (Engagement Companion) | Why This Protects BCP |
 | :--- | :--- | :--- | :--- |
-| **Tournament Pairings & Rounds** | **100% Owned by BCP** (Swiss pairing engine, table timers, judge tools) | **Zero Pairing Tools** (Does not run tournaments or pairings) | BCP remains the sole operational tool for running events. |
-| **Army List Repository** | **100% Owned by BCP** (Lists uploaded and gated behind BCP subscription) | **Zero Paywalled List Hosting** (Deep-links directly to BCP) | Protects BCP's list subscription revenue stream completely. |
+| **Tournament Pairings & Rounds** | **100% Owned by BCP** (Swiss pairings, round clocks, check-ins, table assignments) | **Zero Pairing Tools** (Does not run tournaments or pairings) | BCP remains the sole operational tool for running events. |
+| **Army List Repository** | **100% Owned by BCP** (Lists uploaded and gated behind BCP subscription) | **Zero Paywalled List Hosting** (Deep-links directly to BCP) | Protects and increases BCP list-view subscription revenue. |
 | **Live Round Check-In** | **100% Owned by BCP** | **Zero Tournament Check-In** | Ensures all live event traffic remains within BCP apps. |
-| **Elo Ratings & Growth Tiers** | Not BCP's primary focus (Event standings only) | **Dedicated Elo Engine** (Calculates skill deltas, milestones, decay) | Adds permanent value to raw BCP match data. |
-| **Matchup Matrices & Scouting** | Not BCP's primary focus | **Pre-Match & Post-Match Analytics** (Nemesis factions, head-to-head records) | Drives mid-week engagement and list-view curiosity. |
-| **Event Discovery** | BCP Official Event Listing & Ticketing | **Community Directory** (Directs players to BCP ticket checkout) | Amplifies BCP event discovery and ticket sales. |
+| **Elo Ratings & Growth Tiers** | Event standings only | **Standardized Global Elo** (Calculates skill deltas, milestones, decay) | Transforms BCP match data into lasting personal value. |
+| **Opponent Scouting & Matrices** | Raw event tables | **Matchup Matrices & Nemesis Tracking** | Keeps players engaged throughout the week and prompts list lookups. |
+| **Event Discovery Hub** | BCP Official Event Listing & Ticketing | **Community Directory** (Directs players to BCP ticket checkout) | Amplifies BCP event discovery and ticket sales. |
 
 ---
 
-## 6. Technical Architecture & Security Guarantees
+## 5. Technical Architecture & Security Guarantees
 
-Our technical implementation is engineered around two non-negotiable principles: **zero client-side writes** and **zero operational burden on BCP**.
+Our technical implementation ensures zero friction and complete data safety:
 
 1. **Strict Read-Only Backend Synchronization:**
-   - OmniTactica ingests tournament results strictly via backend scheduled worker jobs (e.g., Cloud Scheduler).
-   - The client web and mobile interfaces have **zero write access** to BCP databases or our internal match sync tables.
-2. **Off-Host Serverless Computation:**
-   - All compute-heavy algorithms (Elo calculations, matchup matrix aggregations, decay tracking) run entirely within OmniTactica’s Google Cloud Platform (Cloud Run / Cloud SQL) infrastructure.
-   - BCP infrastructure experiences zero additional load or database locks.
-3. **Official Attribution & Deep Linking:**
-   - Every tournament match record, tournament result card, and player ranking is tagged with: `Verified Tournament Data provided by Best Coast Pairings`.
-   - Links to events and rosters seamlessly route users to `bestcoastpairings.com` and BCP mobile apps.
+   - Ingestion of tournament results occurs strictly through backend scheduled worker jobs.
+   - The client web and mobile frontends have **zero write access** to BCP databases or our match sync tables.
+2. **Zero Infrastructure Load on BCP:**
+   - All compute-heavy algorithms (Elo calculations, matchup matrix aggregations, search queries) run entirely on OmniTactica's Google Cloud Platform infrastructure.
+3. **Official Attribution & Direct Deep Linking:**
+   - Every tournament match record and event card displays: `Verified Tournament Data provided by Best Coast Pairings`.
+   - Roster inspection buttons deliberately route users to BCP's native app or website, strictly honoring BCP's subscription paywall for army list viewing.
 
 ---
 
-## 7. Platform Capabilities & Live Demonstration
+## 6. Live Platform Demonstration
 
-The OmniTactica platform is fully implemented and operational across all modern device form factors:
-
-### Desktop Experience (1440 × 900)
-- **Player Hub & Skill Progression:** Visualizes current Elo, peak rating, tier progress bar (e.g., High Warlord), active faction mastery, and verified BCP account integration.
-- **Opponent Matchup Matrix:** Automatically isolates Favorite Prey Armies vs. Toughest Nemesis Armies with exact win rate percentages and net Elo deltas.
-- **Competitor Scouting:** Comprehensive search allowing players to scout upcoming rivals (e.g., Folger Pyles, Everchosen tier, 90.1% win rate).
-- **Event Discovery Hub:** Geographically filtered RTT, GT, and Major listings with instant ticket purchase links pointing directly to BCP.
-
-### Responsive Tablet & Mobile Viewports (768 × 1024 & 390 × 844)
-- Touch-optimized, stacked card layouts designed for quick pre-round scouting at crowded tournament venues.
-- Instant access to tournament journeys and historical round-by-round results.
+The OmniTactica platform is fully implemented and responsive across Desktop, Tablet, and Mobile:
+- **Player Hub & Skill Progression:** Visualizes current Elo, peak rating, tier progress (e.g., High Warlord), active faction mastery, and verified BCP account integration.
+- **Opponent Scouting & Profiles:** In-depth competitor intelligence highlighting win rates, match history, and top factions.
+- **Opponent Matchup Matrix:** Automatically isolates Favorite Prey Armies vs. Toughest Nemesis Armies with exact win rates and net Elo deltas.
+- **Event Discovery Hub:** Geographically filtered tournament listings with direct ticket purchase links pointing straight to BCP.
 
 ---
 
-## 8. Proposed 90-Day Partnership Pilot
+## 7. Proposed Partnership Next Steps
 
-To validate the revenue lift for Best Coast Pairings with zero initial risk, we propose a 90-day pilot partnership:
+We propose a low-risk, collaborative pilot aligned with upcoming tournament circuits:
+1. **API Collaboration:** Establish an authorized read-only data sync or export webhook.
+2. **Co-Branding & Funnel Tracking:** Embed official BCP attribution and measure list-view subscription conversions and ticket click-through volume.
+3. **Review & Expansion:** Review conversion metrics and formalize an ongoing partnership framework.
 
-1. **Phase 1: Official Data Collaboration (Weeks 1–3)**
-   - Establish an authorized read-only API sync or scheduled export webhook.
-   - Embed official BCP co-branding (`"Powered by BCP"`) and deep-link hooks.
-2. **Phase 2: Targeted Circuit Pilot (Weeks 4–8)**
-   - Launch co-branded integration across a select tournament circuit (e.g., US Open Series or regional Major).
-   - Track player click-through rates from OmniTactica scouting cards to BCP subscription list pages.
-3. **Phase 3: Impact Review & Long-Term Agreement (Weeks 9–12)**
-   - Review conversion metrics: player list-view subscriptions initiated, event ticket conversions, and player retention.
-   - Finalize a long-term data partnership and revenue-sharing framework.
-
----
-
-## 9. Conclusion: Better Together
-
-Best Coast Pairings built the foundation of modern competitive tabletop wargaming. OmniTactica builds upon that foundation by giving players daily reasons to celebrate their progress, scout their rivals, and enter the next event.
-
-Together, we can transform tournament play from an occasional weekend hobby into an active, year-round competitive sport—expanding community participation and accelerating BCP subscription growth.
-
-**We welcome the opportunity to discuss this proposal with the BCP executive team.**
+**OmniTactica looks forward to collaborating with Best Coast Pairings to grow community adoption and accelerate subscription revenue together.**
 
 *Contact: partnership@omnitactica.com*  
