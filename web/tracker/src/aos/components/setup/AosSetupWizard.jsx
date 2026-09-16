@@ -454,10 +454,11 @@ export function AosSetupWizard() {
 
       {/* Sticky Bottom Navigation Bar (Matching 40k) */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-20 border-t p-3 backdrop-blur-md"
+        className="fixed inset-x-0 bottom-0 z-40 border-t p-3 backdrop-blur-md"
         style={{
           background: "rgba(10, 12, 16, 0.95)",
-          borderColor: "var(--gtk-line)"
+          borderColor: "var(--gtk-line)",
+          boxShadow: "0 -10px 30px rgba(0,0,0,.22)"
         }}
       >
         <div className="max-w-2xl mx-auto flex items-center justify-between gap-3">

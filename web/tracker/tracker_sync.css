@@ -903,8 +903,9 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
     height: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
-  /* When wizard navigation bar is present, position it cleanly directly above the bottom action dock */
-  .fixed.inset-x-0.bottom-0 {
+  /* When wizard navigation bar or scorecard turn dock is present, position it cleanly directly above the bottom action dock */
+  .fixed.inset-x-0.bottom-0,
+  .fixed.bottom-0.left-0.right-0 {
     bottom: calc(44px + env(safe-area-inset-bottom, 0px)) !important;
     z-index: 99997 !important;
   }
@@ -914,8 +915,9 @@ body.is-spectator-mode #gt-chess-clock-hud #gt-clock-close-btn {
   #root > div,
   main,
   .gtk-page,
-  body.is-tracker-play {
-    padding-bottom: calc(130px + env(safe-area-inset-bottom, 0px)) !important;
+  body.is-tracker-play,
+  .max-w-4xl {
+    padding-bottom: calc(140px + env(safe-area-inset-bottom, 0px)) !important;
   }
 
   .gt-dock-btn {
