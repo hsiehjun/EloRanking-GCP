@@ -448,6 +448,115 @@ def test_multi_row_registered_tournaments_merging_and_frontend_sync():
     print("✅ test_multi_row_registered_tournaments_merging_and_frontend_sync passed!")
 
 
+def test_organizer_only_events_excluded_from_registered_tournaments():
+    """Verify that events where the user is solely a Tournament Organizer or creator (with no competitor registration)
+    are strictly excluded from Registered Tournaments on both backend and frontend."""
+    from bcp_adapter import bcp_adapter
+    from unittest.mock import MagicMock, patch
+    import asyncio
+    from routers.auth import api_user_registered_tournaments
+
+    # 1. Verify bcp_adapter skips organizer events lacking player registration
+    # Event 1: Organizer event with no player data
+    to_event = {
+        "id": "FcemwXAu9MQ2",
+        "name": "testinaglkdsf",
+        "ownerId": "MEV83VFANA",
+        "eventUsers": {
+            "MEV83VFANA": {
+                "firstName": "John",
+                "lastName": "Hsieh",
+                "role": {"name": "Tournament Organizer"}
+            }
+        },
+        "totalPlayers": 0,
+        "players": []
+    }
+    # Event 2: Player event where user is registered as a competitor
+    player_event = {
+        "id": "LVO2026",
+        "name": "Las Vegas Open 2026",
+        "ownerId": "OTHER_OWNER",
+        "myPlayer": {
+            "id": "p_12345",
+            "firstName": "John",
+            "lastName": "Hsieh",
+            "army": "Aeldari",
+            "checkedIn": True
+        },
+        "totalPlayers": 500
+    }
+
+    mock_user_info = {
+        "first_name": "John",
+        "last_name": "Hsieh",
+        "display_name": "John Hsieh",
+        "player_id": "p_12345",
+        "bcp_user_id": "MEV83VFANA"
+    }
+    mock_auth_bcp = MagicMock()
+    mock_auth_bcp.get_user_by_id.return_value = mock_user_info
+
+    from bcp_adapter import BcpAdapter
+    with patch.object(BcpAdapter, "execute_call", return_value=({"data": [to_event, player_event]}, None)), \
+         patch("core.get_auth_manager", return_value=mock_auth_bcp):
+        ok, err, events = bcp_adapter.fetch_user_registered_events("u123", explicit_token="mock_tok")
+        assert ok is True
+        assert len(events) == 1, f"Expected 1 event, got {len(events)}: {events}"
+        assert events[0]["bcp_event_id"] == "LVO2026"
+        assert events[0]["event_name"] == "Las Vegas Open 2026"
+        print("✅ bcp_adapter correctly filters out TO-only event FcemwXAu9MQ2!")
+
+    # 2. Verify routers/auth.py filters out organizer-only events even if passed in
+    mock_db = MagicMock()
+    mock_db.get_user_native_tournaments.return_value = []
+    mock_auth = MagicMock()
+    mock_auth.decode_token.return_value = {'sub': 'user_to_1', 'user_id': 'user_to_1'}
+
+    mock_req = MagicMock()
+    mock_req.headers = {'Authorization': 'Bearer valid_token'}
+    mock_req.cookies = {}
+
+    with patch('routers.auth.get_database', return_value=mock_db), \
+         patch('routers.auth.get_auth_manager', return_value=mock_auth), \
+         patch('bcp_adapter.bcp_adapter.fetch_user_registered_events') as mock_fetch:
+
+        # Pass one organizer event without player data, and one real player event
+        mock_fetch.return_value = (True, None, [
+            {
+                'bcp_event_id': 'FcemwXAu9MQ2',
+                'event_name': 'testinaglkdsf',
+                'is_organizer': True,
+                'isOwner': True,
+                'player_id': '',
+                'bcp_player_id': '',
+                'total_players': 0
+            },
+            {
+                'bcp_event_id': 'LVO2026',
+                'event_name': 'Las Vegas Open 2026',
+                'is_organizer': False,
+                'player_id': 'p_12345',
+                'bcp_player_id': 'p_12345',
+                'faction': 'Aeldari',
+                'total_players': 500
+            }
+        ])
+
+        res = asyncio.run(api_user_registered_tournaments(mock_req))
+        assert res['success'] is True
+        assert res['count'] == 1
+        assert res['tournaments'][0]['bcp_event_id'] == 'LVO2026'
+        print("✅ routers/auth.py correctly excludes organizer-only event from API response!")
+
+    # 3. Verify frontend code has isValidRegisteredTournament
+    root_dir = Path(__file__).resolve().parent.parent
+    my_hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+    assert "isValidRegisteredTournament" in my_hub_js
+    assert "is_organizer || ev.isOwner || ev.isTO" in my_hub_js
+    print("✅ frontend my_hub.js contains isValidRegisteredTournament guard!")
+
+
 if __name__ == '__main__':
     test_database_unified_events_sync_methods()
     test_database_sync_events_and_participants_sql_execution()
@@ -457,5 +566,6 @@ if __name__ == '__main__':
     test_unregistered_tournament_pruning_and_empty_list_handling()
     test_scraper_sync_event_roster_pruning_and_404_deletion()
     test_multi_row_registered_tournaments_merging_and_frontend_sync()
+    test_organizer_only_events_excluded_from_registered_tournaments()
     print('ALL UNIFIED REGISTERED TOURNAMENTS SYNC TESTS PASSED!')
 

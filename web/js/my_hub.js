@@ -33,6 +33,13 @@ function buildMyHubShellData(u) {
   };
 }
 
+function isValidRegisteredTournament(ev) {
+  if (!ev) return false;
+  if ((ev.is_organizer || ev.isOwner || ev.isTO) && !ev.player_id && !ev.bcp_player_id && !ev.has_explicit_player_data) return false;
+  if (!ev.player_id && !ev.bcp_player_id && !ev.has_explicit_player_data && !ev.faction && (!ev.total_players || ev.total_players === 0)) return false;
+  return true;
+}
+
 async function loadMyHubDashboard() {
   const container = document.getElementById('my-hub-content');
   if (!container) return;
@@ -54,6 +61,9 @@ async function loadMyHubDashboard() {
     try {
       const stored = localStorage.getItem(cacheStorageKey) || (gs === '40k' ? localStorage.getItem('my_hub_cache') : null);
       if (stored) cachedData = JSON.parse(stored);
+      if (cachedData && Array.isArray(cachedData.registered_tournaments)) {
+        cachedData.registered_tournaments = cachedData.registered_tournaments.filter(isValidRegisteredTournament);
+      }
     } catch (e) {}
   }
 
@@ -104,7 +114,7 @@ async function loadMyHubDashboard() {
     }
 
     if (regRes.status === 'fulfilled' && regRes.value && Array.isArray(regRes.value.tournaments)) {
-      data.registered_tournaments = regRes.value.tournaments;
+      data.registered_tournaments = regRes.value.tournaments.filter(isValidRegisteredTournament);
     }
 
     data._gameSystem = gs;
@@ -329,7 +339,7 @@ function getCountdownBadge(dateStr, endDateStr) {
 }
 
 function renderRegisteredTournamentsCard(tournaments, isBcpConnected) {
-  const events = tournaments || [];
+  const events = (tournaments || []).filter(isValidRegisteredTournament);
   
   if (!isBcpConnected) {
     return `
@@ -473,7 +483,7 @@ function renderNextEventOverviewPreview(tournaments, isBcpConnected) {
     `;
   }
 
-  const events = (tournaments || []).filter(e => {
+  const events = (tournaments || []).filter(isValidRegisteredTournament).filter(e => {
     const dStr = e.event_date || e.start_date;
     const days = computeDaysUntil(dStr);
     return days === null || days >= 0 || (computeDaysUntil(e.end_date) || 0) >= 0;
@@ -539,7 +549,7 @@ async function syncBcpRegisteredTournaments() {
       if (typeof showNotification === 'function') {
         showNotification(`Refreshed ${res.count || 0} registered tournament(s)`, 'success');
       }
-      const tournaments = res.tournaments || [];
+      const tournaments = (res.tournaments || []).filter(isValidRegisteredTournament);
       if (myHubData) {
         myHubData.registered_tournaments = tournaments;
         try {

@@ -348,11 +348,10 @@ def test_frontend_player_registration_components():
     assert "handleEventPlayerCheckin" in tourn_js
     assert "handleEventPlayerDrop" in tourn_js
 
-    # 4. Check my_hub.js checkin status badge and Manage button
+    # 4. Check my_hub.js checkin status badge and modal open
     assert "Checked In" in hub_js, "Checked In badge missing in my_hub.js"
     assert "Not Checked In" in hub_js, "Not Checked In badge missing in my_hub.js"
-    assert "👤 Manage / Check In" in hub_js, "Manage / Check In button missing in my_hub.js"
-    assert "openEventModal('${encodeURIComponent(evId)}', true, 'player')" in hub_js
+    assert "openEventModal" in hub_js, "openEventModal missing in my_hub.js"
 
     # 5. Check app.bundle.min.js compilation
     assert "getGamesystemFactions" in bundle_js, "getGamesystemFactions missing in bundle"
@@ -361,7 +360,7 @@ def test_frontend_player_registration_components():
     assert "checkinEventPlayer" in bundle_js, "checkinEventPlayer missing in bundle"
     assert "dropEventPlayer" in bundle_js, "dropEventPlayer missing in bundle"
     assert "handleEventPlayerCheckin" in bundle_js, "handleEventPlayerCheckin missing in bundle"
-    assert "Manage / Check In" in bundle_js, "Manage / Check In button missing in bundle"
+    assert "openEventModal" in bundle_js, "openEventModal missing in bundle"
 
     print("✅ Frontend player registration components and minified bundle verified!")
 

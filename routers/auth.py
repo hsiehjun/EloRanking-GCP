@@ -400,6 +400,8 @@ async def api_user_registered_tournaments(
         t["id"] = t.get("id") or t_eid
         t["bcp_event_id"] = t_eid
         t["event_name"] = t.get("event_name") or t.get("name") or "Tournament"
+        if not t.get("faction") and (t.get("army") or t.get("armyName")):
+            t["faction"] = t.get("army") or t.get("armyName")
         gs_id = str(t.get("gamesystem_id") or t.get("game_system_id") or "")
         if not t.get("game_system"):
             t["game_system"] = "aos" if (gs_id in (AOS_GAME_SYSTEM_ID, "OY8FCPBf6O", "23qDprPABN")) else "40k"
@@ -460,9 +462,11 @@ async def api_user_registered_tournaments(
             logger.debug(f"Notice during in-memory tournament enrichment: {enrich_err}")
 
     # Ensure tournaments returned do not include organizer-only events where user has no player registration
+    # and require active competitor participation
     combined_tournaments = [
         t for t in combined_tournaments
-        if not ((t.get("isOwner") or t.get("isTO") or t.get("is_organizer")) and not (t.get("player_id") or t.get("bcp_player_id")))
+        if not ((t.get("isOwner") or t.get("isTO") or t.get("is_organizer")) and not (t.get("player_id") or t.get("bcp_player_id") or t.get("has_explicit_player_data")))
+        and (bool(t.get("player_id") or t.get("bcp_player_id") or t.get("has_explicit_player_data") or t.get("faction") or t.get("army")) or not (t.get("isOwner") or t.get("isTO") or t.get("is_organizer")))
     ]
 
     if game_system:

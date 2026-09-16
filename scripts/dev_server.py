@@ -1605,7 +1605,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     self.wfile.write(json.dumps({
                         "success": False,
                         "requires_bcp_link": True,
-                        "error": "Best Coast Pairings account linking is required to view this roster",
+                        "error": "Best Coast Pairings subscription is required to view this roster",
                         "list_id": lid
                     }).encode("utf-8"))
                 else:
