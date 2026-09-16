@@ -1225,9 +1225,6 @@
           : 'Create a match room and begin army setup with shareable room code.';
         const hostBtnText = isAosMode ? 'CREATE & ENTER AOS MATCH ➔' : 'CREATE & ENTER MATCH ➔';
         const hostBtnCall = isAosMode ? "window.__handleCreateRoom('aos')" : "window.__handleCreateRoom('40k')";
-        const soloBtn = isAosMode
-          ? `<button onclick="window.location.href='/11th/tracker/aos?solo=true'" style="margin-top:8px; width:100%; box-sizing:border-box; background:transparent; border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-weight:700; font-size:11px; text-transform:uppercase; padding:8px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">⚡ Solo Practice / Offline AoS Tracker ➔</button>`
-          : `<button onclick="window.location.href='/11th/tracker/play?solo=true'" style="margin-top:8px; width:100%; box-sizing:border-box; background:transparent; border:1px solid rgba(56,189,248,0.25); color:var(--accent, #38bdf8); font-weight:700; font-size:11px; text-transform:uppercase; padding:8px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🎲 Solo Practice / Offline 40K Tracker ➔</button>`;
 
         const joinTitle = isAosMode ? '🔗 Join AoS Room Key' : '🔗 Join Room Key';
         const joinPlaceholder = isAosMode ? 'e.g. AOS-7A9B-3C4D' : 'e.g. WH40K-7A9B-3C4D';
@@ -1254,7 +1251,6 @@
                   <button onclick="${hostBtnCall}" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
                     ${hostBtnText}
                   </button>
-                  ${soloBtn}
                 </div>
               </div>
 

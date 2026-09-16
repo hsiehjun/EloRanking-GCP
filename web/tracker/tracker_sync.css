@@ -39,9 +39,16 @@ body {
 }
 
 .gtk-card {
-  background: var(--gtk-tile) !important;
-  color: var(--gtk-text) !important;
-  border-color: var(--gtk-line) !important;
+  background: var(--gtk-tile);
+  color: var(--gtk-text);
+  border-color: var(--gtk-line);
+}
+
+.gtk-card.is-selected,
+.gtk-card[data-selected="true"] {
+  border-color: var(--gtk-accent, #f59e0b) !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.25) !important;
 }
 
 .gtk-mono {
