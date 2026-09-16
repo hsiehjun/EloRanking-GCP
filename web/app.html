@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=44e7d9904b">
-  <link rel="stylesheet" href="/css/styles.css?v=44e7d9904b">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=44e7d9904b">
+  <link rel="stylesheet" href="/css/theme.css?v=38f4f615fe">
+  <link rel="stylesheet" href="/css/styles.css?v=38f4f615fe">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=38f4f615fe">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -523,19 +523,19 @@
             <span id="event-tab-player-badge" class="subtab-count-badge" style="display: none; background: #10b981; color: #000; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; border-radius: 4px;">LIVE</span>
           </button>
           <button id="event-subtab-results" class="subtab-btn profile-subtab-btn active" onclick="switchEventModalTab('results')">
-            <span>🏆 Standings & Placings</span>
+            <span>🏆 Standings<span class="subtab-label-extra"> & Placings</span></span>
             <span id="event-tab-results-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
           <button id="event-subtab-teams" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('teams')" style="display: none !important;">
-            <span id="event-subtab-teams-label">🛡️ Team Standings</span>
+            <span id="event-subtab-teams-label">🛡️ Team<span class="subtab-label-extra"> Standings</span></span>
             <span id="event-tab-teams-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
           <button id="event-subtab-matches" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('matches')">
-            <span>⚔️ Round Pairings & Live Spectate</span>
+            <span>⚔️ Pairings<span class="subtab-label-extra"> & Live</span></span>
             <span id="event-tab-matches-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
           <button id="event-subtab-meta" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('meta')">
-            <span>📊 Field Meta & Highlights</span>
+            <span>📊 Field Meta<span class="subtab-label-extra"> & Highlights</span></span>
           </button>
           <button id="event-subtab-elo" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('elo')" style="display: none !important;">
             <span>⭐ Participant Elo</span>
@@ -3031,8 +3031,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "44e7d9904b";</script>
-  <script src="/js/app.bundle.min.js?v=44e7d9904b"></script>
+  <script>window.APP_VERSION = "38f4f615fe";</script>
+  <script src="/js/app.bundle.min.js?v=38f4f615fe"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
