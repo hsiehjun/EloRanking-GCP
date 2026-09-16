@@ -52,6 +52,10 @@ function closeModal(modalId) {
   if (modalId === 'event-reg-loading-modal' && typeof closeEventRegistrationLoadingModal === 'function') {
     closeEventRegistrationLoadingModal();
   }
+  if (modalId === 'event-stream-modal') {
+    const iframe = document.getElementById('modal-stream-iframe');
+    if (iframe) iframe.src = '';
+  }
 
   const modal = document.getElementById(modalId);
   if (modal) {

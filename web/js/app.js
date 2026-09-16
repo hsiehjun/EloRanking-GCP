@@ -431,13 +431,18 @@ function handleAppRoute(routeStr) {
     }
   }
 
-  // Route: /#/aos/event/:id or /#/40k/event/:id or /#/event/:id
-  const eventMatch = clean.match(/^(?:(aos|40k)\/)?event\/([^/?#]+)/i);
+  // Route: /#/aos/event/:id or /#/40k/event/:id or /#/event/:id (with optional subtab /matches, /player, /creator, etc.)
+  const eventMatch = clean.match(/^(?:(aos|40k)\/)?event\/([^/?#]+)(?:\/([a-z0-9_-]+))?/i);
   if (eventMatch) {
     const routeSys = eventMatch[1] ? eventMatch[1].toLowerCase() : (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const eid = decodeURIComponent(eventMatch[2]);
+    let subtab = eventMatch[3] ? eventMatch[3].toLowerCase() : null;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      subtab = subtab || sp.get('subtab') || sp.get('tab');
+    } catch (e) {}
     if (typeof openEventHubPage === 'function') {
-      openEventHubPage(eid, routeSys, { replaceUrl: true });
+      openEventHubPage(eid, routeSys, { replaceUrl: true, initialTab: subtab || undefined });
       return true;
     }
   }

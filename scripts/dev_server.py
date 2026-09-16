@@ -67,18 +67,73 @@ ROOMS_DB = {
     }
 }
 
-DEV_USER = {
-    "authenticated": True,
-    "user": {
-        "id": "dev_commander",
-        "username": "Commander",
-        "display_name": "Commander",
-        "email": "commander@omnitactica.com",
-        "role": "admin",
-        "bcp_connected": True,
-        "bcp_user_id": "bcp_dev_commander"
+def get_persona_user(persona):
+    if persona == "spectator":
+        return {
+            "authenticated": True,
+            "user": {
+                "id": "viewer_guest_999",
+                "username": "casual_spectator",
+                "display_name": "Casual Spectator",
+                "role": "player",
+                "is_admin": False,
+                "is_cc": False,
+                "can_access_to": False,
+                "can_access_cc": False,
+                "bcp_connected": False,
+                "player_id": "viewer_guest_999"
+            }
+        }
+    if persona == "creator":
+        return {
+            "authenticated": True,
+            "user": {
+                "id": "dev_creator_wgl",
+                "username": "wargames_live",
+                "display_name": "Wargames Live (Caster)",
+                "role": "creator",
+                "is_admin": False,
+                "is_cc": True,
+                "can_access_cc": True,
+                "can_access_to": False,
+                "bcp_connected": True
+            }
+        }
+    if persona == "to":
+        return {
+            "authenticated": True,
+            "user": {
+                "id": "dev_to_admin",
+                "username": "tournament_director",
+                "display_name": "Head Tournament Organizer",
+                "role": "to",
+                "is_admin": True,
+                "can_access_to": True,
+                "bcp_connected": True
+            }
+        }
+    # default: competitor (Innes Wilson)
+    return {
+        "authenticated": True,
+        "user": {
+            "id": "p_innes",
+            "username": "innes_wilson",
+            "display_name": "Innes Wilson",
+            "role": "player",
+            "is_admin": False,
+            "is_cc": False,
+            "can_access_to": False,
+            "can_access_cc": False,
+            "bcp_connected": True,
+            "player_id": "p_innes",
+            "bcp_player_id": "p_innes",
+            "first_name": "Innes",
+            "last_name": "Wilson"
+        }
     }
-}
+
+DEV_USER = get_persona_user("competitor")
+
 
 AUTH_INJECTION = """<script>
   (function() {
@@ -209,11 +264,23 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         # 1. API routes
         if clean_path in ("api/auth/me", "api/auth/session"):
+            cookie_hdr = self.headers.get("Cookie", "")
+            persona_hdr = self.headers.get("X-Dev-Persona", "")
+            persona = "competitor"
+            if "dev_persona=spectator" in cookie_hdr or persona_hdr == "spectator" or "persona=spectator" in query_str:
+                persona = "spectator"
+            elif "dev_persona=creator" in cookie_hdr or persona_hdr == "creator" or "persona=creator" in query_str:
+                persona = "creator"
+            elif "dev_persona=to" in cookie_hdr or persona_hdr == "to" or "persona=to" in query_str:
+                persona = "to"
+            elif "dev_persona=competitor" in cookie_hdr or persona_hdr == "competitor" or "persona=competitor" in query_str:
+                persona = "competitor"
+            resp_user = get_persona_user(persona)
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps(DEV_USER).encode("utf-8"))
+                self.wfile.write(json.dumps(resp_user).encode("utf-8"))
             return
 
         if clean_path in ("api/tracker/history",):
@@ -471,33 +538,176 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/community/events/") and "/registration" in clean_path:
+            cookie_hdr = self.headers.get("Cookie", "")
+            persona_hdr = self.headers.get("X-Dev-Persona", "")
+            is_explicit_non_competitor = (
+                "dev_persona=spectator" in cookie_hdr or "persona=spectator" in query_str or persona_hdr == "spectator" or
+                "dev_persona=creator" in cookie_hdr or "persona=creator" in query_str or persona_hdr == "creator" or
+                "dev_persona=to" in cookie_hdr or "persona=to" in query_str or persona_hdr == "to"
+            )
+            is_explicit_competitor = (
+                "dev_persona=competitor" in cookie_hdr or "persona=competitor" in query_str or persona_hdr == "competitor" or
+                "innes" in cookie_hdr.lower()
+            )
+            is_competitor = is_explicit_competitor or not is_explicit_non_competitor
+            if is_competitor:
+                res = {
+                    "is_registered": True,
+                    "player_registration": {
+                        "player_id": "p_innes",
+                        "bcp_player_id": "p_innes",
+                        "first_name": "Innes",
+                        "last_name": "Wilson",
+                        "full_name": "Innes Wilson",
+                        "team_name": "Stat Check",
+                        "faction": "Adeptus Custodes",
+                        "detachment": "Shield Host",
+                        "army_id": "fac_custodes",
+                        "checked_in": True,
+                        "dropped": False,
+                        "has_list_submitted": True,
+                        "army_list": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
+                    },
+                    "army_lists": [
+                        {
+                            "name": "Adeptus Custodes - Shield Host 2000pts",
+                            "faction": "Adeptus Custodes",
+                            "detachment": "Shield Host",
+                            "points": 2000,
+                            "raw_text": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
+                        }
+                    ],
+                    "user_profile": {
+                        "first_name": "Innes",
+                        "last_name": "Wilson",
+                        "display_name": "Innes Wilson"
+                    }
+                }
+            else:
+                res = {"is_registered": False}
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/event/"):
             ev_param = clean_path.replace("api/event/", "")
             if ev_param == "ev_ongoing_gt_live":
                 res = {
                     "id": "ev_ongoing_gt_live",
-                    "name": "Warhammer 40k US Open Series 2026",
+                    "name": "Warhammer 40k US Open Series 2026 - Atlanta Major",
                     "event_date": "2026-09-15",
                     "end_date": "2026-09-16",
                     "city": "Atlanta",
                     "state": "GA",
                     "country": "United States",
-                    "total_players": 16,
+                    "total_players": 12,
                     "num_rounds": 5,
                     "current_round": 3,
                     "is_ended": False,
                     "ended": False,
                     "status": {"ended": False, "started": True},
                     "matches": [
-                        {"round": 3, "table_number": 1, "table": 1, "player1_id": "p_innes", "player1_name": "Innes Wilson", "player1_faction": "Adeptus Custodes", "player2_id": "p_david", "player2_name": "David Gaylard", "player2_faction": "Necrons", "status": "in_progress"},
-                        {"round": 3, "table_number": 2, "table": 2, "player1_id": "p_alex", "player1_name": "Alex Spathopoulos", "player1_faction": "Chaos Space Marines", "player2_id": "p_manny", "player2_name": "Manny Cheema", "player2_faction": "Tyranids", "status": "in_progress"},
-                        {"round": 3, "table_number": 3, "table": 3, "player1_id": "p_john", "player1_name": "John Lennon", "player1_faction": "Ultramarines", "player2_id": "p_chris", "player2_name": "Chris Green", "player2_faction": "Space Marines", "status": "in_progress"}
+                        # Round 1
+                        {"id": "m_1_1", "round": 1, "table_number": 1, "table": 1, "player1_id": "p_innes", "player1_name": "Innes Wilson", "player1_faction": "Adeptus Custodes", "player1_detachment": "Shield Host", "player1_elo": 2375.2, "player1_score": 100, "player2_id": "p_marcus", "player2_name": "Marcus Vance", "player2_faction": "Orks", "player2_detachment": "Da Big Hunt", "player2_elo": 1680.0, "player2_score": 24, "winner_id": "p_innes", "is_draw": False, "status": "finished"},
+                        {"id": "m_1_2", "round": 1, "table_number": 2, "table": 2, "player1_id": "p_alex", "player1_name": "Alex Spathopoulos", "player1_faction": "Chaos Space Marines", "player1_detachment": "Raiders", "player1_elo": 2395.2, "player1_score": 92, "player2_id": "p_tyler", "player2_name": "Tyler Stice", "player2_faction": "World Eaters", "player2_detachment": "Berzerker Warband", "player2_elo": 1850.0, "player2_score": 45, "winner_id": "p_alex", "is_draw": False, "status": "finished"},
+                        {"id": "m_1_3", "round": 1, "table_number": 3, "table": 3, "player1_id": "p_john", "player1_name": "John Lennon", "player1_faction": "Ultramarines", "player1_detachment": "Gladius Task Force", "player1_elo": 2240.0, "player1_score": 88, "player2_id": "p_chris", "player2_name": "Chris Green", "player2_faction": "Space Marines", "player2_detachment": "Ironstorm Spearhead", "player2_elo": 2097.8, "player2_score": 62, "winner_id": "p_john", "is_draw": False, "status": "finished"},
+                        {"id": "m_1_4", "round": 1, "table_number": 4, "table": 4, "player1_id": "p_david", "player1_name": "David Gaylard", "player1_faction": "Necrons", "player1_detachment": "Canoptek Court", "player1_elo": 2150.0, "player1_score": 85, "player2_id": "p_liam", "player2_name": "Liam Hackett", "player2_faction": "T'au Empire", "player2_detachment": "Mont'ka", "player2_elo": 2010.0, "player2_score": 55, "winner_id": "p_david", "is_draw": False, "status": "finished"},
+                        {"id": "m_1_5", "round": 1, "table_number": 5, "table": 5, "player1_id": "p_manny", "player1_name": "Manny Cheema", "player1_faction": "Tyranids", "player1_detachment": "Invasion Fleet", "player1_elo": 2210.0, "player1_score": 90, "player2_id": "p_jack", "player2_name": "Jack Harpster", "player2_faction": "Blood Angels", "player2_detachment": "Sons of Sanguinius", "player2_elo": 2185.0, "player2_score": 68, "winner_id": "p_manny", "is_draw": False, "status": "finished"},
+                        {"id": "m_1_6", "round": 1, "table_number": 6, "table": 6, "player1_id": "p_folger", "player1_name": "Folger Pyles", "player1_faction": "Adeptus Custodes", "player1_detachment": "Talons of the Emperor", "player1_elo": 2340.5, "player1_score": 94, "player2_id": "p_donovan", "player2_name": "Donovan Sailo", "player2_faction": "Grey Knights", "player2_detachment": "Teleport Strike Force", "player2_elo": 2153.2, "player2_score": 50, "winner_id": "p_folger", "is_draw": False, "status": "finished"},
+
+                        # Round 2
+                        {"id": "m_2_1", "round": 2, "table_number": 1, "table": 1, "player1_id": "p_innes", "player1_name": "Innes Wilson", "player1_faction": "Adeptus Custodes", "player1_detachment": "Shield Host", "player1_elo": 2375.2, "player1_score": 95, "player2_id": "p_david", "player2_name": "David Gaylard", "player2_faction": "Necrons", "player2_detachment": "Canoptek Court", "player2_elo": 2150.0, "player2_score": 78, "winner_id": "p_innes", "is_draw": False, "status": "finished"},
+                        {"id": "m_2_2", "round": 2, "table_number": 2, "table": 2, "player1_id": "p_alex", "player1_name": "Alex Spathopoulos", "player1_faction": "Chaos Space Marines", "player1_detachment": "Raiders", "player1_elo": 2395.2, "player1_score": 98, "player2_id": "p_john", "player2_name": "John Lennon", "player2_faction": "Ultramarines", "player2_detachment": "Gladius Task Force", "player2_elo": 2240.0, "player2_score": 74, "winner_id": "p_alex", "is_draw": False, "status": "finished"},
+                        {"id": "m_2_3", "round": 2, "table_number": 3, "table": 3, "player1_id": "p_marcus", "player1_name": "Marcus Vance", "player1_faction": "Orks", "player1_detachment": "Da Big Hunt", "player1_elo": 1680.0, "player1_score": 88, "player2_id": "p_folger", "player2_name": "Folger Pyles", "player2_faction": "Adeptus Custodes", "player2_detachment": "Talons of the Emperor", "player2_elo": 2340.5, "player2_score": 72, "winner_id": "p_marcus", "is_draw": False, "status": "finished"},
+                        {"id": "m_2_4", "round": 2, "table_number": 4, "table": 4, "player1_id": "p_manny", "player1_name": "Manny Cheema", "player1_faction": "Tyranids", "player1_detachment": "Invasion Fleet", "player1_elo": 2210.0, "player1_score": 85, "player2_id": "p_donovan", "player2_name": "Donovan Sailo", "player2_faction": "Grey Knights", "player2_detachment": "Teleport Strike Force", "player2_elo": 2153.2, "player2_score": 48, "winner_id": "p_manny", "is_draw": False, "status": "finished"},
+                        {"id": "m_2_5", "round": 2, "table_number": 5, "table": 5, "player1_id": "p_chris", "player1_name": "Chris Green", "player1_faction": "Space Marines", "player1_detachment": "Ironstorm Spearhead", "player1_elo": 2097.8, "player1_score": 82, "player2_id": "p_tyler", "player2_name": "Tyler Stice", "player2_faction": "World Eaters", "player2_detachment": "Berzerker Warband", "player2_elo": 1850.0, "player2_score": 60, "winner_id": "p_chris", "is_draw": False, "status": "finished"},
+                        {"id": "m_2_6", "round": 2, "table_number": 6, "table": 6, "player1_id": "p_jack", "player1_name": "Jack Harpster", "player1_faction": "Blood Angels", "player1_detachment": "Sons of Sanguinius", "player1_elo": 2185.0, "player1_score": 80, "player2_id": "p_liam", "player2_name": "Liam Hackett", "player2_faction": "T'au Empire", "player2_detachment": "Mont'ka", "player2_elo": 2010.0, "player2_score": 75, "winner_id": "p_jack", "is_draw": False, "status": "finished"},
+
+                        # Round 3 (Active Live Round in progress!)
+                        {"id": "m_3_1", "round": 3, "table_number": 1, "table": 1, "player1_id": "p_innes", "player1_name": "Innes Wilson", "player1_faction": "Adeptus Custodes", "player1_detachment": "Shield Host", "player1_elo": 2375.2, "player1_score": None, "player2_id": "p_alex", "player2_name": "Alex Spathopoulos", "player2_faction": "Chaos Space Marines", "player2_detachment": "Raiders", "player2_elo": 2395.2, "player2_score": None, "winner_id": None, "is_draw": False, "status": "in_progress"},
+                        {"id": "m_3_2", "round": 3, "table_number": 2, "table": 2, "player1_id": "p_david", "player1_name": "David Gaylard", "player1_faction": "Necrons", "player1_detachment": "Canoptek Court", "player1_elo": 2150.0, "player1_score": None, "player2_id": "p_manny", "player2_name": "Manny Cheema", "player2_faction": "Tyranids", "player2_detachment": "Invasion Fleet", "player2_elo": 2210.0, "player2_score": None, "winner_id": None, "is_draw": False, "status": "in_progress"},
+                        {"id": "m_3_3", "round": 3, "table_number": 3, "table": 3, "player1_id": "p_marcus", "player1_name": "Marcus Vance", "player1_faction": "Orks", "player1_detachment": "Da Big Hunt", "player1_elo": 1680.0, "player1_score": 76, "player2_id": "p_tyler", "player2_name": "Tyler Stice", "player2_faction": "World Eaters", "player2_detachment": "Berzerker Warband", "player2_elo": 1850.0, "player2_score": 75, "winner_id": "p_marcus", "is_draw": False, "status": "finished"},
+                        {"id": "m_3_4", "round": 3, "table_number": 4, "table": 4, "player1_id": "p_john", "player1_name": "John Lennon", "player1_faction": "Ultramarines", "player1_detachment": "Gladius Task Force", "player1_elo": 2240.0, "player1_score": None, "player2_id": "p_folger", "player2_name": "Folger Pyles", "player2_faction": "Adeptus Custodes", "player2_detachment": "Talons of the Emperor", "player2_elo": 2340.5, "player2_score": None, "winner_id": None, "is_draw": False, "status": "in_progress"},
+                        {"id": "m_3_5", "round": 3, "table_number": 5, "table": 5, "player1_id": "p_liam", "player1_name": "Liam Hackett", "player1_faction": "T'au Empire", "player1_detachment": "Mont'ka", "player1_elo": 2010.0, "player1_score": 85, "player2_id": "p_chris", "player2_name": "Chris Green", "player2_faction": "Space Marines", "player2_detachment": "Ironstorm Spearhead", "player2_elo": 2097.8, "player2_score": 71, "winner_id": "p_liam", "is_draw": False, "status": "finished"},
+                        {"id": "m_3_6", "round": 3, "table_number": 6, "table": 6, "player1_id": "p_jack", "player1_name": "Jack Harpster", "player1_faction": "Blood Angels", "player1_detachment": "Sons of Sanguinius", "player1_elo": 2185.0, "player1_score": 47, "player2_id": "p_donovan", "player2_name": "Donovan Sailo", "player2_faction": "Grey Knights", "player2_detachment": "Teleport Strike Force", "player2_elo": 2153.2, "player2_score": 42, "winner_id": "p_jack", "is_draw": False, "status": "finished"}
                     ],
                     "players": [
-                        {"player_id": "p_innes", "full_name": "Innes Wilson", "faction": "Adeptus Custodes", "placement": 1, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 185, "current_elo": 2375.2},
-                        {"player_id": "p_david", "full_name": "David Gaylard", "faction": "Necrons", "placement": 2, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 178, "current_elo": 2150.0},
-                        {"player_id": "p_alex", "full_name": "Alex Spathopoulos", "faction": "Chaos Space Marines", "placement": 3, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 170, "current_elo": 2395.2},
-                        {"player_id": "p_manny", "full_name": "Manny Cheema", "faction": "Tyranids", "placement": 4, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 165, "current_elo": 2210.0}
+                        {
+                            "player_id": "p_innes", "full_name": "Innes Wilson", "faction": "Adeptus Custodes", "detachment": "Shield Host",
+                            "team": "Stat Check", "placement": 1, "event_wins": 2, "event_losses": 0, "event_draws": 0, "event_battle_points": 195,
+                            "current_elo": 2375.2, "event_net_elo": 11.2, "has_list": True,
+                            "army_list": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
+                        },
+                        {
+                            "player_id": "p_alex", "full_name": "Alex Spathopoulos", "faction": "Chaos Space Marines", "detachment": "Raiders",
+                            "team": "Xenos Petting Zoo", "placement": 2, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 274,
+                            "current_elo": 2395.2, "event_net_elo": 14.2, "has_list": True,
+                            "army_list": "++ Chaos Space Marines - Raiders [2,000 pts] ++\nCharacters:\nChaos Lord with Jump Pack [90 pts]: Daemon hammer\nDark Apostle [75 pts]: Accursed crozius\nOther:\n5x Warp Talons [135 pts]: Warp claws\n5x Chosen [125 pts]: Paired accursed weapons\nForgefiend [190 pts]: 3x Ectoplasma cannon\nPredator Destructor [130 pts]: Autocannon, 2x Lascannons"
+                        },
+                        {
+                            "player_id": "p_david", "full_name": "David Gaylard", "faction": "Necrons", "detachment": "Canoptek Court",
+                            "team": "Team England", "placement": 3, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 258,
+                            "current_elo": 2150.0, "event_net_elo": 6.5, "has_list": True,
+                            "army_list": "++ Necrons - Canoptek Court [2,000 pts] ++\nCharacters:\nIlluminor Szeras [175 pts]\nTechnomancer [85 pts]: Dimensional Sanctum\nBattleline:\n6x Canoptek Wraiths [250 pts]: Particle caster\nMonsters & Vehicles:\nC'tan Shard of the Nightbringer [295 pts]\n3x Canoptek Doomstalker [435 pts]: Doomsday blaster (Tech Choice!)"
+                        },
+                        {
+                            "player_id": "p_manny", "full_name": "Manny Cheema", "faction": "Tyranids", "detachment": "Invasion Fleet",
+                            "team": "Team England", "placement": 4, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 248,
+                            "current_elo": 2210.0, "event_net_elo": 4.0, "has_list": True,
+                            "army_list": "++ Tyranids - Invasion Fleet [2,000 pts] ++\nCharacters:\nHive Tyrant [235 pts]: Heavy venom cannon\nDeathleaper [80 pts]: Lictor claws\nMonsters:\nMaleceptor [170 pts]\nExocrine [135 pts]\n10x Gargoyles [85 pts]"
+                        },
+                        {
+                            "player_id": "p_john", "full_name": "John Lennon", "faction": "Ultramarines", "detachment": "Gladius Task Force",
+                            "team": "Art of War", "placement": 5, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 242,
+                            "current_elo": 2240.0, "event_net_elo": -3.2, "has_list": True,
+                            "army_list": "++ Ultramarines - Gladius Task Force [2,000 pts] ++\nCharacters:\nMarneus Calgar [185 pts]: Victrix Honour Guard\nUriel Ventris [75 pts]\nInfantry:\n6x Aggressor Squad [240 pts]: Boltstorm gauntlets\n6x Eradicator Squad [190 pts]: Melta rifles\nTransport:\nLand Raider Redeemer [285 pts]: Flamestorm cannon"
+                        },
+                        {
+                            "player_id": "p_marcus", "full_name": "Marcus Vance", "faction": "Orks", "detachment": "Da Big Hunt",
+                            "team": "Da Boyz Club", "placement": 6, "event_wins": 2, "event_losses": 1, "event_draws": 0, "event_battle_points": 230,
+                            "current_elo": 1680.0, "event_net_elo": 38.5, "has_list": True,
+                            "army_list": "++ Orks - Da Big Hunt [2,000 pts] ++\nCharacters:\nBeastboss on Squigosaur [130 pts]: Headwoppa's Killchoppa\nMozrog Skragbad [165 pts]\nVehicles (Spicy Tech!):\n3x Gorkanaut [840 pts]: Deffstorm mega-shoota, Klaw of Gork\n10x Beast Snagga Boyz [105 pts]"
+                        },
+                        {
+                            "player_id": "p_chris", "full_name": "Chris Green", "faction": "Space Marines", "detachment": "Ironstorm Spearhead",
+                            "team": "Ballers on a Budget", "placement": 7, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 215,
+                            "current_elo": 2097.8, "event_net_elo": -12.4, "has_list": True,
+                            "army_list": "++ Space Marines - Ironstorm Spearhead [2,000 pts] ++\nCharacters:\nTechmarine [55 pts]: Target Augury Web\nIron Father Feirros [95 pts]: Warlord\nVehicles:\nRedemptor Dreadnought [210 pts]: Macro Plasma\nGladiator Lancer [160 pts]: Laser Destroyer\nRepulsor Executioner [220 pts]: Heavy Laser"
+                        },
+                        {
+                            "player_id": "p_folger", "full_name": "Folger Pyles", "faction": "Adeptus Custodes", "detachment": "Talons of the Emperor",
+                            "team": "Art of War", "placement": 8, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 202,
+                            "current_elo": 2340.5, "event_net_elo": -28.5, "has_list": True,
+                            "army_list": "++ Adeptus Custodes - Talons of the Emperor [2,000 pts] ++\nCharacters:\nShield-Captain in Allarus Armour [120 pts]\nInfantry:\n3x Allarus Custodians [195 pts]: Castellan axe\n10x Sisters of Silence Witchseekers [125 pts]: Witchseeker flamer"
+                        },
+                        {
+                            "player_id": "p_jack", "full_name": "Jack Harpster", "faction": "Blood Angels", "detachment": "Sons of Sanguinius",
+                            "team": "Art of War", "placement": 9, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 195,
+                            "current_elo": 2185.0, "event_net_elo": -16.0, "has_list": True,
+                            "army_list": "++ Blood Angels - Sons of Sanguinius [2,000 pts] ++\nCharacters:\nLemartes [120 pts]\nCaptain with Jump Pack [85 pts]\nInfantry:\n10x Death Company with Jump Packs [230 pts]: Power fists\n5x Sanguinary Guard [175 pts]: Encarmine blades"
+                        },
+                        {
+                            "player_id": "p_tyler", "full_name": "Tyler Stice", "faction": "World Eaters", "detachment": "Berzerker Warband",
+                            "team": "Dead Gurgler Society", "placement": 10, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 180,
+                            "current_elo": 1850.0, "event_net_elo": -8.0, "has_list": True,
+                            "army_list": "++ World Eaters - Berzerker Warband [2,000 pts] ++\nMonsters:\nAngron [415 pts]: Samni'arius and Spinegrinder\nCharacters:\nLord Invocatus [140 pts]\nInfantry:\n6x Eightbound [290 pts]\n10x Khorne Berzerkers [180 pts]"
+                        },
+                        {
+                            "player_id": "p_liam", "full_name": "Liam Hackett", "faction": "T'au Empire", "detachment": "Mont'ka",
+                            "team": "The Greater Good", "placement": 11, "event_wins": 1, "event_losses": 2, "event_draws": 0, "event_battle_points": 175,
+                            "current_elo": 2010.0, "event_net_elo": -14.2, "has_list": True,
+                            "army_list": "++ T'au Empire - Mont'ka [2,000 pts] ++\nCharacters:\nCommander in Coldstar Battlesuit [110 pts]: High-output burst cannon\nInfantry:\n10x Breacher Team [100 pts]: Pulse blasters\nTransport:\nDevilfish [85 pts]\nBattlesuits:\n3x Crisis Sunforge Battlesuits [150 pts]: Fusion blasters"
+                        },
+                        {
+                            "player_id": "p_donovan", "full_name": "Donovan Sailo", "faction": "Grey Knights", "detachment": "Teleport Strike Force",
+                            "team": "Making Saves", "placement": 12, "event_wins": 0, "event_losses": 3, "event_draws": 0, "event_battle_points": 140,
+                            "current_elo": 2153.2, "event_net_elo": -32.0, "has_list": True,
+                            "army_list": "++ Grey Knights - Teleport Strike Force [2,000 pts] ++\nCharacters:\nKaldor Draigo [125 pts]: Titansword\nGrand Master in Nemesis Dreadknight [200 pts]: Nemesis daemon greathammer\nInfantry:\n5x Brotherhood Terminator Squad [210 pts]: Nemesis force weapon"
+                        }
                     ],
                     "team_standings": []
                 }
@@ -507,6 +717,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 if not is_head:
                     self.wfile.write(json.dumps(res).encode("utf-8"))
                 return
+
             is_riverside = "riverside" in ev_param.lower() or "tacoma" in ev_param.lower()
             if is_riverside:
                 res = {
@@ -747,13 +958,63 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({"players": players_data, "leaderboard": players_data, "count": len(players_data), "total": len(players_data)}).encode("utf-8"))
             return
 
-        if clean_path in ("api/events", "api/teams", "api/community/feed", "api/notifications/unread-count"):
+        if clean_path == "api/events":
+            events_list = [
+                {
+                    "id": "ev_ongoing_gt_live",
+                    "name": "Warhammer 40k US Open Series 2026 - Atlanta Major",
+                    "event_date": "2026-09-15",
+                    "city": "Atlanta",
+                    "state": "GA",
+                    "country": "United States",
+                    "total_players": 12,
+                    "num_rounds": 5,
+                    "match_count": 18,
+                    "is_ended": False,
+                    "status": "ongoing"
+                },
+                {
+                    "id": "ev_riverside_2026",
+                    "name": "The Riverside Classic by Green Banner Event Co.",
+                    "event_date": "2026-03-28",
+                    "city": "Riverside",
+                    "state": "CA",
+                    "country": "United States",
+                    "total_players": 4,
+                    "num_rounds": 3,
+                    "match_count": 6,
+                    "is_ended": True,
+                    "status": "ended"
+                },
+                {
+                    "id": "ev_active_lvo_2026",
+                    "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
+                    "event_date": "2026-10-02",
+                    "city": "Las Vegas",
+                    "state": "NV",
+                    "country": "United States",
+                    "total_players": 6,
+                    "num_rounds": 3,
+                    "match_count": 0,
+                    "is_ended": False,
+                    "status": "upcoming"
+                }
+            ]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"items": events_list, "total": len(events_list), "page": 1, "page_size": 25, "total_pages": 1}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/teams", "api/community/feed", "api/notifications/unread-count"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps({"players": [], "events": [], "teams": [], "count": 0}).encode("utf-8"))
             return
+
 
         if clean_path in ("api/user/dashboard",):
             res = {

@@ -1273,7 +1273,9 @@ window.api = {
     const headers = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     if (bcpToken) headers['X-BCP-Token'] = bcpToken;
-    const qs = forceSync ? '?force_sync=true' : '';
+    const persona = window.currentDevPersona || localStorage.getItem('dev_persona_override');
+    if (persona) headers['X-Dev-Persona'] = persona;
+    const qs = forceSync ? (persona ? `?force_sync=true&persona=${encodeURIComponent(persona)}` : '?force_sync=true') : (persona ? `?persona=${encodeURIComponent(persona)}` : '');
     return this._fetchJson(`/api/community/events/${encodeURIComponent(eventId)}/registration${qs}`, { headers });
   },
 

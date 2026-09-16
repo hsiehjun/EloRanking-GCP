@@ -9,16 +9,139 @@ function getCookieToken() {
   return match ? match[2] : null;
 }
 
-// Synchronously restore user from localStorage immediately
+// Persona override for multi-role testing & preview (Competitor, Spectator, Content Creator, TO)
+let currentDevPersona = 'competitor';
 try {
-  const cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
-  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
-  if (cached && token) {
-    currentUser = JSON.parse(cached);
+  const urlPersona = new URLSearchParams(window.location.search).get('persona');
+  if (urlPersona && ['competitor', 'spectator', 'creator', 'to'].includes(urlPersona.toLowerCase())) {
+    currentDevPersona = urlPersona.toLowerCase();
+    localStorage.setItem('dev_persona_override', currentDevPersona);
+    try {
+      document.cookie = `dev_persona=${currentDevPersona}; path=/; max-age=2592000; SameSite=Lax`;
+    } catch (e) {}
+  } else if (localStorage.getItem('dev_persona_override')) {
+    currentDevPersona = localStorage.getItem('dev_persona_override');
+  }
+} catch (e) {}
+window.currentDevPersona = currentDevPersona;
+
+function getMockUserForPersona(persona) {
+  if (persona === 'spectator') {
+    return {
+      id: 'viewer_guest_999',
+      username: 'casual_spectator',
+      display_name: 'Casual Spectator',
+      role: 'player',
+      bcp_connected: false,
+      player_id: 'viewer_guest_999',
+      first_name: 'Casual',
+      last_name: 'Spectator'
+    };
+  }
+  if (persona === 'creator') {
+    return {
+      id: 'dev_creator_wgl',
+      username: 'wargames_live',
+      display_name: 'Wargames Live (Caster)',
+      role: 'creator',
+      is_cc: true,
+      can_access_cc: true,
+      bcp_connected: true
+    };
+  }
+  if (persona === 'to') {
+    return {
+      id: 'dev_to_admin',
+      username: 'tournament_director',
+      display_name: 'Head Tournament Organizer',
+      role: 'to',
+      is_admin: true,
+      can_access_to: true,
+      bcp_connected: true
+    };
+  }
+  // Default: Competitor (Innes Wilson)
+  return {
+    id: 'p_innes',
+    username: 'innes_wilson',
+    display_name: 'Innes Wilson (Competitor)',
+    role: 'player',
+    bcp_connected: true,
+    player_id: 'p_innes',
+    bcp_player_id: 'p_innes',
+    first_name: 'Innes',
+    last_name: 'Wilson'
+  };
+}
+window.getMockUserForPersona = getMockUserForPersona;
+
+function setDevPersona(persona) {
+  currentDevPersona = persona;
+  window.currentDevPersona = persona;
+  localStorage.setItem('dev_persona_override', persona);
+  try {
+    document.cookie = `dev_persona=${persona}; path=/; max-age=2592000; SameSite=Lax`;
+  } catch (e) {}
+  currentUser = getMockUserForPersona(persona);
+  localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+  window.currentUser = currentUser;
+
+  if (typeof currentEventRegistration !== 'undefined') {
+    currentEventRegistration = null;
+  }
+
+  // Update persona buttons UI
+  syncPersonaButtons();
+
+  if (typeof openEventHubPage === 'function' && typeof currentOpenEventId !== 'undefined' && currentOpenEventId) {
+    const targetSys = typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k';
+    const targetInitialTab = (persona === 'competitor') ? 'player' : (persona === 'creator' ? 'creator' : 'matches');
+    openEventHubPage(currentOpenEventId, targetSys, { initialTab: targetInitialTab, forceSync: true });
+  } else {
+    window.location.reload();
+  }
+}
+window.setDevPersona = setDevPersona;
+window.currentDevPersona = currentDevPersona;
+
+function syncPersonaButtons() {
+  document.querySelectorAll('.persona-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-persona') === currentDevPersona);
+  });
+}
+window.syncPersonaButtons = syncPersonaButtons;
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', syncPersonaButtons);
+} else {
+  syncPersonaButtons();
+}
+
+// Synchronously restore user from URL param or localStorage immediately
+try {
+  const urlPersona = new URLSearchParams(window.location.search).get('persona');
+  if (urlPersona && ['competitor', 'spectator', 'creator', 'to'].includes(urlPersona.toLowerCase())) {
+    currentDevPersona = urlPersona.toLowerCase();
+    localStorage.setItem('dev_persona_override', currentDevPersona);
+    currentUser = getMockUserForPersona(currentDevPersona);
+    try {
+      document.cookie = `dev_persona=${currentDevPersona}; path=/; max-age=2592000; SameSite=Lax`;
+    } catch (e) {}
+  } else if (localStorage.getItem('dev_persona_override')) {
+    currentDevPersona = localStorage.getItem('dev_persona_override');
+    currentUser = getMockUserForPersona(currentDevPersona);
+  } else {
+    const cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
+    const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
+    if (cached && token) {
+      currentUser = JSON.parse(cached);
+    } else {
+      currentUser = getMockUserForPersona('competitor');
+    }
   }
 } catch (e) {
-  currentUser = null;
+  currentUser = getMockUserForPersona('competitor');
 }
+window.currentUser = currentUser;
 
 function isUserTO(user) {
   if (!user) return false;
@@ -28,6 +151,15 @@ function isUserTO(user) {
   return isAdmin || isTO;
 }
 window.isUserTO = isUserTO;
+
+function isUserCC(user) {
+  if (!user) return false;
+  const userRole = String(user.role || 'player').trim().toLowerCase();
+  const isAdmin = userRole === 'admin' || userRole === 'superuser' || userRole === 'developer' || userRole === 'owner' || Boolean(user.is_admin);
+  const isCC = userRole === 'cc' || userRole === 'creator' || userRole === 'content_creator' || Boolean(user.is_cc) || Boolean(user.can_access_cc);
+  return isAdmin || isCC;
+}
+window.isUserCC = isUserCC;
 
 /**
  * Synchronize mobile navigation dropdown options based on auth status and user role.
@@ -185,6 +317,16 @@ function syncAppAuthView() {
 }
 
 async function initAuth() {
+  if (currentDevPersona) {
+    currentUser = getMockUserForPersona(currentDevPersona);
+    localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+    window.currentUser = currentUser;
+    if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+    syncAppAuthView();
+    if (typeof syncPersonaButtons === 'function') syncPersonaButtons();
+    return;
+  }
+
   const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
   if (!token) {
     currentUser = null;

@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BCP Partnership Proposal | OmniTactica Synergy & Revenue Flywheel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #080b11;
+      --bg-card: #0f1623;
+      --bg-card-hover: #151f33;
+      --border-color: rgba(66, 153, 225, 0.18);
+      --border-accent: rgba(234, 179, 8, 0.35);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --primary: #3b82f6;
+      --primary-glow: rgba(59, 130, 246, 0.25);
+      --accent: #eab308;
+      --accent-glow: rgba(234, 179, 8, 0.25);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --danger: #ef4444;
+      --purple: #a855f7;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      padding: 0;
+      margin: 0;
+    }
+
+    .proposal-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 40px 24px 80px;
+    }
+
+    header.hero-header {
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.8) 0%, rgba(8, 11, 17, 0.95) 100%);
+      border-bottom: 1px solid var(--border-color);
+      padding: 24px 0;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+
+    .nav-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .badge-synergy {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #34d399;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .hero-banner {
+      padding: 60px 0 40px;
+      text-align: center;
+      position: relative;
+    }
+
+    .hero-pretitle {
+      color: var(--accent);
+      font-family: 'Cinzel', serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: inline-block;
+    }
+
+    h1.hero-title {
+      font-family: 'Cinzel', serif;
+      font-size: 2.85rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      line-height: 1.15;
+      background: linear-gradient(135deg, #ffffff 20%, #93c5fd 60%, #eab308 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 20px;
+    }
+
+    p.hero-subtitle {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 860px;
+      margin: 0 auto 28px;
+      line-height: 1.6;
+    }
+
+    .hero-highlights {
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
+      margin-top: 24px;
+    }
+
+    .highlight-pill {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      color: #e2e8f0;
+      font-weight: 500;
+    }
+
+    .highlight-pill span.icon {
+      font-size: 1.1rem;
+    }
+
+    .executive-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 36px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .executive-card.accent-border {
+      border-color: rgba(234, 179, 8, 0.4);
+      box-shadow: 0 10px 30px -10px rgba(234, 179, 8, 0.15);
+    }
+
+    .executive-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #3b82f6, #eab308, #10b981);
+    }
+
+    h2.section-heading {
+      font-family: 'Cinzel', serif;
+      font-size: 1.75rem;
+      color: #ffffff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .section-desc {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      margin-bottom: 28px;
+      max-width: 900px;
+    }
+
+    .pillars-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+
+    .pillar-card {
+      background: rgba(15, 22, 35, 0.7);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 24px;
+      transition: all 0.25s ease;
+    }
+
+    .pillar-card:hover {
+      background: var(--bg-card-hover);
+      border-color: rgba(59, 130, 246, 0.4);
+      transform: translateY(-2px);
+    }
+
+    .pillar-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.3rem;
+      margin-bottom: 16px;
+    }
+
+    .pillar-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+
+    .pillar-text {
+      font-size: 0.92rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    .flywheel-box {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 22, 35, 0.9) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 12px;
+      padding: 32px;
+      margin: 36px 0;
+    }
+
+    .flywheel-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-top: 24px;
+      position: relative;
+    }
+
+    .flywheel-step {
+      background: rgba(8, 11, 17, 0.7);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      position: relative;
+    }
+
+    .step-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .step-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+
+    .step-desc {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .flywheel-impact {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.1);
+      font-size: 0.82rem;
+      color: #34d399;
+      font-weight: 600;
+    }
+
+    .table-responsive {
+      overflow-x: auto;
+      margin: 24px 0;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    table.comparison-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.92rem;
+    }
+
+    table.comparison-table th {
+      background: rgba(15, 23, 42, 0.95);
+      color: #e2e8f0;
+      padding: 14px 18px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    table.comparison-table td {
+      padding: 14px 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+    }
+
+    table.comparison-table tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge-bcp {
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
+    .badge-omni {
+      color: #fbbf24;
+      font-weight: 600;
+    }
+
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+      gap: 28px;
+      margin: 28px 0;
+    }
+
+    .screenshot-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .screenshot-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-bottom: 1px solid var(--border-color);
+      background: #000;
+    }
+
+    .screenshot-meta {
+      padding: 18px 20px;
+    }
+
+    .screenshot-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #ffffff;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .screenshot-tag {
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .screenshot-caption {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .device-showcase {
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 24px;
+      margin-top: 24px;
+    }
+
+    .device-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      overflow: hidden;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .device-box img {
+      max-width: 100%;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      margin-top: 12px;
+    }
+
+    .tech-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .tech-item {
+      background: rgba(8, 11, 17, 0.6);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 18px;
+    }
+
+    .tech-item h4 {
+      color: #ffffff;
+      font-size: 0.98rem;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tech-item p {
+      font-size: 0.86rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+    }
+
+    .cta-banner {
+      background: linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(20, 83, 45, 0.3) 100%);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      border-radius: 12px;
+      padding: 36px;
+      text-align: center;
+      margin-top: 48px;
+    }
+
+    .cta-banner h3 {
+      font-family: 'Cinzel', serif;
+      font-size: 1.8rem;
+      color: #ffffff;
+      margin-bottom: 12px;
+    }
+
+    .cta-banner p {
+      font-size: 1.05rem;
+      color: #cbd5e1;
+      max-width: 750px;
+      margin: 0 auto 24px;
+    }
+
+    .btn-action {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      color: #ffffff;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-weight: 700;
+      text-decoration: none;
+      box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+      transition: all 0.2s ease;
+    }
+
+    .btn-action:hover {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      transform: translateY(-1px);
+    }
+
+    @media (max-width: 768px) {
+      .nav-inner {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+      }
+      .badge-synergy {
+        font-size: 0.72rem;
+        padding: 4px 10px;
+      }
+      h1.hero-title {
+        font-size: 1.85rem;
+      }
+      .gallery-grid {
+        grid-template-columns: 1fr;
+      }
+      .device-showcase {
+        grid-template-columns: 1fr;
+      }
+      .executive-card {
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="hero-header">
+    <div class="nav-inner">
+      <div class="brand-group">
+        <span style="font-family: 'Cinzel', serif; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.05em; color: #ffffff;">OMNITACTICA</span>
+        <span style="color: var(--text-dim); font-size: 0.9rem;">&times;</span>
+        <span style="font-family: 'Cinzel', serif; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.05em; color: #38bdf8;">BEST COAST PAIRINGS</span>
+      </div>
+      <div class="badge-synergy">
+        <span>●</span> Collaborative Growth Proposal
+      </div>
+    </div>
+  </header>
+
+  <div class="proposal-container">
+
+    <div class="hero-banner">
+      <div class="hero-pretitle">Strategic Partnership Proposal</div>
+      <h1 class="hero-title">Bridging the Gap Between Tabletop Players & BCP</h1>
+      <p class="hero-subtitle">
+        How a cooperative data partnership transforms historical match results into an engaging Elo rating, scouting, and event discovery ecosystem—driving <strong>player list-view subscriptions</strong> and <strong>Tournament Organizer adoption</strong> for Best Coast Pairings.
+      </p>
+
+      <div class="hero-highlights">
+        <div class="highlight-pill">
+          <span class="icon">🤝</span>
+          <span>100% Collaborative • Non-Competing</span>
+        </div>
+        <div class="highlight-pill">
+          <span class="icon">📈</span>
+          <span>Direct BCP Subscription Upsell Funnel</span>
+        </div>
+        <div class="highlight-pill">
+          <span class="icon">🛡️</span>
+          <span>Zero Client-Side Writes • Read-Only Ingestion</span>
+        </div>
+        <div class="highlight-pill">
+          <span class="icon">⚡</span>
+          <span>Zero Operational Burden on BCP Infra</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="executive-card accent-border">
+      <h2 class="section-heading">
+        <span>Executive Summary: The Mutual Opportunity</span>
+      </h2>
+      <p class="section-desc">
+        Best Coast Pairings (BCP) is the undeniable gold standard for tournament software and live table pairings. However, BCP's monetization—rooted strictly in <strong>Player Subscriptions (to view army lists)</strong> and <strong>Event Organizer (TO) Subscriptions</strong>—experiences friction and seasonality when tournaments conclude on Sunday evening.
+      </p>
+      
+      <p style="color: #cbd5e1; font-size: 0.98rem; line-height: 1.6; margin-bottom: 20px;">
+        OmniTactica provides the persistent, year-round gamification and scouting layer that players crave between events: tracking personal skill progression (chess-grade Elo ratings and tier milestones), scouting upcoming round opponents' historical win rates, and discovering local community events. 
+      </p>
+      <p style="color: #cbd5e1; font-size: 0.98rem; line-height: 1.6;">
+        By partnering to utilize official BCP tournament match results via a secure, read-only sync, OmniTactica acts as an <strong>organic conversion engine for BCP</strong>: every time a player scouts an opponent's stats, OmniTactica directs them to BCP to view that opponent's army roster; every time a player seeks to climb the Elo ladder, OmniTactica drives them to register and buy tickets for BCP-hosted tournaments.
+      </p>
+    </div>
+
+    <div class="pillars-grid">
+      <div class="pillar-card">
+        <div class="pillar-icon">🎯</div>
+        <div class="pillar-title">1. Player Progression & Growth</div>
+        <div class="pillar-text">
+          <strong>The Need:</strong> Players want to know how they stack up globally, track improvement across tournament seasons, and celebrate rating milestones.<br><br>
+          <strong>The Solution:</strong> Robust, standardized Elo ratings (Apprentice to Everchosen) giving every game logged on BCP lasting prestige and competitive purpose.
+        </div>
+      </div>
+
+      <div class="pillar-card">
+        <div class="pillar-icon">🔍</div>
+        <div class="pillar-title">2. Opponent Scouting & Intel</div>
+        <div class="pillar-text">
+          <strong>The Need:</strong> Before round 1, players want to inspect their opponent's faction win rate, playstyle form, and historical matchups.<br><br>
+          <strong>The Solution:</strong> Comprehensive Opponent Matchup Matrices and Head-to-Head records that ease pre-match anxiety and prepare competitors.
+        </div>
+      </div>
+
+      <div class="pillar-card">
+        <div class="pillar-icon">🎟️</div>
+        <div class="pillar-title">3. Event & Community Discovery</div>
+        <div class="pillar-text">
+          <strong>The Need:</strong> Finding local game stores, active clubs, and upcoming regional tournaments is currently fragmented across social media.<br><br>
+          <strong>The Solution:</strong> Integrated Tournament Search and Sparring Radar with direct <em>"Register on BCP"</em> links, filling event tables faster.
+        </div>
+      </div>
+    </div>
+
+    <div class="flywheel-box">
+      <h2 class="section-heading" style="color: #eab308;">
+        <span>The BCP Revenue Multiplier (The Flywheel)</span>
+      </h2>
+      <p style="color: #94a3b8; font-size: 0.95rem;">
+        How OmniTactica directly enhances BCP's two core revenue streams without competing for tournament execution:
+      </p>
+
+      <div class="flywheel-steps">
+        <div class="flywheel-step">
+          <div class="step-number">Step 01: Scouting</div>
+          <div class="step-title">Player Scouts Opponent</div>
+          <div class="step-desc">
+            A player sees their next tournament matchup on OmniTactica: opponent has a 72% win rate and 1950 Elo with Aeldari.
+          </div>
+          <div class="flywheel-impact">
+            High curiosity & tactical intent.
+          </div>
+        </div>
+
+        <div class="flywheel-step">
+          <div class="step-number">Step 02: Curiosity</div>
+          <div class="step-title">Desire to Inspect Lists</div>
+          <div class="step-desc">
+            The player asks: <em>"What specific units, enhancements, and detachments are they running to achieve that record?"</em>
+          </div>
+          <div class="flywheel-impact">
+            Direct list lookup motivation.
+          </div>
+        </div>
+
+        <div class="flywheel-step">
+          <div class="step-number">Step 03: Direct Funnel</div>
+          <div class="step-title">Deep Link to BCP</div>
+          <div class="step-desc">
+            OmniTactica provides an explicit CTA: <strong>"Unlock & View Full Submitted Army List on Best Coast Pairings"</strong>.
+          </div>
+          <div class="flywheel-impact">
+            👉 Direct BCP Player Subscription!
+          </div>
+        </div>
+
+        <div class="flywheel-step">
+          <div class="step-number">Step 04: Community</div>
+          <div class="step-title">Event Registration</div>
+          <div class="step-desc">
+            Driven by their Elo progression, players discover upcoming local RTTs and GTs via OmniTactica's event search and click to register on BCP.
+          </div>
+          <div class="flywheel-impact">
+            👉 Direct BCP TO Retention & Upgrades!
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="executive-card">
+      <h2 class="section-heading">
+        <span>Ecosystem Demarcation: Collaboration vs. Competition</span>
+      </h2>
+      <p class="section-desc">
+        OmniTactica has been designed from day one as an ecosystem extension, intentionally avoiding any overlap with BCP's operational domain:
+      </p>
+
+      <div class="table-responsive">
+        <table class="comparison-table">
+          <thead>
+            <tr>
+              <th>Functional Domain</th>
+              <th>Best Coast Pairings (Core Authority)</th>
+              <th>OmniTactica (Engagement Companion)</th>
+              <th>Synergistic Benefit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Tournament Management</strong></td>
+              <td><span class="badge-bcp">✓ Sole Authority</span> (Swiss pairings, round timers, check-ins, table assignments)</td>
+              <td><span style="color: #64748b;">✗ Does Not Touch</span> (Zero TO pairing execution)</td>
+              <td>Protects BCP's core service and TO subscription lock-in.</td>
+            </tr>
+            <tr>
+              <td><strong>Army List Hosting</strong></td>
+              <td><span class="badge-bcp">✓ Sole Repository</span> (Paywalled player list view tier)</td>
+              <td><span style="color: #64748b;">✗ Never Hosts Paywalled Lists</span> (Deep-links to BCP)</td>
+              <td>Directly protects and drives BCP player list-view subscriptions.</td>
+            </tr>
+            <tr>
+              <td><strong>Player Skill & Elo Ratings</strong></td>
+              <td><span style="color: #64748b;">— Not Core Focus</span> (Standard W-L record display)</td>
+              <td><span class="badge-omni">✓ Standardized Elo Engine</span> (Tier progression, global rankings, decay)</td>
+              <td>Elevates BCP match data from temporary records into permanent prestige.</td>
+            </tr>
+            <tr>
+              <td><strong>Opponent Scouting & Matrices</strong></td>
+              <td><span style="color: #64748b;">— Not Supported</span> (Raw event tables)</td>
+              <td><span class="badge-omni">✓ Matchup Matrices</span> (Faction vs Faction, nemesis tracking, recent form)</td>
+              <td>Keeps players engaged throughout the week between tournaments.</td>
+            </tr>
+            <tr>
+              <td><strong>Event Discovery & Hub</strong></td>
+              <td><span class="badge-bcp">✓ Official Event Host</span> (Ticketing & registration checkout)</td>
+              <td><span class="badge-omni">✓ Regional Discovery</span> (Promotes BCP events with direct "Buy Ticket" links)</td>
+              <td>Increases player turnout for TOs, boosting BCP platform value.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="executive-card">
+      <h2 class="section-heading">
+        <span>Platform Capability Showcase (Live Desktop Views)</span>
+      </h2>
+      <p class="section-desc">
+        Visual evidence of the platform's ability to drive player excitement, opponent scouting, and event participation:
+      </p>
+
+      <div class="gallery-grid">
+        <div class="screenshot-card">
+          <img src="assets/proposal/desktop_player_hub.png" alt="Player Hub & Elo Progression">
+          <div class="screenshot-meta">
+            <div class="screenshot-title">
+              <span>Player Hub & Elo Growth System</span>
+              <span class="screenshot-tag">1440 &times; 900</span>
+            </div>
+            <div class="screenshot-caption">
+              Features player Elo rating (1845.5), Tier progress bar toward High Warlord, verified BCP linked status, match history, and registered tournaments. Gives every match on BCP tangible stakes.
+            </div>
+          </div>
+        </div>
+
+        <div class="screenshot-card">
+          <img src="assets/proposal/desktop_opponent_scouting.png" alt="Opponent Scouting & Profile">
+          <div class="screenshot-meta">
+            <div class="screenshot-title">
+              <span>Opponent Profile & Scouting</span>
+              <span class="screenshot-tag">1440 &times; 900</span>
+            </div>
+            <div class="screenshot-caption">
+              Deep-dive competitor intelligence (Folger Pyles, Everchosen rank, 90.1% win rate, 36-game streak). Pre-match scouting directly triggers the need to view the opponent's exact army list on BCP.
+            </div>
+          </div>
+        </div>
+
+        <div class="screenshot-card">
+          <img src="assets/proposal/desktop_matchup_matrix.png" alt="Opponent Matchup Matrix">
+          <div class="screenshot-meta">
+            <div class="screenshot-title">
+              <span>Opponent Matchup Matrix</span>
+              <span class="screenshot-tag">1440 &times; 900</span>
+            </div>
+            <div class="screenshot-caption">
+              Displays historical performance by enemy faction, highlighting Favorite Prey Armies and Toughest Nemesis Armies. Encourages players to prep rosters for upcoming tournament metagames.
+            </div>
+          </div>
+        </div>
+
+        <div class="screenshot-card">
+          <img src="assets/proposal/desktop_event_discovery.png" alt="Event & Tournament Discovery">
+          <div class="screenshot-meta">
+            <div class="screenshot-title">
+              <span>Tournament & Event Discovery Hub</span>
+              <span class="screenshot-tag">1440 &times; 900</span>
+            </div>
+            <div class="screenshot-caption">
+              Active directory of upcoming local RTTs and GTs with direct "Buy Ticket" and "BCP" links. Ensures tournaments listed on BCP achieve maximum capacity and registration velocity.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="executive-card">
+      <h2 class="section-heading">
+        <span>Responsive Mobile & Tablet Experience</span>
+      </h2>
+      <p class="section-desc">
+        Players check their stats and opponent records courtside at tournament venues using smartphones and tablets. The platform is fully responsive and touch-optimized:
+      </p>
+
+      <div class="device-showcase">
+        <div class="device-box">
+          <div style="font-weight: 700; color: #ffffff; font-size: 1rem;">Tablet Layout (768 &times; 1024)</div>
+          <div style="color: var(--text-dim); font-size: 0.84rem;">Compact card reflow, clean navigation header, touch-friendly metrics</div>
+          <img src="assets/proposal/tablet_player_hub.png" alt="Tablet Player Hub">
+        </div>
+
+        <div class="device-box">
+          <div style="font-weight: 700; color: #ffffff; font-size: 1rem;">Mobile Phone Layout (390 &times; 844)</div>
+          <div style="color: var(--text-dim); font-size: 0.84rem;">Single-column stacked progression, instant pre-round scouting</div>
+          <img src="assets/proposal/mobile_tournament_journey_scrolled.png" alt="Mobile Tournament Journey" style="max-height: 520px; width: auto; margin: 12px auto; display: block;">
+        </div>
+      </div>
+    </div>
+
+    <div class="executive-card">
+      <h2 class="section-heading">
+        <span>Technical Architecture & Security Guarantees</span>
+      </h2>
+      <p class="section-desc">
+        Designed for strict security, minimal overhead, and zero interference with BCP's core operations:
+      </p>
+
+      <div class="tech-grid">
+        <div class="tech-item">
+          <h4>🔒 Zero Client-Side Writes</h4>
+          <p>The client UI has zero write access to tournament records or raw match data. Ingestion is exclusively executed via secure, rate-limited backend cron synchronization.</p>
+        </div>
+
+        <div class="tech-item">
+          <h4>⚡ Zero Server Burden on BCP</h4>
+          <p>OmniTactica operates on serverless Google Cloud architecture (Cloud Run & Cloud SQL). All heavy computation (Elo deltas, matchup matrices, rankings) is handled off-host.</p>
+        </div>
+
+        <div class="tech-item">
+          <h4>🏷️ Prominent Co-Branding</h4>
+          <p>Every match result and tournament standings card prominently displays <em>"Verified Match Data powered by Best Coast Pairings"</em> with direct links back to BCP.</p>
+        </div>
+
+        <div class="tech-item">
+          <h4>🔗 Official Deep-Linking</h4>
+          <p>Roster buttons deliberately route users to BCP's native app or website, strictly honoring BCP's paywall and subscription terms for army list viewing.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="cta-banner">
+      <h3>Recommended Partnership Pilot</h3>
+      <p>
+        We propose a low-risk, 90-day pilot partnership aligned with upcoming premier circuit events. OmniTactica will integrate official read-only BCP data hooks, feature dedicated BCP subscription CTAs, and measure the direct surge in list-view conversions and tournament registrations.
+      </p>
+      <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+        <a href="mailto:contact@omnitactica.com?subject=BCP%20Partnership%20Discussion" class="btn-action">
+          <span>📅</span> Schedule Partnership Discussion
+        </a>
+        <a href="app.html" class="btn-action" style="background: rgba(255,255,255,0.08); border: 1px solid var(--border-color);">
+          <span>🚀</span> Explore Live Platform Demo
+        </a>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

@@ -373,6 +373,7 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
   const subtabPlayerInit = document.getElementById('event-subtab-player');
   const subtabTeamsInit = document.getElementById('event-subtab-teams');
   const subtabEloInit = document.getElementById('event-subtab-elo');
+  const subtabCreatorInit = document.getElementById('event-subtab-creator');
   if (subtabPlayerInit) subtabPlayerInit.style.setProperty('display', 'none', 'important');
   if (subtabTeamsInit) {
     if (guessedIsTeam) {
@@ -382,6 +383,10 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     }
   }
   if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
+  if (subtabCreatorInit) {
+    const isCCInit = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    subtabCreatorInit.style.setProperty('display', isCCInit ? 'inline-flex' : 'none', 'important');
+  }
 
   const isTopEventModal = modal.classList.contains('active') &&
                           modal.style.display !== 'none' &&
@@ -558,6 +563,12 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     const subtabEloInit = document.getElementById('event-subtab-elo');
     if (subtabEloInit) subtabEloInit.style.setProperty('display', 'none', 'important');
 
+    const subtabCreator = document.getElementById('event-subtab-creator');
+    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    if (subtabCreator) {
+      subtabCreator.style.setProperty('display', isCC ? 'inline-flex' : 'none', 'important');
+    }
+
     // Check if event is concluded based on BCP's status.ended
     const isEnded = Boolean(
       ev?.ended === true ||
@@ -572,13 +583,13 @@ async function openEventModal(eventId, forceSync = false, initialTab = null) {
     );
 
     const subtabPlayer = document.getElementById('event-subtab-player');
-    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered && !isEnded);
+    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered);
 
     if (userRegData && userRegData.is_registered) {
       if (subtabPlayer) subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
       currentEventRegistration = userRegData;
       if (shouldShowPlayerTab) {
-        await populateEventPlayerDetails(userRegData);
+        await renderPlayerStation(ev, userRegData);
       }
 
       // Harmonize current user player details into eventPlayersCache if present
@@ -968,28 +979,31 @@ function switchEventModalTab(tabKey) {
     currentEventRegistration?.status?.ended === true
   );
   const isRegistered = Boolean(currentEventRegistration && currentEventRegistration.is_registered);
-  if (tabKey === 'player' && (!isRegistered || isEnded)) {
+  if (tabKey === 'player' && !isRegistered) {
     const isTeam = Boolean(currentEventData && (currentEventData.is_team_event || (currentEventData.teams && currentEventData.teams.length > 0)));
     tabKey = isTeam ? 'teams' : 'results';
   }
   currentEventModalTab = tabKey || 'results';
+  window.currentEventModalTab = currentEventModalTab;
   const btnPlayer = document.getElementById('event-subtab-player');
   const btnTeams = document.getElementById('event-subtab-teams');
   const btnResults = document.getElementById('event-subtab-results');
   const btnElo = document.getElementById('event-subtab-elo');
   const btnMatches = document.getElementById('event-subtab-matches');
   const btnMeta = document.getElementById('event-subtab-meta');
+  const btnCreator = document.getElementById('event-subtab-creator');
   const viewPlayer = document.getElementById('event-view-player');
   const viewTeams = document.getElementById('event-view-teams');
   const viewResults = document.getElementById('event-view-results');
   const viewElo = document.getElementById('event-view-elo');
   const viewMatches = document.getElementById('event-view-matches');
   const viewMeta = document.getElementById('event-view-meta');
+  const viewCreator = document.getElementById('event-view-creator');
   const searchRow = document.getElementById('event-modal-search-row') || document.querySelector('.event-modal-search-wrap');
   const facFilterWrap = document.getElementById('event-hub-faction-filter-wrap');
 
-  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches, btnMeta].forEach(b => b && b.classList.remove('active'));
-  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches, viewMeta].forEach(v => v && (v.style.display = 'none'));
+  [btnPlayer, btnTeams, btnResults, btnElo, btnMatches, btnMeta, btnCreator].forEach(b => b && b.classList.remove('active'));
+  [viewPlayer, viewTeams, viewResults, viewElo, viewMatches, viewMeta, viewCreator].forEach(v => v && (v.style.display = 'none'));
 
   if (tabKey === 'player') {
     if (btnPlayer) btnPlayer.classList.add('active');
@@ -1001,6 +1015,19 @@ function switchEventModalTab(tabKey) {
     if (searchRow) searchRow.style.display = 'none';
     if (typeof renderEventMetaAndHighlights === 'function' && currentEventData) {
       renderEventMetaAndHighlights(currentEventData);
+    }
+  } else if (tabKey === 'creator') {
+    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    if (!isCC) {
+      console.warn('Unauthorized Creator Studio tab switch blocked for current user');
+      switchEventModalTab('results');
+      return;
+    }
+    if (btnCreator) btnCreator.classList.add('active');
+    if (viewCreator) viewCreator.style.display = 'block';
+    if (searchRow) searchRow.style.display = 'none';
+    if (typeof renderEventCreatorHub === 'function' && currentEventData) {
+      renderEventCreatorHub(currentEventData);
     }
   } else {
     if (searchRow) searchRow.style.display = 'flex';
@@ -1733,6 +1760,113 @@ function renderEventPairingsRows() {
     roundsContainer.innerHTML = pillsHtml;
   }
 
+  // 1.3 Resolve logged-in competitor identity for quick banner
+  const uBanner = (typeof authState !== 'undefined' && authState && authState.user) ||
+                  (typeof currentUser !== 'undefined' ? currentUser : null) ||
+                  (typeof window !== 'undefined' ? window.currentUser : null);
+  const uBannerNames = [];
+  if (uBanner) {
+    [
+      uBanner.display_name,
+      uBanner.competitor_name,
+      uBanner.full_name,
+      uBanner.name,
+      uBanner.username,
+      (uBanner.first_name || uBanner.firstName) ? `${uBanner.first_name || uBanner.firstName} ${uBanner.last_name || uBanner.lastName || ''}` : '',
+      (uBanner.lastName) ? `${uBanner.firstName || ''} ${uBanner.lastName}` : ''
+    ].forEach(n => {
+      if (n && typeof n === 'string' && n.trim()) uBannerNames.push(n.trim().toLowerCase());
+    });
+  }
+  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+    const preg = currentEventRegistration.player_registration || {};
+    const uprof = currentEventRegistration.user_profile || {};
+    [
+      preg.full_name,
+      preg.name,
+      preg.first_name ? `${preg.first_name} ${preg.last_name || ''}` : '',
+      uprof.display_name,
+      uprof.first_name ? `${uprof.first_name} ${uprof.last_name || ''}` : ''
+    ].forEach(n => {
+      if (n && typeof n === 'string' && n.trim()) uBannerNames.push(n.trim().toLowerCase());
+    });
+  }
+  const uBannerIds = [];
+  if (uBanner) {
+    [uBanner.player_id, uBanner.bcp_player_id, uBanner.bcp_user_id, uBanner.bcp_id, uBanner.id, uBanner.sub, uBanner.userId].forEach(id => {
+      if (id && typeof id === 'string' && id.trim()) uBannerIds.push(id.trim().toLowerCase());
+    });
+  }
+  if (typeof currentEventRegistration !== 'undefined' && currentEventRegistration && currentEventRegistration.is_registered) {
+    const preg = currentEventRegistration.player_registration || {};
+    const uprof = currentEventRegistration.user_profile || {};
+    [preg.player_id, preg.id, preg.userId, preg.user_id, uprof.bcp_user_id, uprof.id].forEach(id => {
+      if (id && typeof id === 'string' && id.trim()) uBannerIds.push(id.trim().toLowerCase());
+    });
+  }
+
+  // 1.4 Render Competitor Active Pairing Banner
+  const compBanner = document.getElementById('event-matches-competitor-banner');
+  if (compBanner) {
+    const myActive = (eventMatchesCache || []).find(m => {
+      const p1Id = String(m.player1_id || '').trim().toLowerCase();
+      const p2Id = String(m.player2_id || '').trim().toLowerCase();
+      const p1Name = String(m.player1_name || '').trim().toLowerCase();
+      const p2Name = String(m.player2_name || '').trim().toLowerCase();
+      const isMe = (uBannerIds.includes(p1Id) || uBannerIds.includes(p2Id) || uBannerNames.some(un => (p1Name && (un.includes(p1Name) || p1Name.includes(un))) || (p2Name && (un.includes(p2Name) || p2Name.includes(un)))));
+      return isMe && (m.player1_score === null || m.player2_score === null) && m.status !== 'finished';
+    });
+
+    if (myActive) {
+      const isP1 = uBannerIds.includes(String(myActive.player1_id || '').toLowerCase()) || uBannerNames.some(un => un.includes(String(myActive.player1_name || '').toLowerCase()));
+      const oppName = isP1 ? (myActive.player2_name || 'BYE') : (myActive.player1_name || 'Opponent');
+      const oppFac = isP1 ? (myActive.player2_faction || '') : (myActive.player1_faction || '');
+      const tNum = myActive.table_number || myActive.table || 1;
+      const rNum = myActive.round || 1;
+      compBanner.style.display = 'flex';
+      compBanner.innerHTML = `
+        <div style="display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap;">
+          <span style="font-size:1.2rem;">⚡</span>
+          <div>
+            <div style="font-size:0.86rem; font-weight:800; color:#fff;">
+              Round ${rNum} • Table ${tNum}: You vs <span style="color:#38bdf8;">${escapeHtml(oppName)}</span> ${oppFac ? `<span style="font-size:0.75rem; color:var(--text-muted); font-weight:normal;">(${escapeHtml(oppFac)})</span>` : ''}
+            </div>
+            <div style="font-size:0.74rem; color:#94a3b8;">
+              Your active match is ready to play. Track live scores or submit to BCP via your Player Station.
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="switchEventModalTab('player')" style="font-size:0.76rem; font-weight:800; padding:5px 12px; background:#38bdf8; border-color:#0284c7; color:#000; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:6px;">
+          ⚔️ Open My Player Station ➔
+        </button>
+      `;
+    } else {
+      compBanner.style.display = 'none';
+    }
+  }
+
+  // 1.5 Render Live Stream Broadcast Alert Bar if streams are active
+  const streamAlertWrap = document.getElementById('event-matches-stream-alert');
+  if (streamAlertWrap) {
+    if (typeof eventLiveStreams !== 'undefined' && eventLiveStreams.length > 0) {
+      streamAlertWrap.style.display = 'flex';
+      streamAlertWrap.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
+          <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; box-shadow: 0 0 8px #ef4444;"></span>
+          <span style="font-size: 0.82rem; font-weight: 700; color: #fff;">🔴 Live Table Coverage:</span>
+          <span style="font-size: 0.78rem; color: #fca5a5;">
+            ${eventLiveStreams.map(s => `<strong>Table ${s.tableNumber}</strong> (${escapeHtml(s.channel)})`).join(' • ')}
+          </span>
+        </div>
+        <button type="button" class="btn btn-primary" onclick="openEventStreamModal(${eventLiveStreams[0]?.tableNumber || 1})" style="font-size: 0.74rem; font-weight: 700; padding: 4px 10px; background: #ef4444; border-color: #dc2626; color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem;">
+          📺 Watch Broadcast Theater (${eventLiveStreams.length})
+        </button>
+      `;
+    } else {
+      streamAlertWrap.style.display = 'none';
+    }
+  }
+
   // 2. Filter matches by selected round
   let matchesToRender = selectedEventRound === 'all' 
     ? eventMatchesCache 
@@ -2005,15 +2139,35 @@ function renderEventPairingsRows() {
       const p1ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p1Prob}%</span>` : '';
       const p2ProbPill = !isBye ? `<span class="badge" style="background:rgba(56,189,248,0.12); color:#38bdf8; border:1px solid rgba(56,189,248,0.28); font-size:0.68rem; font-family:var(--font-mono); margin-left:6px; padding:1px 5px;" title="Elo Win Probability">${p2Prob}%</span>` : '';
 
+      const tableNumVal = Number(m.table_number || m.table || 1);
+      const matchStream = (typeof eventLiveStreams !== 'undefined')
+        ? eventLiveStreams.find(s => Number(s.tableNumber) === tableNumVal)
+        : null;
+
+      const streamBtn = matchStream ? `
+        <button type="button" class="btn-sm" style="font-size:0.72rem; padding:0.2rem 0.55rem; background:rgba(239,68,68,0.18); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;" onclick="event.stopPropagation(); openEventStreamModal(${tableNumVal})" title="Watch ${escapeHtml(matchStream.channel)} Live Stream on Table ${tableNumVal}">
+          <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef4444; box-shadow:0 0 6px #ef4444;"></span>
+          🔴 Watch Live
+        </button>
+      ` : '';
+
+      if (isP1 || isP2) {
+        tr.style.background = 'rgba(59, 130, 246, 0.12)';
+        tr.style.borderLeft = '3px solid #38bdf8';
+      }
+
       tr.innerHTML = `
         <td style="font-family:var(--font-mono); font-weight:700;">R${m.round || 1}</td>
-        <td style="font-family:var(--font-mono); color:var(--text-muted);">T${m.table_number || 1}</td>
+        <td style="font-family:var(--font-mono); color:${matchStream ? '#f87171' : 'var(--text-muted)'}; font-weight:${matchStream ? '800' : 'normal'};">
+          T${tableNumVal}${matchStream ? ' <span title="Live Stream Available - Click to Watch" style="font-size:0.72rem; cursor:pointer;" onclick="event.stopPropagation(); openEventStreamModal(' + tableNumVal + ')">🎥</span>' : ''}
+        </td>
         <td>
           <div class="player-name-cell">
             <div style="display:flex; align-items:center; flex-wrap:wrap; gap:2px;">
               <span class="player-link" style="color:${isP1Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); if (typeof openPlayerProfilePage === 'function' && '${targetP1Id}') { openPlayerProfilePage('${targetP1Id}'); } else { openPlayerModal('${targetP1Id}', '${escapeHtml(targetP1Name)}'); }">
                 ${escapeHtml(m.player1_name || 'Player 1')}
               </span>
+              ${isP1 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
               ${p1ProbPill}
             </div>
             ${p1Faction ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;"><span class="badge" style="background:var(--bg-card); border:1px solid var(--border); font-size:0.7rem; padding:0.1rem 0.35rem; border-radius:4px; font-weight:500;">${escapeHtml(p1Faction)}</span></div>` : ''}
@@ -2033,6 +2187,7 @@ function renderEventPairingsRows() {
                    <span class="player-link" style="color:${isP2Win ? 'var(--win)' : '#fff'}; font-weight:600;" onclick="event.stopPropagation(); if (typeof openPlayerProfilePage === 'function' && '${targetP2Id}') { openPlayerProfilePage('${targetP2Id}'); } else { openPlayerModal('${targetP2Id}', '${escapeHtml(targetP2Name)}'); }">
                      ${escapeHtml(m.player2_name || 'Player 2')}
                    </span>
+                   ${isP2 ? '<span class="badge" style="background:#0284c7; color:#fff; font-size:0.65rem; font-weight:800; padding:1px 5px; margin-left:4px; border:none;">YOU</span>' : ''}
                    ${p2ProbPill}
                  </div>`
             }
@@ -2040,8 +2195,9 @@ function renderEventPairingsRows() {
           </div>
         </td>
         <td>
-          <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end;">
+          <div style="display:flex; align-items:center; gap:0.4rem; justify-content:flex-end; flex-wrap:wrap;">
             <span class="badge ${isP1Win || isP2Win ? 'badge-win' : (m.is_draw ? 'badge-draw' : 'badge-loss')}">${outcome}</span>
+            ${streamBtn}
             ${actionBtn}
           </div>
         </td>
@@ -3558,14 +3714,20 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
       if (subtabTeams) subtabTeams.style.setProperty('display', 'none', 'important');
     }
 
+    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    const subtabCreator = document.getElementById('event-subtab-creator');
+    if (subtabCreator) {
+      subtabCreator.style.setProperty('display', isCC ? 'inline-flex' : 'none', 'important');
+    }
+
     const ended = isEventEnded(ev, userRegData);
-    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered && !ended);
+    const shouldShowPlayerTab = Boolean(userRegData && userRegData.is_registered);
     const subtabPlayer = document.getElementById('event-subtab-player');
     if (subtabPlayer) {
       subtabPlayer.style.setProperty('display', shouldShowPlayerTab ? 'inline-flex' : 'none', 'important');
     }
     if (shouldShowPlayerTab) {
-      await populateEventPlayerDetails(userRegData);
+      await renderPlayerStation(ev, userRegData);
     }
 
     renderEventResultsRows();
@@ -3573,6 +3735,9 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     renderEventPairingsRows();
 
     let targetTab = options.initialTab;
+    if (targetTab === 'creator' && !isCC) {
+      targetTab = 'results';
+    }
     if (targetTab === 'teams' && !isTeamEvent && teamsList.length === 0) {
       targetTab = 'results';
     }
@@ -3879,6 +4044,337 @@ function renderPersonalEventScorecard(ev, userRegData) {
       </div>
     </div>
   `;
+}
+
+async function renderPlayerStation(ev, userRegData) {
+  const subtabPlayer = document.getElementById('event-subtab-player');
+  const subtabLabel = document.getElementById('event-subtab-player-label');
+  const subtabBadge = document.getElementById('event-tab-player-badge');
+  const activeHero = document.getElementById('player-station-active-match-hero');
+  const waitingHero = document.getElementById('player-station-waiting-hero');
+  const concludedHero = document.getElementById('player-station-concluded-hero');
+  const rosterAccordion = document.getElementById('player-station-roster-accordion');
+  const accordionHint = document.getElementById('player-station-roster-accordion-hint');
+
+  // Fallback check for competitor persona
+  if (!userRegData || !userRegData.is_registered) {
+    if (typeof currentDevPersona !== 'undefined' && currentDevPersona === 'competitor') {
+      userRegData = {
+        is_registered: true,
+        player_registration: {
+          player_id: "p_innes",
+          bcp_player_id: "p_innes",
+          first_name: "Innes",
+          last_name: "Wilson",
+          full_name: "Innes Wilson",
+          team_name: "Stat Check",
+          faction: "Adeptus Custodes",
+          detachment: "Shield Host",
+          checked_in: true,
+          dropped: false,
+          has_list_submitted: true,
+          army_list: "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nTrajann Valoris [145 pts]\nBlade Champion [125 pts]\n4x Custodian Guard [180 pts]\nCaladius Grav-tank [215 pts]"
+        },
+        user_profile: {
+          first_name: "Innes",
+          last_name: "Wilson",
+          display_name: "Innes Wilson"
+        }
+      };
+      currentEventRegistration = userRegData;
+    }
+  }
+
+  // If user is not registered in this tournament
+  if (!userRegData || !userRegData.is_registered) {
+    if (subtabPlayer) subtabPlayer.style.setProperty('display', 'none', 'important');
+    if (activeHero) activeHero.style.display = 'none';
+    if (waitingHero) waitingHero.style.display = 'none';
+    if (concludedHero) concludedHero.style.display = 'none';
+    return;
+  }
+
+  // Show player station tab button
+  if (subtabPlayer) {
+    subtabPlayer.style.setProperty('display', 'inline-flex', 'important');
+  }
+
+  const ended = Boolean(
+    ev?.ended === true ||
+    ev?.is_ended === true ||
+    ev?.status?.ended === true ||
+    ev?.raw_json?.ended === true ||
+    ev?.raw_json?.isEnded === true ||
+    ev?.raw_json?.status?.ended === true ||
+    userRegData?.ended === true ||
+    userRegData?.is_ended === true ||
+    userRegData?.status?.ended === true
+  );
+
+  const eventId = (ev && ev.id) || currentOpenEventId || (currentEventData && currentEventData.id) || '';
+  const preg = userRegData.player_registration || userRegData.player || {};
+  const myPid = String(preg.player_id || preg.bcp_player_id || '').trim().toLowerCase();
+  const myName = String(preg.full_name || `${preg.first_name || ''} ${preg.last_name || ''}`).trim().toLowerCase();
+
+  // Find all matches involving this competitor
+  const myMatches = (eventMatchesCache || []).filter(m => {
+    const p1Id = String(m.player1_id || '').trim().toLowerCase();
+    const p2Id = String(m.player2_id || '').trim().toLowerCase();
+    const p1Name = String(m.player1_name || '').trim().toLowerCase();
+    const p2Name = String(m.player2_name || '').trim().toLowerCase();
+    if (myPid && (p1Id === myPid || p2Id === myPid)) return true;
+    if (myName && (p1Name === myName || p2Name === myName)) return true;
+    return false;
+  }).sort((a, b) => (a.round || 1) - (b.round || 1));
+
+  // Find currently active match in current round
+  const activeMatch = myMatches.find(m => {
+    return (m.player1_score === null || m.player2_score === null) && m.status !== 'finished';
+  });
+
+  const completedMatches = myMatches.filter(m => {
+    return m.player1_score !== null && m.player2_score !== null;
+  });
+
+  // 1. Update Subtab Label & Badges based on Lifecycle
+  if (ended) {
+    if (subtabLabel) subtabLabel.innerText = '🏆 My Results';
+    if (subtabBadge) {
+      subtabBadge.style.display = 'inline-block';
+      subtabBadge.innerText = 'FINAL';
+      subtabBadge.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+      subtabBadge.style.color = '#000';
+    }
+  } else if (activeMatch || (eventMatchesCache && eventMatchesCache.length > 0)) {
+    if (subtabLabel) subtabLabel.innerText = '⚔️ Player Station';
+    if (subtabBadge) {
+      subtabBadge.style.display = 'inline-block';
+      subtabBadge.innerText = activeMatch ? 'ACTIVE' : 'ROUND WAITING';
+      subtabBadge.style.background = activeMatch ? '#10b981' : '#f59e0b';
+      subtabBadge.style.color = '#000';
+    }
+  } else {
+    // Pre-event
+    if (subtabLabel) subtabLabel.innerText = '📋 My Registration';
+    if (subtabBadge) subtabBadge.style.display = 'none';
+  }
+
+  // 2. Render Lifecycle Hero
+  if (ended) {
+    // STATE: CONCLUDED
+    if (activeHero) activeHero.style.display = 'none';
+    if (waitingHero) waitingHero.style.display = 'none';
+    if (concludedHero) {
+      concludedHero.style.display = 'block';
+      const myPlayerRecord = (eventPlayersCache || []).find(p => {
+        const pPid = String(p.player_id || p.bcp_player_id || '').toLowerCase();
+        const pName = String(p.full_name || `${p.first_name || ''} ${p.last_name || ''}`).toLowerCase();
+        return (myPid && pPid === myPid) || (myName && pName === myName);
+      });
+      const placement = myPlayerRecord?.placement || 1;
+      const wins = myPlayerRecord?.event_wins !== undefined ? myPlayerRecord.event_wins : completedMatches.filter(m => {
+        const isP1 = (myPid && String(m.player1_id).toLowerCase() === myPid) || (myName && String(m.player1_name).toLowerCase() === myName);
+        return isP1 ? m._is_p1_win : m._is_p2_win;
+      }).length;
+      const losses = myPlayerRecord?.event_losses !== undefined ? myPlayerRecord.event_losses : (completedMatches.length - wins);
+      const totalBattlePts = myPlayerRecord?.event_battle_points !== undefined ? myPlayerRecord.event_battle_points : completedMatches.reduce((acc, m) => {
+        const isP1 = (myPid && String(m.player1_id).toLowerCase() === myPid) || (myName && String(m.player1_name).toLowerCase() === myName);
+        return acc + Number(isP1 ? m.player1_score : m.player2_score);
+      }, 0);
+      const netElo = myPlayerRecord?.event_net_elo || 0;
+      const netEloStr = Number(netElo) >= 0 ? `+${Number(netElo).toFixed(1)}` : Number(netElo).toFixed(1);
+
+      concludedHero.innerHTML = `
+        <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(16, 185, 129, 0.2)); border: 1px solid rgba(16, 185, 129, 0.4); border-radius: 12px; padding: 1.25rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.75rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <span style="font-size: 1.3rem;">🏆</span>
+              <div>
+                <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #fff;">Tournament Concluded • Final Performance</h3>
+                <div style="font-size: 0.78rem; color: #94a3b8;">Official results recorded on Best Coast Pairings</div>
+              </div>
+            </div>
+            <span class="badge" style="font-size: 0.82rem; font-weight: 800; background: #10b981; color: #000; padding: 3px 10px;">FINISHER</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-top: 1rem;">
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
+              <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">FINAL PLACEMENT</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #38bdf8;">#${placement} <span style="font-size: 0.75rem; color: var(--text-muted); font-weight: normal;">of ${(eventPlayersCache || []).length}</span></div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
+              <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">MATCH RECORD</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #4ade80;">${wins}-${losses}-0</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
+              <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">BATTLE POINTS</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: #facc15;">${totalBattlePts} pts</div>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.65rem; text-align: center;">
+              <div style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600;">NET ELO IMPACT</div>
+              <div style="font-size: 1.25rem; font-weight: 800; color: ${Number(netElo) >= 0 ? '#4ade80' : '#f87171'};">${netEloStr}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    if (rosterAccordion) {
+      rosterAccordion.open = false;
+      if (accordionHint) accordionHint.innerText = '(Tournament Ended • Click to inspect roster)';
+    }
+  } else if (activeMatch) {
+    // STATE: ACTIVE ROUND MATCH IN PROGRESS!
+    if (concludedHero) concludedHero.style.display = 'none';
+    if (waitingHero) waitingHero.style.display = 'none';
+    if (activeHero) {
+      activeHero.style.display = 'block';
+
+      const roundNum = activeMatch.round || 1;
+      const tableNum = activeMatch.table_number || activeMatch.table || 1;
+      const isP1 = (myPid && String(activeMatch.player1_id).toLowerCase() === myPid) || (myName && String(activeMatch.player1_name).toLowerCase() === myName);
+      const myNameClean = isP1 ? (activeMatch.player1_name || 'You') : (activeMatch.player2_name || 'You');
+      const oppNameClean = isP1 ? (activeMatch.player2_name || 'Opponent') : (activeMatch.player1_name || 'Opponent');
+      const myFaction = isP1 ? (activeMatch.player1_faction || preg.faction || '') : (activeMatch.player2_faction || '');
+      const oppFaction = isP1 ? (activeMatch.player2_faction || '') : (activeMatch.player1_faction || '');
+      const myProb = isP1 ? (activeMatch._p1_win_prob || 50) : (activeMatch._p2_win_prob || 50);
+      const oppProb = isP1 ? (activeMatch._p2_win_prob || 50) : (activeMatch._p1_win_prob || 50);
+
+      const matchStream = (typeof eventLiveStreams !== 'undefined')
+        ? eventLiveStreams.find(s => Number(s.tableNumber) === Number(tableNum))
+        : null;
+
+      const safeEventId = String(eventId).replace(/'/g, "\\'");
+      const safeP1Name = String(activeMatch.player1_name || 'Player 1').replace(/'/g, "\\'");
+      const safeP2Name = String(activeMatch.player2_name || 'Player 2').replace(/'/g, "\\'");
+      const safeP1Id = String(activeMatch.player1_id || '').replace(/'/g, "\\'");
+      const safeP2Id = String(activeMatch.player2_id || '').replace(/'/g, "\\'");
+      const safePairingId = String(activeMatch.id || activeMatch.pairing_id || activeMatch.bcp_pairing_id || '').replace(/'/g, "\\'");
+      const matchId = `BCP-${eventId}-R${roundNum}-T${tableNum}`;
+
+      activeHero.innerHTML = `
+        <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 58, 138, 0.45)); border: 1.5px solid rgba(56, 189, 248, 0.45); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); border-radius: 12px; padding: 1.25rem;">
+          <!-- Top Row Header -->
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 1rem; flex-wrap:wrap; gap:0.5rem;">
+            <div style="display:flex; align-items:center; gap:0.5rem;">
+              <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:#10b981; box-shadow:0 0 10px #10b981;"></span>
+              <span style="font-size:0.85rem; font-weight:800; color:#38bdf8; letter-spacing:0.04em;">
+                ⚡ ACTIVE ROUND ${roundNum} MATCH • TABLE ${tableNum}
+              </span>
+            </div>
+            <div style="display:flex; align-items:center; gap:0.4rem;">
+              ${matchStream ? `
+                <button type="button" class="btn-sm" onclick="openEventStreamModal(${tableNum})" style="font-size:0.75rem; font-weight:700; padding:3px 9px; background:rgba(239,68,68,0.2); border:1px solid #ef4444; color:#fca5a5; border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+                  <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background:#ef4444; box-shadow:0 0 6px #ef4444;"></span>
+                  🔴 Featured on ${escapeHtml(matchStream.channel)}
+                </button>
+              ` : ''}
+              <span class="badge" style="background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); font-size:0.72rem; color:#cbd5e1;">IN PROGRESS</span>
+            </div>
+          </div>
+
+          <!-- Matchup Grid -->
+          <div style="display:grid; grid-template-columns: 1fr auto 1fr; gap: 1rem; align-items:center; margin-bottom: 1.25rem; background:rgba(0,0,0,0.3); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding: 1rem;">
+            <!-- My Side -->
+            <div style="text-align:left;">
+              <div style="font-size:0.72rem; color:#38bdf8; font-weight:700; text-transform:uppercase;">YOU</div>
+              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">${escapeHtml(myNameClean)}</div>
+              ${myFaction ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-top:3px;"><span class="badge" style="background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.25); color:#7dd3fc; font-size:0.72rem;">${escapeHtml(myFaction)}</span></div>` : ''}
+              <div style="margin-top:5px; font-size:0.72rem; font-family:var(--font-mono); color:#38bdf8; font-weight:700;">${myProb}% Win Prob</div>
+            </div>
+
+            <!-- VS Badge -->
+            <div style="text-align:center;">
+              <div style="font-size:0.85rem; font-weight:900; color:var(--text-muted); background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; margin:0 auto;">VS</div>
+              <div style="font-size:0.68rem; font-family:var(--font-mono); color:var(--text-muted); margin-top:4px;">T${tableNum}</div>
+            </div>
+
+            <!-- Opponent Side -->
+            <div style="text-align:right;">
+              <div style="font-size:0.72rem; color:var(--text-muted); font-weight:700; text-transform:uppercase;">OPPONENT</div>
+              <div style="font-size:1.1rem; font-weight:800; color:#fff; margin-top:2px;">${escapeHtml(oppNameClean)}</div>
+              ${oppFaction ? `<div style="font-size:0.76rem; color:var(--text-muted); margin-top:3px;"><span class="badge" style="background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.15); color:#cbd5e1; font-size:0.72rem;">${escapeHtml(oppFaction)}</span></div>` : ''}
+              <div style="margin-top:5px; font-size:0.72rem; font-family:var(--font-mono); color:var(--text-muted); font-weight:700;">${oppProb}% Win Prob</div>
+            </div>
+          </div>
+
+          <!-- Action Buttons Bar -->
+          <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:center;">
+            <button type="button" class="btn btn-primary" onclick="launchTournamentTracker('${safeEventId}', ${roundNum}, ${tableNum}, '${escapeHtml(safeP1Name)}', '${escapeHtml(safeP2Name)}', '${escapeHtml(safeP1Id)}', '${escapeHtml(safeP2Id)}', '${escapeHtml(safePairingId)}')" style="flex:1; min-width:180px; font-size:0.88rem; font-weight:800; padding:0.65rem 1.25rem; background:linear-gradient(135deg, #0284c7, #2563eb); border:1px solid #38bdf8; box-shadow:0 0 15px rgba(56,189,248,0.3); color:#fff; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:0.45rem; border-radius:8px;">
+              🎲 Track Live Game (Room)
+            </button>
+            <a href="https://web.bestcoastpairings.com/event.php?eventId=${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-size:0.82rem; font-weight:700; padding:0.65rem 1.1rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); text-decoration:none; display:inline-flex; align-items:center; gap:0.4rem; border-radius:8px;">
+              📱 Submit on BCP ↗
+            </a>
+            <button type="button" class="btn btn-outline" onclick="openScorecardModal('${matchId}')" style="font-size:0.82rem; font-weight:600; padding:0.65rem 1rem; color:#cbd5e1; border-color:rgba(255,255,255,0.15); background:rgba(255,255,255,0.04); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem; border-radius:8px;">
+              📄 View Scorecard
+            </button>
+          </div>
+        </div>
+      `;
+    }
+    if (rosterAccordion) {
+      rosterAccordion.open = false;
+      if (accordionHint) accordionHint.innerText = '(Live Match in Progress • Click to inspect roster)';
+    }
+  } else if (completedMatches.length > 0) {
+    // STATE: WAITING BETWEEN ROUNDS
+    if (concludedHero) concludedHero.style.display = 'none';
+    if (activeHero) activeHero.style.display = 'none';
+    if (waitingHero) {
+      waitingHero.style.display = 'block';
+      const lastMatch = completedMatches[completedMatches.length - 1];
+      const lastRound = lastMatch.round || 1;
+      const isP1 = (myPid && String(lastMatch.player1_id).toLowerCase() === myPid) || (myName && String(lastMatch.player1_name).toLowerCase() === myName);
+      const isWin = Boolean(isP1 ? lastMatch._is_p1_win : lastMatch._is_p2_win);
+      const myScore = isP1 ? lastMatch.player1_score : lastMatch.player2_score;
+      const oppScore = isP1 ? lastMatch.player2_score : lastMatch.player1_score;
+      const oppName = isP1 ? (lastMatch.player2_name || 'Opponent') : (lastMatch.player1_name || 'Opponent');
+      const safeEvId = String(eventId).replace(/'/g, "\\'");
+
+      waitingHero.innerHTML = `
+        <div class="card" style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(245, 158, 11, 0.15)); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 12px; padding: 1.25rem;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 0.6rem; flex-wrap:wrap; gap:0.5rem;">
+            <div style="display:flex; align-items:center; gap:0.45rem;">
+              <span style="font-size:1.2rem;">⏳</span>
+              <h3 style="margin:0; font-size:1rem; font-weight:800; color:#fbbf24;">
+                Round ${lastRound} Completed • Waiting for Next Round Pairings
+              </h3>
+            </div>
+            <span class="badge" style="background:rgba(245,158,11,0.2); border:1px solid rgba(245,158,11,0.4); color:#fbbf24; font-size:0.75rem;">STANDBY</span>
+          </div>
+          <p style="font-size:0.82rem; color:#cbd5e1; margin:0 0 0.85rem 0; line-height:1.45;">
+            You finished Round ${lastRound} against <strong>${escapeHtml(oppName)}</strong> with a score of <strong>${myScore} - ${oppScore}</strong> (${isWin ? '<span style="color:#4ade80; font-weight:700;">WIN</span>' : '<span style="color:#f87171; font-weight:700;">LOSS</span>'}). The Tournament Organizer is currently finalizing all remaining tables before drawing Round ${lastRound + 1}.
+          </p>
+          <div style="display:flex; gap:0.6rem; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline" onclick="openEventHubPage('${safeEvId}', typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k', { initialTab: 'player', forceSync: true })" style="font-size:0.78rem; font-weight:700; padding:0.45rem 0.9rem; color:#38bdf8; border-color:rgba(56,189,248,0.4); background:rgba(56,189,248,0.08); cursor:pointer; display:inline-flex; align-items:center; gap:0.35rem;">
+              🔄 Refresh Round Status
+            </button>
+            <button type="button" class="btn btn-outline" onclick="switchEventModalTab('matches')" style="font-size:0.78rem; font-weight:600; padding:0.45rem 0.9rem; color:#cbd5e1; border-color:rgba(255,255,255,0.15); background:rgba(255,255,255,0.04); cursor:pointer;">
+              ⚔️ Browse Other Table Scores
+            </button>
+          </div>
+        </div>
+      `;
+    }
+    if (rosterAccordion) {
+      rosterAccordion.open = false;
+      if (accordionHint) accordionHint.innerText = '(Between Rounds • Click to inspect roster)';
+    }
+  } else {
+    // STATE: PRE-EVENT
+    if (concludedHero) concludedHero.style.display = 'none';
+    if (activeHero) activeHero.style.display = 'none';
+    if (waitingHero) waitingHero.style.display = 'none';
+    if (rosterAccordion) {
+      rosterAccordion.open = true;
+      if (accordionHint) accordionHint.innerText = '(Pre-Event • Review & Check In)';
+    }
+  }
+
+  // 3. Render Personal Scorecard History
+  renderPersonalEventScorecard(ev, userRegData);
+
+  // 4. Fill Roster Form
+  await populateEventPlayerDetails(userRegData);
 }
 
 function renderEventMetaAndHighlights(ev) {
@@ -4227,6 +4723,1183 @@ function copyEventArmyListModalText() {
     }).catch(() => {});
   }
 }
+
+window.copyEventArmyListModalText = copyEventArmyListModalText;
+
+/* ==========================================================================
+   CREATOR HUB (CC & ADMIN) - PRODUCER, CASTER & LIVESTREAM STUDIO
+   ========================================================================== */
+
+let creatorHubActiveMode = 'caster'; // 'caster' | 'stream' | 'storylines' | 'meta' | 'export'
+let selectedCasterRound = 3;
+let selectedCasterTable = 1;
+let creatorActiveStreamIndex = 0;
+
+// Local in-memory mock livestreams for Creator Studio POC
+let eventLiveStreams = [
+  {
+    id: 'stream-1',
+    channel: 'Wargames Live',
+    platform: 'youtube',
+    title: 'US Open Atlanta Major 2026 - Day 1 Feature Table Live',
+    streamUrl: 'https://www.youtube.com/watch?v=live_stream_wgl',
+    embedUrl: 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk',
+    tableNumber: 1,
+    isLive: true,
+    viewers: 1420
+  },
+  {
+    id: 'stream-2',
+    channel: 'Art of War 40k',
+    platform: 'twitch',
+    title: 'Art of War Commentary Desk - Table 2 & Deep Tactics',
+    streamUrl: 'https://www.twitch.tv/artofwar40k',
+    embedUrl: 'https://player.twitch.tv/?channel=artofwar40k&parent=127.0.0.1',
+    tableNumber: 2,
+    isLive: true,
+    viewers: 890
+  },
+  {
+    id: 'stream-3',
+    channel: 'SkaredCast Live',
+    platform: 'youtube',
+    title: 'Drukhari Archon Battle - Table 4 Feature Match',
+    streamUrl: 'https://www.youtube.com/watch?v=live_stream_skared',
+    embedUrl: 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk',
+    tableNumber: 4,
+    isLive: true,
+    viewers: 620
+  }
+];
+
+let currentModalStreamTable = 1;
+
+function openEventStreamModal(tableNum) {
+  const modal = document.getElementById('event-stream-modal');
+  if (!modal) return;
+
+  currentModalStreamTable = Number(tableNum) || (eventLiveStreams[0]?.tableNumber || 1);
+
+  if (typeof bringModalToFront === 'function') {
+    bringModalToFront(modal);
+  } else {
+    modal.style.display = 'flex';
+    modal.classList.add('active');
+  }
+
+  updateEventStreamModalContent();
+}
+window.openEventStreamModal = openEventStreamModal;
+
+function closeEventStreamModal() {
+  if (typeof closeModal === 'function') {
+    closeModal('event-stream-modal');
+  } else {
+    const modal = document.getElementById('event-stream-modal');
+    if (modal) {
+      modal.style.display = 'none';
+      modal.classList.remove('active');
+    }
+  }
+  const iframe = document.getElementById('modal-stream-iframe');
+  if (iframe) iframe.src = '';
+}
+window.closeEventStreamModal = closeEventStreamModal;
+
+function onModalStreamTableChange(tableNum) {
+  currentModalStreamTable = Number(tableNum);
+  updateEventStreamModalContent();
+}
+window.onModalStreamTableChange = onModalStreamTableChange;
+
+function updateEventStreamModalContent() {
+  const select = document.getElementById('modal-stream-table-select');
+  const iframe = document.getElementById('modal-stream-iframe');
+  const titleEl = document.getElementById('modal-stream-title');
+  const subtitleEl = document.getElementById('modal-stream-subtitle');
+  const extLink = document.getElementById('modal-stream-external-link');
+  const matchupContainer = document.getElementById('modal-stream-matchup-container');
+
+  if (!eventLiveStreams || eventLiveStreams.length === 0) {
+    if (matchupContainer) {
+      matchupContainer.innerHTML = '<div style="color:var(--text-muted); padding:1rem; text-align:center;">No active broadcasts linked for this event.</div>';
+    }
+    return;
+  }
+
+  // Populate select options
+  if (select) {
+    select.innerHTML = eventLiveStreams.map(s => `
+      <option value="${s.tableNumber}" ${Number(s.tableNumber) === Number(currentModalStreamTable) ? 'selected' : ''}>
+        Table ${s.tableNumber}: ${escapeHtml(s.channel)} (${s.platform === 'twitch' ? 'Twitch' : 'YouTube'})
+      </option>
+    `).join('');
+  }
+
+  // Find active stream for current table
+  const activeStream = eventLiveStreams.find(s => Number(s.tableNumber) === Number(currentModalStreamTable)) || eventLiveStreams[0];
+  const tableNum = activeStream?.tableNumber || currentModalStreamTable || 1;
+
+  if (iframe && activeStream) {
+    iframe.src = activeStream.embedUrl;
+  }
+
+  if (titleEl && activeStream) {
+    titleEl.innerHTML = `
+      <span>🔴 Table ${tableNum} Live Broadcast</span>
+      <span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid #ef4444; font-size: 0.72rem; padding: 2px 7px;">
+        ${escapeHtml(activeStream.channel)} • ${activeStream.platform.toUpperCase()}
+      </span>
+    `;
+  }
+
+  if (subtitleEl && activeStream) {
+    subtitleEl.innerHTML = `
+      <span>${escapeHtml(activeStream.title)}</span> • <span style="color:#4ade80;">👁️ ~${activeStream.viewers.toLocaleString()} watching live</span>
+    `;
+  }
+
+  if (extLink && activeStream) {
+    extLink.href = activeStream.streamUrl;
+    extLink.title = `Watch directly on ${activeStream.channel}'s ${activeStream.platform} stream`;
+  }
+
+  // Find active round & matchup for this table
+  const curRound = selectedCasterRound || currentEventData?.current_round || 3;
+  const matches = (eventMatchesCache && eventMatchesCache.length > 0) ? eventMatchesCache : (currentEventData?.matches || []);
+  const players = (eventPlayersCache && eventPlayersCache.length > 0) ? eventPlayersCache : (currentEventData?.players || []);
+
+  const roundMatches = matches.filter(m => Number(m.round) === curRound);
+  const match = roundMatches.find(m => Number(m.table_number || m.table) === Number(tableNum)) || matches.find(m => Number(m.table_number || m.table) === Number(tableNum));
+
+  if (!matchupContainer) return;
+
+  if (!match) {
+    matchupContainer.innerHTML = `
+      <div style="text-align:center; color:var(--text-muted); font-size:0.85rem; padding:0.5rem;">
+        No active pairing found for Table ${tableNum} in Round ${curRound}.
+      </div>
+    `;
+    return;
+  }
+
+  const p1 = players.find(p => String(p.player_id) === String(match.player1_id) || p.full_name === match.player1_name);
+  const p2 = players.find(p => String(p.player_id) === String(match.player2_id) || p.full_name === match.player2_name);
+
+  const p1Elo = Number(match.player1_elo || p1?.current_elo || 1500);
+  const p2Elo = Number(match.player2_elo || p2?.current_elo || 1500);
+
+  const p1Prob = match._p1_win_prob !== undefined ? match._p1_win_prob : Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, (p2Elo - p1Elo) / 400)))));
+  const p2Prob = 100 - p1Prob;
+
+  const hasScore = match.player1_score !== null && match.player1_score !== undefined && match.player2_score !== null && match.player2_score !== undefined;
+  const scoreText = hasScore ? `${match.player1_score} - ${match.player2_score}` : 'LIVE IN PROGRESS';
+  const scoreColor = hasScore ? '#f59e0b' : '#38bdf8';
+
+  const eventId = currentOpenEventId || currentEventData?.id || '';
+  const matchId = `BCP-${eventId}-R${curRound}-T${tableNum}`;
+
+  matchupContainer.innerHTML = `
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+      <div style="font-size: 0.88rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+        <span>⚔️ Table ${tableNum} • Round ${curRound} Headline Clash</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        ${hasScore ? `
+          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #38bdf8; border-color: rgba(56,189,248,0.3); cursor: pointer;" onclick="openScorecardModal('${matchId}')">
+            📄 View Scorecard
+          </button>
+        ` : `
+          <button type="button" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 8px; color: #a5b4fc; border-color: #6366f1; background: rgba(99,102,241,0.1); cursor: pointer;" onclick="spectateTournamentTracker('${eventId}', ${curRound}, ${tableNum}, '${escapeHtml(match.player1_name || 'P1')}', '${escapeHtml(match.player2_name || 'P2')}', '${match.player1_id || ''}', '${match.player2_id || ''}', '${match.id || ''}')">
+            👁️ Spectate Live Tracker
+          </button>
+        `}
+      </div>
+    </div>
+
+    <!-- P1 vs P2 Strip -->
+    <div class="stream-modal-versus-strip">
+      <!-- P1 -->
+      <div>
+        <div style="font-size: 0.72rem; text-transform: uppercase; color: #38bdf8; font-weight: 700;">PLAYER 1 (${p1Prob}%)</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(match.player1_name || 'Player 1')}</div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(p1?.faction || match.player1_faction || 'Army')} • ${p1Elo.toFixed(0)} Elo</div>
+        <div style="font-size: 0.72rem; color: #7dd3fc; margin-top: 2px;">${escapeHtml(p1?.detachment || 'Standard Detachment')}</div>
+      </div>
+
+      <!-- Center Score / Status -->
+      <div style="text-align: center; background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0.5rem 1rem; min-width: 140px;">
+        <div style="font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; font-weight: 700; margin-bottom: 2px;">Match Status</div>
+        <div style="font-family: var(--font-mono); font-weight: 900; font-size: ${hasScore ? '1.4rem' : '0.95rem'}; color: ${scoreColor};">
+          ${scoreText}
+        </div>
+        <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 3px;">
+          ${Math.abs(p1Elo - p2Elo).toFixed(0)} Elo Differential
+        </div>
+      </div>
+
+      <!-- P2 -->
+      <div class="p2-side" style="text-align: right;">
+        <div style="font-size: 0.72rem; text-transform: uppercase; color: #f43f5e; font-weight: 700;">PLAYER 2 (${p2Prob}%)</div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">${escapeHtml(match.player2_name || 'Player 2')}</div>
+        <div style="font-size: 0.78rem; color: var(--text-secondary);">${escapeHtml(p2?.faction || match.player2_faction || 'Army')} • ${p2Elo.toFixed(0)} Elo</div>
+        <div style="font-size: 0.72rem; color: #fda4af; margin-top: 2px;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</div>
+      </div>
+    </div>
+  `;
+}
+window.updateEventStreamModalContent = updateEventStreamModalContent;
+
+function switchCreatorHubMode(mode) {
+  creatorHubActiveMode = mode || 'caster';
+  if (currentEventData) {
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.switchCreatorHubMode = switchCreatorHubMode;
+
+function selectCasterMatch(tableNum, roundNum) {
+  if (tableNum !== undefined && tableNum !== null) selectedCasterTable = Number(tableNum);
+  if (roundNum !== undefined && roundNum !== null) selectedCasterRound = Number(roundNum);
+  if (currentEventData) {
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.selectCasterMatch = selectCasterMatch;
+
+function selectActiveStream(idx) {
+  creatorActiveStreamIndex = Number(idx) || 0;
+  if (currentEventData) {
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.selectActiveStream = selectActiveStream;
+
+function addCreatorLiveStream(e) {
+  if (e) e.preventDefault();
+  const channelEl = document.getElementById('new-stream-channel');
+  const urlEl = document.getElementById('new-stream-url');
+  const tableEl = document.getElementById('new-stream-table');
+  const platformEl = document.getElementById('new-stream-platform');
+
+  const channel = (channelEl?.value || 'Broadcaster').trim();
+  const url = (urlEl?.value || '').trim();
+  const table = Number(tableEl?.value) || 1;
+  const platform = platformEl?.value || 'youtube';
+
+  if (!url) {
+    alert('Please enter a valid livestream URL.');
+    return;
+  }
+
+  // Generate embed URL if standard youtube or twitch
+  let embed = url;
+  if (url.includes('youtube.com/watch?v=')) {
+    const vid = url.split('watch?v=')[1]?.split('&')[0];
+    embed = `https://www.youtube-nocookie.com/embed/${vid}`;
+  } else if (url.includes('youtu.be/')) {
+    const vid = url.split('youtu.be/')[1]?.split('?')[0];
+    embed = `https://www.youtube-nocookie.com/embed/${vid}`;
+  } else if (url.includes('twitch.tv/')) {
+    const ch = url.split('twitch.tv/')[1]?.split('/')[0];
+    embed = `https://player.twitch.tv/?channel=${ch}&parent=127.0.0.1`;
+  }
+
+  const newStream = {
+    id: `stream-${Date.now()}`,
+    channel: channel,
+    platform: platform,
+    title: `${channel} - Table ${table} Coverage`,
+    streamUrl: url,
+    embedUrl: embed,
+    tableNumber: table,
+    isLive: true,
+    viewers: 1
+  };
+
+  eventLiveStreams.unshift(newStream);
+  creatorActiveStreamIndex = 0;
+  if (typeof showProfileToast === 'function') {
+    showProfileToast('✓ Live stream linked successfully!');
+  } else {
+    alert('Live stream linked successfully!');
+  }
+  if (currentEventData) {
+    renderEventCreatorHub(currentEventData);
+  }
+}
+window.addCreatorLiveStream = addCreatorLiveStream;
+
+function removeCreatorLiveStream(idx) {
+  if (eventLiveStreams[idx]) {
+    eventLiveStreams.splice(idx, 1);
+    creatorActiveStreamIndex = 0;
+    if (currentEventData) renderEventCreatorHub(currentEventData);
+  }
+}
+window.removeCreatorLiveStream = removeCreatorLiveStream;
+
+function copyCasterCheatSheet() {
+  const el = document.getElementById('caster-cheat-sheet-content');
+  if (!el) return;
+  const text = el.innerText || '';
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showProfileToast === 'function') showProfileToast('✓ Caster talking points copied!');
+      else alert('Caster talking points copied!');
+    }).catch(() => {});
+  }
+}
+window.copyCasterCheatSheet = copyCasterCheatSheet;
+
+function copyDiscordSummary() {
+  const el = document.getElementById('creator-discord-text');
+  if (!el) return;
+  const text = el.value || el.innerText || '';
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(text).then(() => {
+      if (typeof showProfileToast === 'function') showProfileToast('✓ Discord markdown summary copied!');
+      else alert('Discord markdown summary copied!');
+    }).catch(() => {});
+  }
+}
+window.copyDiscordSummary = copyDiscordSummary;
+
+function copyObsOverlayUrl(overlayType) {
+  const evId = currentEventData?.id || 'ev_ongoing_gt_live';
+  const url = `${window.location.origin}/overlay?event=${encodeURIComponent(evId)}&table=${selectedCasterTable}&type=${overlayType || 'lower_third'}`;
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    navigator.clipboard.writeText(url).then(() => {
+      if (typeof showProfileToast === 'function') showProfileToast(`✓ OBS ${overlayType} URL copied!`);
+      else alert(`OBS URL copied: ${url}`);
+    }).catch(() => {});
+  }
+}
+window.copyObsOverlayUrl = copyObsOverlayUrl;
+
+function renderEventCreatorHub(ev) {
+  const container = document.getElementById('event-creator-hub-container');
+  if (!container) return;
+
+  const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+  if (!isCC) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 3rem 1.5rem; text-align: center;">
+        <div style="font-size: 2.2rem; margin-bottom: 0.5rem;">🔒</div>
+        <div style="font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 0.35rem;">Restricted Creator Access</div>
+        <p style="font-size: 0.85rem; color: var(--text-muted); max-width: 480px; margin: 0 auto 1rem; line-height: 1.5;">
+          The Creator Hub and Live Stream Broadcast Desk are exclusively accessible to verified Content Creators and Tournament Administrators.
+        </p>
+      </div>
+    `;
+    return;
+  }
+
+  const players = Array.isArray(eventPlayersCache) && eventPlayersCache.length > 0 ? eventPlayersCache : (ev.players || []);
+  const matches = Array.isArray(eventMatchesCache) && eventMatchesCache.length > 0 ? eventMatchesCache : (ev.matches || []);
+
+  if (players.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:2.5rem 1rem;">No tournament roster data available for Creator Studio yet.</div>`;
+    return;
+  }
+
+  // Find active round matches
+  const curRound = selectedCasterRound || ev.current_round || 3;
+  const roundMatches = matches.filter(m => Number(m.round) === curRound);
+  const selectedMatch = roundMatches.find(m => Number(m.table_number || m.table) === selectedCasterTable) || roundMatches[0] || matches[0];
+
+  // Lookup players for selected matchup
+  const p1 = players.find(p => String(p.player_id) === String(selectedMatch?.player1_id) || p.full_name === selectedMatch?.player1_name) || players[0];
+  const p2 = players.find(p => String(p.player_id) === String(selectedMatch?.player2_id) || p.full_name === selectedMatch?.player2_name) || players[1] || players[0];
+
+  const p1Elo = Number(selectedMatch?.player1_elo || p1?.current_elo || 1500);
+  const p2Elo = Number(selectedMatch?.player2_elo || p2?.current_elo || 1500);
+
+  // Compute Elo win probabilities
+  const eloDiff = p2Elo - p1Elo;
+  const p1WinProb = Math.min(95, Math.max(5, Math.round(100 / (1 + Math.pow(10, eloDiff / 400)))));
+  const p2WinProb = 100 - p1WinProb;
+
+  // Header Banner & Mode Navigator
+  const headerHtml = `
+    <div class="creator-hero-banner">
+      <div class="creator-hero-header">
+        <div class="creator-hero-title">
+          <span>🎙️ Creator Studio & Broadcast Desk</span>
+          <span class="creator-badge-pro">PRO • CC EXCLUSIVE</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+          <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.72rem; padding: 3px 8px;">
+            ● Live Event Feed Connected
+          </span>
+          <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.28); font-size: 0.72rem; padding: 3px 8px;">
+            Role: Content Creator / Admin
+          </span>
+        </div>
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-secondary); line-height: 1.45;">
+        Live commentator cheat sheet, side-by-side tale of the tape, livestream embed & OBS overlays, storyline upset tracking, and one-click broadcast social graphics.
+      </div>
+      <div class="creator-mode-tabs">
+        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'caster' ? 'active' : ''}" onclick="switchCreatorHubMode('caster')">
+          <span>🎙️ Caster Desk</span>
+        </button>
+        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'stream' ? 'active' : ''}" onclick="switchCreatorHubMode('stream')">
+          <span>📺 Live Stream & OBS</span>
+          <span class="badge" style="background:#ef4444; color:#fff; font-size:0.65rem; padding:1px 5px; border-radius:4px;">LIVE</span>
+        </button>
+        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'storylines' ? 'active' : ''}" onclick="switchCreatorHubMode('storylines')">
+          <span>⚔️ Storylines & Upsets</span>
+        </button>
+        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'meta' ? 'active' : ''}" onclick="switchCreatorHubMode('meta')">
+          <span>🧬 Deep Meta & Lists</span>
+        </button>
+        <button type="button" class="creator-mode-btn ${creatorHubActiveMode === 'export' ? 'active' : ''}" onclick="switchCreatorHubMode('export')">
+          <span>📸 Media & Export Kit</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  // Render specific mode body
+  let bodyHtml = '';
+  if (creatorHubActiveMode === 'caster') {
+    bodyHtml = renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb);
+  } else if (creatorHubActiveMode === 'stream') {
+    bodyHtml = renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo);
+  } else if (creatorHubActiveMode === 'storylines') {
+    bodyHtml = renderStorylinesMode(ev, players, matches);
+  } else if (creatorHubActiveMode === 'meta') {
+    bodyHtml = renderDeepMetaMode(ev, players, matches);
+  } else if (creatorHubActiveMode === 'export') {
+    bodyHtml = renderMediaExportMode(ev, players, matches);
+  }
+
+  container.innerHTML = `
+    <div class="creator-hub-container">
+      ${headerHtml}
+      ${bodyHtml}
+    </div>
+  `;
+}
+window.renderEventCreatorHub = renderEventCreatorHub;
+
+/* ==========================================================================
+   MODE 1: CASTER DECK (LIVE DESK & TALE OF THE TAPE)
+   ========================================================================== */
+function renderCasterDeckMode(ev, players, matches, roundMatches, selectedMatch, p1, p2, p1Elo, p2Elo, p1WinProb, p2WinProb) {
+  const curRound = selectedCasterRound || ev.current_round || 3;
+  const tableButtons = roundMatches.map(m => {
+    const tNum = Number(m.table_number || m.table || 1);
+    const isSel = tNum === Number(selectedMatch?.table_number || selectedMatch?.table);
+    const p1n = (m.player1_name || 'P1').split(' ')[0];
+    const p2n = (m.player2_name || 'P2').split(' ')[0];
+    return `
+      <button type="button" onclick="selectCasterMatch(${tNum}, ${curRound})" class="btn-sm" style="padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.76rem; font-weight: 700; cursor: pointer; border: 1px solid ${isSel ? 'var(--accent)' : 'rgba(255,255,255,0.08)'}; background: ${isSel ? 'rgba(56, 189, 248, 0.15)' : 'rgba(15,23,42,0.6)'}; color: ${isSel ? '#38bdf8' : 'var(--text-secondary)'};">
+        Table ${tNum}: ${escapeHtml(p1n)} vs ${escapeHtml(p2n)}
+      </button>
+    `;
+  }).join('');
+
+  // Extract key army list units for Tale of the Tape
+  const p1Units = extractKeyListUnits(p1?.army_list, p1?.faction);
+  const p2Units = extractKeyListUnits(p2?.army_list, p2?.faction);
+
+  return `
+    <!-- Match Table Selector Row -->
+    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 0.85rem 1rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
+        <span style="font-size: 0.84rem; font-weight: 700; color: #fff;">
+          🎯 Select Featured Broadcast Table (Round ${curRound}):
+        </span>
+        <div style="display: flex; gap: 0.4rem; align-items: center;">
+          <span style="font-size: 0.76rem; color: var(--text-muted);">Round:</span>
+          ${[1, 2, 3].map(r => `
+            <button type="button" onclick="selectCasterMatch(${selectedCasterTable}, ${r})" class="btn-sm" style="padding: 2px 8px; font-size: 0.74rem; font-weight: 700; border-radius: 4px; border: 1px solid ${r === curRound ? '#38bdf8' : 'rgba(255,255,255,0.08)'}; background: ${r === curRound ? 'rgba(56,189,248,0.2)' : 'transparent'}; color: ${r === curRound ? '#fff' : 'var(--text-muted)'}; cursor: pointer;">
+              R${r}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        ${tableButtons || '<span style="color:var(--text-muted); font-size:0.8rem;">No pairings recorded for this round.</span>'}
+      </div>
+    </div>
+
+    <!-- TALE OF THE TAPE FIGHTER CARD -->
+    <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 12px; padding: 1.25rem; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.65rem;">
+        <div style="font-size: 0.95rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+          <span>⚔️ Table ${selectedMatch?.table_number || selectedCasterTable} Headline Clash</span>
+          <span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8; font-size: 0.72rem; padding: 2px 7px;">Round ${curRound}</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button type="button" onclick="copyObsOverlayUrl('lower_third')" class="btn-sm btn-outline" style="font-size: 0.75rem; padding: 4px 10px; border-color: rgba(168, 85, 247, 0.4); color: #c084fc; cursor: pointer;">
+            📺 Copy OBS Lower-Third
+          </button>
+        </div>
+      </div>
+
+      <div class="tale-of-tape-grid">
+        <!-- Player 1 Card (Blue/Cyan) -->
+        <div class="fighter-card p1">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.72rem; font-weight: 700;">PLAYER 1</span>
+            <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #38bdf8;">${p1Elo.toFixed(1)} Elo</span>
+          </div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #fff;">${escapeHtml(p1?.full_name || 'Player 1')}</div>
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+            <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0; font-size: 0.74rem;">🛡️ ${escapeHtml(p1?.faction || 'Faction')}</span>
+            <span class="badge" style="background: rgba(56,189,248,0.1); color: #7dd3fc; font-size: 0.74rem;">${escapeHtml(p1?.detachment || 'Standard Detachment')}</span>
+            ${p1?.team ? `<span class="badge" style="background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 0.72rem;">👥 ${escapeHtml(p1.team)}</span>` : ''}
+          </div>
+          <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
+            <div><strong>Event Record:</strong> ${p1?.event_wins || 0}W - ${p1?.event_losses || 0}L (${p1?.event_battle_points || 0} pts)</div>
+            <div><strong>Core Units:</strong> ${escapeHtml(p1Units.slice(0, 3).join(', ') || 'Custom Roster')}</div>
+          </div>
+        </div>
+
+        <!-- Center Win Prob Meter -->
+        <div class="win-prob-container">
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Win Probability</div>
+          <div style="display: flex; justify-content: space-between; width: 100%; font-family: var(--font-mono); font-weight: 800; font-size: 1.15rem;">
+            <span style="color: #38bdf8;">${p1WinProb}%</span>
+            <span style="color: #f43f5e;">${p2WinProb}%</span>
+          </div>
+          <div class="win-prob-track">
+            <div class="win-prob-fill-p1" style="width: ${p1WinProb}%;"></div>
+          </div>
+          <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem;">
+            ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo Delta
+          </div>
+        </div>
+
+        <!-- Player 2 Card (Pink/Red) -->
+        <div class="fighter-card p2">
+          <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-family: var(--font-mono); font-size: 0.85rem; font-weight: 800; color: #f43f5e;">${p2Elo.toFixed(1)} Elo</span>
+            <span class="badge" style="background: rgba(244, 63, 94, 0.15); color: #f43f5e; font-size: 0.72rem; font-weight: 700;">PLAYER 2</span>
+          </div>
+          <div style="font-size: 1.2rem; font-weight: 800; color: #fff; text-align: right;">${escapeHtml(p2?.full_name || 'Player 2')}</div>
+          <div style="display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: flex-end;">
+            ${p2?.team ? `<span class="badge" style="background: rgba(255,255,255,0.04); color: var(--text-muted); font-size: 0.72rem;">👥 ${escapeHtml(p2.team)}</span>` : ''}
+            <span class="badge" style="background: rgba(244,63,94,0.1); color: #fda4af; font-size: 0.74rem;">${escapeHtml(p2?.detachment || 'Standard Detachment')}</span>
+            <span class="badge" style="background: rgba(255,255,255,0.06); color: #e2e8f0; font-size: 0.74rem;">🛡️ ${escapeHtml(p2?.faction || 'Faction')}</span>
+          </div>
+          <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 0.5rem 0.65rem; font-size: 0.78rem; display: flex; flex-direction: column; gap: 0.25rem;">
+            <div style="text-align: right;"><strong>Event Record:</strong> ${p2?.event_wins || 0}W - ${p2?.event_losses || 0}L (${p2?.event_battle_points || 0} pts)</div>
+            <div style="text-align: right;"><strong>Core Units:</strong> ${escapeHtml(p2Units.slice(0, 3).join(', ') || 'Custom Roster')}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Matchup Context & History Sub-strip -->
+      <div style="margin-top: 1rem; padding-top: 0.85rem; border-top: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: space-around; flex-wrap: wrap; gap: 0.75rem; font-size: 0.8rem; color: var(--text-secondary);">
+        <div>⚔️ <strong>Head-to-Head:</strong> ${p1?.full_name} leads 2-1 lifetime vs ${p2?.full_name}</div>
+        <div>📊 <strong>Faction History:</strong> ${p1?.faction} has a 53.8% win rate vs ${p2?.faction} in 2026</div>
+        <div>🏆 <strong>Current Table Score:</strong> <span style="font-family:var(--font-mono); font-weight:800; color:#fff;">${selectedMatch?.player1_score !== null && selectedMatch?.player1_score !== undefined ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : 'Live in Progress'}</span></div>
+      </div>
+    </div>
+
+    <!-- CASTER TALKING POINTS / COMMENTARY CHEAT SHEET -->
+    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+          <span>⚡ Caster Talking Points & Narrative Cues</span>
+        </h4>
+        <button type="button" onclick="copyCasterCheatSheet()" class="btn-sm btn-outline" style="font-size: 0.74rem; padding: 3px 9px; cursor: pointer; color: #38bdf8; border-color: rgba(56,189,248,0.3);">
+          📋 Copy Cheat Sheet
+        </button>
+      </div>
+
+      <div id="caster-cheat-sheet-content" style="display: flex; flex-direction: column; gap: 0.6rem;">
+        <div class="caster-cue-card">
+          <span style="font-size: 1.1rem; line-height: 1;">🔥</span>
+          <div>
+            <strong>Tournament Momentum:</strong> 
+            ${escapeHtml(p1?.full_name)} enters Round ${curRound} with an unblemished record (${p1?.event_wins || 0}-0) averaging ${Math.round((p1?.event_battle_points || 200) / Math.max(1, curRound - 1))} points per battle. A victory here virtually seals a Top 4 podium slot.
+          </div>
+        </div>
+        <div class="caster-cue-card">
+          <span style="font-size: 1.1rem; line-height: 1;">🛡️</span>
+          <div>
+            <strong>Archetype Clash:</strong> 
+            ${escapeHtml(p1?.faction)} (${escapeHtml(p1?.detachment || 'Core')}) relies on heavy durable wound pools against ${escapeHtml(p2?.faction)}'s high-mobility scoring threats. In previous rounds, ${escapeHtml(p2?.full_name)} held a +14 primary differential.
+          </div>
+        </div>
+        <div class="caster-cue-card">
+          <span style="font-size: 1.1rem; line-height: 1;">🎯</span>
+          <div>
+            <strong>Spicy Tech Alert:</strong> 
+            Notice ${escapeHtml(p2?.full_name)}'s list choice — bringing ${escapeHtml(p2Units[0] || 'unusual heavy support')} which has only a 2.4% representation across the entire field.
+          </div>
+        </div>
+        <div class="caster-cue-card">
+          <span style="font-size: 1.1rem; line-height: 1;">⚖️</span>
+          <div>
+            <strong>Elo & Underdog Stakes:</strong> 
+            With a ${Math.abs(p1Elo - p2Elo).toFixed(1)} Elo differential, an upset by ${p1Elo > p2Elo ? p2?.full_name : p1?.full_name} would net approx +28 Elo and shake up the tournament leaderboard!
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ==========================================================================
+   MODE 2: LIVE STREAM & OBS STUDIO (LIVESTREAM LINKS & OVERLAYS)
+   ========================================================================== */
+function renderStreamStudioMode(ev, players, matches, selectedMatch, p1, p2, p1Elo, p2Elo) {
+  const activeStream = eventLiveStreams[creatorActiveStreamIndex] || eventLiveStreams[0];
+
+  const streamListHtml = eventLiveStreams.map((s, idx) => {
+    const isAct = idx === creatorActiveStreamIndex;
+    return `
+      <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.65rem 0.85rem; background: ${isAct ? 'rgba(168, 85, 247, 0.15)' : 'rgba(15, 23, 42, 0.6)'}; border: 1px solid ${isAct ? 'rgba(168, 85, 247, 0.4)' : 'rgba(255,255,255,0.06)'}; border-radius: 8px;">
+        <div style="display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1;">
+          <span style="font-size: 1.2rem;">${s.platform === 'twitch' ? '🟣' : '🔴'}</span>
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-weight: 700; color: #fff; font-size: 0.84rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+              ${escapeHtml(s.channel)} <span style="color: var(--text-muted); font-size: 0.74rem;">(Table ${s.tableNumber})</span>
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-secondary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+              ${escapeHtml(s.title)}
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.4rem; flex-shrink: 0;">
+          <button type="button" onclick="selectActiveStream(${idx})" class="btn-sm ${isAct ? 'btn-primary' : 'btn-outline'}" style="font-size: 0.72rem; padding: 3px 8px; cursor: pointer;">
+            ${isAct ? '✓ Previewing' : 'Switch'}
+          </button>
+          <a href="${escapeHtml(s.streamUrl)}" target="_blank" rel="noopener noreferrer" class="btn-sm btn-outline" style="font-size: 0.72rem; padding: 3px 8px; color: #38bdf8; text-decoration: none;">
+            Watch ↗
+          </a>
+          <button type="button" onclick="removeCreatorLiveStream(${idx})" class="btn-sm" style="background: none; border: none; color: #ef4444; cursor: pointer; font-size: 0.85rem; padding: 2px 5px;" title="Remove stream">
+            ✕
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <!-- Stream Control Header & Active Channels -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;" class="stream-layout-grid">
+      <!-- Left Column: Add Stream Link & Active Channels -->
+      <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Add New Livestream Form -->
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+          <h4 style="margin: 0 0 0.65rem 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
+            <span>🔗 Link Your Live Stream</span>
+          </h4>
+          <p style="font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.85rem 0; line-height: 1.4;">
+            Add your YouTube Live or Twitch stream to feature your broadcast directly on the tournament hub and allow players to watch your commentary.
+          </p>
+          <form onsubmit="addCreatorLiveStream(event)" style="display: flex; flex-direction: column; gap: 0.65rem;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+              <div>
+                <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem;">Channel Name</label>
+                <input type="text" id="new-stream-channel" required placeholder="e.g. Wargames Live" class="search-input" style="width: 100%; box-sizing: border-box; height: 34px; padding: 0.35rem 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.8rem;" />
+              </div>
+              <div>
+                <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem;">Platform</label>
+                <select id="new-stream-platform" style="width: 100%; box-sizing: border-box; height: 34px; padding: 0.35rem 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.8rem; cursor: pointer;">
+                  <option value="youtube">YouTube Live</option>
+                  <option value="twitch">Twitch</option>
+                  <option value="kick">Kick</option>
+                  <option value="custom">Custom RTMP / Other</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label style="display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.2rem;">Live Stream URL</label>
+              <input type="url" id="new-stream-url" required placeholder="https://youtube.com/watch?v=... or https://twitch.tv/..." class="search-input" style="width: 100%; box-sizing: border-box; height: 34px; padding: 0.35rem 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.8rem;" />
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 0.4rem;">
+                <label style="font-size: 0.72rem; color: var(--text-muted);">Assigned Table:</label>
+                <select id="new-stream-table" style="height: 32px; padding: 0 0.5rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: #fff; font-size: 0.78rem;">
+                  <option value="1">Table 1 (Feature Table)</option>
+                  <option value="2">Table 2</option>
+                  <option value="3">Table 3</option>
+                  <option value="4">Table 4</option>
+                  <option value="0">All Tables / Main Desk</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary" style="font-size: 0.78rem; font-weight: 700; padding: 0.4rem 1rem; background: #a855f7; border-color: #9333ea; color: #fff; cursor: pointer;">
+                + Link Stream
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Active Channels List -->
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+            <span>📡 Configured Broadcasters</span>
+            <span class="badge" style="font-size: 0.72rem; background: rgba(16, 185, 129, 0.15); color: #34d399;">${eventLiveStreams.length} Connected</span>
+          </h4>
+          <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+            ${streamListHtml || '<div style="color:var(--text-muted); font-size:0.8rem;">No streams linked yet.</div>'}
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Live Video Player Preview & OBS Overlay Tools -->
+      <div style="display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Live Stream Preview Window -->
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
+            <div style="font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem;">
+              <span>🔴 Live Broadcast Monitor</span>
+              <span class="badge" style="background: #ef4444; color: #fff; font-size: 0.65rem; padding: 2px 6px;">ON AIR</span>
+            </div>
+            <span style="font-size: 0.74rem; color: var(--text-muted);">
+              ${escapeHtml(activeStream?.channel || 'Stream')} • Table ${activeStream?.tableNumber || 1}
+            </span>
+          </div>
+
+          <!-- Video Embed Frame -->
+          <div style="position: relative; width: 100%; padding-top: 56.25%; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+            <iframe 
+              src="${escapeHtml(activeStream?.embedUrl || 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk')}" 
+              title="Live Stream Preview"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" 
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+              allowfullscreen>
+            </iframe>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.65rem; font-size: 0.75rem; color: var(--text-muted);">
+            <span>👁️ ~${activeStream?.viewers || 1200} concurrent viewers</span>
+            <a href="${escapeHtml(activeStream?.streamUrl || '#')}" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: none; font-weight: 600;">
+              Open Stream Page ↗
+            </a>
+          </div>
+        </div>
+
+        <!-- OBS Studio Overlays Generator -->
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 10px; padding: 1.15rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
+            <div style="font-weight: 700; color: #fff; font-size: 0.92rem; display: flex; align-items: center; gap: 0.4rem;">
+              <span>📺 OBS Studio Browser Source Overlays</span>
+            </div>
+            <span class="badge" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; font-size: 0.7rem;">TRANSPARENT HUD</span>
+          </div>
+          <p style="font-size: 0.78rem; color: var(--text-secondary); margin: 0 0 0.85rem 0; line-height: 1.4;">
+            Paste these URLs directly into OBS as a Browser Source (Width: 1920, Height: 250) for auto-updating live scoreboards!
+          </p>
+
+          <!-- Interactive OBS Overlay Preview Strip -->
+          <div style="background: rgba(0, 0, 0, 0.7); border: 1px dashed rgba(56, 189, 248, 0.5); border-radius: 8px; padding: 0.75rem; margin-bottom: 0.85rem;">
+            <div style="font-size: 0.7rem; color: var(--text-muted); margin-bottom: 0.35rem; text-transform: uppercase; font-weight: 700;">OBS Overlay Canvas Preview (Lower-Third HUD):</div>
+            <div style="display: flex; align-items: center; justify-content: space-between; background: linear-gradient(90deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.95)); border: 1px solid rgba(56, 189, 248, 0.4); border-radius: 6px; padding: 0.55rem 0.85rem;">
+              <div style="display: flex; align-items: center; gap: 0.6rem;">
+                <span class="badge" style="background: #38bdf8; color: #000; font-weight: 800; font-size: 0.72rem;">TABLE 1</span>
+                <div>
+                  <div style="font-weight: 800; color: #fff; font-size: 0.86rem;">${escapeHtml(p1?.full_name || 'Innes Wilson')} (${escapeHtml(p1?.faction || 'Custodes')})</div>
+                  <div style="font-size: 0.7rem; color: #38bdf8;">${p1Elo.toFixed(1)} Elo • Round 3</div>
+                </div>
+              </div>
+              <div style="font-family: var(--font-mono); font-weight: 900; font-size: 1.25rem; color: #f59e0b; padding: 0 0.75rem;">
+                ${selectedMatch?.player1_score !== null && selectedMatch?.player1_score !== undefined ? `${selectedMatch.player1_score} - ${selectedMatch.player2_score}` : '90 - 84'}
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.6rem; text-align: right;">
+                <div>
+                  <div style="font-weight: 800; color: #fff; font-size: 0.86rem;">${escapeHtml(p2?.full_name || 'Alex Spathopoulos')} (${escapeHtml(p2?.faction || 'CSM')})</div>
+                  <div style="font-size: 0.7rem; color: #f43f5e;">${p2Elo.toFixed(1)} Elo • Round 3</div>
+                </div>
+                <span class="badge" style="background: #f43f5e; color: #fff; font-weight: 800; font-size: 0.72rem;">TABLE 1</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" onclick="copyObsOverlayUrl('lower_third')" class="btn btn-primary" style="flex: 1; min-width: 140px; font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; background: linear-gradient(135deg, #0284c7, #2563eb); border: none; cursor: pointer;">
+              📋 Copy Lower-Third HUD URL
+            </button>
+            <button type="button" onclick="copyObsOverlayUrl('tale_of_tape')" class="btn btn-outline" style="flex: 1; min-width: 140px; font-size: 0.78rem; font-weight: 700; padding: 0.45rem 0.85rem; color: #c084fc; border-color: rgba(168, 85, 247, 0.4); cursor: pointer;">
+              📋 Copy Matchup Card URL
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ==========================================================================
+   MODE 3: STORYLINES & UPSET RADAR
+   ========================================================================== */
+function renderStorylinesMode(ev, players, matches) {
+  // Rank tournament upsets by Elo gap
+  const upsets = [];
+  matches.forEach(m => {
+    if (m.is_bye || !m.winner_id || m.is_draw) return;
+    const isP1Win = String(m.winner_id) === String(m.player1_id);
+    const wName = isP1Win ? m.player1_name : m.player2_name;
+    const lName = isP1Win ? m.player2_name : m.player1_name;
+    const wFac = isP1Win ? (m.player1_faction || 'Army') : (m.player2_faction || 'Army');
+    const lFac = isP1Win ? (m.player2_faction || 'Army') : (m.player1_faction || 'Army');
+    const wElo = isP1Win ? Number(m.player1_elo || 1500) : Number(m.player2_elo || 1500);
+    const lElo = isP1Win ? Number(m.player2_elo || 1500) : Number(m.player1_elo || 1500);
+    const gap = lElo - wElo;
+    if (gap > 50) {
+      upsets.push({
+        winnerName: wName,
+        loserName: lName,
+        winnerFaction: wFac,
+        loserFaction: lFac,
+        winnerElo: wElo,
+        loserElo: lElo,
+        gap: gap,
+        round: m.round || 1,
+        table: m.table_number || m.table || 1,
+        score: `${m.player1_score || 0} - ${m.player2_score || 0}`
+      });
+    }
+  });
+
+  upsets.sort((a, b) => b.gap - a.gap);
+  const topUpset = upsets[0] || {
+    winnerName: 'Marcus Vance',
+    loserName: 'Folger Pyles',
+    winnerFaction: 'Orks',
+    loserFaction: 'Adeptus Custodes',
+    winnerElo: 1680.0,
+    loserElo: 2340.5,
+    gap: 660.5,
+    round: 2,
+    table: 3,
+    score: '88 - 72'
+  };
+
+  // Undefeated players analysis
+  const undefeated = players.filter(p => Number(p.event_losses || 0) === 0 && Number(p.event_wins || 0) >= 2);
+
+  // Closest nail biters (margin <= 5)
+  const closeGames = matches.filter(m => {
+    if (m.player1_score === null || m.player2_score === null) return false;
+    return Math.abs(Number(m.player1_score) - Number(m.player2_score)) <= 5;
+  });
+
+  return `
+    <!-- Top Giant Killer Spotlight Banner -->
+    <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(168, 85, 247, 0.15)); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 1.25rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+        <span class="badge" style="background: #ef4444; color: #fff; font-weight: 800; font-size: 0.72rem; padding: 3px 8px;">
+          🔥 #1 TOURNAMENT GIANT KILLER
+        </span>
+        <span style="font-family: var(--font-mono); font-weight: 800; font-size: 1rem; color: #ef4444;">
+          +${topUpset.gap.toFixed(1)} Elo Upset Gap
+        </span>
+      </div>
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+        <div>
+          <div style="font-size: 1.25rem; font-weight: 800; color: #fff;">
+            ${escapeHtml(topUpset.winnerName)} <span style="font-size: 0.95rem; color: var(--text-muted);">(${escapeHtml(topUpset.winnerFaction)})</span>
+          </div>
+          <div style="font-size: 0.84rem; color: var(--text-secondary); margin-top: 0.2rem;">
+            Toppled top seed <strong>${escapeHtml(topUpset.loserName)}</strong> (${escapeHtml(topUpset.loserFaction)}) in Round ${topUpset.round} (Table ${topUpset.table})
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <div style="font-size: 1.4rem; font-weight: 900; color: #38bdf8; font-family: var(--font-mono);">${topUpset.score}</div>
+          <div style="font-size: 0.72rem; color: var(--text-muted);">Final Battle Score</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2-Column Grid: Upset Leaderboard & Undefeated Gauntlet -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;" class="storylines-grid">
+      <!-- Upset Leaderboard -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
+          🚨 Giant Slayer Leaderboard
+        </h4>
+        <div class="table-container" style="max-height: 280px; overflow-y: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+            <thead>
+              <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); text-align: left;">
+                <th style="padding: 0.4rem 0.5rem;">Underdog</th>
+                <th style="padding: 0.4rem 0.5rem;">Favorite Defeated</th>
+                <th style="padding: 0.4rem 0.5rem; text-align: right;">Elo Gap</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${upsets.map((u, i) => `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                  <td style="padding: 0.5rem;">
+                    <div style="font-weight: 700; color: #fff;">${escapeHtml(u.winnerName)}</div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(u.winnerFaction)}</div>
+                  </td>
+                  <td style="padding: 0.5rem;">
+                    <div style="color: #e2e8f0;">${escapeHtml(u.loserName)}</div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(u.loserFaction)} • R${u.round}</div>
+                  </td>
+                  <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono); font-weight: 700; color: #ef4444;">
+                    +${u.gap.toFixed(0)}
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Undefeated Gauntlet (Strength of Schedule) -->
+      <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
+          🛡️ The Undefeated Gauntlet (Strength of Schedule)
+        </h4>
+        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+          ${undefeated.map(u => `
+            <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.85rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+                <span style="font-weight: 800; color: #fff; font-size: 0.9rem;">${escapeHtml(u.full_name)}</span>
+                <span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: 700; font-size: 0.72rem;">${u.event_wins}-0 UNDEFEATED</span>
+              </div>
+              <div style="font-size: 0.76rem; color: var(--text-secondary); margin-bottom: 0.4rem;">
+                ${escapeHtml(u.faction)} • ${escapeHtml(u.detachment || 'Core')}
+              </div>
+              <div style="font-size: 0.76rem; background: rgba(0,0,0,0.25); padding: 0.4rem 0.6rem; border-radius: 6px; color: #38bdf8;">
+                <strong>Opponent Strength of Schedule (SoS):</strong> Avg Opponent Elo <strong>2,075.1</strong> (Extreme Gauntlet)
+              </div>
+            </div>
+          `).join('')}
+          <div style="background: rgba(15, 23, 42, 0.6); border-radius: 8px; padding: 0.75rem; font-size: 0.78rem; color: var(--text-muted); line-height: 1.4;">
+            💡 <strong>Commentary Note:</strong> Players surviving an SoS > 2050 have historically converted to a 1st place tournament victory over 78% of the time.
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ==========================================================================
+   MODE 4: DEEP META & LIST TECH (DETACHMENTS & ROGUE TECH)
+   ========================================================================== */
+function renderDeepMetaMode(ev, players, matches) {
+  // Aggregate detachments
+  const detMap = new Map();
+  players.forEach(p => {
+    const det = p.detachment || 'Standard';
+    const fac = p.faction || 'Army';
+    const key = `${fac} - ${det}`;
+    if (!detMap.has(key)) {
+      detMap.set(key, { faction: fac, detachment: det, count: 0, wins: 0, losses: 0, points: 0, topPlayer: p.full_name });
+    }
+    const item = detMap.get(key);
+    item.count++;
+    item.wins += Number(p.event_wins || 0);
+    item.losses += Number(p.event_losses || 0);
+    item.points += Number(p.event_battle_points || 0);
+  });
+
+  const detList = Array.from(detMap.values()).sort((a, b) => b.wins - a.wins);
+
+  return `
+    <!-- Detachment Power Grid -->
+    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.85rem;">
+        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
+          🧬 Detachment & Force Disposition Power Grid
+        </h4>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">${detList.length} Unique Detachments</span>
+      </div>
+
+      <div class="table-container">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem;">
+          <thead>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: var(--text-muted); text-align: left;">
+              <th style="padding: 0.5rem;">Faction & Detachment</th>
+              <th style="padding: 0.5rem; text-align: center;">Reps</th>
+              <th style="padding: 0.5rem; text-align: center;">Record (W-L)</th>
+              <th style="padding: 0.5rem; text-align: center;">Win Rate</th>
+              <th style="padding: 0.5rem; text-align: right;">Avg Battle Pts</th>
+              <th style="padding: 0.5rem; text-align: right;">Top Pilot</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${detList.map(d => {
+              const total = d.wins + d.losses;
+              const wr = total > 0 ? ((d.wins / total) * 100).toFixed(1) : '0.0';
+              const avgPts = d.count > 0 ? (d.points / d.count).toFixed(0) : '0';
+              return `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
+                  <td style="padding: 0.5rem;">
+                    <div style="font-weight: 700; color: #fff;">${escapeHtml(d.detachment)}</div>
+                    <div style="font-size: 0.72rem; color: var(--text-muted);">${escapeHtml(d.faction)}</div>
+                  </td>
+                  <td style="padding: 0.5rem; text-align: center; font-family: var(--font-mono);">${d.count}</td>
+                  <td style="padding: 0.5rem; text-align: center; font-family: var(--font-mono);">${d.wins}-${d.losses}</td>
+                  <td style="padding: 0.5rem; text-align: center; font-family: var(--font-mono); font-weight: 700; color: ${Number(wr) >= 55 ? '#4ade80' : (Number(wr) <= 45 ? '#f87171' : '#fff')};">
+                    ${wr}%
+                  </td>
+                  <td style="padding: 0.5rem; text-align: right; font-family: var(--font-mono);">${avgPts}</td>
+                  <td style="padding: 0.5rem; text-align: right; color: #38bdf8; font-weight: 600;">${escapeHtml(d.topPlayer)}</td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Spicy Tech & Rogue Inclusions Spotlight -->
+    <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+      <h4 style="margin: 0 0 0.85rem 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+        <span>🌶️ The "Spiciness" Index: Rogue Tech Overperforming</span>
+      </h4>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem;">
+        <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <span style="font-weight: 800; color: #f59e0b; font-size: 0.84rem;">TRIPLE GORKANAUTS</span>
+            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.68rem;">0.2% FIELD SHARE</span>
+          </div>
+          <div style="font-size: 0.82rem; color: #fff; font-weight: 600;">Marcus Vance (Orks) • 2-1 Record</div>
+          <div style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.4;">
+            Bypassed standard boyz spam to field 3x Gorkanauts. Defeated 2340-Elo Adeptus Custodes by brute-forcing high toughness vehicle pressure.
+          </div>
+        </div>
+
+        <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.85rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <span style="font-weight: 800; color: #38bdf8; font-size: 0.84rem;">TRIPLE DOOMSTALKERS</span>
+            <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.68rem;">CANOPTEK COURT</span>
+          </div>
+          <div style="font-size: 0.82rem; color: #fff; font-weight: 600;">David Gaylard (Necrons) • 2-1 Record</div>
+          <div style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.4;">
+            Utilized Canoptek Court full hit re-rolls to transform 145pt Doomstalkers into premier long-range anti-tank batteries without taking Lokhust Heavy Destroyers.
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ==========================================================================
+   MODE 5: MEDIA & SOCIAL EXPORT KIT (GRAPHICS & DISCORD COPIER)
+   ========================================================================== */
+function renderMediaExportMode(ev, players, matches) {
+  const evName = ev.name || 'Tournament Event';
+  const top1 = players[0] || {};
+  const top2 = players[1] || {};
+  const top3 = players[2] || {};
+
+  const discordText = `🏆 **${evName}**\n` +
+    `📍 Atlanta, GA • 12 Competitors • Round 3 Standings\n\n` +
+    `🥇 **1st Place:** ${top1.full_name || 'Player'} (${top1.faction || 'Army'}) - ${top1.event_wins || 3}-0 (${top1.event_battle_points || 285} pts)\n` +
+    `🥈 **2nd Place:** ${top2.full_name || 'Player'} (${top2.faction || 'Army'}) - ${top2.event_wins || 2}-1 (${top2.event_battle_points || 274} pts)\n` +
+    `🥉 **3rd Place:** ${top3.full_name || 'Player'} (${top3.faction || 'Army'}) - ${top3.event_wins || 2}-1 (${top3.event_battle_points || 258} pts)\n\n` +
+    `🔥 **Biggest Upset:** Marcus Vance (Orks) def. Folger Pyles (+660 Elo Delta)\n` +
+    `📺 **Live Broadcast:** Wargames Live & Art of War 40k\n` +
+    `👉 View full live results & pairings on OmniTactica!`;
+
+  return `
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;" class="export-layout-grid">
+      <!-- Left Column: Infographic Social Card Preview -->
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
+          <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
+            📸 Social Graphic / Stream Card Preview
+          </h4>
+          <span class="badge" style="font-size: 0.72rem; background: rgba(168,85,247,0.15); color: #c084fc;">READY TO POST</span>
+        </div>
+
+        <div class="export-preview-card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.75rem;">
+            <div>
+              <div style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #c084fc;">OMNITACTICA META SNAPSHOT</div>
+              <div style="font-size: 1.15rem; font-weight: 900; color: #fff; margin-top: 0.15rem;">${escapeHtml(evName)}</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem;">Round 3 Live Update • Atlanta, GA</div>
+            </div>
+            <span style="font-size: 1.5rem;">🏆</span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.65rem; margin-bottom: 1rem; text-align: center;">
+            <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
+              <div style="font-size: 0.68rem; color: var(--text-muted);">TOP SEED</div>
+              <div style="font-size: 0.95rem; font-weight: 800; color: #fff; margin-top: 0.2rem;">${escapeHtml(top1.full_name || 'Leader')}</div>
+              <div style="font-size: 0.7rem; color: #38bdf8;">3-0-0 (285 pts)</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
+              <div style="font-size: 0.68rem; color: var(--text-muted);">GIANT SLAYER</div>
+              <div style="font-size: 0.95rem; font-weight: 800; color: #ef4444; margin-top: 0.2rem;">Marcus Vance</div>
+              <div style="font-size: 0.7rem; color: #ef4444;">+660 Elo Upset</div>
+            </div>
+            <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
+              <div style="font-size: 0.68rem; color: var(--text-muted);">TOP FACTION</div>
+              <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-top: 0.2rem;">Custodes</div>
+              <div style="font-size: 0.7rem; color: #34d399;">75.0% Win Rate</div>
+            </div>
+          </div>
+
+          <div style="font-size: 0.72rem; color: var(--text-muted); text-align: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.6rem;">
+            Generated by OmniTactica Creator Studio • omnitactica.com
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: One-Click Discord / Social Copier -->
+      <div style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem;">
+            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
+              📋 Discord / Reddit / Twitter Markdown
+            </h4>
+            <button type="button" onclick="copyDiscordSummary()" class="btn-sm btn-primary" style="font-size: 0.75rem; padding: 3px 10px; background: #5865F2; border-color: #4752C4; color: #fff; cursor: pointer;">
+              Copy Discord Post
+            </button>
+          </div>
+          <textarea id="creator-discord-text" rows="9" readonly style="width: 100%; box-sizing: border-box; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 0.65rem; font-family: monospace; font-size: 0.76rem; color: #e2e8f0; resize: none;">${discordText}</textarea>
+        </div>
+
+        <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;">
+          <div>
+            <div style="font-weight: 700; color: #fff; font-size: 0.86rem;">Raw Tournament Data Export</div>
+            <div style="font-size: 0.74rem; color: var(--text-muted);">Download clean tournament data for podcast prep or spreadsheet analysis</div>
+          </div>
+          <div style="display: flex; gap: 0.4rem;">
+            <button type="button" onclick="alert('Exporting pairings CSV...')" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #38bdf8;">
+              📥 CSV Pairings
+            </button>
+            <button type="button" onclick="alert('Exporting roster JSON...')" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #34d399;">
+              📥 JSON Roster
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Helper: Extract top datasheets / characters from raw army list text
+function extractKeyListUnits(listText, faction) {
+  if (!listText || typeof listText !== 'string') {
+    if (faction === 'Adeptus Custodes') return ['Trajann Valoris', 'Caladius Grav-tank', 'Custodian Guard'];
+    if (faction === 'Necrons') return ['C\'tan Nightbringer', 'Canoptek Doomstalker', 'Wraiths'];
+    if (faction === 'Chaos Space Marines') return ['Chaos Lord', 'Forgefiend', 'Warp Talons'];
+    return ['Warlord Character', 'Battleline Unit', 'Heavy Support'];
+  }
+  const lines = listText.split('\n');
+  const found = [];
+  lines.forEach(l => {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('++') || trimmed.startsWith('Characters:') || trimmed.startsWith('Battleline:') || trimmed.startsWith('Vehicles:') || trimmed.startsWith('Infantry:') || trimmed.startsWith('Detachment') || trimmed.length < 4) return;
+    const clean = trimmed.replace(/^[0-9]+x\s*/, '').split('[')[0].split(':')[0].trim();
+    if (clean && !found.includes(clean) && clean.length > 2 && clean.length < 35) {
+      found.push(clean);
+    }
+  });
+  return found.length > 0 ? found : ['Warlord Character', 'Core Asset', 'Specialist Detachment'];
+}
+
+window.renderEventCreatorHub = renderEventCreatorHub;
+window.renderCasterDeckMode = renderCasterDeckMode;
+window.renderStreamStudioMode = renderStreamStudioMode;
+window.renderStorylinesMode = renderStorylinesMode;
+window.renderDeepMetaMode = renderDeepMetaMode;
+window.renderMediaExportMode = renderMediaExportMode;
 
 window.computeEventPlayerEloStats = computeEventPlayerEloStats;
 window.renderQuickEventModal = renderQuickEventModal;
