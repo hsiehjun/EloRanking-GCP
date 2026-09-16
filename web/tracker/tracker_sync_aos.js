@@ -17,6 +17,16 @@
 
   console.log(`⚡ [AoS Tracker Sync] Initialized. Match: ${matchId || 'Local (No Room)'}, Spectator: ${isSpectator}`);
 
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   function getAosState() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
