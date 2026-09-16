@@ -472,19 +472,22 @@ def test_organizer_only_events_excluded_from_registered_tournaments():
         "totalPlayers": 0,
         "players": []
     }
-    # Event 2: Player event where user is registered as a competitor
+    # Event 2: Player event where user is registered as a competitor, but BCP returns null myPlayer at events list endpoint
+    # (and event has an organizer in eventUsers matching ownerId, which must not trick the system into marking current user as TO)
     player_event = {
-        "id": "LVO2026",
-        "name": "Las Vegas Open 2026",
-        "ownerId": "OTHER_OWNER",
-        "myPlayer": {
-            "id": "p_12345",
-            "firstName": "John",
-            "lastName": "Hsieh",
-            "army": "Aeldari",
-            "checkedIn": True
+        "id": "7ohG0RuDqC1k",
+        "name": "LVO 2026 - Warhammer 40k Championships - Las Vegas Open",
+        "ownerId": "FLG_OWNER_XYZ",
+        "eventUsers": {
+            "FLG_OWNER_XYZ": {
+                "firstName": "Reece",
+                "lastName": "Robbins",
+                "role": {"name": "Tournament Organizer"}
+            }
         },
-        "totalPlayers": 500
+        "myPlayer": None,
+        "players": [],
+        "totalPlayers": 348
     }
 
     mock_user_info = {
@@ -503,9 +506,10 @@ def test_organizer_only_events_excluded_from_registered_tournaments():
         ok, err, events = bcp_adapter.fetch_user_registered_events("u123", explicit_token="mock_tok")
         assert ok is True
         assert len(events) == 1, f"Expected 1 event, got {len(events)}: {events}"
-        assert events[0]["bcp_event_id"] == "LVO2026"
-        assert events[0]["event_name"] == "Las Vegas Open 2026"
-        print("✅ bcp_adapter correctly filters out TO-only event FcemwXAu9MQ2!")
+        assert events[0]["bcp_event_id"] == "7ohG0RuDqC1k"
+        assert events[0]["event_name"] == "LVO 2026 - Warhammer 40k Championships - Las Vegas Open"
+        assert events[0]["is_organizer"] is False, "LVO must not be flagged as organizer event"
+        print("✅ bcp_adapter correctly filters out TO-only event FcemwXAu9MQ2 while retaining LVO 2026!")
 
     # 2. Verify routers/auth.py filters out organizer-only events even if passed in
     mock_db = MagicMock()

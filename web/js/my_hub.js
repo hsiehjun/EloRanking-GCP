@@ -36,7 +36,6 @@ function buildMyHubShellData(u) {
 function isValidRegisteredTournament(ev) {
   if (!ev) return false;
   if ((ev.is_organizer || ev.isOwner || ev.isTO) && !ev.player_id && !ev.bcp_player_id && !ev.has_explicit_player_data) return false;
-  if (!ev.player_id && !ev.bcp_player_id && !ev.has_explicit_player_data && !ev.faction && (!ev.total_players || ev.total_players === 0)) return false;
   return true;
 }
 
