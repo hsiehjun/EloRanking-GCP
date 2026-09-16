@@ -39,7 +39,9 @@ function getStudioFirestoreDb() {
 
 document.addEventListener("DOMContentLoaded", () => {
   setDefaultEventDates();
-  if (typeof activeTab !== 'undefined' && activeTab === 'event-studio') {
+  if ((typeof activeTab !== 'undefined' && activeTab === 'event-studio') ||
+      document.getElementById('es-view-events') ||
+      window.location.pathname.includes("eventstudio.html")) {
     initStudio();
   }
 });
@@ -57,12 +59,45 @@ async function initStudio() {
   setDefaultEventDates();
   
   let user = typeof currentUser !== "undefined" ? currentUser : null;
+  if (!user && typeof getCookieToken === "function" && getCookieToken()) {
+    try {
+      const sRes = await fetch("/api/auth/session");
+      if (sRes.ok) {
+        const sData = await sRes.json();
+        if (sData && sData.user) {
+          currentUser = sData.user;
+          user = currentUser;
+          updateStudioAuthBadge();
+        }
+      }
+    } catch(e) {}
+  }
+
   const userRole = ((user && user.role) ? user.role : 'player').toLowerCase();
   const canAccessTO = Boolean(user && (userRole === 'admin' || userRole === 'to' || userRole === 'organizer' || userRole === 'referee' || user.is_admin || (typeof isUserTO === 'function' && isUserTO(user))));
 
   if (canAccessTO) {
     await loadStudioEvents();
     startStudioPolling();
+  }
+
+  // Deep linking to specific tournament and subtab via URL query parameters
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const autoEventId = urlParams.get("event") || urlParams.get("id") || urlParams.get("event_id");
+    const autoSubtab = urlParams.get("subtab") || "pairings";
+    if (autoEventId) {
+      if (autoSubtab) {
+        studioState.activeSubtab = autoSubtab;
+      }
+      switchStudioTab("manage", autoEventId);
+      await loadTournamentWorkspace(autoEventId);
+      if (autoSubtab) {
+        switchManageSubtab(autoSubtab);
+      }
+    }
+  } catch (e) {
+    console.debug("Notice reading URL query params for Event Studio:", e);
   }
 }
 
@@ -1286,27 +1321,71 @@ function renderPairingsSubtab() {
   const pairingsMap = ev.pairings || {};
   const roundPairings = pairingsMap[String(currentRound)] || [];
 
+  const isPublished = Boolean(ev.is_published && (ev.published_round === currentRound || ev.publishedRound === currentRound));
+  const isSyncedToBcp = Boolean(ev.pairings_status === "applied" || ev.pairings_status === "synced" || ev.pairings_bcp_synced);
+  const isPrePairing = !isPublished && !isSyncedToBcp;
+
+  // Staged Sandbox banner
+  const stagedBanners = document.querySelectorAll(".es-staged-notice-banner, #es-staged-notice-banner");
+  stagedBanners.forEach(b => {
+    b.style.display = isPrePairing ? "flex" : "none";
+  });
+
+  // Action buttons visibility and text
+  const pushBtns = document.querySelectorAll("#btn-push-pairings-bcp");
+  pushBtns.forEach(btn => {
+    btn.style.display = isPrePairing ? "inline-block" : "none";
+    btn.disabled = roundPairings.length === 0;
+  });
+
+  const editBtns = document.querySelectorAll("#btn-edit-pairings");
+  editBtns.forEach(btn => {
+    btn.style.display = !isPrePairing ? "inline-block" : "none";
+  });
+
+  const publishBtns = document.querySelectorAll("#btn-publish-pairings");
+  publishBtns.forEach(btn => {
+    if (isPrePairing) {
+      btn.style.display = "none";
+    } else {
+      btn.style.display = "inline-block";
+      if (isPublished) {
+        btn.textContent = "✅ Published to Players";
+        btn.className = "btn btn-outline";
+        btn.style.color = "#10b981";
+        btn.style.borderColor = "#10b981";
+        btn.disabled = true;
+      } else {
+        btn.textContent = "📢 Publish to Players";
+        btn.className = "btn btn-primary";
+        btn.style.color = "#fff";
+        btn.style.borderColor = "#38bdf8";
+        btn.disabled = false;
+      }
+    }
+  });
+
   // Update pairing status badge in UI
   const statusBadges = document.querySelectorAll("#manage-pairings-status-badge");
   statusBadges.forEach(statusBadge => {
-    if (ev.is_published && ev.published_round === currentRound) {
+    if (isPublished) {
       statusBadge.className = "badge";
-      statusBadge.style.background = "rgba(56, 189, 248, 0.2)";
-      statusBadge.style.color = "#38bdf8";
-      statusBadge.style.borderColor = "rgba(56, 189, 248, 0.4)";
-      statusBadge.textContent = "📢 PUBLISHED LIVE";
-    } else if (ev.pairings_status === "applied" || ev.pairings_bcp_synced) {
+      statusBadge.style.background = "rgba(16, 185, 129, 0.2)";
+      statusBadge.style.color = "#10b981";
+      statusBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+      statusBadge.textContent = "🟢 PUBLISHED LIVE";
+    } else if (isSyncedToBcp) {
       statusBadge.className = "badge badge-online";
-      statusBadge.style.background = "";
-      statusBadge.style.color = "";
-      statusBadge.style.borderColor = "";
-      statusBadge.textContent = "🟢 APPLIED TO BCP";
+      statusBadge.style.background = "rgba(56, 189, 248, 0.15)";
+      statusBadge.style.color = "#38bdf8";
+      statusBadge.style.borderColor = "rgba(56, 189, 248, 0.35)";
+      statusBadge.textContent = "🟢 PUSHED TO BCP (UNPUBLISHED)";
     } else if (roundPairings.length > 0) {
       statusBadge.className = "badge";
       statusBadge.style.background = "rgba(234, 179, 8, 0.15)";
       statusBadge.style.color = "#facc15";
       statusBadge.style.borderColor = "rgba(234, 179, 8, 0.35)";
-      statusBadge.textContent = "🟡 STAGED PAIRINGS (DRAFT)";
+      statusBadge.textContent = "🟡 PRE-PAIRING (DRAFT)";
     } else {
       statusBadge.className = "badge";
       statusBadge.style.background = "rgba(255, 255, 255, 0.05)";
@@ -1319,13 +1398,7 @@ function renderPairingsSubtab() {
   // Update Apply to BCP button state/text
   const applyBtns = document.querySelectorAll("#btn-apply-pairings-bcp");
   applyBtns.forEach(btn => {
-    if (roundPairings.length === 0) {
-      btn.disabled = true;
-      btn.style.opacity = "0.5";
-    } else {
-      btn.disabled = false;
-      btn.style.opacity = "1";
-    }
+    btn.disabled = roundPairings.length === 0;
   });
 
   if (roundPairings.length === 0) {
@@ -1333,8 +1406,7 @@ function renderPairingsSubtab() {
       c.innerHTML = `
         <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3rem 1.5rem; text-align: center; color: var(--text-muted);">
           <div style="font-size: 1.1rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem;">⚔️ No Pairings Staged for Round ${currentRound}</div>
-          <div>Click <strong>"🎲 Generate Swiss Pairings"</strong> or <strong>"➕ Add Table"</strong> to dynamically construct table matchups on OmniTactica.</div>
-          <div style="margin-top: 0.5rem; font-size: 0.8rem; color: var(--text-secondary);">You can inspect win probabilities, swap competitors between tables, and then click <strong>"🚀 Apply Pairings to BCP"</strong>.</div>
+          <div>Click <strong>"🎯 Elo Swiss"</strong> or <strong>"⚡ Quick Random"</strong> to create table matchups.</div>
         </div>
       `;
     });
@@ -1366,7 +1438,7 @@ function renderPairingsSubtab() {
     const pid = match.id || match.bcp_pairing_id || '';
     const cleanPid = pid && !String(pid).startsWith('bcp-pairing-') ? pid : '';
     const pairingParam = cleanPid ? `&pairing_id=${encodeURIComponent(cleanPid)}` : '';
-    const trackerUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(ev.id)}&table=${table}&role=referee${pairingParam}`;
+    const trackerUrl = `/11th/tracker/play?match_id=${encodeURIComponent(matchId)}&event_id=${encodeURIComponent(ev.id)}&table=${table}&role=spectator${pairingParam}`;
 
     const activeJudgeCall = (studioState.judgeCalls || []).find(c => {
       const cTable = Number(c.tableNumber || c.table_num || c.table || 0);
@@ -1377,8 +1449,55 @@ function renderPairingsSubtab() {
 
     const cardBorderStyle = activeJudgeCall ? 'border: 2px solid #ef4444; box-shadow: 0 0 16px rgba(239, 68, 68, 0.45);' : 'border: 1px solid var(--border);';
 
+    if (isPrePairing) {
+      // PRE-PAIRING STAGED MODE: Strictly opponents & drag handles. No scores, no tracker, no set bye.
+      return `
+        <div class="es-match-card" id="es-table-card-${table}" draggable="true" ondragstart="handleTableDragStart(event, ${table})" ondragover="handleTableDragOver(event, ${table})" ondragleave="handleTableDragLeave(event, ${table})" ondrop="handleTableDrop(event, ${table})" style="background: var(--bg-card); ${cardBorderStyle} border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative; transition: transform 0.15s ease, border-color 0.15s ease;">
+          <!-- Card Header with Table Drag Handle -->
+          <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; cursor: grab;" title="Drag table to reorder position">
+              <span class="es-table-drag-handle" style="user-select: none; color: #38bdf8; font-size: 1.15rem; font-weight: 700;" title="Drag to reorder table">⠿</span>
+              <span style="font-weight: 700; font-family: var(--font-heading); color: #38bdf8;">TABLE ${table}</span>
+              ${isBye ? '<span class="badge badge-accent">BYE</span>' : '<span style="font-size: 0.72rem; color: var(--text-muted);">Swiss Match</span>'}
+            </div>
+            <button class="btn btn-outline" style="font-size: 0.7rem; padding: 0.18rem 0.45rem; color: #ef4444;" onclick="removePairingTable(${table})" title="Remove Table">✕</button>
+          </div>
+
+          <!-- Competitor 1 (Draggable Slot) -->
+          <div style="cursor: grab; padding: 0.5rem 0.65rem; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); transition: background 0.15s;" draggable="true" ondragstart="handlePlayerDragStart(event, ${table}, 'p1')" ondragover="handlePlayerDragOver(event)" ondrop="handlePlayerDrop(event, ${table}, 'p1')" title="Drag player to swap with another slot">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: #fff; font-size: 0.95rem;">${escapeHtml(p1Name)}</span>
+              <span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p1Elo).toFixed(1)}</span>
+            </div>
+            <div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.2rem;">${escapeHtml(p1Fac)}${p1Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p1Team)}</span>` : ''}</div>
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.25rem;">${p1Prob}% Win Prob</div>` : ''}
+          </div>
+
+          <!-- VS Divider & Warnings -->
+          <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin: -0.2rem 0;">
+            <div style="height: 1px; flex: 1; background: var(--border);"></div>
+            <span style="color: var(--text-muted); font-size: 0.72rem; font-weight: 700;">VS</span>
+            ${isRematch ? `<span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.35); font-size: 0.7rem;">⚠️ Rematch${rematchRounds ? ` (R${rematchRounds})` : ''}</span>` : ''}
+            ${sameTeam ? `<span class="badge" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); font-size: 0.7rem;">⚠️ Same Team</span>` : ''}
+            <div style="height: 1px; flex: 1; background: var(--border);"></div>
+          </div>
+
+          <!-- Competitor 2 (Draggable Slot) -->
+          <div style="cursor: ${isBye ? 'default' : 'grab'}; padding: 0.5rem 0.65rem; border-radius: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); transition: background 0.15s;" draggable="${!isBye}" ondragstart="handlePlayerDragStart(event, ${table}, 'p2')" ondragover="handlePlayerDragOver(event)" ondrop="handlePlayerDrop(event, ${table}, 'p2')" title="Drag player to swap with another slot">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: ${isBye ? 'var(--text-muted)' : '#fff'}; font-size: 0.95rem;">${escapeHtml(p2Name)}</span>
+              ${!isBye ? `<span class="badge" style="background: rgba(56, 189, 248, 0.12); color: #38bdf8; font-size: 0.72rem; padding: 0.15rem 0.4rem;">⭐ ${Number(p2Elo).toFixed(1)}</span>` : ''}
+            </div>
+            ${!isBye ? `<div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.2rem;">${escapeHtml(p2Fac)}${p2Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p2Team)}</span>` : ''}</div>` : ''}
+            ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.25rem;">${p2Prob}% Win Prob</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    // POST-PUSH / LIVE BCP MODE: Locked matchups. Score inputs, Set BYE, Open Game Tracker, and Save Score active.
     return `
-      <div class="es-match-card" style="background: var(--bg-card); ${cardBorderStyle} border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative;">
+      <div class="es-match-card" id="es-table-card-${table}" draggable="false" style="background: var(--bg-card); ${cardBorderStyle} border-radius: var(--radius-lg); padding: 1.15rem; display: flex; flex-direction: column; gap: 0.85rem; position: relative;">
         ${activeJudgeCall ? `
           <div style="background: rgba(239, 68, 68, 0.18); border: 1.5px solid #ef4444; border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; animation: gt-pulse 1.5s infinite;">
             <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #fca5a5; font-weight: 700;">
@@ -1407,12 +1526,11 @@ function renderPairingsSubtab() {
           </div>
           <div style="display: flex; align-items: center; gap: 0.4rem;">
             <button class="btn btn-outline" style="font-size: 0.7rem; padding: 0.18rem 0.45rem;" onclick="toggleTableBye(${table})" title="Toggle BYE for this table">${isBye ? 'Set Match' : 'Set BYE'}</button>
-            <button class="btn btn-outline" style="font-size: 0.7rem; padding: 0.18rem 0.45rem; color: #ef4444;" onclick="removePairingTable(${table})" title="Remove Table">✕</button>
           </div>
         </div>
 
-        <!-- Competitor 1 -->
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+        <!-- Competitor 1 Slot -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
           <div style="flex: 1;">
             <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
               <span style="font-weight: 600; color: #fff; font-size: 0.95rem;">${escapeHtml(p1Name)}</span>
@@ -1421,13 +1539,10 @@ function renderPairingsSubtab() {
             <div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.15rem;">${escapeHtml(p1Fac)}${p1Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p1Team)}</span>` : ''}</div>
             ${!isBye ? `<div style="font-size: 0.72rem; color: ${p1Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;">${p1Prob}% Win Prob</div>` : ''}
           </div>
-          <div style="display: flex; align-items: center; gap: 0.4rem;">
-            <input type="number" id="score-p1-${table}" class="form-input" value="${p1Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
-            <button class="btn btn-outline" style="font-size: 0.72rem; padding: 0.28rem 0.5rem;" onclick="openSwapModal(${currentRound}, ${table}, 'p1', '${escapeHtml(p1Name)}')" title="Swap Player 1 with another table">⇄ Swap</button>
-          </div>
+          <input type="number" id="score-p1-${table}" class="form-input" value="${p1Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
         </div>
 
-        <!-- VS Divider & Warnings -->
+        <!-- VS Divider -->
         <div style="display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin: -0.2rem 0;">
           <div style="height: 1px; flex: 1; background: var(--border);"></div>
           <span style="color: var(--text-muted); font-size: 0.72rem; font-weight: 700;">VS</span>
@@ -1436,8 +1551,8 @@ function renderPairingsSubtab() {
           <div style="height: 1px; flex: 1; background: var(--border);"></div>
         </div>
 
-        <!-- Competitor 2 -->
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem;">
+        <!-- Competitor 2 Slot -->
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem;">
           <div style="flex: 1;">
             <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
               <span style="font-weight: 600; color: ${isBye ? 'var(--text-muted)' : '#fff'}; font-size: 0.95rem;">${escapeHtml(p2Name)}</span>
@@ -1446,10 +1561,7 @@ function renderPairingsSubtab() {
             ${!isBye ? `<div style="font-size: 0.75rem; color: #38bdf8; margin-top: 0.15rem;">${escapeHtml(p2Fac)}${p2Team ? ` • <span style="color: var(--text-secondary);">${escapeHtml(p2Team)}</span>` : ''}</div>` : ''}
             ${!isBye ? `<div style="font-size: 0.72rem; color: ${p2Prob >= 50 ? 'var(--win)' : 'var(--text-muted)'}; font-weight: 600; margin-top: 0.2rem;">${p2Prob}% Win Prob</div>` : ''}
           </div>
-          <div style="display: flex; align-items: center; gap: 0.4rem;">
-            <input type="number" id="score-p2-${table}" class="form-input" value="${p2Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
-            ${!isBye ? `<button class="btn btn-outline" style="font-size: 0.72rem; padding: 0.28rem 0.5rem;" onclick="openSwapModal(${currentRound}, ${table}, 'p2', '${escapeHtml(p2Name)}')" title="Swap Player 2 with another table">⇄ Swap</button>` : ''}
-          </div>
+          <input type="number" id="score-p2-${table}" class="form-input" value="${p2Score}" min="0" max="100" style="width: 65px; text-align: center; font-weight: 700; font-size: 1.05rem;" ${isBye ? 'disabled' : ''}>
         </div>
 
         <!-- Card Footer Actions -->
@@ -1719,7 +1831,238 @@ async function submitSwapPlayers() {
   }
 }
 
-async function applyPairingsToBcp() {
+let _draggedTable = null;
+let _draggedPlayer = null;
+
+function handleTableDragStart(e, table) {
+  if (_draggedPlayer) return;
+  _draggedTable = table;
+  if (e.dataTransfer) {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ type: "table", table: table }));
+    e.dataTransfer.effectAllowed = "move";
+  }
+  const card = document.getElementById(`es-table-card-${table}`);
+  if (card) {
+    card.style.opacity = "0.45";
+    card.classList.add("table-dragging");
+  }
+}
+
+function handleTableDragOver(e, table) {
+  if (_draggedTable && _draggedTable !== table) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    const card = document.getElementById(`es-table-card-${table}`);
+    if (card) {
+      card.style.borderColor = "var(--primary, #38bdf8)";
+      card.style.boxShadow = "0 0 12px rgba(56, 189, 248, 0.4)";
+    }
+  }
+}
+
+function handleTableDragLeave(e, table) {
+  const card = document.getElementById(`es-table-card-${table}`);
+  if (card) {
+    card.style.borderColor = "";
+    card.style.boxShadow = "";
+  }
+}
+
+async function handleTableDrop(e, targetTable) {
+  e.preventDefault();
+  const sourceTable = _draggedTable;
+  _draggedTable = null;
+
+  const allCards = document.querySelectorAll(".es-match-card");
+  allCards.forEach(c => {
+    c.style.opacity = "1";
+    c.style.borderColor = "";
+    c.style.boxShadow = "";
+    c.classList.remove("table-dragging");
+  });
+
+  if (!sourceTable || sourceTable === targetTable) return;
+
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+  let roundPairings = pairingsMap[String(currentRound)] || [];
+  if (roundPairings.length === 0) return;
+
+  try {
+    const res = await window.api.reorderStudioTables(ev.id, {
+      round: currentRound,
+      source_table: sourceTable,
+      target_table: targetTable,
+      pairings: roundPairings
+    });
+    if (res && res.success && res.pairings) {
+      roundPairings = res.pairings;
+      pairingsMap[String(currentRound)] = roundPairings;
+      ev.pairings = pairingsMap;
+      ev.pairings_status = "staged";
+      renderPairingsSubtab();
+    } else {
+      const srcIdx = roundPairings.findIndex(m => m.table === sourceTable);
+      const tgtIdx = roundPairings.findIndex(m => m.table === targetTable);
+      if (srcIdx !== -1 && tgtIdx !== -1) {
+        const [moved] = roundPairings.splice(srcIdx, 1);
+        roundPairings.splice(tgtIdx, 0, moved);
+        roundPairings.forEach((m, idx) => { m.table = idx + 1; });
+        pairingsMap[String(currentRound)] = roundPairings;
+        ev.pairings = pairingsMap;
+        ev.pairings_status = "staged";
+        renderPairingsSubtab();
+      }
+    }
+  } catch (err) {
+    console.error("Reorder table error:", err);
+    const srcIdx = roundPairings.findIndex(m => m.table === sourceTable);
+    const tgtIdx = roundPairings.findIndex(m => m.table === targetTable);
+    if (srcIdx !== -1 && tgtIdx !== -1) {
+      const [moved] = roundPairings.splice(srcIdx, 1);
+      roundPairings.splice(tgtIdx, 0, moved);
+      roundPairings.forEach((m, idx) => { m.table = idx + 1; });
+      pairingsMap[String(currentRound)] = roundPairings;
+      ev.pairings = pairingsMap;
+      ev.pairings_status = "staged";
+      renderPairingsSubtab();
+    }
+  }
+}
+
+function handlePlayerDragStart(e, table, slot) {
+  e.stopPropagation();
+  _draggedPlayer = { table, slot };
+  if (e.dataTransfer) {
+    e.dataTransfer.setData("text/plain", JSON.stringify({ type: "player", table, slot }));
+    e.dataTransfer.effectAllowed = "move";
+  }
+  if (e.currentTarget) {
+    e.currentTarget.style.opacity = "0.5";
+  }
+}
+
+function handlePlayerDragOver(e) {
+  if (_draggedPlayer) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  }
+}
+
+async function handlePlayerDrop(e, targetTable, targetSlot) {
+  e.preventDefault();
+  e.stopPropagation();
+  const source = _draggedPlayer;
+  _draggedPlayer = null;
+
+  const allSlots = document.querySelectorAll(".es-match-card div[draggable='true']");
+  allSlots.forEach(s => s.style.opacity = "1");
+
+  if (!source) return;
+  if (source.table === targetTable && source.slot === targetSlot) return;
+
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const pairingsMap = ev.pairings || {};
+  const roundPairings = pairingsMap[String(currentRound)] || [];
+
+  try {
+    const payload = {
+      round: currentRound,
+      table1: source.table,
+      slot1: source.slot,
+      table2: targetTable,
+      slot2: targetSlot,
+      pairings: roundPairings
+    };
+    const res = await window.api.swapStudioPairings(ev.id, payload);
+    if (res && res.success && res.pairings) {
+      pairingsMap[String(currentRound)] = res.pairings;
+      ev.pairings = pairingsMap;
+      ev.pairings_status = "staged";
+      renderPairingsSubtab();
+    } else {
+      alert((res && (res.detail || res.message)) || "Failed to swap player slots.");
+    }
+  } catch (err) {
+    console.error("Player swap drag error:", err);
+    alert(`Failed to swap players: ${err.message || err}`);
+  }
+}
+
+async function triggerQuickPairings(method) {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  const currentRound = studioState.currentRoundView || ev.current_round || 1;
+  const methodName = method === "random" ? "Random" : (method === "elo_balanced" ? "Elo Balanced" : "Elo Swiss");
+
+  const btns = document.querySelectorAll(`button[onclick*="triggerQuickPairings('${method}')"]`);
+  btns.forEach(btn => {
+    btn.disabled = true;
+    btn.dataset.origHtml = btn.innerHTML;
+    btn.innerHTML = `<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Generating...`;
+  });
+
+  try {
+    const res = await window.api.quickGenerateStudioPairings(ev.id, {
+      round: currentRound,
+      method: method
+    });
+
+    if (res && res.success) {
+      if (res.event) {
+        studioState.activeTournament = res.event;
+      } else if (res.pairings) {
+        ev.pairings = ev.pairings || {};
+        ev.pairings[String(currentRound)] = res.pairings;
+        ev.pairings_status = "staged";
+        ev.pairings_bcp_synced = false;
+      }
+      renderPairingsSubtab();
+    } else {
+      alert((res && (res.detail || res.message)) || `Failed to generate ${methodName} pairings.`);
+    }
+  } catch (err) {
+    console.error(`Quick generate pairings (${method}) error:`, err);
+    alert(`Failed to generate pairings: ${err.message || err}`);
+  } finally {
+    btns.forEach(btn => {
+      btn.disabled = false;
+      if (btn.dataset.origHtml) btn.innerHTML = btn.dataset.origHtml;
+    });
+  }
+}
+
+async function resetStagedPairings() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+
+  if (!confirm("Discard staged sandbox changes and reset to current tournament state?")) {
+    return;
+  }
+
+  try {
+    const res = await window.api.getStudioEvent(ev.id);
+    if (res && (res.tournament || res.event)) {
+      studioState.activeTournament = res.tournament || res.event;
+      renderPairingsSubtab();
+    } else {
+      renderPairingsSubtab();
+    }
+  } catch (err) {
+    console.error("Reset staged pairings error:", err);
+    renderPairingsSubtab();
+  }
+}
+
+async function pushPairingsToBcp() {
   const ev = studioState.activeTournament;
   if (!ev) return;
 
@@ -1728,44 +2071,71 @@ async function applyPairingsToBcp() {
   const roundPairings = pairingsMap[String(currentRound)] || [];
 
   if (roundPairings.length === 0) {
-    alert(`No pairings staged for Round ${currentRound}.`);
+    alert(`No pairings staged for Round ${currentRound}. Use Quick Pairings or Add Table first.`);
     return;
   }
 
-  if (!confirm(`🚀 Apply Round ${currentRound} pairings to Best Coast Pairings? This will push all ${roundPairings.length} table matchups to BCP and sync live game tracker rooms.`)) {
+  const publishImmediate = false; // Off by default: TO pushes pairings as unpublished draft, then uses Publish to Players button.
+
+  const isPreTournament = !ev.started && currentRound === 1;
+  const actionText = isPreTournament ? "Start Event & Push Custom Pairings to BCP" : "Push Pairings to BCP";
+
+  if (!confirm(`🚀 ${actionText}?\n\nThis will synchronize ${roundPairings.length} table matchups for Round ${currentRound} to Best Coast Pairings (BCP) in unpublished mode. Players will not see matchups until you click Publish.`)) {
     return;
   }
 
-  const applyBtns = document.querySelectorAll("#btn-apply-pairings-bcp");
-  applyBtns.forEach(btn => {
+  const pushBtns = document.querySelectorAll("#btn-push-pairings-bcp, #btn-apply-pairings-bcp");
+  pushBtns.forEach(btn => {
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Applying...';
+    btn.innerHTML = `<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:4px;"></span> Pushing to BCP...`;
   });
 
   try {
-    const res = await window.api.applyStudioPairingsToBcp(ev.id, { round: currentRound });
+    const payload = {
+      round: currentRound,
+      pairings: roundPairings,
+      publish_immediately: false,
+      start_if_unstarted: true
+    };
+
+    const res = await window.api.pushStudioPairingsToBcp(ev.id, payload);
     if (res && res.success) {
       if (res.event) {
         studioState.activeTournament = res.event;
       } else {
         ev.pairings_status = "applied";
         ev.pairings_bcp_synced = true;
+        ev.is_published = false;
+        if (isPreTournament) ev.started = true;
       }
       renderPairingsSubtab();
-      const bcpNote = res.bcp_applied ? " Applied to Best Coast Pairings." : (res.bcp_notice ? ` (Notice: ${res.bcp_notice})` : "");
-      alert(`✅ Round ${currentRound} pairings successfully staged and applied!${bcpNote}`);
+      const bcpNote = res.bcp_applied ? " Matchups reconciled on BCP." : (res.bcp_notice ? ` (${res.bcp_notice})` : "");
+      alert(`✅ Success! Round ${currentRound} pairings synchronized to BCP.${bcpNote}\n\nMatchups are set in BCP. Click "📢 Publish to Players" when you are ready for competitors to see their tables!`);
     } else {
-      alert((res && (res.detail || res.message)) || "Failed to apply pairings to BCP.");
+      alert((res && (res.detail || res.message)) || "Failed to push pairings to BCP.");
     }
   } catch (err) {
-    console.error("Apply pairings error:", err);
-    alert(`Failed to apply pairings: ${err.message || err}`);
+    console.error("Push pairings to BCP error:", err);
+    alert(`Failed to push pairings: ${err.message || err}`);
   } finally {
-    applyBtns.forEach(btn => {
+    pushBtns.forEach(btn => {
       btn.disabled = false;
-      btn.innerHTML = '🚀 Apply Pairings to BCP';
+      btn.innerHTML = `🚀 Push Pairings to BCP`;
     });
   }
+}
+
+function enablePrePairingEditMode() {
+  const ev = studioState.activeTournament;
+  if (!ev) return;
+  ev.pairings_status = "staged";
+  ev.pairings_bcp_synced = false;
+  renderPairingsSubtab();
+}
+window.enablePrePairingEditMode = enablePrePairingEditMode;
+
+async function applyPairingsToBcp() {
+  return pushPairingsToBcp();
 }
 
 async function addPairingTable() {
@@ -2030,20 +2400,15 @@ async function togglePublishPairings() {
       const res = await window.api.unpublishStudioPairings(ev.id, { round: currentRound });
       if (res && res.success) {
         ev.is_published = false;
-        if (btn) {
-          btn.innerText = "📢 Publish Pairings";
-          btn.className = "btn btn-outline";
-        }
+        renderPairingsSubtab();
         alert(`🔒 Round ${currentRound} pairings unpublished.`);
       }
     } else {
       const res = await window.api.publishStudioPairings(ev.id, { round: currentRound });
       if (res && res.success) {
         ev.is_published = true;
-        if (btn) {
-          btn.innerText = "🔒 Unpublish Pairings";
-          btn.className = "btn btn-primary";
-        }
+        ev.published_round = currentRound;
+        renderPairingsSubtab();
         alert(`📢 Round ${currentRound} pairings published live on BCP and player devices!`);
       }
     }
@@ -3851,6 +4216,16 @@ window.closeCircuitsModal = closeCircuitsModal;
 window.submitLinkCircuitFromModal = submitLinkCircuitFromModal;
 window.startTournamentEvent = startTournamentEvent;
 window.applyPairingsToBcp = applyPairingsToBcp;
+window.pushPairingsToBcp = pushPairingsToBcp;
+window.triggerQuickPairings = triggerQuickPairings;
+window.resetStagedPairings = resetStagedPairings;
+window.handleTableDragStart = handleTableDragStart;
+window.handleTableDragOver = handleTableDragOver;
+window.handleTableDragLeave = handleTableDragLeave;
+window.handleTableDrop = handleTableDrop;
+window.handlePlayerDragStart = handlePlayerDragStart;
+window.handlePlayerDragOver = handlePlayerDragOver;
+window.handlePlayerDrop = handlePlayerDrop;
 window.openSwapModal = openSwapModal;
 window.closeSwapModal = closeSwapModal;
 window.submitSwapPlayers = submitSwapPlayers;

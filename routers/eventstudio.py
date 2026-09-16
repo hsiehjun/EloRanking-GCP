@@ -135,9 +135,28 @@ class SwapPairingPayload(BaseModel):
     slot1: str = "p1"  # "p1" or "p2"
     table2: int
     slot2: str = "p2"  # "p1" or "p2"
+    pairings: Optional[List[Dict[str, Any]]] = None
 
 class ApplyPairingsBcpPayload(BaseModel):
     round: int = 1
+
+class PushPairingsBcpPayload(BaseModel):
+    round: int = 1
+    start_if_unstarted: bool = True
+    publish_immediately: bool = False
+    pairings: List[Dict[str, Any]] = []
+
+class QuickGeneratePairingsPayload(BaseModel):
+    round: int = 1
+    mode: Optional[str] = None  # "random", "swiss", "elo_balanced"
+    method: Optional[str] = None  # alias for mode
+    roster: Optional[List[Dict[str, Any]]] = None
+
+class ReorderTablesPayload(BaseModel):
+    round: int = 1
+    source_table: Optional[int] = None
+    target_table: Optional[int] = None
+    pairings: List[Dict[str, Any]] = []
 
 def execute_bcp_api_call(
     url: str,
@@ -2407,7 +2426,39 @@ def generate_swiss_pairings_for_event(ev: Dict[str, Any], target_round: int) -> 
 
 @router.post("/api/eventstudio/event/{event_id}/pairings/generate", summary="Generate automated Swiss pairings for tournament round (staged locally)")
 async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, Any], request: Request):
-    _get_to_session_or_403(request)
+    user = _get_to_session_or_403(request)
+    target_round = int(payload.get("round") or payload.get("round_num") or 1)
+
+    # 1. BCP Decoupled Flow (Zero DB mutation)
+    if not event_id.startswith("ES-"):
+        bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+        if not bcp_ev:
+            raise HTTPException(status_code=404, detail="Event not found on BCP")
+
+        roster = [p for p in (bcp_ev.get("roster") or []) if not p.get("dropped")]
+        if not roster or len(roster) < 2:
+            raise HTTPException(status_code=400, detail="At least 2 active players required in roster to generate pairings")
+
+        target_round = int(payload.get("round") or payload.get("round_num") or (bcp_ev.get("current_round") or 1))
+        generated_pairings = generate_swiss_pairings_for_event(bcp_ev, target_round)
+
+        pairings_map = bcp_ev.get("pairings") or {}
+        pairings_map[str(target_round)] = generated_pairings
+        bcp_ev["pairings"] = pairings_map
+        bcp_ev["current_round"] = target_round
+        bcp_ev["pairings_status"] = "staged"
+
+        return {
+            "success": True,
+            "round": target_round,
+            "pairings": generated_pairings,
+            "pairings_status": "staged",
+            "bcp_generated": False,
+            "event": bcp_ev,
+            "message": f"Generated Round {target_round} Swiss pairings (staged locally). TO can inspect, swap players, and push to BCP."
+        }
+
+    # 2. Local Studio Event Flow
     db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
@@ -2437,17 +2488,189 @@ async def api_eventstudio_generate_pairings(event_id: str, payload: Dict[str, An
         "message": f"Generated Round {target_round} Swiss pairings (staged locally). TO can inspect, swap players, and apply to BCP."
     }
 
+@router.post("/api/eventstudio/event/{event_id}/pairings/quick_generate", summary="Quickly generate pairings (random, Swiss, or Elo balanced) without mutating DB")
+async def api_eventstudio_quick_generate(event_id: str, payload: QuickGeneratePairingsPayload, request: Request):
+    user = _get_to_session_or_403(request)
+    target_round = int(payload.round or 1)
+    mode = str(payload.method or payload.mode or "random").lower()
+
+    # Obtain active roster
+    roster = payload.roster or []
+    if not roster:
+        if not event_id.startswith("ES-"):
+            bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+            if bcp_ev:
+                roster = bcp_ev.get("roster") or []
+        else:
+            db = get_database()
+            ev = db.get_studio_event(event_id)
+            if ev:
+                roster = ev.get("roster") or []
+
+    active_roster = [p for p in roster if not p.get("dropped")]
+    if len(active_roster) < 2:
+        raise HTTPException(status_code=400, detail="At least 2 active competitors required to generate pairings")
+
+    import random
+    candidates = list(active_roster)
+    if mode == "random":
+        random.shuffle(candidates)
+    elif mode == "elo_balanced":
+        candidates.sort(key=lambda p: float(p.get("elo") or 1500.0), reverse=True)
+    elif mode == "swiss":
+        synth_event = {"id": event_id, "roster": candidates, "pairings": {}, "startingTable": 1}
+        pairings = generate_swiss_pairings_for_event(synth_event, target_round)
+        return {
+            "success": True,
+            "round": target_round,
+            "mode": mode,
+            "method": mode,
+            "pairings": pairings,
+            "pairings_status": "staged",
+            "message": f"Generated Round {target_round} Swiss pairings (staged locally)."
+        }
+
+    # Build pairings for random / elo_balanced
+    pairings = []
+    table_num = 1
+    idx = 0
+    n = len(candidates)
+    while idx < n:
+        p1 = candidates[idx]
+        if idx + 1 < n:
+            p2 = candidates[idx + 1]
+            e1 = float(p1.get("elo") or 1500.0)
+            e2 = float(p2.get("elo") or 1500.0)
+            prob1 = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
+            prob2 = round(100.0 - prob1, 1)
+            t1 = (p1.get("team") or "").strip().lower()
+            t2 = (p2.get("team") or "").strip().lower()
+            same_team = bool(t1 and t2 and t1 == t2)
+
+            pairings.append({
+                "id": f"staged-r{target_round}-t{table_num}",
+                "table": table_num,
+                "tableNumber": table_num,
+                "round": target_round,
+                "p1_id": str(p1.get("id") or p1.get("player_id") or ""),
+                "p1_name": p1.get("name") or "Player 1",
+                "p1_faction": p1.get("faction") or "Unassigned",
+                "p1_team": p1.get("team") or "",
+                "p1_elo": e1,
+                "p1_win_prob": prob1,
+                "p1_score": 0,
+                "p2_id": str(p2.get("id") or p2.get("player_id") or ""),
+                "p2_name": p2.get("name") or "Player 2",
+                "p2_faction": p2.get("faction") or "Unassigned",
+                "p2_team": p2.get("team") or "",
+                "p2_elo": e2,
+                "p2_win_prob": prob2,
+                "p2_score": 0,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": same_team,
+                "is_done": False,
+                "is_bye": False
+            })
+            idx += 2
+        else:
+            e1 = float(p1.get("elo") or 1500.0)
+            pairings.append({
+                "id": f"staged-r{target_round}-t{table_num}",
+                "table": table_num,
+                "tableNumber": table_num,
+                "round": target_round,
+                "p1_id": str(p1.get("id") or p1.get("player_id") or ""),
+                "p1_name": p1.get("name") or "Player 1",
+                "p1_faction": p1.get("faction") or "Unassigned",
+                "p1_team": p1.get("team") or "",
+                "p1_elo": e1,
+                "p1_win_prob": 100.0,
+                "p1_score": 100,
+                "p2_id": "",
+                "p2_name": "BYE",
+                "p2_faction": "",
+                "p2_team": "",
+                "p2_elo": 0.0,
+                "p2_win_prob": 0.0,
+                "p2_score": 0,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": False,
+                "is_done": True,
+                "is_bye": True
+            })
+            idx += 1
+        table_num += 1
+
+    return {
+        "success": True,
+        "round": target_round,
+        "mode": mode,
+        "method": mode,
+        "pairings": pairings,
+        "pairings_status": "staged",
+        "message": f"Successfully generated {mode.replace('_', ' ').title()} pairings ({len(pairings)} tables staged locally)."
+    }
+
+@router.post("/api/eventstudio/event/{event_id}/pairings/reorder_tables", summary="Reorder table numbers for staged pairings (drag & drop reordering)")
+async def api_eventstudio_reorder_tables(event_id: str, payload: ReorderTablesPayload, request: Request):
+    _get_to_session_or_403(request)
+    pairings = payload.pairings or []
+    if not pairings:
+        raise HTTPException(status_code=400, detail="No pairings provided for reordering")
+
+    target_round = int(payload.round or 1)
+    if payload.source_table and payload.target_table and payload.source_table != payload.target_table:
+        src_idx = next((i for i, p in enumerate(pairings) if p.get("table") == payload.source_table or p.get("tableNumber") == payload.source_table), None)
+        tgt_idx = next((i for i, p in enumerate(pairings) if p.get("table") == payload.target_table or p.get("tableNumber") == payload.target_table), None)
+        if src_idx is not None and tgt_idx is not None:
+            moved = pairings.pop(src_idx)
+            pairings.insert(tgt_idx, moved)
+
+    for idx, p in enumerate(pairings):
+        p["table"] = idx + 1
+        p["tableNumber"] = idx + 1
+
+    if event_id.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if ev:
+            pairings_map = ev.get("pairings") or {}
+            pairings_map[str(target_round)] = pairings
+            ev["pairings"] = pairings_map
+            ev["pairings_status"] = "staged"
+            db.save_studio_event(ev)
+
+    return {
+        "success": True,
+        "round": target_round,
+        "pairings": pairings,
+        "pairings_status": "staged",
+        "message": f"Reordered {len(pairings)} tables successfully."
+    }
+
 @router.post("/api/eventstudio/event/{event_id}/pairings/swap", summary="Dynamically swap two competitors between tables before applying to BCP")
 async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPayload, request: Request):
-    _get_to_session_or_403(request)
-    db = get_database()
-    ev = db.get_studio_event(event_id)
-    if not ev:
-        raise HTTPException(status_code=404, detail="Event not found")
-
+    user = _get_to_session_or_403(request)
     r_str = str(payload.round)
-    pairings_map = ev.get("pairings") or {}
-    round_pairings = list(pairings_map.get(r_str) or [])
+
+    round_pairings = []
+    if payload.pairings:
+        round_pairings = list(payload.pairings)
+    elif not event_id.startswith("ES-"):
+        bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+        if bcp_ev:
+            pairings_map = bcp_ev.get("pairings") or {}
+            round_pairings = list(pairings_map.get(r_str) or [])
+    else:
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+        pairings_map = ev.get("pairings") or {}
+        round_pairings = list(pairings_map.get(r_str) or [])
+
     if not round_pairings:
         raise HTTPException(status_code=400, detail=f"No pairings found for Round {payload.round}")
 
@@ -2481,22 +2704,15 @@ async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPaylo
         t2 = (m.get("p2_team") or "").strip().lower()
         m["same_team"] = bool(t1 and t2 and t1 == t2)
 
-        pid1 = str(m.get("p1_id") or "")
-        pid2 = str(m.get("p2_id") or "")
-        rematch_r = []
-        for prev_r, p_list in pairings_map.items():
-            if prev_r != r_str:
-                for pm in (p_list or []):
-                    ids = {str(pm.get("p1_id") or ""), str(pm.get("p2_id") or "")}
-                    if pid1 in ids and pid2 in ids:
-                        try: rematch_r.append(int(prev_r))
-                        except Exception: pass
-        m["is_rematch"] = len(rematch_r) > 0
-        m["rematch_rounds"] = sorted(rematch_r)
-
-    ev["pairings"][r_str] = round_pairings
-    ev["pairings_status"] = "staged"
-    saved = db.save_studio_event(ev)
+    # Save to DB ONLY if local studio event
+    saved_ev = None
+    if event_id.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if ev:
+            ev["pairings"][r_str] = round_pairings
+            ev["pairings_status"] = "staged"
+            saved_ev = db.save_studio_event(ev)
 
     return {
         "success": True,
@@ -2504,28 +2720,24 @@ async def api_eventstudio_swap_pairings(event_id: str, payload: SwapPairingPaylo
         "pairings": round_pairings,
         "pairings_status": "staged",
         "message": f"Successfully swapped Table {payload.table1} ({payload.slot1.upper()}) and Table {payload.table2} ({payload.slot2.upper()}).",
-        "event": saved
+        "event": saved_ev or {"id": event_id, "pairings": {r_str: round_pairings}, "pairings_status": "staged"}
     }
 
-@router.post("/api/eventstudio/event/{event_id}/pairings/apply_bcp", summary="Apply staged tournament pairings to Best Coast Pairings")
-async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
+@router.post("/api/eventstudio/event/{event_id}/pairings/push_to_bcp", summary="Two-step abstraction layer: reconcile and push staged pairings to BCP")
+async def api_eventstudio_push_pairings_bcp(event_id: str, payload: PushPairingsBcpPayload, request: Request):
     user = _get_to_session_or_403(request)
-    db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
+    bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
 
-    ev = db.get_studio_event(event_id)
-    if not ev:
-        raise HTTPException(status_code=404, detail="Event not found")
+    round_num = int(payload.round or 1)
+    target_pairings = payload.pairings or []
 
-    round_num = str(payload.round)
-    pairings_map = ev.get("pairings") or {}
-    pairings_list = pairings_map.get(round_num) or []
-    if not pairings_list:
-        raise HTTPException(status_code=400, detail=f"No pairings found for Round {round_num}")
+    if not target_pairings:
+        raise HTTPException(status_code=400, detail="No pairings provided to push to BCP")
 
-    # Pre-seed deterministic tracker rooms for each table
-    for p in pairings_list:
+    # Pre-seed deterministic tracker rooms for each table in-memory
+    for p in target_pairings:
         t_num = p.get("table") or 1
         mid = f"BCP-{event_id}-R{round_num}-T{t_num}".upper()
         p1_name = p.get("p1_name") or "Player 1"
@@ -2556,73 +2768,150 @@ async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairin
                 }
             }
 
-    # Push to BCP
-    bcp_pushed = False
-    bcp_err = None
-    if not event_id.startswith("ES-"):
-        bcp_token = None
-        if user_id:
-            bcp_token = auth_mgr.get_valid_bcp_token(user_id)
-        if not bcp_token and ev.get("organizer_id"):
-            bcp_token = auth_mgr.get_valid_bcp_token(ev.get("organizer_id"))
+    # 1. Local Studio Event Flow
+    if event_id.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+        pairings_map = ev.get("pairings") or {}
+        pairings_map[str(round_num)] = target_pairings
+        ev["pairings"] = pairings_map
+        ev["pairings_status"] = "applied"
+        ev["started"] = True
+        ev["status"] = "active"
+        ev["current_round"] = round_num
+        ev["is_published"] = payload.publish_immediately
+        saved = db.save_studio_event(ev)
+        return {
+            "success": True,
+            "round": round_num,
+            "bcp_started": False,
+            "pairings_count": len(target_pairings),
+            "pairings_status": "applied",
+            "event": saved,
+            "message": f"Round {round_num} pairings applied locally for event {event_id}."
+        }
 
-        bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/rounds/{round_num}/pairings"
-        data, err = execute_bcp_api_call(bcp_url, method="POST", json_data={"pairings": pairings_list}, user_id=user_id, explicit_token=bcp_token)
-        if data is not None or not err:
-            bcp_pushed = True
-            logger.info(f"✅ Pushed Round {round_num} pairings to BCP for {event_id}")
-        else:
-            bcp_err = err
-            bcp_url2 = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/pairings"
-            data2, err2 = execute_bcp_api_call(bcp_url2, method="POST", json_data={"round": int(round_num), "pairings": pairings_list}, user_id=user_id, explicit_token=bcp_token)
-            if data2 is not None or not err2:
-                bcp_pushed = True
-                logger.info(f"✅ Pushed Round {round_num} pairings to BCP fallback for {event_id}")
+    # 2. Pure BCP Flow (Direct API invocation, Zero DB writes)
+    ok, err, meta = bcp_adapter.reconcile_and_push_pairings(
+        event_id=event_id,
+        round_num=round_num,
+        target_pairings=target_pairings,
+        start_if_unstarted=payload.start_if_unstarted,
+        publish_immediately=payload.publish_immediately,
+        user_id=user_id,
+        explicit_token=bcp_token
+    )
 
-    ev["pairings_status"] = "applied"
-    ev["pairings_bcp_synced"] = bcp_pushed
-    saved = db.save_studio_event(ev)
+    if not ok and err:
+        raise HTTPException(status_code=400, detail=f"Failed to push pairings to BCP: {err}")
 
-    return {
-        "success": True,
-        "round": int(round_num),
-        "pairings_count": len(pairings_list),
-        "bcp_applied": bcp_pushed,
-        "bcp_notice": bcp_err if not bcp_pushed and not event_id.startswith("ES-") else None,
-        "pairings_status": "applied",
-        "event": saved,
-        "message": f"Round {round_num} pairings successfully applied to Best Coast Pairings!"
-    }
-
-@router.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
-async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
-    user = _get_to_session_or_403(request)
-    db = get_database()
-    auth_mgr = get_auth_manager()
-    user_id = user["id"]
-
-    ev = db.get_studio_event(event_id)
-    if not ev:
-        raise HTTPException(status_code=404, detail="Event not found")
-
-    round_num = int(payload.get("round") or ev.get("current_round") or 1)
-    ev["published_round"] = round_num
-    ev["is_published"] = True
-    saved = db.save_studio_event(ev)
-
-    # Sync publish to BCP
-    bcp_published = False
-    if user_id and not event_id.startswith("ES-"):
-        bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/publishPairings"
-        resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": round_num}, user_id=user_id)
-        if resp_data is not None or not err_msg:
-            bcp_published = True
-            logger.info(f"✅ Successfully published Round {round_num} pairings on BCP for event {event_id}")
+    bcp_ev = _fetch_bcp_event_workspace(event_id, user, explicit_token=bcp_token)
+    if not bcp_ev:
+        bcp_ev = {
+            "id": event_id,
+            "started": True,
+            "status": "active",
+            "current_round": round_num,
+            "pairings_status": "applied",
+            "pairings": {str(round_num): target_pairings}
+        }
+    else:
+        bcp_ev["pairings_status"] = "applied"
 
     return {
         "success": True,
         "round": round_num,
-        "bcp_published": bcp_published,
+        "bcp_applied": True,
+        "bcp_started": meta.get("bcp_started", True),
+        "pairings_count": meta.get("pairings_count", len(target_pairings)),
+        "published": meta.get("published", payload.publish_immediately),
+        "swaps_performed": meta.get("swaps_performed", 0),
+        "batch_applied": meta.get("batch_applied", False),
+        "pairings_status": "applied",
+        "event": bcp_ev,
+        "pairings": target_pairings,
+        "message": meta.get("message") or f"Round {round_num} pairings successfully pushed to Best Coast Pairings!"
+    }
+
+@router.post("/api/eventstudio/event/{event_id}/pairings/apply_bcp", summary="Apply staged tournament pairings to Best Coast Pairings")
+async def api_eventstudio_apply_pairings_bcp(event_id: str, payload: ApplyPairingsBcpPayload, request: Request):
+    user = _get_to_session_or_403(request)
+    auth_mgr = get_auth_manager()
+    user_id = user["id"]
+
+    round_num = str(payload.round)
+    pairings_list = []
+
+    # If local studio event
+    if event_id.startswith("ES-"):
+        db = get_database()
+        ev = db.get_studio_event(event_id)
+        if not ev:
+            raise HTTPException(status_code=404, detail="Event not found")
+        pairings_map = ev.get("pairings") or {}
+        pairings_list = pairings_map.get(round_num) or []
+        if not pairings_list:
+            raise HTTPException(status_code=400, detail=f"No pairings found for Round {round_num}")
+        ev["pairings_status"] = "applied"
+        saved = db.save_studio_event(ev)
+        return {
+            "success": True,
+            "round": int(round_num),
+            "pairings_count": len(pairings_list),
+            "bcp_applied": False,
+            "pairings_status": "applied",
+            "event": saved,
+            "message": f"Round {round_num} pairings staged locally."
+        }
+
+    # BCP Event: Delegate to push_to_bcp abstraction
+    bcp_ev = _fetch_bcp_event_workspace(event_id, user)
+    if bcp_ev:
+        pairings_list = (bcp_ev.get("pairings") or {}).get(round_num) or []
+
+    push_payload = PushPairingsBcpPayload(
+        round=int(round_num),
+        start_if_unstarted=True,
+        publish_immediately=False,
+        pairings=pairings_list
+    )
+    return await api_eventstudio_push_pairings_bcp(event_id, push_payload, request)
+
+@router.post("/api/eventstudio/event/{event_id}/pairings/publish", summary="Publish tournament round pairings on OmniTactica and BCP")
+async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
+    user = _get_to_session_or_403(request)
+    auth_mgr = get_auth_manager()
+    user_id = user["id"]
+    round_num = int(payload.get("round") or 1)
+
+    # 1. Pure BCP Flow (Zero DB mutation)
+    if not event_id.startswith("ES-"):
+        bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
+        bcp_published, err_msg = bcp_adapter.publish_pairings(event_id, round_num, user_id=user_id, explicit_token=bcp_token)
+        return {
+            "success": True,
+            "round": round_num,
+            "bcp_published": bcp_published,
+            "event": {"id": event_id, "is_published": True, "published_round": round_num},
+            "message": f"Round {round_num} pairings published successfully on Best Coast Pairings."
+        }
+
+    # 2. Local Studio Event Flow
+    db = get_database()
+    ev = db.get_studio_event(event_id)
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    ev["published_round"] = round_num
+    ev["is_published"] = True
+    saved = db.save_studio_event(ev)
+
+    return {
+        "success": True,
+        "round": round_num,
+        "bcp_published": False,
         "event": saved,
         "message": f"Round {round_num} pairings published successfully."
     }
@@ -2630,26 +2919,38 @@ async def api_eventstudio_publish_pairings(event_id: str, payload: Dict[str, Any
 @router.post("/api/eventstudio/event/{event_id}/pairings/unpublish", summary="Unpublish tournament round pairings on OmniTactica and BCP")
 async def api_eventstudio_unpublish_pairings(event_id: str, payload: Dict[str, Any], request: Request):
     user = _get_to_session_or_403(request)
-    db = get_database()
     auth_mgr = get_auth_manager()
     user_id = user["id"]
+    round_num = int(payload.get("round") or 1)
 
+    # 1. Pure BCP Flow (Zero DB mutation)
+    if not event_id.startswith("ES-"):
+        bcp_token = auth_mgr.get_valid_bcp_token(user_id) if user_id else None
+        bcp_unpublished, err_msg = bcp_adapter.unpublish_pairings(event_id, round_num, user_id=user_id, explicit_token=bcp_token)
+        return {
+            "success": True,
+            "round": round_num,
+            "bcp_unpublished": bcp_unpublished,
+            "event": {"id": event_id, "is_published": False, "published_round": round_num},
+            "message": f"Round {round_num} pairings unpublished on Best Coast Pairings."
+        }
+
+    # 2. Local Studio Event Flow
+    db = get_database()
     ev = db.get_studio_event(event_id)
     if not ev:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    round_num = int(payload.get("round") or ev.get("current_round") or 1)
     ev["is_published"] = False
     saved = db.save_studio_event(ev)
 
-    # Sync unpublish to BCP
-    bcp_unpublished = False
-    if user_id and not event_id.startswith("ES-"):
-        bcp_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{event_id}/unPublishPairings"
-        resp_data, err_msg = execute_bcp_api_call(bcp_url, method="POST", json_data={"round": round_num}, user_id=user_id)
-        if resp_data is not None or not err_msg:
-            bcp_unpublished = True
-            logger.info(f"✅ Successfully unpublished Round {round_num} pairings on BCP for event {event_id}")
+    return {
+        "success": True,
+        "round": round_num,
+        "bcp_unpublished": False,
+        "event": saved,
+        "message": f"Round {round_num} pairings unpublished."
+    }
 
     return {
         "success": True,

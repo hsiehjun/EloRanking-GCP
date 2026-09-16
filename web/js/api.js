@@ -877,6 +877,42 @@ window.api = {
     });
   },
 
+  // EventStudio: Two-Step Abstraction Push Pairings to BCP
+  async pushStudioPairingsToBcp(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/push_to_bcp`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Quick Generate Pairings (random, swiss, elo_balanced)
+  async quickGenerateStudioPairings(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/quick_generate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
+  // EventStudio: Reorder Tables (Drag & Drop)
+  async reorderStudioTables(eventId, payload = {}) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/reorder_tables`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+  },
+
   // EventStudio: Generate Swiss Pairings
   async generateStudioPairings(eventId, payload = {}) {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pairings/generate`, {

@@ -1509,24 +1509,45 @@
 
           <!-- SUBTAB 2: Pairings & Scores -->
           <div id="manage-subtab-pairings" class="manage-subview" style="display: none;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.15rem; flex-wrap: wrap; gap: 0.75rem;">
+            <!-- Top Toolbar: Round Pills + Status + Action Buttons -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.85rem; flex-wrap: wrap; gap: 0.75rem;">
               <div style="display: flex; gap: 0.65rem; align-items: center; flex-wrap: wrap;">
                 <div id="manage-round-pills" style="display: flex; gap: 0.35rem; align-items: center;"></div>
                 <span id="manage-pairings-status-badge" class="badge" style="background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.35); font-size: 0.72rem;">🟡 STAGED PAIRINGS (DRAFT)</span>
               </div>
+
+              <!-- One-Click Push & Round Lifecycle Group -->
               <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                <button class="btn btn-accent" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="triggerGenerateSwissPairings()">🎲 Generate Pairings</button>
-                <button class="btn btn-outline" id="btn-add-table" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="addPairingTable()">➕ Add Table</button>
-                <button class="btn" id="btn-apply-pairings-bcp" style="font-size: 0.8rem; padding: 0.42rem 0.95rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8;" onclick="applyPairingsToBcp()">⚡ Sync Pairings</button>
-                <button id="btn-publish-pairings" class="btn btn-outline" style="font-size: 0.8rem; padding: 0.42rem 0.85rem;" onclick="togglePublishPairings()">📢 Publish Pairings</button>
-                <button class="btn btn-primary" style="font-size: 0.8rem; padding: 0.42rem 0.95rem;" onclick="finalizeCurrentRound()">🏁 Finalize Round & Advance</button>
-                <button class="btn btn-outline" style="font-size: 0.76rem; padding: 0.42rem 0.75rem; color: var(--text-muted);" onclick="resetCurrentRound()">🔄 Reset</button>
+                <button class="btn" id="btn-push-pairings-bcp" style="font-size: 0.82rem; padding: 0.45rem 1.05rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8; font-weight: 700; box-shadow: 0 2px 8px rgba(2,132,199,0.35);" onclick="pushPairingsToBcp()">🚀 Push Pairings to BCP</button>
+                <button class="btn btn-outline" id="btn-edit-pairings" style="display: none; font-size: 0.78rem; padding: 0.42rem 0.85rem;" onclick="enablePrePairingEditMode()">✏️ Edit Matchups</button>
+                <button id="btn-apply-pairings-bcp" class="btn" style="display: none;" onclick="pushPairingsToBcp()">🚀 Apply to BCP</button>
+                <button id="btn-publish-pairings" class="btn btn-outline" style="font-size: 0.78rem; padding: 0.42rem 0.85rem;" onclick="togglePublishPairings()">📢 Publish to Players</button>
+                <button class="btn btn-primary" style="font-size: 0.78rem; padding: 0.42rem 0.85rem;" onclick="advanceTournamentRound()">⏩ Next Round</button>
               </div>
             </div>
 
-            <div id="manage-pairings-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1rem;">
+            <!-- Staged Sandbox Overlay Banner & Quick Pairings Bar -->
+            <div class="es-staged-notice-banner" id="es-staged-notice-banner" style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1.15rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <span style="font-size: 1.1rem;">🛠️</span>
+                <div style="font-size: 0.8rem; color: var(--text-secondary);">
+                  <strong style="color: #fff;">Pairings Sandbox:</strong> Drag <span style="color: #38bdf8; font-weight: 700;">⠿</span> to reorder tables, or drag opponent cards to swap matchups. Click <strong>"Push Pairings to BCP"</strong> when set.
+                </div>
+              </div>
+              <!-- Quick Generation Buttons -->
+              <div style="display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+                <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase;">Quick Pair:</span>
+                <button class="btn btn-accent" style="font-size: 0.75rem; padding: 0.32rem 0.65rem;" onclick="triggerQuickPairings('swiss')" title="Generate Elo-weighted Swiss pairings with rematch and club conflict avoidance">🎯 Elo Swiss</button>
+                <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.32rem 0.65rem;" onclick="triggerQuickPairings('random')" title="Instantly shuffle competitors into random matchups">⚡ Quick Random</button>
+                <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.32rem 0.65rem;" onclick="triggerQuickPairings('elo_balanced')" title="Pair competitors with closest Elo ratings">⚖️ Elo Balanced</button>
+                <button class="btn btn-outline" id="btn-add-table" style="font-size: 0.75rem; padding: 0.32rem 0.65rem;" onclick="addPairingTable()" title="Add an empty match table">➕ Add Table</button>
+                <button class="btn btn-outline" style="font-size: 0.75rem; padding: 0.32rem 0.65rem; color: var(--text-muted);" onclick="resetStagedPairings()" title="Restore live pairings from BCP">🔄 Reset</button>
+              </div>
+            </div>
+
+            <div id="manage-pairings-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 1rem;">
               <div style="grid-column: 1 / -1; background: var(--bg-card); border: 1px dashed var(--border); border-radius: var(--radius-lg); padding: 3rem 1.5rem; text-align: center; color: var(--text-muted);">
-                No pairings generated for this round yet. Click <strong>"🎲 Generate Swiss Pairings"</strong> to create table matchups.
+                No pairings generated for this round yet. Click <strong>"🎯 Elo Swiss"</strong> or <strong>"⚡ Quick Random"</strong> to create table matchups.
               </div>
             </div>
           </div>

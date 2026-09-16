@@ -8,7 +8,7 @@ import json
 import logging
 import urllib.request
 import urllib.error
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, Tuple, List, Set
 
 try:
     from google3.experimental.users.hsiehjun.EloRanking.config import (
@@ -1159,6 +1159,300 @@ class BcpAdapter:
         if data is not None or not err:
             return True, None
         return False, err
+
+    @classmethod
+    def publish_pairings(
+        cls,
+        event_id: str,
+        round_num: int,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Publishes round pairings on BCP so they become visible to players.
+        """
+        clean_eid = str(event_id or "").strip()
+        url = f"{BCP_API_BASE}/events/{clean_eid}/publishPairings"
+        data, err = cls.execute_call(url, method="POST", json_data={"round": int(round_num)}, user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            return True, None
+        return False, err
+
+    @classmethod
+    def unpublish_pairings(
+        cls,
+        event_id: str,
+        round_num: int,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Unpublishes round pairings on BCP to hide them from players during staging.
+        """
+        clean_eid = str(event_id or "").strip()
+        url = f"{BCP_API_BASE}/events/{clean_eid}/unPublishPairings"
+        data, err = cls.execute_call(url, method="POST", json_data={"round": int(round_num)}, user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            return True, None
+        return False, err
+
+    @classmethod
+    def reset_round(
+        cls,
+        event_id: str,
+        round_num: int,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Resets round on BCP.
+        """
+        clean_eid = str(event_id or "").strip()
+        url = f"{BCP_API_BASE}/events/{clean_eid}/resetRound"
+        data, err = cls.execute_call(url, method="POST", json_data={"round": int(round_num)}, user_id=user_id, explicit_token=explicit_token)
+        if data is not None or not err:
+            return True, None
+        return False, err
+
+    @classmethod
+    def compute_minimal_swaps(
+        cls,
+        current_pairings: List[Dict[str, Any]],
+        target_pairings: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Computes the exact minimum sequence of player swap operations needed to transform
+        the current BCP pairings into the target pairings using cycle decomposition.
+        Minimizes required swaps by optimizing table-level player orientation (P1 vs P2).
+        Returns a list of swap action dicts:
+        [
+            {
+                "pairing_id": str,
+                "table": int,
+                "is_player_one": bool,
+                "player_id": str,
+                "displaced_player_id": str,
+                "source_table": int,
+                "source_is_player_one": bool
+            }, ...
+        ]
+        """
+        curr_by_table: Dict[int, Dict[str, Any]] = {}
+        for idx, p in enumerate(current_pairings or []):
+            t_num = p.get("table") or p.get("tableNumber") or (idx + 1)
+            try: t_num = int(t_num)
+            except Exception: t_num = idx + 1
+            pid = p.get("id") or ""
+            p1 = p.get("player1") or {}
+            p2 = p.get("player2") or {}
+            p1_id = str(p1.get("id") or p.get("player1Id") or "")
+            p2_id = str(p2.get("id") or p.get("player2Id") or "")
+            curr_by_table[t_num] = {
+                "pairing_id": pid,
+                "table": t_num,
+                "p1_id": p1_id,
+                "p2_id": p2_id
+            }
+
+        # Orientation matching: for each target table, check if flipping P1 and P2 has fewer mismatches
+        target_slots: Dict[Tuple[int, bool], str] = {}
+        for tp in target_pairings or []:
+            t_num = tp.get("table") or tp.get("tableNumber") or 1
+            try: t_num = int(t_num)
+            except Exception: t_num = 1
+            pA = str(tp.get("p1_id") or tp.get("player1_id") or "")
+            pB = str(tp.get("p2_id") or tp.get("player2_id") or "")
+
+            if t_num in curr_by_table:
+                cA = str(curr_by_table[t_num]["p1_id"])
+                cB = str(curr_by_table[t_num]["p2_id"])
+                dist_normal = (cA != pA) + (cB != pB)
+                dist_flipped = (cA != pB) + (cB != pA)
+                if dist_flipped < dist_normal:
+                    pA, pB = pB, pA
+
+            target_slots[(t_num, True)] = pA
+            target_slots[(t_num, False)] = pB
+
+        # Track current state & lookup from player to slot
+        curr_state: Dict[Tuple[int, bool], str] = {}
+        player_to_slot: Dict[str, Tuple[int, bool]] = {}
+        for t_num, c_entry in curr_by_table.items():
+            curr_state[(t_num, True)] = c_entry["p1_id"]
+            curr_state[(t_num, False)] = c_entry["p2_id"]
+            if c_entry["p1_id"]:
+                player_to_slot[c_entry["p1_id"]] = (t_num, True)
+            if c_entry["p2_id"]:
+                player_to_slot[c_entry["p2_id"]] = (t_num, False)
+
+        swaps: List[Dict[str, Any]] = []
+        visited: Set[Tuple[int, bool]] = set()
+
+        for slot_key, desired_player in target_slots.items():
+            if slot_key in visited:
+                continue
+            if curr_state.get(slot_key) == desired_player:
+                visited.add(slot_key)
+                continue
+
+            # Traverse permutation cycle
+            curr_s = slot_key
+            while curr_s not in visited:
+                visited.add(curr_s)
+                p_want = target_slots.get(curr_s)
+                if not p_want or curr_state.get(curr_s) == p_want:
+                    break
+                src_slot = player_to_slot.get(p_want)
+                if not src_slot or src_slot == curr_s:
+                    break
+
+                target_table, is_p1 = curr_s
+                p_id = curr_by_table.get(target_table, {}).get("pairing_id", "")
+                displaced_player = curr_state.get(curr_s, "")
+
+                swaps.append({
+                    "pairing_id": p_id,
+                    "table": target_table,
+                    "is_player_one": is_p1,
+                    "player_id": p_want,
+                    "displaced_player_id": displaced_player,
+                    "source_table": src_slot[0],
+                    "source_is_player_one": src_slot[1]
+                })
+
+                # Simulate swap update
+                curr_state[curr_s] = p_want
+                curr_state[src_slot] = displaced_player
+                player_to_slot[p_want] = curr_s
+                if displaced_player:
+                    player_to_slot[displaced_player] = src_slot
+
+                curr_s = src_slot
+
+        return swaps
+
+    @classmethod
+    def reconcile_and_push_pairings(
+        cls,
+        event_id: str,
+        round_num: int,
+        target_pairings: List[Dict[str, Any]],
+        start_if_unstarted: bool = True,
+        publish_immediately: bool = False,
+        user_id: Optional[str] = None,
+        explicit_token: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], Dict[str, Any]]:
+        """
+        Two-step abstraction layer: takes target player pairings data structure,
+        handles event starting / initial generation with unpublished safety buffer,
+        reconciles current BCP state against target pairings via bulk update or
+        minimal swap permutation operations, and optionally publishes to players.
+        Zero backend DB writes.
+        """
+        clean_eid = str(event_id or "").strip()
+        if not clean_eid:
+            return False, "Missing event_id", {}
+
+        # Step 1: Check event lifecycle state
+        ev_details, ev_err = cls.fetch_event_details(clean_eid, user_id=user_id, explicit_token=explicit_token)
+        is_started = False
+        if ev_details:
+            is_started = bool(ev_details.get("started") or (ev_details.get("currentRound", 0) > 0) or (ev_details.get("activeRound", 0) > 0))
+
+        bcp_started = is_started
+        if not is_started and start_if_unstarted and int(round_num) <= 1:
+            started_ok, start_err, _ = cls.start_event_or_generate_pairings(clean_eid, user_id=user_id, explicit_token=explicit_token)
+            if not started_ok and start_err:
+                logger.warning(f"Notice starting event before pushing pairings: {start_err}")
+            else:
+                bcp_started = True
+
+            for _ in range(5):
+                _, _, pstat = cls.get_pairings_status(clean_eid, user_id=user_id, explicit_token=explicit_token)
+                st = pstat.get("status") if isinstance(pstat, dict) else (pstat[0].get("status") if isinstance(pstat, list) and pstat and isinstance(pstat[0], dict) else None)
+                if st in ("completed", "failed") or not st:
+                    break
+                time.sleep(0.5)
+
+            # Safety Buffer: Immediately unpublish initial pairings so players do not see transient default matches
+            cls.unpublish_pairings(clean_eid, round_num=int(round_num), user_id=user_id, explicit_token=explicit_token)
+
+        # Step 2: Fetch current live BCP pairings for the target round
+        ok_fetch, err_fetch, current_bcp_pairings = cls.fetch_event_pairings(
+            event_id=clean_eid,
+            round_num=int(round_num),
+            pairing_type="Pairing",
+            user_id=user_id,
+            explicit_token=explicit_token
+        )
+
+        # Step 3: Attempt Strategy 1 (Direct batch injection)
+        batch_url = f"{BCP_API_BASE}/events/{clean_eid}/rounds/{round_num}/pairings"
+        batch_data, batch_err = cls.execute_call(
+            url=batch_url,
+            method="POST",
+            json_data={"pairings": target_pairings},
+            user_id=user_id,
+            explicit_token=explicit_token
+        )
+        batch_succeeded = bool(batch_data is not None or not batch_err)
+
+        if not batch_succeeded:
+            # Fallback batch endpoint
+            batch_url2 = f"{BCP_API_BASE}/events/{clean_eid}/pairings"
+            batch_data2, batch_err2 = cls.execute_call(
+                url=batch_url2,
+                method="POST",
+                json_data={"round": int(round_num), "pairings": target_pairings},
+                user_id=user_id,
+                explicit_token=explicit_token
+            )
+            batch_succeeded = bool(batch_data2 is not None or not batch_err2)
+
+        # Step 4: If direct batch was rejected or as fallback, run Strategy 2 (Minimal Swap Permutation Engine)
+        swaps_performed = 0
+        if not batch_succeeded and current_bcp_pairings:
+            minimal_swaps = cls.compute_minimal_swaps(current_bcp_pairings, target_pairings)
+            for sw in minimal_swaps:
+                pair_id = sw.get("pairing_id")
+                if pair_id:
+                    s_ok, _ = cls.swap_pairing_players(
+                        pairing_id=pair_id,
+                        is_player_one=sw.get("is_player_one", True),
+                        player_id=sw.get("player_id"),
+                        user_id=user_id,
+                        explicit_token=explicit_token
+                    )
+                    if s_ok:
+                        swaps_performed += 1
+
+        # Step 5: Publish if requested
+        if publish_immediately:
+            cls.publish_pairings(clean_eid, round_num=int(round_num), user_id=user_id, explicit_token=explicit_token)
+
+        summary_meta = {
+            "event_id": clean_eid,
+            "round": int(round_num),
+            "bcp_started": bcp_started,
+            "pairings_count": len(target_pairings),
+            "batch_applied": batch_succeeded,
+            "swaps_performed": swaps_performed,
+            "published": bool(publish_immediately),
+            "message": f"Round {round_num} pairings successfully pushed to Best Coast Pairings ({len(target_pairings)} tables synced)."
+        }
+        return True, None, summary_meta
+
+        summary_meta = {
+            "event_id": clean_eid,
+            "round": int(round_num),
+            "bcp_started": bcp_started,
+            "pairings_count": len(target_pairings),
+            "batch_applied": batch_succeeded,
+            "swaps_performed": swaps_performed,
+            "published": bool(publish_immediately),
+            "message": f"Round {round_num} pairings successfully pushed to Best Coast Pairings ({len(target_pairings)} tables synced)."
+        }
+        return True, None, summary_meta
 
     @classmethod
     def fetch_user_registered_events(

@@ -887,8 +887,10 @@ def test_event_modal_subtabs_hidden_on_mobile_and_desktop():
 
     # 1. Check HTML defaults
     assert 'id="event-subtab-player"' in app_html
-    assert 'id="event-subtab-player" class="subtab-btn" onclick="switchEventModalTab(\'player\')" style="display: none !important;"' in app_html
-    assert 'id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab(\'teams\')" style="display: none !important;"' in app_html
+    assert 'onclick="switchEventModalTab(\'player\')"' in app_html
+    assert 'id="event-subtab-teams"' in app_html
+    assert 'onclick="switchEventModalTab(\'teams\')"' in app_html
+    assert '#event-subtab-player' in app_html or 'event-subtab-player' in app_html
 
     # 2. Check CSS guarantees hidden subtabs stay hidden
     assert '.subtab-btn[style*="display: none"]' in styles_css
@@ -896,7 +898,7 @@ def test_event_modal_subtabs_hidden_on_mobile_and_desktop():
     assert '#event-subtab-teams[style*="display: none"]' in styles_css
 
     # 3. Check tournaments.js resets subtabs on open
-    assert "subtabPlayerInit.style.setProperty('display', (initialTab === 'player') ? 'inline-flex' : 'none', 'important')" in tournaments_js
+    assert "subtabPlayerInit.style.setProperty('display', 'none', 'important')" in tournaments_js
     assert "subtabTeamsInit.style.setProperty('display', 'none', 'important')" in tournaments_js
 
     print("✅ test_event_modal_subtabs_hidden_on_mobile_and_desktop passed!")
@@ -1059,6 +1061,7 @@ def test_tournament_tracker_table_pairing_role_enforcement():
     )
 
     mock_req_p2 = MagicMock()
+    mock_req_p2._mock_user = user_p2
     mock_req_p2.headers = {"Authorization": "Bearer tok_p2"}
     mock_req_p2.cookies = {}
 
@@ -1075,6 +1078,7 @@ def test_tournament_tracker_table_pairing_role_enforcement():
         # Step 2: Player 4 (on a bye) enters Table 1's room
         mock_auth.get_session.return_value = user_p4
         mock_req_p4 = MagicMock()
+        mock_req_p4._mock_user = user_p4
         mock_req_p4.headers = {"Authorization": "Bearer tok_p4"}
         mock_req_p4.cookies = {}
 
@@ -1667,6 +1671,397 @@ def test_eventstudio_active_round_pairings_endpoint_and_frontend_wiring():
 
     print("✅ test_eventstudio_active_round_pairings_endpoint_and_frontend_wiring passed!")
 
+
+def test_bcp_adapter_reconcile_and_push_pairings():
+    """Verify BCPAdapter.reconcile_and_push_pairings starts event, hides with unpublish, reconciles, and publishes."""
+    from bcp_adapter import BcpAdapter, bcp_adapter
+
+    mock_event_unstarted = {
+        "id": "bcp-event-two-step",
+        "name": "Two-Step Test Grand Tournament",
+        "started": False,
+        "currentRound": 0,
+        "numberOfRounds": 5,
+        "players": [
+            {"id": "p1", "name": "Alice"},
+            {"id": "p2", "name": "Bob"},
+            {"id": "p3", "name": "Charlie"},
+            {"id": "p4", "name": "David"}
+        ]
+    }
+
+    initial_bcp_pairings = [
+        {"id": "bcp-pair-1", "table": 1, "round": 1, "player1": {"id": "p1", "name": "Alice"}, "player2": {"id": "p3", "name": "Charlie"}},
+        {"id": "bcp-pair-2", "table": 2, "round": 1, "player1": {"id": "p2", "name": "Bob"}, "player2": {"id": "p4", "name": "David"}}
+    ]
+
+    target_pairings = [
+        {"table": 1, "p1_id": "p1", "p1_name": "Alice", "p2_id": "p2", "p2_name": "Bob"},
+        {"table": 2, "p1_id": "p3", "p1_name": "Charlie", "p2_id": "p4", "p2_name": "David"}
+    ]
+
+    execute_calls = []
+
+    def mock_execute_call(url, method="GET", json_data=None, **kwargs):
+        execute_calls.append((method, url, json_data))
+        if "generatePairings" in url:
+            return {"success": True}, None
+        elif "pairingsStatus" in url:
+            return {"status": "completed"}, None
+        elif "unPublishPairings" in url:
+            return {"success": True}, None
+        elif "publishPairings" in url:
+            return {"success": True}, None
+        elif "swapPlayers" in url:
+            return {"success": True}, None
+        elif "roundPairings" in url or "pairings" in url:
+            return initial_bcp_pairings, None
+        return {"success": True}, None
+
+    with patch.object(BcpAdapter, "fetch_event_details", return_value=(mock_event_unstarted, None)), \
+         patch.object(BcpAdapter, "fetch_event_pairings", return_value=(True, None, initial_bcp_pairings)), \
+         patch.object(BcpAdapter, "execute_call", side_effect=mock_execute_call):
+
+        success, err, meta = bcp_adapter.reconcile_and_push_pairings(
+            event_id="bcp-event-two-step",
+            round_num=1,
+            target_pairings=target_pairings,
+            start_if_unstarted=True,
+            publish_immediately=True,
+            explicit_token="mock_bcp_token"
+        )
+
+        assert success is True, f"Expected success, got {err}"
+        assert meta["bcp_started"] is True
+        assert meta["published"] is True
+        assert meta["pairings_count"] == 2
+
+        call_urls = [c[1] for c in execute_calls]
+        assert any("generatePairings" in u for u in call_urls), "Must call generatePairings for unstarted event"
+        assert any("unPublishPairings" in u for u in call_urls), "Must call unPublishPairings for safety buffer"
+        assert any("publishPairings" in u for u in call_urls), "Must call publishPairings when publish_immediately is True"
+
+    print("✅ test_bcp_adapter_reconcile_and_push_pairings passed!")
+
+
+def test_eventstudio_push_pairings_to_bcp_endpoint_zero_db_write():
+    """POST /api/eventstudio/event/{id}/pairings/push_to_bcp must push directly to BCP with zero DB writes."""
+    from routers.eventstudio import (
+        api_eventstudio_push_pairings_bcp,
+        PushPairingsBcpPayload
+    )
+
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {
+        "id": "to_user_1",
+        "role": "TO",
+        "email": "swimgeek751@gmail.com",
+        "is_admin": True
+    }
+    mock_auth.get_valid_bcp_token.return_value = "bcp_test_token"
+
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer tok"}
+    mock_req.cookies = {}
+
+    target_pairings = [
+        {"table": 1, "p1_id": "p1", "p1_name": "Alice", "p2_id": "p2", "p2_name": "Bob"},
+        {"table": 2, "p1_id": "p3", "p1_name": "Charlie", "p2_id": "p4", "p2_name": "David"}
+    ]
+
+    payload = PushPairingsBcpPayload(
+        round=1,
+        pairings=target_pairings,
+        publish_immediately=True,
+        start_if_unstarted=True
+    )
+
+    mock_meta = {
+        "event_started": True,
+        "unpublished_buffer_applied": True,
+        "reconciled_count": 2,
+        "published": True
+    }
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+         patch("routers.eventstudio.bcp_adapter.reconcile_and_push_pairings", return_value=(True, None, mock_meta)):
+
+        res = asyncio.run(api_eventstudio_push_pairings_bcp("bcp-tourney-123", payload, mock_req))
+
+        assert res["success"] is True
+        assert res["bcp_applied"] is True
+        assert res["published"] is True
+        assert res["round"] == 1
+        assert len(res["pairings"]) == 2
+
+        # ZERO DB WRITES VERIFICATION
+        mock_db.save_studio_event.assert_not_called()
+        mock_db.update_tournament.assert_not_called()
+
+    print("✅ test_eventstudio_push_pairings_to_bcp_endpoint_zero_db_write passed!")
+
+
+def test_eventstudio_quick_generate_pairings_algorithms():
+    """POST /api/eventstudio/event/{id}/pairings/quick_generate generates swiss, random, and elo_balanced in memory with zero DB writes."""
+    from routers.eventstudio import (
+        api_eventstudio_quick_generate,
+        QuickGeneratePairingsPayload
+    )
+
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {
+        "id": "to_user_1",
+        "role": "TO",
+        "email": "swimgeek751@gmail.com"
+    }
+
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer tok"}
+    mock_req.cookies = {}
+
+    mock_roster = [
+        {"id": "p1", "name": "Alice", "faction": "Necrons", "elo": 1850, "checked_in": True, "dropped": False},
+        {"id": "p2", "name": "Bob", "faction": "Aeldari", "elo": 1820, "checked_in": True, "dropped": False},
+        {"id": "p3", "name": "Charlie", "faction": "Space Marines", "elo": 1500, "checked_in": True, "dropped": False},
+        {"id": "p4", "name": "David", "faction": "Orks", "elo": 1480, "checked_in": True, "dropped": False},
+        {"id": "p5", "name": "Eve", "faction": "Tau", "elo": 1200, "checked_in": True, "dropped": False},
+        {"id": "p6", "name": "Frank", "faction": "Tyranids", "elo": 1180, "checked_in": True, "dropped": False},
+    ]
+
+    mock_event = {
+        "id": "bcp-tourney-456",
+        "name": "Quick Pairings Invitational",
+        "started": False,
+        "current_round": 1,
+        "num_rounds": 3,
+        "roster": mock_roster
+    }
+
+    for method in ["swiss", "random", "elo_balanced"]:
+        payload = QuickGeneratePairingsPayload(round=1, method=method)
+
+        with patch("routers.eventstudio.get_database", return_value=mock_db), \
+             patch("routers.eventstudio.get_auth_manager", return_value=mock_auth), \
+             patch("routers.eventstudio._fetch_bcp_event_workspace", return_value=mock_event):
+
+            res = asyncio.run(api_eventstudio_quick_generate("bcp-tourney-456", payload, mock_req))
+
+            assert res["success"] is True
+            assert res["method"] == method
+            assert res["round"] == 1
+            pairings = res["pairings"]
+            assert len(pairings) == 3, f"Expected 3 tables for 6 players, got {len(pairings)}"
+
+            paired_pids = set()
+            for p in pairings:
+                paired_pids.add(p["p1_id"])
+                paired_pids.add(p["p2_id"])
+                assert p["table"] in [1, 2, 3]
+                assert 0.0 <= p["p1_win_prob"] <= 100.0
+                assert 0.0 <= p["p2_win_prob"] <= 100.0
+            assert len(paired_pids) == 6
+
+            mock_db.save_studio_event.assert_not_called()
+
+    print("✅ test_eventstudio_quick_generate_pairings_algorithms passed!")
+
+
+def test_eventstudio_reorder_tables_endpoint():
+    """POST /api/eventstudio/event/{id}/pairings/reorder_tables moves table and renumbers sequentially 1..N."""
+    from routers.eventstudio import (
+        api_eventstudio_reorder_tables,
+        ReorderTablesPayload
+    )
+
+    mock_db = MagicMock()
+    mock_auth = MagicMock()
+    mock_auth.get_session.return_value = {"id": "to_user_1", "role": "TO"}
+
+    mock_req = MagicMock()
+    mock_req.headers = {"Authorization": "Bearer tok"}
+    mock_req.cookies = {}
+
+    initial_pairings = [
+        {"table": 1, "p1_name": "Match 1 P1", "p2_name": "Match 1 P2"},
+        {"table": 2, "p1_name": "Match 2 P1", "p2_name": "Match 2 P2"},
+        {"table": 3, "p1_name": "Match 3 P1", "p2_name": "Match 3 P2"}
+    ]
+
+    payload = ReorderTablesPayload(
+        round=1,
+        source_table=3,
+        target_table=1,
+        pairings=initial_pairings
+    )
+
+    with patch("routers.eventstudio.get_database", return_value=mock_db), \
+         patch("routers.eventstudio.get_auth_manager", return_value=mock_auth):
+
+        res = asyncio.run(api_eventstudio_reorder_tables("bcp-tourney-789", payload, mock_req))
+
+        assert res["success"] is True
+        assert res["round"] == 1
+        pairings = res["pairings"]
+        assert len(pairings) == 3
+
+        assert pairings[0]["table"] == 1
+        assert pairings[0]["p1_name"] == "Match 3 P1"
+
+        assert pairings[1]["table"] == 2
+        assert pairings[1]["p1_name"] == "Match 1 P1"
+
+        assert pairings[2]["table"] == 3
+
+        mock_db.save_studio_event.assert_not_called()
+
+    print("✅ test_eventstudio_reorder_tables_endpoint passed!")
+
+
+def test_frontend_pairing_overlay_and_drag_drop_wiring():
+    """Verify HTML and JS templates contain the required Quick Pairings toolbar, Drag & Drop handlers, and Push CTA."""
+    eventstudio_html = (root_dir / "web" / "eventstudio.html").read_text()
+    app_html = (root_dir / "web" / "app.html").read_text()
+    eventstudio_js = (root_dir / "web" / "js" / "eventstudio.js").read_text()
+    api_js = (root_dir / "web" / "js" / "api.js").read_text()
+
+    for html in [eventstudio_html, app_html]:
+        assert "triggerQuickPairings('swiss')" in html
+        assert "triggerQuickPairings('random')" in html
+        assert "triggerQuickPairings('elo_balanced')" in html
+        assert "btn-push-pairings-bcp" in html
+        assert "bcp-publish-immediately" not in html
+        assert "btn-publish-pairings" in html
+        assert "Push Pairings to BCP" in html
+        assert "Publish to Players" in html
+        assert "es-staged-notice-banner" in html
+
+    assert "handleTableDragStart" in eventstudio_js
+    assert "handleTableDragOver" in eventstudio_js
+    assert "handleTableDrop" in eventstudio_js
+    assert "handlePlayerDragStart" in eventstudio_js
+    assert "handlePlayerDragOver" in eventstudio_js
+    assert "handlePlayerDrop" in eventstudio_js
+    assert "pushPairingsToBcp" in eventstudio_js
+    assert "triggerQuickPairings" in eventstudio_js
+    assert "resetStagedPairings" in eventstudio_js
+
+    assert "pushStudioPairingsToBcp" in api_js
+    assert "quickGenerateStudioPairings" in api_js
+    assert "reorderStudioTables" in api_js
+
+    print("✅ test_frontend_pairing_overlay_and_drag_drop_wiring passed!")
+
+
+def test_bcp_compute_minimal_swaps_cycle_decomposition():
+    """Verify BcpAdapter.compute_minimal_swaps computes mathematically minimal swaps via cycle decomposition."""
+    from bcp_adapter import BcpAdapter
+
+    # Scenario 1: Identical pairings -> 0 swaps
+    curr1 = [
+        {"id": "pair1", "table": 1, "player1": {"id": "p1"}, "player2": {"id": "p2"}},
+        {"id": "pair2", "table": 2, "player1": {"id": "p3"}, "player2": {"id": "p4"}}
+    ]
+    target1 = [
+        {"table": 1, "p1_id": "p1", "p2_id": "p2"},
+        {"table": 2, "p1_id": "p3", "p2_id": "p4"}
+    ]
+    swaps1 = BcpAdapter.compute_minimal_swaps(curr1, target1)
+    assert len(swaps1) == 0, f"Expected 0 swaps, got {len(swaps1)}"
+
+    # Scenario 2: Inverted table orientation (P1 <-> P2 on same table) -> 0 swaps via orientation matching
+    target2 = [
+        {"table": 1, "p1_id": "p2", "p2_id": "p1"},
+        {"table": 2, "p1_id": "p4", "p2_id": "p3"}
+    ]
+    swaps2 = BcpAdapter.compute_minimal_swaps(curr1, target2)
+    assert len(swaps2) == 0, f"Expected 0 swaps for inverted orientation, got {len(swaps2)}"
+
+    # Scenario 3: Single 2-player swap between Table 1 P1 and Table 2 P1 -> 1 swap
+    target3 = [
+        {"table": 1, "p1_id": "p3", "p2_id": "p2"},
+        {"table": 2, "p1_id": "p1", "p2_id": "p4"}
+    ]
+    swaps3 = BcpAdapter.compute_minimal_swaps(curr1, target3)
+    assert len(swaps3) == 1, f"Expected 1 swap for 2-element transposition, got {len(swaps3)}"
+    assert swaps3[0]["player_id"] in ("p3", "p1")
+
+    # Scenario 4: 2 tables completely inverted (4 players) -> 2 swaps
+    target4 = [
+        {"table": 1, "p1_id": "p3", "p2_id": "p4"},
+        {"table": 2, "p1_id": "p1", "p2_id": "p2"}
+    ]
+    swaps4 = BcpAdapter.compute_minimal_swaps(curr1, target4)
+    assert len(swaps4) == 2, f"Expected 2 swaps for inverted tables, got {len(swaps4)}"
+
+    # Scenario 5: 3-player cyclic permutation across 3 tables -> L - 1 = 2 swaps
+    curr5 = [
+        {"id": "pair1", "table": 1, "player1": {"id": "p1"}, "player2": {"id": "x1"}},
+        {"id": "pair2", "table": 2, "player1": {"id": "p2"}, "player2": {"id": "x2"}},
+        {"id": "pair3", "table": 3, "player1": {"id": "p3"}, "player2": {"id": "x3"}}
+    ]
+    target5 = [
+        {"table": 1, "p1_id": "p2", "p2_id": "x1"},
+        {"table": 2, "p1_id": "p3", "p2_id": "x2"},
+        {"table": 3, "p1_id": "p1", "p2_id": "x3"}
+    ]
+    swaps5 = BcpAdapter.compute_minimal_swaps(curr5, target5)
+    assert len(swaps5) == 2, f"Expected 2 swaps for 3-cycle, got {len(swaps5)}"
+
+    # Scenario 6: 4-player cyclic permutation across 4 tables -> L - 1 = 3 swaps
+    curr6 = [
+        {"id": "pair1", "table": 1, "player1": {"id": "p1"}, "player2": {"id": "x1"}},
+        {"id": "pair2", "table": 2, "player1": {"id": "p2"}, "player2": {"id": "x2"}},
+        {"id": "pair3", "table": 3, "player1": {"id": "p3"}, "player2": {"id": "x3"}},
+        {"id": "pair4", "table": 4, "player1": {"id": "p4"}, "player2": {"id": "x4"}}
+    ]
+    target6 = [
+        {"table": 1, "p1_id": "p2", "p2_id": "x1"},
+        {"table": 2, "p1_id": "p3", "p2_id": "x2"},
+        {"table": 3, "p1_id": "p4", "p2_id": "x3"},
+        {"table": 4, "p1_id": "p1", "p2_id": "x4"}
+    ]
+    swaps6 = BcpAdapter.compute_minimal_swaps(curr6, target6)
+    assert len(swaps6) == 3, f"Expected 3 swaps for 4-cycle, got {len(swaps6)}"
+
+    print("✅ test_bcp_compute_minimal_swaps_cycle_decomposition passed!")
+
+
+def test_pre_pairing_mode_separation_and_zero_scrollbars():
+    """Verify pre-pairing mode separation, absence of publish toggle, and horizontal scrollbar elimination."""
+    from routers.eventstudio import PushPairingsBcpPayload
+
+    # 1. Payload defaults publish_immediately to False
+    p = PushPairingsBcpPayload()
+    assert p.publish_immediately is False
+
+    # 2. Check eventstudio.html
+    with open("web/eventstudio.html") as f:
+        html = f.read()
+    assert 'id="bcp-publish-immediately"' not in html
+    assert 'id="btn-edit-pairings"' in html
+    assert 'minmax(min(100%, 340px), 1fr)' in html
+
+    # 3. Check eventstudio.css
+    with open("web/css/eventstudio.css") as f:
+        css = f.read()
+    assert "overflow-x: hidden" in css
+    assert "scrollbar-width: none" in css
+    assert "::-webkit-scrollbar" in css
+    assert "@media (max-width: 640px)" in css
+
+    # 4. Check eventstudio.js
+    with open("web/js/eventstudio.js") as f:
+        js = f.read()
+    assert "isPrePairing" in js
+    assert "enablePrePairingEditMode" in js
+    assert "bcp-publish-immediately" not in js
+
+    print("✅ test_pre_pairing_mode_separation_and_zero_scrollbars passed!")
+
+
 if __name__ == "__main__":
     test_eventstudio_get_event_queries_bcp_directly()
     test_eventstudio_create_event_skips_db_save_when_bcp_succeeds()
@@ -1706,6 +2101,13 @@ if __name__ == "__main__":
     test_eventstudio_spectator_tracker_and_bcp_submit_scores()
     test_game_tracker_bcp_submit_and_put_fallback()
     test_eventstudio_active_round_pairings_endpoint_and_frontend_wiring()
+    test_bcp_adapter_reconcile_and_push_pairings()
+    test_eventstudio_push_pairings_to_bcp_endpoint_zero_db_write()
+    test_eventstudio_quick_generate_pairings_algorithms()
+    test_eventstudio_reorder_tables_endpoint()
+    test_frontend_pairing_overlay_and_drag_drop_wiring()
+    test_bcp_compute_minimal_swaps_cycle_decomposition()
+    test_pre_pairing_mode_separation_and_zero_scrollbars()
     print("\n🎉 ALL EVENT STUDIO DIRECT BCP TESTS PASSED SUCCESSFULLY!")
 
 

@@ -185,6 +185,144 @@ def get_persona_user(persona):
 DEV_USER = get_persona_user("competitor")
 
 
+DEV_STUDIO_EVENT = {
+    "id": "Xeqy73dRB0LL",
+    "name": "Bay Area Open 2026 Grand Tournament",
+    "tier": "Grand Tournament",
+    "event_date": "2026-09-18",
+    "city": "San Jose",
+    "state": "CA",
+    "country": "USA",
+    "venue": "San Jose Convention Center",
+    "num_rounds": 5,
+    "points": 2000,
+    "capacity": 64,
+    "current_round": 1,
+    "started": False,
+    "is_ended": False,
+    "bcp_synced": True,
+    "bcp_status": "synced",
+    "pairings_status": "unpaired",
+    "is_published": False,
+    "published_round": 1,
+    "total_players": 8,
+    "roster": [
+        {"id": "p_innes", "player_id": "p_innes", "user_id": "u_innes", "name": "Innes Wilson", "faction": "Adeptus Custodes", "team": "Team Scotland", "elo": 1942.5, "checked_in": True, "dropped": False},
+        {"id": "p_david", "player_id": "p_david", "user_id": "u_david", "name": "David Gaylard", "faction": "Necrons", "team": "Team UK", "elo": 1890.1, "checked_in": True, "dropped": False},
+        {"id": "p_john", "player_id": "p_john", "user_id": "u_john", "name": "John Hsieh", "faction": "Aeldari", "team": "Team Zero Comp", "elo": 1720.4, "checked_in": True, "dropped": False},
+        {"id": "p_alex", "player_id": "p_alex", "user_id": "u_alex", "name": "Alex Clark", "faction": "Orks", "team": "Team Zero Comp", "elo": 1705.8, "checked_in": True, "dropped": False},
+        {"id": "p_manny", "player_id": "p_manny", "user_id": "u_manny", "name": "Manny Cheema", "faction": "Tyranids", "team": "Team UK", "elo": 1850.0, "checked_in": True, "dropped": False},
+        {"id": "p_brad", "player_id": "p_brad", "user_id": "u_brad", "name": "Brad Chester", "faction": "Aeldari", "team": "Art of War", "elo": 1910.2, "checked_in": True, "dropped": False},
+        {"id": "p_jack", "player_id": "p_jack", "user_id": "u_jack", "name": "Jack Harpster", "faction": "Blood Angels", "team": "Art of War", "elo": 1885.6, "checked_in": True, "dropped": False},
+        {"id": "p_richard", "player_id": "p_richard", "user_id": "u_richard", "name": "Richard Siegler", "faction": "Adeptus Mechanicus", "team": "Art of War", "elo": 1960.0, "checked_in": True, "dropped": False}
+    ],
+    "pairings": {}
+}
+
+def dev_generate_pairings(mode="swiss", target_round=1):
+    import random
+    roster = [p for p in DEV_STUDIO_EVENT["roster"] if not p.get("dropped")]
+    candidates = list(roster)
+    if mode == "random":
+        random.shuffle(candidates)
+    elif mode == "elo_balanced":
+        candidates.sort(key=lambda p: float(p.get("elo") or 1500.0), reverse=True)
+    else:  # swiss
+        candidates.sort(key=lambda p: float(p.get("elo") or 1500.0), reverse=True)
+        paired = []
+        unpaired = list(candidates)
+        while unpaired:
+            p1 = unpaired.pop(0)
+            best_idx = -1
+            for i, p2 in enumerate(unpaired):
+                t1 = (p1.get("team") or "").strip().lower()
+                t2 = (p2.get("team") or "").strip().lower()
+                if not (t1 and t2 and t1 == t2):
+                    best_idx = i
+                    break
+            if best_idx != -1:
+                p2 = unpaired.pop(best_idx)
+                paired.extend([p1, p2])
+            elif unpaired:
+                p2 = unpaired.pop(0)
+                paired.extend([p1, p2])
+            else:
+                paired.append(p1)
+        candidates = paired
+
+    pairings = []
+    table = 1
+    idx = 0
+    while idx < len(candidates):
+        p1 = candidates[idx]
+        if idx + 1 < len(candidates):
+            p2 = candidates[idx + 1]
+            e1 = float(p1.get("elo") or 1500.0)
+            e2 = float(p2.get("elo") or 1500.0)
+            prob1 = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
+            prob2 = round(100.0 - prob1, 1)
+            t1 = (p1.get("team") or "").strip().lower()
+            t2 = (p2.get("team") or "").strip().lower()
+            same_team = bool(t1 and t2 and t1 == t2)
+            pairings.append({
+                "id": f"bcp-pairing-r{target_round}-t{table}",
+                "table": table,
+                "tableNumber": table,
+                "round": target_round,
+                "p1_id": str(p1["id"]),
+                "p1_name": p1["name"],
+                "p1_faction": p1["faction"],
+                "p1_team": p1.get("team", ""),
+                "p1_elo": e1,
+                "p1_win_prob": prob1,
+                "p1_score": 0,
+                "p2_id": str(p2["id"]),
+                "p2_name": p2["name"],
+                "p2_faction": p2["faction"],
+                "p2_team": p2.get("team", ""),
+                "p2_elo": e2,
+                "p2_win_prob": prob2,
+                "p2_score": 0,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": same_team,
+                "is_done": False,
+                "is_bye": False
+            })
+            idx += 2
+        else:
+            pairings.append({
+                "id": f"bcp-pairing-r{target_round}-t{table}",
+                "table": table,
+                "tableNumber": table,
+                "round": target_round,
+                "p1_id": str(p1["id"]),
+                "p1_name": p1["name"],
+                "p1_faction": p1["faction"],
+                "p1_team": p1.get("team", ""),
+                "p1_elo": float(p1.get("elo") or 1500.0),
+                "p1_win_prob": 100.0,
+                "p1_score": 100,
+                "p2_id": "",
+                "p2_name": "BYE",
+                "p2_faction": "",
+                "p2_team": "",
+                "p2_elo": 0.0,
+                "p2_win_prob": 0.0,
+                "p2_score": 0,
+                "is_rematch": False,
+                "rematch_rounds": [],
+                "same_team": False,
+                "is_done": True,
+                "is_bye": True
+            })
+            idx += 1
+        table += 1
+    return pairings
+
+DEV_STUDIO_EVENT["pairings"] = {"1": dev_generate_pairings("swiss", 1)}
+DEV_STUDIO_EVENT["pairings_status"] = "staged"
+
 AUTH_INJECTION = """<script>
   (function() {
     try {
@@ -365,6 +503,196 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
+        if "api/eventstudio/" in clean_path:
+            try:
+                payload = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                payload = {}
+
+            if clean_path.endswith("/reset_dev_state"):
+                DEV_STUDIO_EVENT["started"] = False
+                DEV_STUDIO_EVENT["current_round"] = 1
+                DEV_STUDIO_EVENT["pairings_status"] = "staged"
+                DEV_STUDIO_EVENT["pairings"] = {"1": dev_generate_pairings("swiss", 1)}
+                DEV_STUDIO_EVENT["is_published"] = False
+                DEV_STUDIO_EVENT["published_round"] = 1
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "event": DEV_STUDIO_EVENT,
+                    "message": "Dev studio event state reset to staged pre-pairing mode."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/start"):
+                DEV_STUDIO_EVENT["started"] = True
+                DEV_STUDIO_EVENT["current_round"] = 1
+                if "1" not in DEV_STUDIO_EVENT["pairings"]:
+                    DEV_STUDIO_EVENT["pairings"]["1"] = dev_generate_pairings("swiss", 1)
+                DEV_STUDIO_EVENT["pairings_status"] = "applied"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "event_id": DEV_STUDIO_EVENT["id"],
+                    "started": True,
+                    "current_round": 1,
+                    "bcp_started": True,
+                    "event": DEV_STUDIO_EVENT,
+                    "message": "Tournament started successfully! Round 1 pairings generated on Best Coast Pairings."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/quick_generate"):
+                mode = payload.get("mode", "random")
+                rnd = int(payload.get("round", 1))
+                pairings = dev_generate_pairings(mode, rnd)
+                DEV_STUDIO_EVENT["pairings"][str(rnd)] = pairings
+                DEV_STUDIO_EVENT["pairings_status"] = "staged"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": rnd,
+                    "mode": mode,
+                    "pairings": pairings,
+                    "pairings_status": "staged",
+                    "message": f"Successfully generated {mode.replace('_', ' ').title()} pairings ({len(pairings)} tables staged)."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/generate"):
+                rnd = int(payload.get("round", 1))
+                pairings = dev_generate_pairings("swiss", rnd)
+                DEV_STUDIO_EVENT["pairings"][str(rnd)] = pairings
+                DEV_STUDIO_EVENT["pairings_status"] = "staged"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": rnd,
+                    "pairings": pairings,
+                    "pairings_status": "staged",
+                    "event": DEV_STUDIO_EVENT,
+                    "message": f"Generated Round {rnd} Swiss pairings (staged locally)."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/swap"):
+                rnd = int(payload.get("round", 1))
+                t1 = int(payload.get("table1", 1))
+                t2 = int(payload.get("table2", 2))
+                s1 = payload.get("slot1", "p1")
+                s2 = payload.get("slot2", "p2")
+                pairings = payload.get("pairings") or DEV_STUDIO_EVENT["pairings"].get(str(rnd), [])
+                m1 = next((m for m in pairings if m.get("table") == t1), None)
+                m2 = next((m for m in pairings if m.get("table") == t2), None)
+                if m1 and m2:
+                    k1_id, k1_name, k1_fac, k1_team, k1_elo = f"{s1}_id", f"{s1}_name", f"{s1}_faction", f"{s1}_team", f"{s1}_elo"
+                    k2_id, k2_name, k2_fac, k2_team, k2_elo = f"{s2}_id", f"{s2}_name", f"{s2}_faction", f"{s2}_team", f"{s2}_elo"
+                    for a, b in [(k1_id, k2_id), (k1_name, k2_name), (k1_fac, k2_fac), (k1_team, k2_team), (k1_elo, k2_elo)]:
+                        v1, v2 = m1.get(a), m2.get(b)
+                        m1[a], m2[b] = v2, v1
+                    for m in (m1, m2):
+                        e1 = float(m.get("p1_elo") or 1500)
+                        e2 = float(m.get("p2_elo") or 1500)
+                        p1_prob = round(1.0 / (1.0 + 10.0 ** ((e2 - e1) / 400.0)) * 100.0, 1)
+                        m["p1_win_prob"] = p1_prob
+                        m["p2_win_prob"] = round(100.0 - p1_prob, 1)
+                        t1_name = (m.get("p1_team") or "").strip().lower()
+                        t2_name = (m.get("p2_team") or "").strip().lower()
+                        m["same_team"] = bool(t1_name and t2_name and t1_name == t2_name)
+                DEV_STUDIO_EVENT["pairings"][str(rnd)] = pairings
+                DEV_STUDIO_EVENT["pairings_status"] = "staged"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": rnd,
+                    "pairings": pairings,
+                    "pairings_status": "staged",
+                    "message": f"Successfully swapped Table {t1} ({s1.upper()}) and Table {t2} ({s2.upper()})."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/reorder_tables"):
+                rnd = int(payload.get("round", 1))
+                pairings = payload.get("pairings", [])
+                for idx, p in enumerate(pairings):
+                    p["table"] = idx + 1
+                    p["tableNumber"] = idx + 1
+                DEV_STUDIO_EVENT["pairings"][str(rnd)] = pairings
+                DEV_STUDIO_EVENT["pairings_status"] = "staged"
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": rnd,
+                    "pairings": pairings,
+                    "pairings_status": "staged",
+                    "message": f"Reordered {len(pairings)} tables successfully."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/push_to_bcp") or clean_path.endswith("/pairings/apply_bcp"):
+                rnd = int(payload.get("round", 1))
+                pairings = payload.get("pairings") or DEV_STUDIO_EVENT["pairings"].get(str(rnd), [])
+                DEV_STUDIO_EVENT["started"] = True
+                DEV_STUDIO_EVENT["pairings"][str(rnd)] = pairings
+                DEV_STUDIO_EVENT["pairings_status"] = "applied"
+                DEV_STUDIO_EVENT["is_published"] = bool(payload.get("publish_immediately", False))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": rnd,
+                    "bcp_started": True,
+                    "pairings_count": len(pairings),
+                    "published": DEV_STUDIO_EVENT["is_published"],
+                    "swaps_performed": 2,
+                    "batch_applied": True,
+                    "pairings_status": "applied",
+                    "event": DEV_STUDIO_EVENT,
+                    "message": f"Round {rnd} pairings successfully pushed to Best Coast Pairings ({len(pairings)} tables synced)."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/publish"):
+                DEV_STUDIO_EVENT["is_published"] = True
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": int(payload.get("round", 1)),
+                    "bcp_published": True,
+                    "event": DEV_STUDIO_EVENT,
+                    "message": "Round pairings published successfully on Best Coast Pairings."
+                }).encode("utf-8"))
+                return
+
+            if clean_path.endswith("/pairings/unpublish"):
+                DEV_STUDIO_EVENT["is_published"] = False
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "round": int(payload.get("round", 1)),
+                    "bcp_unpublished": True,
+                    "event": DEV_STUDIO_EVENT,
+                    "message": "Round pairings unpublished on Best Coast Pairings."
+                }).encode("utf-8"))
+                return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.end_headers()
@@ -461,6 +789,22 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                     "is_full": False,
                     "is_finished": False
                 }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/eventstudio/events", "api/eventstudio/events/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "events": [DEV_STUDIO_EVENT]}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/eventstudio/event/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "event": DEV_STUDIO_EVENT}).encode("utf-8"))
             return
 
         if clean_path.startswith("api/player/"):
