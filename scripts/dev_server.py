@@ -2208,29 +2208,45 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/faction/"):
             fname = urllib.parse.unquote(clean_path.replace("api/faction/", "").strip("/"))
+            sys_val = "aos" if "game_system=aos" in query_str else "40k"
+            tf_val = "1yr"
+            if "timeframe=6mo" in query_str:
+                tf_val = "6mo"
+            elif "timeframe=all" in query_str:
+                tf_val = "all"
+
             res = {
                 "faction": fname,
-                "game_system": "aos" if "game_system=aos" in query_str else "40k",
-                "timeframe": "1yr",
+                "game_system": sys_val,
+                "timeframe": tf_val,
                 "stats": {
-                    "total_recent_sample": 45,
-                    "recent_wins": 25,
-                    "recent_losses": 19,
-                    "recent_draws": 1,
-                    "top_player_count": 3
+                    "total_recent_sample": 64,
+                    "recent_wins": 38,
+                    "recent_losses": 24,
+                    "recent_draws": 2,
+                    "top_player_count": 5
                 },
                 "top_players": [
-                    {"player_id": "p_innes", "player_name": "Innes Wilson", "team": "Art of War", "current_elo": 2185.4, "matches_played": 22, "wins": 19, "losses": 3, "draws": 0, "win_rate": 86.4, "avg_score": 88.5},
-                    {"player_id": "p_david", "player_name": "David Gaylard", "team": "Team Zero Comp", "current_elo": 2120.0, "matches_played": 15, "wins": 11, "losses": 4, "draws": 0, "win_rate": 73.3, "avg_score": 82.0}
+                    {"player_id": "p_innes", "player_name": "Innes Wilson", "team": "Art of War", "current_elo": 2185.4, "matches_played": 28, "wins": 24, "losses": 4, "draws": 0, "win_rate": 85.7, "avg_score": 89.2},
+                    {"player_id": "p_david", "player_name": "David Gaylard", "team": "Team Zero Comp", "current_elo": 2120.0, "matches_played": 22, "wins": 17, "losses": 5, "draws": 0, "win_rate": 77.3, "avg_score": 83.1},
+                    {"player_id": "p_jack", "player_name": "Jack Harpster", "team": "Art of War", "current_elo": 2095.8, "matches_played": 19, "wins": 14, "losses": 5, "draws": 0, "win_rate": 73.7, "avg_score": 81.4},
+                    {"player_id": "p_vik", "player_name": "Vik Vijay", "team": "Team Ignite", "current_elo": 2042.1, "matches_played": 16, "wins": 11, "losses": 5, "draws": 0, "win_rate": 68.8, "avg_score": 79.5},
+                    {"player_id": "p_liam", "player_name": "Liam Hackett", "team": "Down Under", "current_elo": 1998.0, "matches_played": 14, "wins": 9, "losses": 5, "draws": 0, "win_rate": 64.3, "avg_score": 77.0}
                 ],
                 "matches": [
-                    {"id": "m_fac_1", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 3, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_score": 85, "opponent_id": "p_opp", "opponent_name": "David Gaylard", "opponent_faction": "Necrons", "opponent_score": 72, "outcome": "W"},
-                    {"id": "m_fac_2", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_score": 90, "opponent_id": "p_opp2", "opponent_name": "Manny Cheema", "opponent_faction": "Aeldari", "opponent_score": 68, "outcome": "W"}
+                    {"id": "m_fac_1", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 5, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 92, "opponent_id": "p_opp1", "opponent_name": "John Lennon", "opponent_faction": "Ultramarines", "opponent_score": 78, "outcome": "W"},
+                    {"id": "m_fac_2", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 4, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 85, "opponent_id": "p_opp2", "opponent_name": "David Gaylard", "opponent_faction": "Necrons", "opponent_score": 72, "outcome": "W"},
+                    {"id": "m_fac_3", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 3, "match_date": "2026-09-15", "player_id": "p_innes", "player_name": "Innes Wilson", "player_faction": fname, "player_score": 90, "opponent_id": "p_opp3", "opponent_name": "Manny Cheema", "opponent_faction": "Aeldari", "opponent_score": 68, "outcome": "W"},
+                    {"id": "m_fac_4", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 2, "match_date": "2026-09-14", "player_id": "p_david", "player_name": "David Gaylard", "player_faction": fname, "player_score": 65, "opponent_id": "p_opp4", "opponent_name": "Richard Siegler", "opponent_faction": "Adeptus Custodes", "opponent_score": 88, "outcome": "L"},
+                    {"id": "m_fac_5", "event_id": "ev_ongoing_gt_live", "event_name": "Warhammer Championship", "round": 1, "match_date": "2026-09-14", "player_id": "p_jack", "player_name": "Jack Harpster", "player_faction": fname, "player_score": 75, "opponent_id": "p_opp5", "opponent_name": "Brad Chester", "opponent_faction": "Genestealer Cults", "opponent_score": 75, "outcome": "D"}
                 ],
                 "matchups": [
-                    {"opponent_faction": "Necrons", "total_matches": 18, "wins": 11, "losses": 7, "draws": 0, "win_rate": 61.1},
-                    {"opponent_faction": "Space Marines", "total_matches": 15, "wins": 9, "losses": 6, "draws": 0, "win_rate": 60.0},
-                    {"opponent_faction": "Aeldari", "total_matches": 12, "wins": 5, "losses": 7, "draws": 0, "win_rate": 41.7}
+                    {"opponent_faction": "Necrons", "total_matches": 24, "wins": 15, "losses": 9, "draws": 0, "win_rate": 62.5},
+                    {"opponent_faction": "Space Marines", "total_matches": 20, "wins": 12, "losses": 8, "draws": 0, "win_rate": 60.0},
+                    {"opponent_faction": "Aeldari", "total_matches": 18, "wins": 10, "losses": 7, "draws": 1, "win_rate": 55.6},
+                    {"opponent_faction": "Tyranids", "total_matches": 15, "wins": 8, "losses": 7, "draws": 0, "win_rate": 53.3},
+                    {"opponent_faction": "Chaos Space Marines", "total_matches": 14, "wins": 7, "losses": 7, "draws": 0, "win_rate": 50.0},
+                    {"opponent_faction": "Adeptus Custodes", "total_matches": 12, "wins": 4, "losses": 8, "draws": 0, "win_rate": 33.3}
                 ]
             }
             self.send_response(200)

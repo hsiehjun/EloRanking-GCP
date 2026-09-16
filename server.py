@@ -131,8 +131,11 @@ async def on_server_startup():
             start_str = d90.strftime("%Y-%m-%d")
             end_str = now.strftime("%Y-%m-%d")
             db = get_database()
-            db.get_faction_meta_stats(start_date=start_str, end_date=end_str)
+            await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str)
             logger.info(f"🔥 Meta Intel 90-day cache pre-warmed ({start_str} to {end_str})")
+            if hasattr(db, "prewarm_faction_details_cache"):
+                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 25)
+                logger.info("🔥 Meta Intel top 25 faction details cache pre-warmed (40k, 1yr)")
         except Exception as me:
             logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 

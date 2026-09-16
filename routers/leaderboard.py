@@ -1779,7 +1779,13 @@ async def api_faction_details(
     game_system: Optional[str] = Query("40k"),
     timeframe: Optional[str] = Query("1yr")
 ):
-    return get_database().get_faction_details(faction_name.strip(), limit=limit, game_system=game_system, timeframe=timeframe)
+    return await asyncio.to_thread(
+        get_database().get_faction_details,
+        faction_name.strip(),
+        limit=limit,
+        game_system=game_system,
+        timeframe=timeframe
+    )
 
 # API: Match Win Probability Predictor
 @router.get("/api/predict", summary="Calculate win odds and simulated Elo changes")

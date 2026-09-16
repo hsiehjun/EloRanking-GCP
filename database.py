@@ -7,6 +7,7 @@ import os
 import re
 import time
 import threading
+import concurrent.futures
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -243,6 +244,7 @@ class PostgresDatabase:
         cls._all_teams_cache = None
         cls._all_teams_cache_time = 0
         cls._faction_meta_cache_dict.clear()
+        cls._faction_details_cache_dict.clear()
         cls._players_cache_dict.clear()
         cls._teams_cache_dict.clear()
         cls._team_roster_cache_dict.clear()
@@ -535,6 +537,19 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_regional_eval ON matches (event_id) WHERE is_done = TRUE AND is_bye = FALSE;
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p1 ON matches (match_date DESC, player1_faction) WHERE is_done = TRUE;
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower ON matches (LOWER(player1_faction), is_done);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower ON matches (LOWER(player2_faction), is_done);
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_fac1_date ON matches (player1_faction, match_date DESC) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_fac2_date ON matches (player2_faction, match_date DESC) WHERE is_done = TRUE;
+
+                DO $$
+                BEGIN
+                    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+                    CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_trgm ON matches USING gin (player1_faction gin_trgm_ops);
+                    CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_trgm ON matches USING gin (player2_faction gin_trgm_ops);
+                EXCEPTION
+                    WHEN OTHERS THEN NULL;
+                END $$;
 
                 CREATE INDEX IF NOT EXISTS idx_pg_history_player ON rating_history(player_id, match_date DESC);
                 CREATE INDEX IF NOT EXISTS idx_pg_history_match ON rating_history(match_id);
@@ -4399,49 +4414,9 @@ class PostgresDatabase:
 
 
 
-    def get_faction_details(
-        self,
-        faction_name: str,
-        limit: int = 100,
-        game_system: Optional[str] = "40k",
-        timeframe: Optional[str] = "1yr"
-    ) -> Dict[str, Any]:
-        """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups with timeframe filtering and caching."""
-        if not faction_name:
-            return {"faction": "", "stats": {}, "top_players": [], "matches": [], "matchups": []}
-
-        system = (game_system or "40k").lower()
-        tf = (timeframe or "1yr").lower().strip()
-        cache_key = (faction_name.strip().lower(), system, tf, int(limit))
-        cached = self.get_cached(self._faction_details_cache_dict, cache_key, ttl=900)
-        if cached:
-            return cached
-
+    def _query_faction_top_players(self, faction_name: str, system: str, sys_params: list, sys_clause: str, date_clause: str) -> List[Dict[str, Any]]:
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                sys_clause = ""
-                sys_params = []
-                sys_clause_m = ""
-                sys_params_m = []
-                if game_system and game_system != "all":
-                    sys_clause = " AND COALESCE(matches.game_system, '40k') = %s"
-                    sys_params = [system]
-                    sys_clause_m = " AND COALESCE(m.game_system, '40k') = %s"
-                    sys_params_m = [system]
-
-                date_clause = ""
-                date_clause_m = ""
-                if tf == "6mo":
-                    date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
-                    date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
-                elif tf == "1yr" or not tf:
-                    date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
-                    date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
-                elif tf == "all":
-                    date_clause = ""
-                    date_clause_m = ""
-
-                # 1. Pure Match-Level Commander Records strictly for games played WITH this faction
                 try:
                     cursor.execute(f"""
                     WITH faction_player_games AS (
@@ -4483,7 +4458,7 @@ class PostgresDatabase:
                     ORDER BY wins DESC, matches_played DESC, current_elo DESC
                     LIMIT 25;
                     """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, system))
-                    top_players = [dict(r) for r in cursor.fetchall()]
+                    return [dict(r) for r in cursor.fetchall()]
                 except Exception as e:
                     conn.rollback()
                     logger.warning(f"Fallback get_faction_details top_players notice: {e}")
@@ -4528,41 +4503,53 @@ class PostgresDatabase:
                         ORDER BY wins DESC, matches_played DESC, current_elo DESC
                         LIMIT 25;
                         """, (f"%{faction_name}%", f"%{faction_name}%"))
-                        top_players = [dict(r) for r in cur_safe.fetchall()]
+                        return [dict(r) for r in cur_safe.fetchall()]
 
-                # 2. Recent matches involving this faction
+    def _query_faction_recent_matches(self, faction_name: str, limit: int, sys_params_m: list, sys_clause_m: str, date_clause_m: str) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute(f"""
-                SELECT m.id, m.event_id, e.name as event_name, m.round, m.table_number, m.match_date,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_id ELSE m.player2_id END as player_id,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_name ELSE m.player2_name END as player_name,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_faction ELSE m.player2_faction END as player_faction,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player1_score ELSE m.player2_score END as player_score,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_id ELSE m.player1_id END as opponent_id,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_name ELSE m.player1_name END as opponent_name,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_faction ELSE m.player1_faction END as opponent_faction,
-                       CASE WHEN m.player1_faction ILIKE %s THEN m.player2_score ELSE m.player1_score END as opponent_score,
+                WITH target_matches AS (
+                    SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
+                           m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
+                           m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
+                           m.winner_id, m.is_draw,
+                           (m.player1_faction ILIKE %s) as is_p1
+                    FROM matches m
+                    WHERE (m.player1_faction ILIKE %s OR m.player2_faction ILIKE %s)
+                      AND m.is_done = TRUE{sys_clause_m}{date_clause_m}
+                    ORDER BY m.match_date DESC NULLS LAST, m.round DESC
+                    LIMIT %s
+                )
+                SELECT tm.id, tm.event_id, COALESCE(e.name, 'Tournament') as event_name, tm.round, tm.table_number, tm.match_date,
+                       CASE WHEN tm.is_p1 THEN tm.player1_id ELSE tm.player2_id END as player_id,
+                       CASE WHEN tm.is_p1 THEN tm.player1_name ELSE tm.player2_name END as player_name,
+                       CASE WHEN tm.is_p1 THEN tm.player1_faction ELSE tm.player2_faction END as player_faction,
+                       CASE WHEN tm.is_p1 THEN tm.player1_score ELSE tm.player2_score END as player_score,
+                       CASE WHEN tm.is_p1 THEN tm.player2_id ELSE tm.player1_id END as opponent_id,
+                       CASE WHEN tm.is_p1 THEN tm.player2_name ELSE tm.player1_name END as opponent_name,
+                       CASE WHEN tm.is_p1 THEN tm.player2_faction ELSE tm.player1_faction END as opponent_faction,
+                       CASE WHEN tm.is_p1 THEN tm.player2_score ELSE tm.player1_score END as opponent_score,
                        CASE 
-                           WHEN m.is_draw THEN 'D'
-                           WHEN (m.winner_id = m.player1_id AND m.player1_faction ILIKE %s) OR (m.winner_id = m.player2_id AND m.player2_faction ILIKE %s) THEN 'W'
+                           WHEN tm.is_draw THEN 'D'
+                           WHEN (tm.winner_id = tm.player1_id AND tm.is_p1) OR (tm.winner_id = tm.player2_id AND NOT tm.is_p1) THEN 'W'
                            ELSE 'L'
                        END as outcome
-                FROM matches m
-                LEFT JOIN events e ON m.event_id = e.id
-                WHERE (m.player1_faction ILIKE %s OR m.player2_faction ILIKE %s)
-                  AND m.is_done = TRUE{sys_clause_m}{date_clause_m}
-                ORDER BY COALESCE(m.match_date, e.event_date) DESC, m.round DESC
-                LIMIT %s;
+                FROM target_matches tm
+                LEFT JOIN events e ON tm.event_id = e.id
+                ORDER BY tm.match_date DESC NULLS LAST, tm.round DESC;
                 """, (
-                    f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%",
-                    f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%", f"%{faction_name}%",
-                    f"%{faction_name}%", f"%{faction_name}%",
-                    f"%{faction_name}%", f"%{faction_name}%",
+                    f"%{faction_name}%",
+                    f"%{faction_name}%",
+                    f"%{faction_name}%",
                     *sys_params_m,
                     limit
                 ))
-                recent_matches = [dict(r) for r in cursor.fetchall()]
+                return [dict(r) for r in cursor.fetchall()]
 
-                # 3. Matchup win rates against other factions (Excluding Mirrors)
+    def _query_faction_matchups(self, faction_name: str, sys_params: list, sys_clause: str, date_clause: str) -> List[Dict[str, Any]]:
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
                 cursor.execute(f"""
                 WITH faction_games AS (
                     SELECT 
@@ -4596,31 +4583,119 @@ class PostgresDatabase:
                 ORDER BY win_rate DESC, total_matches DESC
                 LIMIT 35;
                 """, (f"%{faction_name}%", f"%{faction_name}%", *sys_params, f"%{faction_name}%", f"%{faction_name}%", *sys_params))
-                matchups = [dict(r) for r in cursor.fetchall()]
+                return [dict(r) for r in cursor.fetchall()]
 
-                # Summary metrics
-                total_m = len(recent_matches)
-                total_w = sum(1 for m in recent_matches if m.get("outcome") == "W")
-                total_l = sum(1 for m in recent_matches if m.get("outcome") == "L")
-                total_d = sum(1 for m in recent_matches if m.get("outcome") == "D")
+    def get_faction_details(
+        self,
+        faction_name: str,
+        limit: int = 100,
+        game_system: Optional[str] = "40k",
+        timeframe: Optional[str] = "1yr"
+    ) -> Dict[str, Any]:
+        """Returns pure match-level faction analytics, top pilots strictly for this faction, and matchups with timeframe filtering and caching."""
+        if not faction_name:
+            return {"faction": "", "stats": {}, "top_players": [], "matches": [], "matchups": []}
 
-                res = {
-                    "faction": faction_name,
-                    "game_system": system,
-                    "timeframe": tf,
-                    "stats": {
-                        "total_recent_sample": total_m,
-                        "recent_wins": total_w,
-                        "recent_losses": total_l,
-                        "recent_draws": total_d,
-                        "top_player_count": len(top_players)
-                    },
-                    "top_players": top_players,
-                    "matches": recent_matches,
-                    "matchups": matchups
-                }
-                self._faction_details_cache_dict[cache_key] = (res, time.time())
-                return res
+        system = (game_system or "40k").lower()
+        tf = (timeframe or "1yr").lower().strip()
+        cache_key = (faction_name.strip().lower(), system, tf, int(limit))
+        cached = self.get_cached(self._faction_details_cache_dict, cache_key, ttl=3600)
+        if cached:
+            return cached
+
+        sys_clause = ""
+        sys_params = []
+        sys_clause_m = ""
+        sys_params_m = []
+        if game_system and game_system != "all":
+            sys_clause = " AND COALESCE(matches.game_system, '40k') = %s"
+            sys_params = [system]
+            sys_clause_m = " AND COALESCE(m.game_system, '40k') = %s"
+            sys_params_m = [system]
+
+        date_clause = ""
+        date_clause_m = ""
+        if tf == "6mo":
+            date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
+            date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
+        elif tf == "1yr" or not tf:
+            date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
+            date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
+        elif tf == "all":
+            date_clause = ""
+            date_clause_m = ""
+
+        # Parallel concurrent execution across pooled connections
+        top_players = []
+        recent_matches = []
+        matchups = []
+
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                f_players = executor.submit(self._query_faction_top_players, faction_name, system, sys_params, sys_clause, date_clause)
+                f_matches = executor.submit(self._query_faction_recent_matches, faction_name, limit, sys_params_m, sys_clause_m, date_clause_m)
+                f_matchups = executor.submit(self._query_faction_matchups, faction_name, sys_params, sys_clause, date_clause)
+
+                top_players = f_players.result()
+                recent_matches = f_matches.result()
+                matchups = f_matchups.result()
+        except Exception as exec_err:
+            logger.warning(f"Parallel subquery execution notice, falling back to sequential: {exec_err}")
+            top_players = self._query_faction_top_players(faction_name, system, sys_params, sys_clause, date_clause)
+            recent_matches = self._query_faction_recent_matches(faction_name, limit, sys_params_m, sys_clause_m, date_clause_m)
+            matchups = self._query_faction_matchups(faction_name, sys_params, sys_clause, date_clause)
+
+        # Summary metrics
+        total_m = len(recent_matches)
+        total_w = sum(1 for m in recent_matches if m.get("outcome") == "W")
+        total_l = sum(1 for m in recent_matches if m.get("outcome") == "L")
+        total_d = sum(1 for m in recent_matches if m.get("outcome") == "D")
+
+        res = {
+            "faction": faction_name,
+            "game_system": system,
+            "timeframe": tf,
+            "stats": {
+                "total_recent_sample": total_m,
+                "recent_wins": total_w,
+                "recent_losses": total_l,
+                "recent_draws": total_d,
+                "top_player_count": len(top_players)
+            },
+            "top_players": top_players,
+            "matches": recent_matches,
+            "matchups": matchups
+        }
+        self.set_cached(self._faction_details_cache_dict, cache_key, res)
+        return res
+
+    def prewarm_faction_details_cache(self, game_system: str = "40k", timeframe: str = "1yr", max_factions: int = 25) -> int:
+        """Pre-populates the in-memory faction details cache for top competitive factions."""
+        try:
+            factions = self.get_factions(game_system=game_system)
+            if not factions or not isinstance(factions, list):
+                factions = [
+                    "Aeldari", "Chaos Space Marines", "Drukhari", "Genestealer Cults",
+                    "Grey Knights", "Imperial Knights", "Leagues of Votann", "Necrons",
+                    "Orks", "Space Marines", "T'au Empire", "Tyranids", "World Eaters",
+                    "Death Guard", "Thousand Sons", "Adeptus Custodes", "Adeptus Mechanicus",
+                    "Adepta Sororitas", "Astra Militarum", "Chaos Daemons", "Chaos Knights"
+                ]
+            target_factions = factions[:max_factions]
+            warmed = 0
+            for f in target_factions:
+                if isinstance(f, dict):
+                    fname = f.get("name") or f.get("faction") or ""
+                else:
+                    fname = str(f).strip()
+                if fname:
+                    self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe)
+                    warmed += 1
+            logger.info(f"🔥 Pre-warmed faction details cache for {warmed} factions ({game_system}, {timeframe}).")
+            return warmed
+        except Exception as e:
+            logger.warning(f"Notice during faction details cache pre-warming: {e}")
+            return 0
 
     def save_tracker_game(
         self,

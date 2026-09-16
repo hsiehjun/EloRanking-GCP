@@ -977,39 +977,124 @@ async function changeFactionModalTimeframe(tf) {
 }
 window.changeFactionModalTimeframe = changeFactionModalTimeframe;
 
-async function loadFactionModalData(factionName, tf = '1yr') {
-  const matchBody = document.getElementById('faction-matches-body');
-  const subEl = document.getElementById('modal-faction-subtitle');
+const factionModalDataCache = new Map();
 
-  if (matchBody) matchBody.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="spinner"></div><div style="margin-top:0.5rem;">Loading faction match history...</div></td></tr>';
+function renderFactionTableSkeletons() {
+  const matchBody = document.getElementById('faction-matches-body');
+  const playersBody = document.getElementById('faction-players-body');
+  const matchupsBody = document.getElementById('faction-matchups-body');
+  const subEl = document.getElementById('modal-faction-subtitle');
+  if (subEl) subEl.innerText = 'Analyzing competitive meta and commanders...';
+
+  const mCount = document.getElementById('faction-tab-matches-count');
+  if (mCount) mCount.innerText = '...';
+  const pCount = document.getElementById('faction-tab-players-count');
+  if (pCount) pCount.innerText = '...';
+  const muCount = document.getElementById('faction-tab-matchups-count');
+  if (muCount) muCount.innerText = '...';
+
+  if (matchBody) {
+    let mHtml = '';
+    for (let i = 0; i < 6; i++) {
+      mHtml += `
+        <tr class="skeleton-row">
+          <td><div class="skeleton-box" style="width:75px;"></div></td>
+          <td><div class="skeleton-box" style="width:140px;"></div></td>
+          <td><div class="skeleton-box" style="width:110px;"></div></td>
+          <td><div class="skeleton-box" style="width:55px;"></div></td>
+          <td><div class="skeleton-box" style="width:120px;"></div></td>
+          <td><div class="skeleton-box" style="width:60px;"></div></td>
+        </tr>
+      `;
+    }
+    matchBody.innerHTML = mHtml;
+  }
+
+  if (playersBody) {
+    let pHtml = '';
+    for (let i = 0; i < 5; i++) {
+      pHtml += `
+        <tr class="skeleton-row">
+          <td><div class="skeleton-box" style="width:25px;"></div></td>
+          <td><div class="skeleton-box" style="width:130px;"></div></td>
+          <td><div class="skeleton-box" style="width:60px;"></div></td>
+          <td><div class="skeleton-box" style="width:50px;"></div></td>
+          <td><div class="skeleton-box" style="width:70px;"></div></td>
+          <td><div class="skeleton-box" style="width:50px;"></div></td>
+        </tr>
+      `;
+    }
+    playersBody.innerHTML = pHtml;
+  }
+
+  if (matchupsBody) {
+    let muHtml = '';
+    for (let i = 0; i < 5; i++) {
+      muHtml += `
+        <tr class="skeleton-row">
+          <td><div class="skeleton-box" style="width:25px;"></div></td>
+          <td><div class="skeleton-box" style="width:140px;"></div></td>
+          <td><div class="skeleton-box" style="width:65px;"></div></td>
+          <td><div class="skeleton-box" style="width:80px;"></div></td>
+          <td><div class="skeleton-box" style="width:75px;"></div></td>
+        </tr>
+      `;
+    }
+    matchupsBody.innerHTML = muHtml;
+  }
+}
+
+function applyFactionModalData(data, sys, tf) {
+  const matches = data.matches || [];
+  const topPlayers = data.top_players || [];
+  const matchups = data.matchups || [];
+
+  currentFactionMatches = matches;
+  currentFactionPlayers = topPlayers;
+  currentFactionMatchups = matchups;
+
+  const tfLabels = { '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
+  const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
+  const subEl = document.getElementById('modal-faction-subtitle');
+  if (subEl) subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${matches.length} matches analyzed`;
+
+  const mCount = document.getElementById('faction-tab-matches-count');
+  if (mCount) mCount.innerText = matches.length;
+  const pCount = document.getElementById('faction-tab-players-count');
+  if (pCount) pCount.innerText = topPlayers.length;
+  const muCount = document.getElementById('faction-tab-matchups-count');
+  if (muCount) muCount.innerText = matchups.length;
+
+  renderFactionMatchesRows(matches);
+  renderFactionPlayersRows(topPlayers);
+  renderFactionMatchupsRows(matchups);
+}
+
+async function loadFactionModalData(factionName, tf = '1yr') {
+  const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+  const cacheKey = `${(factionName || '').trim().toLowerCase()}_${sys}_${tf}`;
+  const cachedEntry = factionModalDataCache.get(cacheKey);
+  const now = Date.now();
+  const isFresh = cachedEntry && (now - cachedEntry.timestamp < 300000); // 5 min TTL
+
+  if (cachedEntry) {
+    applyFactionModalData(cachedEntry.data, sys, tf);
+    if (isFresh) {
+      return;
+    }
+  } else {
+    renderFactionTableSkeletons();
+  }
 
   try {
-    const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     const data = await window.api.getFactionDetails(factionName, 100, sys, tf);
-    const matches = data.matches || [];
-    const topPlayers = data.top_players || [];
-    const matchups = data.matchups || [];
-
-    currentFactionMatches = matches;
-    currentFactionPlayers = topPlayers;
-    currentFactionMatchups = matchups;
-
-    const tfLabels = { '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
-    const sysLabel = sys === 'aos' ? 'Age of Sigmar' : 'Warhammer 40K';
-    if (subEl) subEl.innerText = `${sysLabel} Competitive Meta • ${tfLabels[tf] || '1 Year'} window • ${matches.length} matches analyzed`;
-
-    const mCount = document.getElementById('faction-tab-matches-count');
-    if (mCount) mCount.innerText = matches.length;
-    const pCount = document.getElementById('faction-tab-players-count');
-    if (pCount) pCount.innerText = topPlayers.length;
-    const muCount = document.getElementById('faction-tab-matchups-count');
-    if (muCount) muCount.innerText = matchups.length;
-
-    renderFactionMatchesRows(matches);
-    renderFactionPlayersRows(topPlayers);
-    renderFactionMatchupsRows(matchups);
+    factionModalDataCache.set(cacheKey, { timestamp: Date.now(), data });
+    applyFactionModalData(data, sys, tf);
   } catch (err) {
-    if (matchBody) matchBody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading faction details: ${err.message}</td></tr>`;
+    if (!cachedEntry) {
+      const matchBody = document.getElementById('faction-matches-body');
+      if (matchBody) matchBody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading faction details: ${escapeHtml(err.message)}</td></tr>`;
+    }
   }
 }
 
@@ -1024,8 +1109,6 @@ async function openFactionModal(factionName, initialTf = '1yr') {
 
   const titleEl = document.getElementById('modal-faction-title');
   if (titleEl) titleEl.innerText = factionName || 'Faction Meta';
-  const subEl = document.getElementById('modal-faction-subtitle');
-  if (subEl) subEl.innerText = 'Loading recorded matches and commander data...';
 
   switchFactionModalTab('matches');
   await loadFactionModalData(currentFactionName, currentFactionTimeframe);
