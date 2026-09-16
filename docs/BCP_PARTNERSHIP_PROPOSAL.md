@@ -42,8 +42,6 @@ Tabletop competitors are passionate about self-improvement and community connect
 
 ## 3. How OmniTactica Directly Expands BCP Revenue
 
-OmniTactica aligns seamlessly with BCP's two primary revenue streams:
-
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        THE BCP REVENUE FLYWHEEL                        │
@@ -82,7 +80,18 @@ OmniTactica aligns seamlessly with BCP's two primary revenue streams:
 
 ---
 
-## 4. Collaboration vs. Competition: Strict Demarcation
+## 4. Live Platform Capability Showcase
+
+OmniTactica is live and operational with four core feature sets driving engagement back to BCP:
+
+1. **Player Hub & Elo Progression:** Tracks personal rating (1845.5), milestone progress toward High Warlord, verified BCP account connection, recent form, and active tournament registrations.
+2. **Opponent Scouting Profiles:** Deep competitor intelligence (e.g., Folger Pyles, 90.1% win rate, Everchosen rank). Scouting an opponent's high win rate triggers the immediate urge to inspect their exact army list on BCP.
+3. **Opponent Matchup Matrix:** Automatically isolates Favorite Prey Armies (+56.2 Elo vs. Orks) and Toughest Nemesis Armies (-31.0 Elo vs. Aeldari) with exact win rates and net Elo deltas.
+4. **Event Discovery Hub & BCP Ticketing:** Geographically filtered tournament listings with direct ticket purchase and registration links pointing straight to BCP.
+
+---
+
+## 5. Collaboration vs. Competition: Strict Demarcation
 
 OmniTactica respects BCP’s role as the authoritative tournament engine and maintains strict operational boundaries:
 
@@ -97,38 +106,29 @@ OmniTactica respects BCP’s role as the authoritative tournament engine and mai
 
 ---
 
-## 5. Technical Architecture & Security Guarantees
-
-Our technical implementation ensures zero friction and complete data safety:
+## 6. Technical Architecture & Security Guarantees
 
 1. **Strict Read-Only Backend Synchronization:**
    - Ingestion of tournament results occurs strictly through backend scheduled worker jobs.
    - The client web and mobile frontends have **zero write access** to BCP databases or our match sync tables.
 2. **Zero Infrastructure Load on BCP:**
-   - All compute-heavy algorithms (Elo calculations, matchup matrix aggregations, search queries) run entirely on OmniTactica's Google Cloud Platform infrastructure.
+   - All compute-heavy algorithms run entirely on OmniTactica's Google Cloud Platform infrastructure.
 3. **Official Attribution & Direct Deep Linking:**
-   - Every tournament match record and event card displays: `Verified Tournament Data provided by Best Coast Pairings`.
+   - Every tournament match record displays: `Verified Tournament Data provided by Best Coast Pairings`.
    - Roster inspection buttons deliberately route users to BCP's native app or website, strictly honoring BCP's subscription paywall for army list viewing.
 
 ---
 
-## 6. Live Platform Demonstration
+## 7. A Collaborative Mindset: Open to Improvements & Roadmap Alignment
 
-The OmniTactica platform is fully implemented and responsive across Desktop, Tablet, and Mobile:
-- **Player Hub & Skill Progression:** Visualizes current Elo, peak rating, tier progress (e.g., High Warlord), active faction mastery, and verified BCP account integration.
-- **Opponent Scouting & Profiles:** In-depth competitor intelligence highlighting win rates, match history, and top factions.
-- **Opponent Matchup Matrix:** Automatically isolates Favorite Prey Armies vs. Toughest Nemesis Armies with exact win rates and net Elo deltas.
-- **Event Discovery Hub:** Geographically filtered tournament listings with direct ticket purchase links pointing straight to BCP.
+OmniTactica is built to empower the tabletop community in partnership with Best Coast Pairings. We view this as a flexible, cooperative partnership and are **completely open to feedback, feature improvements, custom UI adaptations, co-branding integration, or workflow adjustments** to ensure this partnership delivers maximum value and revenue for Best Coast Pairings.
 
 ---
 
-## 7. Proposed Partnership Next Steps
+## 8. Live Platform Demonstration & Contact
 
-We propose a low-risk, collaborative pilot aligned with upcoming tournament circuits:
-1. **API Collaboration:** Establish an authorized read-only data sync or export webhook.
-2. **Co-Branding & Funnel Tracking:** Embed official BCP attribution and measure list-view subscription conversions and ticket click-through volume.
-3. **Review & Expansion:** Review conversion metrics and formalize an ongoing partnership framework.
+Experience the live platform and community suite:
+- **Live Platform Demo:** [https://omnitactica.com](https://omnitactica.com)
+- **Partnership Inquiries:** `partnership@omnitactica.com`
 
 **OmniTactica looks forward to collaborating with Best Coast Pairings to grow community adoption and accelerate subscription revenue together.**
-
-*Contact: partnership@omnitactica.com*  
