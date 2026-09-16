@@ -128,6 +128,9 @@ function switchGameSystem(sys) {
     communityState.overview = null;
     communityState.overviewKey = null;
     communityState.overviewLoadedAt = 0;
+    communityState.majorsList = [];
+    communityState.majorsLoadedAt = 0;
+    communityState.majorsGameSystem = null;
   }
   if (typeof leaderboardPagination !== 'undefined') {
     leaderboardPagination.page = 1;

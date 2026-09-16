@@ -1276,6 +1276,17 @@ window.api = {
     return this._fetchJson(`/api/community/bcp_upcoming?${params.toString()}`);
   },
 
+  // Community Hub: Premier Majors & Super Majors Discovery (Destination tournaments worldwide)
+  async getBcpMajors(gameSystem = '', daysAhead = 180, minPlayers = 30) {
+    const currentSys = gameSystem || (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
+    const params = new URLSearchParams({
+      days_ahead: String(daysAhead),
+      min_players: String(minPlayers),
+      game_system: currentSys || '40k'
+    });
+    return this._fetchJson(`/api/community/bcp_majors?${params.toString()}`);
+  },
+
   // Community Hub: Local Game Stores for Warhammer 40k
   async getCommunityStores(lat = null, lng = null, radiusMiles = 50, query = '', locationName = '') {
     const params = new URLSearchParams();

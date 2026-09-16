@@ -28,7 +28,15 @@ var communityState = (typeof window !== 'undefined' && window.communityState) ||
   isLoading: false,
   chatMessages: [],
   chatPollingInterval: null,
-  isSendingChat: false
+  isSendingChat: false,
+  tournamentsViewMode: 'feed', // 'feed', 'calendar'
+  tournamentsQuickFilter: 'all', // 'all', 'weekend', 'next_weekend', 'majors'
+  majorsList: [],
+  majorsLoading: false,
+  majorsLoadedAt: null,
+  majorsGameSystem: null,
+  calendarDate: new Date(),
+  calendarSelectedDate: null
 };
 if (typeof window !== 'undefined') window.communityState = communityState;
 
@@ -750,7 +758,12 @@ function renderCurrentSubtab() {
   if (communityState.activeSubtab === 'radar') {
     if (typeof loadNearbyPlayers === 'function') loadNearbyPlayers();
   } else if (communityState.activeSubtab === 'tournaments') {
-    renderCommunityEvents();
+    if (communityState.tournamentsViewMode === 'calendar') {
+      renderTournamentsCalendar();
+    } else {
+      renderCommunityEvents();
+    }
+    loadBcpMajors();
   } else if (communityState.activeSubtab === 'stores') {
     loadLocalGameStores();
   } else if (communityState.activeSubtab === 'scene') {
@@ -774,12 +787,480 @@ async function refreshCommunityTournaments(btnElement = null) {
       renderCommunityEvents();
       fetchAndMergeBcpUpcoming(communityState.lat, communityState.lng, communityState.radiusMiles);
     }
+    loadBcpMajors(true);
   } catch (err) {
     console.error('Failed to refresh tournaments:', err);
   } finally {
     if (btn) btn.disabled = false;
     if (icon) icon.classList.remove('spinning');
   }
+}
+
+/**
+ * --------------------------------------------------------------------------
+ * TOURNAMENT & EVENT DISCOVERY HUB: DESTINATION MAJORS, FILTERS & CALENDAR
+ * --------------------------------------------------------------------------
+ */
+
+function getWeekendRange(offsetWeeks = 0) {
+  const now = new Date();
+  const day = now.getDay(); // 0 = Sun, 1 = Mon, ..., 5 = Fri, 6 = Sat
+  let diffToFri = (5 - day);
+  if (day === 0) { // Sunday is part of current weekend
+    diffToFri = -2;
+  }
+  const fri = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToFri + (offsetWeeks * 7), 0, 0, 0, 0);
+  const sun = new Date(fri.getFullYear(), fri.getMonth(), fri.getDate() + 2, 23, 59, 59, 999);
+  return { start: fri, end: sun };
+}
+
+function isDateInWeekend(dateStr, offsetWeeks = 0) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  const { start, end } = getWeekendRange(offsetWeeks);
+  return d >= start && d <= end;
+}
+
+function setTournamentsQuickFilter(filter) {
+  if (communityState.tournamentsQuickFilter === filter) {
+    communityState.tournamentsQuickFilter = 'all';
+  } else {
+    communityState.tournamentsQuickFilter = filter;
+  }
+  ['weekend', 'next_weekend', 'majors'].forEach(k => {
+    const el = document.getElementById(`filter-chip-quick-${k.replace('_', '-')}`);
+    if (el) {
+      el.classList.toggle('active', communityState.tournamentsQuickFilter === k);
+    }
+  });
+
+  if (communityState.tournamentsViewMode === 'calendar') {
+    renderTournamentsCalendar();
+  } else {
+    renderCommunityEvents();
+  }
+}
+
+function switchTournamentsViewMode(mode) {
+  communityState.tournamentsViewMode = mode;
+  const btnFeed = document.getElementById('btn-tournaments-view-feed');
+  const btnCal = document.getElementById('btn-tournaments-view-calendar');
+  const feedView = document.getElementById('comm-tournaments-feed-view');
+  const calView = document.getElementById('comm-tournaments-calendar-view');
+
+  if (btnFeed) btnFeed.classList.toggle('active', mode === 'feed');
+  if (btnCal) btnCal.classList.toggle('active', mode === 'calendar');
+
+  if (mode === 'calendar') {
+    if (feedView) feedView.style.display = 'none';
+    if (calView) calView.style.display = 'block';
+    renderTournamentsCalendar();
+  } else {
+    if (calView) calView.style.display = 'none';
+    if (feedView) feedView.style.display = 'block';
+    renderCommunityEvents();
+  }
+}
+
+async function loadBcpMajors(force = false) {
+  const currentSys = (typeof currentGameSystem !== 'undefined' && currentGameSystem) ? currentGameSystem : '40k';
+  if (!force && communityState.majorsList && communityState.majorsList.length > 0 &&
+      communityState.majorsGameSystem === currentSys &&
+      communityState.majorsLoadedAt && (Date.now() - communityState.majorsLoadedAt < 120000)) {
+    renderMajorsCarousel();
+    return communityState.majorsList;
+  }
+
+  communityState.majorsLoading = true;
+  communityState.majorsGameSystem = currentSys;
+
+  try {
+    const res = await window.api.getBcpMajors(currentSys, 180, 30);
+    if (res && res.success && Array.isArray(res.events)) {
+      communityState.majorsList = res.events;
+      communityState.majorsLoadedAt = Date.now();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch destination majors:', err);
+  } finally {
+    communityState.majorsLoading = false;
+    renderMajorsCarousel();
+    if (communityState.tournamentsViewMode === 'calendar') {
+      renderTournamentsCalendar();
+    }
+    if (communityState.tournamentsQuickFilter === 'majors') {
+      renderCommunityEvents();
+    }
+  }
+}
+
+function scrollMajorsCarousel(direction) {
+  const c = document.getElementById('comm-majors-carousel');
+  if (c) {
+    c.scrollBy({ left: direction * 340, behavior: 'smooth' });
+  }
+}
+
+function renderMajorsCarousel() {
+  const carousel = document.getElementById('comm-majors-carousel');
+  if (!carousel) return;
+
+  const events = communityState.majorsList || [];
+  if (events.length === 0) {
+    if (communityState.majorsLoading) {
+      carousel.innerHTML = `
+        <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
+          <span class="spinner-mini" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;"></span>
+          Scanning global circuit for upcoming destination majors...
+        </div>
+      `;
+      return;
+    }
+    carousel.innerHTML = `
+      <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
+        No destination premier majors currently scheduled in this window.
+      </div>
+    `;
+    return;
+  }
+
+  let html = '';
+  events.slice(0, 20).forEach(ev => {
+    const eid = escapeHtml(ev.id);
+    const name = escapeHtml(ev.name || 'Premier Championship');
+    const city = escapeHtml(ev.city || '');
+    const state = escapeHtml(ev.state || ev.country || '');
+    const loc = [city, state].filter(Boolean).join(', ') || 'Premier Destination';
+    const dateStr = ev.event_date ? ev.event_date.slice(0, 10) : 'TBD';
+    const players = Number(ev.total_players || 0);
+    const capacity = ev.num_tickets ? Number(ev.num_tickets) : null;
+    const tier = ev.tier || 'major';
+    const isOngoing = isTournamentOngoing(ev);
+
+    // Tier badge
+    let tierBadgeHtml = '';
+    if (tier === 'super_major') {
+      tierBadgeHtml = `<span class="comm-legend-pill pill-super-major" style="font-size: 0.68rem; padding: 2px 7px;">🟣 SUPER MAJOR</span>`;
+    } else if (ev.circuits || name.toLowerCase().includes('open') || name.toLowerCase().includes('gw')) {
+      tierBadgeHtml = `<span class="comm-legend-pill" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border-color: rgba(245, 158, 11, 0.35); font-size: 0.68rem; padding: 2px 7px;">🛡️ CIRCUIT</span>`;
+    } else {
+      tierBadgeHtml = `<span class="comm-legend-pill pill-major" style="font-size: 0.68rem; padding: 2px 7px;">🔵 MAJOR</span>`;
+    }
+
+    // Countdown / status badge
+    let timingBadge = '';
+    if (isOngoing) {
+      timingBadge = `<span class="badge" style="background: rgba(245,158,11,0.2); color: #f59e0b; border: 1px solid rgba(245,158,11,0.4); font-size: 0.68rem; font-weight: 800;">🔥 LIVE NOW</span>`;
+    } else if (ev.event_date) {
+      const daysUntil = Math.ceil((new Date(ev.event_date) - new Date()) / (1000 * 60 * 60 * 24));
+      if (daysUntil === 0) {
+        timingBadge = `<span class="badge" style="background: rgba(16,185,129,0.2); color: #34d399; font-size: 0.68rem; font-weight: 800;">⚡ Today</span>`;
+      } else if (daysUntil > 0 && daysUntil <= 3) {
+        timingBadge = `<span class="badge" style="background: rgba(56,189,248,0.2); color: #38bdf8; font-size: 0.68rem; font-weight: 800;">🔥 In ${daysUntil}d</span>`;
+      } else if (daysUntil > 3) {
+        timingBadge = `<span class="badge" style="background: rgba(255,255,255,0.06); color: #cbd5e1; font-size: 0.68rem;">⏳ in ${daysUntil}d</span>`;
+      }
+    }
+
+    html += `
+      <div class="comm-majors-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; gap: 0.4rem;">
+          ${tierBadgeHtml}
+          ${timingBadge}
+        </div>
+        <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.6em;" title="${name}">
+          ${name}
+        </h4>
+        <div style="font-size: 0.74rem; color: var(--text-muted); margin-bottom: 0.35rem; display: flex; align-items: center; gap: 5px;">
+          <span>🌐</span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${loc}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem; background: rgba(0,0,0,0.25); padding: 4px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+          <span>📅 ${dateStr}</span>
+          <span style="color: #38bdf8; font-weight: 700;">👥 ${players}${capacity ? ` / ${capacity}` : ''} Players</span>
+        </div>
+        <div style="margin-top: auto; display: flex; gap: 0.4rem;">
+          <button class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.38rem 0.5rem; justify-content: center; font-weight: 700;" onclick="openEventModal('${eid}')">
+            📋 Preview Event
+          </button>
+          <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.38rem 0.55rem; color: #94a3b8;" title="View on Best Coast Pairings">
+            🔗 BCP
+          </a>
+        </div>
+      </div>
+    `;
+  });
+
+  carousel.innerHTML = html;
+}
+
+function changeCalendarMonth(delta) {
+  const d = communityState.calendarDate || new Date();
+  d.setMonth(d.getMonth() + delta);
+  communityState.calendarDate = new Date(d);
+  renderTournamentsCalendar();
+}
+
+function setCalendarToday() {
+  communityState.calendarDate = new Date();
+  renderTournamentsCalendar();
+}
+
+function closeCalendarDayDrawer() {
+  const drawer = document.getElementById('comm-calendar-day-drawer');
+  if (drawer) drawer.style.display = 'none';
+  communityState.calendarSelectedDate = null;
+  document.querySelectorAll('.comm-calendar-day.selected').forEach(el => el.classList.remove('selected'));
+}
+
+function getAllDiscoveryTournaments() {
+  const map = new Map();
+  const rawUpcoming = communityState.overview?.events_upcoming || [];
+  rawUpcoming.forEach(ev => {
+    if (ev && ev.id) map.set(ev.id, ev);
+  });
+  const majors = communityState.majorsList || [];
+  majors.forEach(ev => {
+    if (ev && ev.id && !map.has(ev.id)) {
+      map.set(ev.id, ev);
+    }
+  });
+  return Array.from(map.values());
+}
+
+function getTournamentsOnDate(dateStr) {
+  const all = getAllDiscoveryTournaments();
+  return all.filter(ev => {
+    if (!ev.event_date) return false;
+    const evDate = ev.event_date.slice(0, 10);
+    if (evDate === dateStr) return true;
+    if (ev.end_date) {
+      const evEnd = ev.end_date.slice(0, 10);
+      return dateStr >= evDate && dateStr <= evEnd;
+    }
+    return false;
+  });
+}
+
+function openCalendarDayDrawer(dateStr) {
+  communityState.calendarSelectedDate = dateStr;
+  const drawer = document.getElementById('comm-calendar-day-drawer');
+  const title = document.getElementById('comm-day-drawer-title');
+  const body = document.getElementById('comm-day-drawer-body');
+  if (!drawer || !body) return;
+
+  document.querySelectorAll('.comm-calendar-day').forEach(el => {
+    el.classList.toggle('selected', el.dataset.date === dateStr);
+  });
+
+  const events = getTournamentsOnDate(dateStr);
+  const prettyDate = new Date(dateStr + 'T12:00:00').toLocaleDateString(undefined, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  if (title) title.textContent = `📅 Tournaments on ${prettyDate} (${events.length})`;
+
+  if (events.length === 0) {
+    body.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 1.5rem; text-align: center; color: var(--text-muted);">
+        No tournaments scheduled on this date.
+      </div>
+    `;
+  } else {
+    let html = '';
+    events.forEach(ev => {
+      const eid = escapeHtml(ev.id);
+      const name = escapeHtml(ev.name || 'Tournament');
+      const loc = [ev.venue || ev.venue_name, ev.city, ev.state].filter(Boolean).join(', ') || 'Unspecified Location';
+      const players = Number(ev.total_players || 0);
+      const rounds = ev.num_rounds || 0;
+      const tier = ev.tier || 'rtt';
+
+      let tierBadge = `<span class="comm-legend-pill pill-rtt">RTT / Local</span>`;
+      if (tier === 'super_major') {
+        tierBadge = `<span class="comm-legend-pill pill-super-major">🟣 SUPER MAJOR</span>`;
+      } else if (tier === 'major') {
+        tierBadge = `<span class="comm-legend-pill pill-major">🔵 MAJOR</span>`;
+      } else if (tier === 'gt') {
+        tierBadge = `<span class="comm-legend-pill pill-gt">🟢 GRAND TOURNAMENT</span>`;
+      }
+
+      html += `
+        <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+            ${tierBadge}
+            ${ev.distance_miles != null ? `<span style="font-size: 0.7rem; color: #38bdf8; font-weight: 700;">🚗 ${Number(ev.distance_miles).toFixed(1)} mi</span>` : '<span style="font-size: 0.7rem; color: #a855f7; font-weight: 700;">🌟 Worldwide</span>'}
+          </div>
+          <h4 style="margin: 0 0 0.35rem; color: #fff; font-size: 0.95rem; font-weight: 800;">${name}</h4>
+          <div style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem;">📍 ${escapeHtml(loc)}</div>
+          <div style="display: flex; gap: 0.75rem; font-size: 0.72rem; color: #94a3b8; margin-bottom: 0.75rem;">
+            <span>👥 ${players} Players</span>
+            ${rounds ? `<span>⚔️ ${rounds} Rounds</span>` : ''}
+          </div>
+          <div style="margin-top: auto; display: flex; gap: 0.4rem;">
+            <button class="btn btn-primary" style="flex: 1; font-size: 0.75rem; padding: 0.38rem;" onclick="openEventModal('${eid}')">
+              📋 Preview Event
+            </button>
+            <a href="https://www.bestcoastpairings.com/event/${eid}" target="_blank" rel="noopener" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.38rem 0.6rem; color: #94a3b8;">
+              🔗 BCP
+            </a>
+          </div>
+        </div>
+      `;
+    });
+    body.innerHTML = html;
+  }
+
+  drawer.style.display = 'block';
+  drawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function renderTournamentsCalendar() {
+  const grid = document.getElementById('comm-calendar-grid');
+  const monthTitle = document.getElementById('comm-calendar-month-title');
+  if (!grid) return;
+
+  const cur = communityState.calendarDate || new Date();
+  const year = cur.getFullYear();
+  const month = cur.getMonth(); // 0-indexed
+
+  if (monthTitle) {
+    monthTitle.textContent = cur.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  }
+
+  const firstDay = new Date(year, month, 1);
+  const startingDayOfWeek = firstDay.getDay();
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+  const todayStr = getLocalIsoDateStr(new Date());
+
+  const allEvents = getAllDiscoveryTournaments();
+  const eventsByDate = new Map();
+
+  allEvents.forEach(ev => {
+    if (!ev.event_date) return;
+    const startStr = ev.event_date.slice(0, 10);
+    const endStr = ev.end_date ? ev.end_date.slice(0, 10) : startStr;
+
+    // Apply quick filter if set
+    if (communityState.tournamentsQuickFilter === 'majors') {
+      const isMaj = ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || (ev.total_players >= 50);
+      if (!isMaj) return;
+    } else if (communityState.tournamentsQuickFilter === 'weekend') {
+      if (!isDateInWeekend(startStr, 0)) return;
+    } else if (communityState.tournamentsQuickFilter === 'next_weekend') {
+      if (!isDateInWeekend(startStr, 1)) return;
+    }
+
+    let d = new Date(startStr + 'T12:00:00');
+    const endDate = new Date(endStr + 'T12:00:00');
+    let safety = 0;
+    while (d <= endDate && safety < 7) {
+      const dStr = getLocalIsoDateStr(d);
+      if (!eventsByDate.has(dStr)) eventsByDate.set(dStr, []);
+      eventsByDate.get(dStr).push(ev);
+      d.setDate(d.getDate() + 1);
+      safety++;
+    }
+  });
+
+  let html = '';
+  const totalDays = 42;
+  for (let i = 0; i < totalDays; i++) {
+    let dayNum;
+    let isOtherMonth = false;
+    let cellYear = year;
+    let cellMonth = month;
+
+    if (i < startingDayOfWeek) {
+      dayNum = daysInPrevMonth - (startingDayOfWeek - 1 - i);
+      isOtherMonth = true;
+      cellMonth = month - 1;
+      if (cellMonth < 0) {
+        cellMonth = 11;
+        cellYear--;
+      }
+    } else if (i >= startingDayOfWeek + daysInMonth) {
+      dayNum = i - (startingDayOfWeek + daysInMonth) + 1;
+      isOtherMonth = true;
+      cellMonth = month + 1;
+      if (cellMonth > 11) {
+        cellMonth = 0;
+        cellYear++;
+      }
+    } else {
+      dayNum = i - startingDayOfWeek + 1;
+    }
+
+    const cellDateStr = `${cellYear}-${String(cellMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+    const dayOfWeek = i % 7;
+    const isWeekend = (dayOfWeek === 0 || dayOfWeek === 5 || dayOfWeek === 6); // Fri, Sat, Sun
+    const isToday = (cellDateStr === todayStr);
+    const isSelected = (cellDateStr === communityState.calendarSelectedDate);
+
+    const dayEvents = eventsByDate.get(cellDateStr) || [];
+
+    let classes = ['comm-calendar-day'];
+    if (isOtherMonth) classes.push('other-month');
+    if (isWeekend) classes.push('weekend');
+    if (isToday) classes.push('today');
+    if (isSelected) classes.push('selected');
+
+    let chipsHtml = '';
+    const maxChips = 2;
+    dayEvents.slice(0, maxChips).forEach(ev => {
+      const tier = ev.tier || 'rtt';
+      let tierClass = 'rtt';
+      let tierIcon = '⚪';
+      if (tier === 'super_major') {
+        tierClass = 'super-major';
+        tierIcon = '🟣';
+      } else if (tier === 'major') {
+        tierClass = 'major';
+        tierIcon = '🔵';
+      } else if (tier === 'gt') {
+        tierClass = 'gt';
+        tierIcon = '🟢';
+      }
+
+      const truncatedName = escapeHtml(ev.name || 'Event').slice(0, 18);
+      chipsHtml += `
+        <div class="comm-calendar-chip ${tierClass}" onclick="event.stopPropagation(); openEventModal('${escapeHtml(ev.id)}')" title="${escapeHtml(ev.name)} (${ev.total_players || 0} players)">
+          <span>${tierIcon}</span>
+          <span style="overflow: hidden; text-overflow: ellipsis;">${truncatedName}</span>
+          ${ev.total_players ? `<span style="opacity: 0.8; font-size: 0.62rem; margin-left: auto;">(${ev.total_players})</span>` : ''}
+        </div>
+      `;
+    });
+
+    if (dayEvents.length > maxChips) {
+      chipsHtml += `
+        <div class="comm-calendar-more-chip" onclick="event.stopPropagation(); openCalendarDayDrawer('${cellDateStr}')">
+          +${dayEvents.length - maxChips} more
+        </div>
+      `;
+    }
+
+    html += `
+      <div class="${classes.join(' ')}" data-date="${cellDateStr}" onclick="openCalendarDayDrawer('${cellDateStr}')">
+        <div class="comm-calendar-day-header">
+          <span class="comm-calendar-day-num">${dayNum}</span>
+          ${isToday ? `<span class="comm-calendar-day-badge" style="background: #38bdf8; color: #070b14;">TODAY</span>` : ''}
+        </div>
+        <div class="comm-calendar-events-list">
+          ${chipsHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  grid.innerHTML = html;
 }
 
 /**
@@ -875,6 +1356,51 @@ function renderCommunityEvents() {
     `;
   }
 
+  // Apply quick action / weekend filters
+  let activeQuickFilterNotice = '';
+  if (communityState.tournamentsQuickFilter === 'weekend') {
+    displayedUpcoming = displayedUpcoming.filter(ev => isDateInWeekend(ev.event_date, 0));
+    activeQuickFilterNotice = `
+      <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.85rem; color: #e0f2fe; display: flex; align-items: center; gap: 8px;">
+          <span>⚡</span>
+          <span>Showing tournaments for <strong>This Weekend (Fri–Sun)</strong> (${displayedUpcoming.length} events found)</span>
+        </div>
+        <button onclick="setTournamentsQuickFilter('all')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: #38bdf8;">✕ Clear Weekend Filter</button>
+      </div>
+    `;
+  } else if (communityState.tournamentsQuickFilter === 'next_weekend') {
+    displayedUpcoming = displayedUpcoming.filter(ev => isDateInWeekend(ev.event_date, 1));
+    activeQuickFilterNotice = `
+      <div style="background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.85rem; color: #e0f2fe; display: flex; align-items: center; gap: 8px;">
+          <span>📅</span>
+          <span>Showing tournaments scheduled for <strong>Next Weekend</strong> (${displayedUpcoming.length} events found)</span>
+        </div>
+        <button onclick="setTournamentsQuickFilter('all')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: #38bdf8;">✕ Clear Weekend Filter</button>
+      </div>
+    `;
+  } else if (communityState.tournamentsQuickFilter === 'majors') {
+    displayedUpcoming = displayedUpcoming.filter(ev => ev.is_major || ev.tier === 'super_major' || ev.tier === 'major' || (ev.total_players >= 50));
+    const existingIds = new Set(displayedUpcoming.map(e => e.id));
+    (communityState.majorsList || []).forEach(m => {
+      if (m && m.id && !existingIds.has(m.id)) {
+        existingIds.add(m.id);
+        displayedUpcoming.push(m);
+      }
+    });
+    displayedUpcoming.sort((a, b) => (a.event_date || '9999').localeCompare(b.event_date || '9999'));
+    activeQuickFilterNotice = `
+      <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 8px; padding: 0.65rem 1rem; margin-bottom: 1.25rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+        <div style="font-size: 0.85rem; color: #f3e8ff; display: flex; align-items: center; gap: 8px;">
+          <span>🌟</span>
+          <span>Showing <strong>Premier Majors &amp; Super Majors Worldwide</strong> (${displayedUpcoming.length} premier destination events)</span>
+        </div>
+        <button onclick="setTournamentsQuickFilter('all')" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.25rem 0.65rem; color: #c084fc;">✕ Clear Majors Filter</button>
+      </div>
+    `;
+  }
+
   // Update counts in toolbar chips
   const countAll = document.getElementById('count-events-all');
   if (countAll) countAll.textContent = upcoming.length + recent.length;
@@ -892,10 +1418,23 @@ function renderCommunityEvents() {
     badgeCount.style.display = upcoming.length > 0 ? 'inline-block' : 'none';
   }
 
-  // Sync toolbar active chip
-  document.querySelectorAll('#comm-subview-tournaments .comm-filter-chip').forEach(c => {
+  // Sync toolbar active chips
+  document.querySelectorAll('#comm-subview-tournaments .comm-filter-chip[data-filter]').forEach(c => {
     c.classList.toggle('active', c.dataset.filter === (communityState.eventsFilter || 'all'));
   });
+
+  ['weekend', 'next_weekend', 'majors'].forEach(k => {
+    const el = document.getElementById(`filter-chip-quick-${k.replace('_', '-')}`);
+    if (el) {
+      el.classList.toggle('active', communityState.tournamentsQuickFilter === k);
+    }
+  });
+
+  if (!communityState.majorsList || communityState.majorsList.length === 0) {
+    loadBcpMajors();
+  } else {
+    renderMajorsCarousel();
+  }
 
   if (communityState.eventsFilter === 'upcoming') {
     displayedRecent = [];
@@ -907,7 +1446,7 @@ function renderCommunityEvents() {
     ? Number(currentUser.current_elo)
     : null;
 
-  let html = venueFilterBanner;
+  let html = venueFilterBanner + activeQuickFilterNotice;
 
   // 1. Upcoming & Ongoing Section
   if (communityState.eventsFilter !== 'recent') {

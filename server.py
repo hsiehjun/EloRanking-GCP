@@ -135,11 +135,11 @@ async def on_server_startup():
             await asyncio.to_thread(db.get_faction_meta_stats, start_date=start_str, end_date=end_str, game_system="aos")
             logger.info(f"🔥 Meta Intel 90-day cache pre-warmed for 40k and AoS ({start_str} to {end_str})")
             if hasattr(db, "prewarm_faction_details_cache"):
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 25)
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 25)
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 25)
-                await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 25)
-                logger.info("🔥 Meta Intel top 25 faction details cache pre-warmed for 40k and AoS (1yr & 6mo)")
+                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "6mo", 12)
+                await asyncio.to_thread(db.prewarm_faction_details_cache, "40k", "1yr", 12)
+                await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "6mo", 12)
+                await asyncio.to_thread(db.prewarm_faction_details_cache, "aos", "1yr", 12)
+                logger.info("🔥 Meta Intel top 12 faction details cache pre-warmed for 40k and AoS (6mo & 1yr)")
         except Exception as me:
             logger.warning(f"Notice during Meta Intel cache pre-warming: {me}")
 

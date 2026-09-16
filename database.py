@@ -380,7 +380,7 @@ class PostgresDatabase:
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v20_faction_pattern_indexes':
+                        if setting and setting[0] == 'v21_faction_standard_btree_indexes':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -672,6 +672,8 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_history_match ON rating_history(match_id);",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_pattern ON matches ((LOWER(player1_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_pattern ON matches ((LOWER(player2_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower_date ON matches ((LOWER(player1_faction)), match_date DESC) WHERE is_done = TRUE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower_date ON matches ((LOWER(player2_faction)), match_date DESC) WHERE is_done = TRUE AND is_bye = FALSE;",
             """CREATE TABLE IF NOT EXISTS user_army_lists (
                 id VARCHAR(64) PRIMARY KEY,
                 user_id VARCHAR(64),
@@ -1118,8 +1120,10 @@ class PostgresDatabase:
                 for migration in migrations_list:
                     try:
                         with conn.cursor() as cursor:
-                            timeout_val = "30s" if "CREATE INDEX" in migration else "2s"
+                            timeout_val = "60s" if "CREATE INDEX" in migration else "2s"
                             cursor.execute(f"SET LOCAL lock_timeout = '{timeout_val}';")
+                            if "CREATE INDEX" in migration:
+                                cursor.execute("SET LOCAL statement_timeout = '120s';")
                             cursor.execute(migration)
                         conn.commit()
                     except Exception as e:
@@ -1138,7 +1142,7 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v20_faction_pattern_indexes')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v21_faction_standard_btree_indexes')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     UPDATE users 
                     SET player_id = NULL 
@@ -4571,26 +4575,24 @@ class PostgresDatabase:
                 FROM matches
                 WHERE LOWER(player1_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
-                OFFSET 0
+                ORDER BY match_date DESC NULLS LAST, round DESC
+                LIMIT %s
             ),
             p1_matches AS (
                 SELECT id, match_date, round, table_number, TRUE as is_p1
                 FROM p1_faction_matches
-                ORDER BY match_date DESC NULLS LAST, round DESC
-                LIMIT %s
             ),
             p2_faction_matches AS (
                 SELECT id, match_date, round, table_number
                 FROM matches
                 WHERE LOWER(player2_faction) = %s
-                  AND is_done = TRUE{sys_clause}{date_clause}
-                OFFSET 0
+                  AND is_done = TRUE AND is_bye = FALSE{sys_clause}{date_clause}
+                ORDER BY match_date DESC NULLS LAST, round DESC
+                LIMIT %s
             ),
             p2_matches AS (
                 SELECT id, match_date, round, table_number, FALSE as is_p1
                 FROM p2_faction_matches
-                ORDER BY match_date DESC NULLS LAST, round DESC
-                LIMIT %s
             ),
             candidate_matches AS (
                 SELECT DISTINCT ON (id) id, match_date, round, table_number, is_p1
@@ -4789,32 +4791,43 @@ class PostgresDatabase:
     def prewarm_faction_details_cache(self, game_system: str = "40k", timeframe: str = "1yr", max_factions: int = 25) -> int:
         """Pre-populates the in-memory faction details cache for top competitive factions."""
         try:
-            factions = self.get_factions(game_system=game_system)
-            if not factions or not isinstance(factions, list):
-                if (game_system or "").lower() in ("aos", "warhammer_aos"):
-                    factions = [
-                        "Stormcast Eternals", "Skaven", "Blades of Khorne", "Maggotkin of Nurgle",
-                        "Disciples of Tzeentch", "Hedonites of Slaanesh", "Slaves to Darkness",
-                        "Cities of Sigmar", "Daughters of Khaine", "Fyreslayers", "Idoneth Deepkin",
-                        "Kharadron Overlords", "Lumineth Realm-lords", "Seraphon", "Sylvaneth",
-                        "Flesh-eater Courts", "Nighthaunt", "Ossiarch Bonereapers", "Soulblight Gravelords",
-                        "Gloomspite Gitz", "Ogor Mawtribes", "Orruk Warclans", "Sons of Behemat"
-                    ]
-                else:
-                    factions = [
-                        "Aeldari", "Chaos Space Marines", "Drukhari", "Genestealer Cults",
-                        "Grey Knights", "Imperial Knights", "Leagues of Votann", "Necrons",
-                        "Orks", "Space Marines", "T'au Empire", "Tyranids", "World Eaters",
-                        "Death Guard", "Thousand Sons", "Adeptus Custodes", "Adeptus Mechanicus",
-                        "Adepta Sororitas", "Astra Militarum", "Chaos Daemons", "Chaos Knights"
-                    ]
-            target_factions = factions[:max_factions]
+            is_aos = (game_system or "").lower() in ("aos", "warhammer_aos")
+            if is_aos:
+                priority_factions = [
+                    "Stormcast Eternals", "Skaven", "Slaves to Darkness", "Nighthaunt",
+                    "Lumineth Realm-lords", "Soulblight Gravelords", "Gloomspite Gitz",
+                    "Maggotkin of Nurgle", "Blades of Khorne", "Seraphon", "Cities of Sigmar",
+                    "Daughters of Khaine", "Fyreslayers", "Idoneth Deepkin", "Kharadron Overlords",
+                    "Sylvaneth", "Flesh-eater Courts", "Ossiarch Bonereapers", "Ogor Mawtribes",
+                    "Orruk Warclans", "Sons of Behemat", "Disciples of Tzeentch", "Hedonites of Slaanesh"
+                ]
+            else:
+                priority_factions = [
+                    "Orks", "Space Marines", "Aeldari", "Necrons", "Tyranids",
+                    "Chaos Space Marines", "T'au Empire", "Death Guard", "Adeptus Custodes",
+                    "Astra Militarum", "World Eaters", "Grey Knights", "Blood Angels",
+                    "Dark Angels", "Black Templars", "Thousand Sons", "Adepta Sororitas",
+                    "Chaos Daemons", "Imperial Knights", "Chaos Knights", "Drukhari",
+                    "Genestealer Cults", "Leagues of Votann", "Adeptus Mechanicus"
+                ]
+
+            raw_factions = self.get_factions(game_system=game_system)
+            seen = set()
+            ordered_factions = []
+            for pf in priority_factions:
+                ordered_factions.append(pf)
+                seen.add(pf.lower())
+
+            if raw_factions and isinstance(raw_factions, list):
+                for f in raw_factions:
+                    fname = f.get("name") or f.get("faction") if isinstance(f, dict) else str(f).strip()
+                    if fname and fname.lower() not in seen:
+                        ordered_factions.append(fname)
+                        seen.add(fname.lower())
+
+            target_factions = ordered_factions[:max_factions]
             warmed = 0
-            for f in target_factions:
-                if isinstance(f, dict):
-                    fname = f.get("name") or f.get("faction") or ""
-                else:
-                    fname = str(f).strip()
+            for fname in target_factions:
                 if fname:
                     self.get_faction_details(fname, limit=100, game_system=game_system, timeframe=timeframe)
                     warmed += 1
