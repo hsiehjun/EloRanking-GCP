@@ -489,6 +489,38 @@
         border-bottom: none;
       }
     }
+
+    /* Print Optimization for Scorecards */
+    @media print {
+      body {
+        background: #fff !important;
+        color: #000 !important;
+      }
+      .sc-top-bar, .sc-footer, .btn-sc, .btn-toggle-sec, #sc-status-badges button {
+        display: none !important;
+      }
+      .sc-container {
+        margin: 0 !important;
+        padding: 0 !important;
+        max-width: 100% !important;
+      }
+      .sc-card {
+        border: 1px solid #cbd5e1 !important;
+        box-shadow: none !important;
+        background: #fff !important;
+      }
+      .sc-header, .sc-table th {
+        background: #f1f5f9 !important;
+        color: #000 !important;
+      }
+      .sc-score-box {
+        background: #f8fafc !important;
+        border-color: #cbd5e1 !important;
+      }
+      .sc-player-name, .sc-title, .sc-table td {
+        color: #000 !important;
+      }
+    }
   </style>
 </head>
 <body>
