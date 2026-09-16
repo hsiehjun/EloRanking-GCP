@@ -1146,7 +1146,30 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(res).encode("utf-8"))
             return
 
-        if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming"):
+        if clean_path in ("api/community/bcp_majors", "api/community/bcp-majors"):
+            req_sys = "aos" if "game_system=aos" in query_str else "40k"
+            try:
+                from routers.community import fetch_live_bcp_majors
+                majors_list = fetch_live_bcp_majors(game_system=req_sys)
+            except Exception as e:
+                try:
+                    from routers.community import get_fallback_majors
+                    majors_list = get_fallback_majors(req_sys)
+                except Exception:
+                    majors_list = []
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "events": majors_list,
+                    "count": len(majors_list),
+                    "game_system": req_sys
+                }).encode("utf-8"))
+            return
+
+        if clean_path in ("api/events/recommended", "api/community/overview", "api/community/bcp-upcoming", "api/community/bcp_upcoming"):
             ongoing_ev = {
                 "id": "ev_ongoing_gt_live",
                 "event_id": "ev_ongoing_gt_live",

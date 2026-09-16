@@ -160,7 +160,7 @@ try:
         DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
         MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
         BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
-        GOOGLE_MAPS_API_KEY
+        GOOGLE_MAPS_API_KEY, AOS_GAME_SYSTEM_ID
     )
     from google3.experimental.users.hsiehjun.EloRanking.database import Database, get_db
     from google3.experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
@@ -171,7 +171,7 @@ except ImportError:
             DEFAULT_GAME_SYSTEM_ID, INITIAL_ELO, DEFAULT_K_FACTOR,
             MIN_MATCHES_FOR_RANKING, get_package_dir, DATABASE_URL,
             BCP_API_BASE, DEFAULT_HEADERS, BCP_CLIENT_ID, BCP_USER_AGENT,
-            GOOGLE_MAPS_API_KEY
+            GOOGLE_MAPS_API_KEY, AOS_GAME_SYSTEM_ID
         )
         from experimental.users.hsiehjun.EloRanking.database import Database, get_db
         from experimental.users.hsiehjun.EloRanking.scraper import BestCoastPairingsScraper
