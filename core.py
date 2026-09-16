@@ -229,14 +229,15 @@ NO_CACHE_HEADERS = {
     "Expires": "0",
 }
 
-def generate_unique_match_id(db) -> str:
+def generate_unique_match_id(db, game_system: str = "40k") -> str:
     """Generates a cryptographically collision-free random match ID."""
+    prefix = "AOS" if str(game_system).lower() == "aos" else "WH40K"
     for _ in range(20):
         token = secrets.token_hex(4).upper()
-        match_id = f"WH40K-{token[:4]}-{token[4:]}"
+        match_id = f"{prefix}-{token[:4]}-{token[4:]}"
         if match_id not in TRACKER_ROOMS and not db.get_tracker_game(match_id):
             return match_id
-    return f"WH40K-{secrets.token_hex(6).upper()}"
+    return f"{prefix}-{secrets.token_hex(6).upper()}"
 
 def normalize_tracker_match_id(raw: str) -> str:
     if not raw:

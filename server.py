@@ -173,7 +173,7 @@ async def serve_tracker_asset(rel_path: str) -> Response:
     raise HTTPException(status_code=404, detail="Asset not found")
 
 async def serve_tracker_html(path: str, request: Request) -> Response:
-    """Serves local Tracker HTML page (play.html or lobby.html) with SSO authentication."""
+    """Serves local Tracker HTML page (play.html, aos.html, or lobby.html) with SSO authentication."""
     # Enforce SSO authentication on all Tracker routes
     if "tracker" in path.lower():
         auth_mgr = get_auth_manager()
@@ -186,7 +186,15 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
                 redirect_target += f"?{request.url.query}"
             return RedirectResponse(url=f"/login?redirect={urllib.parse.quote(redirect_target)}", status_code=303)
 
-    is_play_page = "play" in path.lower()
+    is_aos = "aos" in path.lower()
+    is_play_page = (
+        "play" in path.lower()
+        or bool(request.query_params.get("match_id"))
+        or bool(request.query_params.get("room"))
+        or bool(request.query_params.get("id"))
+        or bool(request.query_params.get("solo"))
+        or request.query_params.get("play") == "true"
+    )
     if is_play_page:
         role = request.query_params.get("role")
         spectate = request.query_params.get("spectate")
@@ -194,7 +202,12 @@ async def serve_tracker_html(path: str, request: Request) -> Response:
         if (role == "spectator" or spectate == "true") and match_id:
             return RedirectResponse(url=f"/scorecard/{urllib.parse.quote(match_id)}", status_code=303)
 
-    local_html_file = (web_dir / "tracker" / "play.html") if is_play_page else (web_dir / "tracker" / "lobby.html")
+    if is_aos and is_play_page:
+        local_html_file = web_dir / "tracker" / "aos.html"
+    elif is_play_page:
+        local_html_file = web_dir / "tracker" / "play.html"
+    else:
+        local_html_file = web_dir / "tracker" / "lobby.html"
 
     if local_html_file.is_file():
         try:
@@ -298,6 +311,11 @@ async def serve_app(request: Request, token: Optional[str] = Query(None)):
 async def serve_tracker_sync_js():
     return FileResponse(str(web_dir / "tracker" / "tracker_sync.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
 
+@app.get("/tracker/tracker_sync_aos.js", include_in_schema=False)
+@app.get("/11th/tracker/tracker_sync_aos.js", include_in_schema=False)
+async def serve_tracker_sync_aos_js():
+    return FileResponse(str(web_dir / "tracker" / "tracker_sync_aos.js"), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+
 @app.get("/tracker/tracker_sync.css", include_in_schema=False)
 @app.get("/11th/tracker/tracker_sync.css", include_in_schema=False)
 async def serve_tracker_sync_css():
@@ -310,6 +328,32 @@ async def serve_tracker_bundle_js():
     if bundle_file.exists():
         return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
     raise HTTPException(status_code=404, detail="Tracker bundle not found")
+
+@app.get("/tracker/bundle_aos.js", include_in_schema=False)
+@app.get("/11th/tracker/bundle_aos.js", include_in_schema=False)
+@app.get("/bundle_aos.js", include_in_schema=False)
+async def serve_tracker_bundle_aos_js():
+    bundle_file = web_dir / "tracker" / "bundle_aos.js"
+    if bundle_file.exists():
+        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+    raise HTTPException(status_code=404, detail="AoS bundle not found")
+
+@app.get("/tracker/bundle_40k.js", include_in_schema=False)
+@app.get("/11th/tracker/bundle_40k.js", include_in_schema=False)
+async def serve_tracker_bundle_40k_js():
+    bundle_file = web_dir / "tracker" / "bundle_40k.js"
+    if bundle_file.exists():
+        return FileResponse(str(bundle_file), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+    bundle_fallback = web_dir / "tracker" / "bundle.js"
+    if bundle_fallback.exists():
+        return FileResponse(str(bundle_fallback), media_type="application/javascript", headers={"Cache-Control": "no-cache, must-revalidate"})
+    raise HTTPException(status_code=404, detail="40k bundle not found")
+
+@app.get("/tracker/aos", include_in_schema=False)
+@app.get("/aos/tracker", include_in_schema=False)
+async def serve_tracker_aos_alias(request: Request):
+    query = f"?{request.url.query}" if request.url.query else ""
+    return RedirectResponse(url=f"/11th/tracker/aos{query}", status_code=303)
 
 @app.get("/login", include_in_schema=False)
 @app.get("/tracker/login", include_in_schema=False)

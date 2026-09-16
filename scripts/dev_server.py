@@ -329,12 +329,51 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(DEV_USER).encode("utf-8"))
             return
 
-        if clean_path in ("api/tracker/history",):
+        if clean_path in ("api/tracker/sessions", "api/tracker/history"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "history": []}).encode("utf-8"))
+                req_sys = "aos" if "game_system=aos" in query_str else ("40k" if "game_system=40k" in query_str else None)
+                active = []
+                for rid, rdata in ROOMS_DB.items():
+                    if not isinstance(rdata, dict):
+                        continue
+                    rsys = rdata.get("game_system") or ("aos" if rid.startswith("AOS-") else "40k")
+                    if req_sys and rsys != req_sys:
+                        continue
+                    st = rdata.get("state") or {}
+                    game = st.get("game") or {}
+                    p1 = st.get("p1") or {}
+                    p2 = st.get("p2") or {}
+                    active.append({
+                        "id": rid,
+                        "match_id": rid,
+                        "game_system": rsys,
+                        "p1_name": game.get("p1Name") or rdata.get("p1_name") or "Player 1",
+                        "p2_name": game.get("p2Name") or rdata.get("p2_name") or "Player 2",
+                        "p1_score": p1.get("score", 0),
+                        "p2_score": p2.get("score", 0),
+                        "p1Score": p1.get("score", 0),
+                        "p2Score": p2.get("score", 0),
+                        "p1_faction": game.get("p1Faction"),
+                        "p2_faction": game.get("p2Faction"),
+                        "round": st.get("round", 1),
+                        "is_finished": bool(rdata.get("is_finished")),
+                        "created_at": int(time.time() * 1000),
+                        "updated_at": int(time.time() * 1000),
+                        "date": "Today",
+                        "state": st,
+                        "version": rdata.get("version", 1)
+                    })
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "history": active,
+                    "active_sessions": active,
+                    "completed_history": [],
+                    "primary_active": active[0] if active else None,
+                    "unfinished_sessions": active[1:] if len(active) > 1 else []
+                }).encode("utf-8"))
             return
 
         if clean_path.endswith("/check"):
@@ -342,7 +381,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "exists": True, "is_finished": False}).encode("utf-8"))
+                check_id = clean_path.replace("api/tracker/room/", "").replace("/check", "").strip("/")
+                room_data = ROOMS_DB.get(check_id, {})
+                sys_id = room_data.get("game_system") or ("aos" if check_id.startswith("AOS-") else "40k")
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "exists": True,
+                    "match_id": check_id,
+                    "game_system": sys_id,
+                    "p1_name": room_data.get("p1_name", "Player 1"),
+                    "p2_name": room_data.get("p2_name", "Player 2"),
+                    "is_full": False,
+                    "is_finished": False
+                }).encode("utf-8"))
             return
 
         if clean_path.startswith("api/player/"):
@@ -1413,14 +1464,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(WEB_DIR / "scorecard.html", is_head)
             return
 
-        # 2. Redirects to /11th/tracker/play
-        # Ensuring the URL has /play guarantees isPlay=true in tracker_sync.js
-        if clean_path in ("", "login", "tracker", "11th/tracker"):
+        # 2. Redirects to /11th/tracker/play or Lobby
+        if clean_path in ("", "login"):
             target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
             self.send_response(302)
             self.send_header("Location", target)
             self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
             self.end_headers()
+            return
+
+        if clean_path in ("11th/tracker/lobby", "tracker/lobby", "11th/tracker", "tracker"):
+            qp = urllib.parse.parse_qs(query_str)
+            if qp.get("match_id") or qp.get("room") or qp.get("id") or qp.get("solo") or qp.get("play") or qp.get("eventId"):
+                target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
+                self.end_headers()
+                return
+            self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
             return
 
         # 3. Game Tracker Play SPA
@@ -1442,11 +1504,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(TRACKER_DIR / "play.html", is_head)
             return
 
-        if clean_path in ("11th/tracker/lobby", "tracker/lobby"):
-            self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
-            return
-
-        # 3b. AoS Game Tracker Play SPA
+        # 3b. AoS Game Tracker Play SPA & Lobby
         if clean_path in ("11th/tracker/aos", "tracker/aos", "tracker/aos.html", "aos/tracker"):
             qp = urllib.parse.parse_qs(query_str)
             role = qp.get("role", [None])[0]
@@ -1457,7 +1515,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")
                 self.end_headers()
                 return
-            self._serve_html_with_auth(TRACKER_DIR / "aos.html", is_head)
+            is_play_session = bool(match_id) or bool(qp.get("solo", [None])[0]) or bool(qp.get("play", [None])[0])
+            if is_play_session or clean_path == "tracker/aos.html":
+                self._serve_html_with_auth(TRACKER_DIR / "aos.html", is_head)
+            else:
+                self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
             return
 
         # 4. Bundle & Sync Assets

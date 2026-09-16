@@ -990,14 +990,14 @@
             🏁 Finish
           </button>
         ` : ''}
-        <button onclick="navigator.clipboard.writeText(window.location.href); alert('🔗 Room Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
+        <button onclick="const shareUrl = window.location.origin + '/11th/tracker/aos?match_id=' + encodeURIComponent('${matchId || ''}') + '&role=player2'; navigator.clipboard.writeText(shareUrl); alert('🔗 Player 2 Invite Link Copied! Share with your opponent.');" style="background:#0284c7; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;" title="Copy Match Link">
           🔗 Share
         </button>
       </div>
 
       <!-- Mobile Top Links -->
       <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;" class="md:hidden">
-        <a href="/app" style="color:#94a3b8; text-decoration:none; font-size:11px; white-space:nowrap;">← Hub</a>
+        <a href="/aos#my-hub" style="color:#94a3b8; text-decoration:none; font-size:11px; white-space:nowrap;">← Hub</a>
         <a href="/scorecard/${encodeURIComponent(matchId || '')}" target="_blank" style="color:#f59e0b; text-decoration:none; font-weight:700; font-size:11px; white-space:nowrap; display:inline-flex; align-items:center; gap:2px;">📄 Scorecard</a>
       </div>
     `;

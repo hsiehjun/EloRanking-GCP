@@ -30,14 +30,15 @@ router = APIRouter(tags=["Game Tracker"])
 # MULTIPLAYER REALTIME GAME TRACKER ENGINE & SUPABASE SYNC
 # =========================================================================
 
-def generate_unique_match_id(db) -> str:
+def generate_unique_match_id(db, game_system: str = "40k") -> str:
     """Generates a cryptographically collision-free random match ID."""
+    prefix = "AOS" if str(game_system).lower() == "aos" else "WH40K"
     for _ in range(20):
         token = secrets.token_hex(4).upper()
-        match_id = f"WH40K-{token[:4]}-{token[4:]}"
+        match_id = f"{prefix}-{token[:4]}-{token[4:]}"
         if match_id not in TRACKER_ROOMS and not db.get_tracker_game(match_id):
             return match_id
-    return f"WH40K-{secrets.token_hex(6).upper()}"
+    return f"{prefix}-{secrets.token_hex(6).upper()}"
 
 class TrackerCreatePayload(BaseModel):
     token: Optional[str] = None
@@ -54,6 +55,7 @@ class TrackerCreatePayload(BaseModel):
     table_num: Optional[int] = None
     match_id: Optional[str] = None
     pairing_id: Optional[str] = None
+    game_system: Optional[str] = "40k"
 
 class TrackerJoinPayload(BaseModel):
     token: Optional[str] = None
@@ -691,18 +693,23 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     session_token = (payload.token if payload and payload.token else None) or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
     user = auth_mgr.get_session(session_token) if session_token else None
     
+    req_sys = (payload.game_system if payload and payload.game_system else None) or request.headers.get("X-Game-System") or ("aos" if payload and payload.match_id and payload.match_id.startswith("AOS-") else "40k")
+    sys_id = "aos" if "aos" in str(req_sys).lower() else "40k"
+
     # Check if deterministic tournament room was requested
     match_id = None
     if payload:
         if payload.match_id:
             match_id = normalize_tracker_match_id(payload.match_id)
         elif payload.event_id and payload.round_num is not None and payload.table_num is not None:
-            match_id = f"BCP-{payload.event_id}-R{payload.round_num}-T{payload.table_num}".upper()
+            prefix = "AOS-" if sys_id == "aos" else "BCP-"
+            match_id = f"{prefix}{payload.event_id}-R{payload.round_num}-T{payload.table_num}".upper()
     
     # If room already exists in memory or DB, return existing state so opponent joins same room!
     if match_id:
         if match_id in TRACKER_ROOMS:
             existing = TRACKER_ROOMS[match_id]
+            existing_sys = existing.get("game_system") or ("aos" if match_id.startswith("AOS-") else sys_id)
             if payload and payload.pairing_id and not existing.get("pairing_id"):
                 existing["pairing_id"] = payload.pairing_id
                 if isinstance(existing.get("state"), dict):
@@ -736,6 +743,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                 "success": True,
                 "match_id": match_id,
                 "role": role,
+                "game_system": existing_sys,
                 "user_id_p1": existing.get("user_id_p1"),
                 "user_id_p2": existing.get("user_id_p2"),
                 "p1_name": existing.get("state", {}).get("game", {}).get("p1Name") or "Player 1",
@@ -771,6 +779,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
 
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
+                "game_system": fs_doc.get("game_system") or ("aos" if match_id.startswith("AOS-") else sys_id),
                 "user_id_p1": fs_doc.get("user_id_p1"),
                 "user_id_p2": fs_doc.get("user_id_p2"),
                 "referee_ids": fs_doc.get("referee_ids", []),
@@ -783,6 +792,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                 "success": True,
                 "match_id": match_id,
                 "role": role,
+                "game_system": fs_doc.get("game_system") or ("aos" if match_id.startswith("AOS-") else sys_id),
                 "user_id_p1": fs_doc.get("user_id_p1"),
                 "user_id_p2": fs_doc.get("user_id_p2"),
                 "p1_name": fs_doc.get("p1_name") or "Player 1",
@@ -802,6 +812,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
 
             TRACKER_ROOMS[match_id] = {
                 "match_id": match_id,
+                "game_system": saved_game.get("game_system") or ("aos" if match_id.startswith("AOS-") else sys_id),
                 "user_id_p1": saved_game.get("user_id_p1"),
                 "user_id_p2": saved_game.get("user_id_p2"),
                 "referee_ids": saved_game.get("referee_ids", []),
@@ -814,6 +825,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                 "success": True,
                 "match_id": match_id,
                 "role": role,
+                "game_system": saved_game.get("game_system") or ("aos" if match_id.startswith("AOS-") else sys_id),
                 "user_id_p1": saved_game.get("user_id_p1"),
                 "user_id_p2": saved_game.get("user_id_p2"),
                 "p1_name": saved_game.get("p1_name") or "Player 1",
@@ -822,7 +834,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
                 "chess_clock": saved_game.get("chess_clock")
             }
     else:
-        match_id = generate_unique_match_id(db)
+        match_id = generate_unique_match_id(db, game_system=sys_id)
 
     p1_target = (payload.p1_name or "").strip() if payload else ""
     p2_target = (payload.p2_name or "").strip() if payload else ""
@@ -982,6 +994,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
 
     TRACKER_ROOMS[match_id] = {
         "match_id": match_id,
+        "game_system": sys_id,
         "eventId": ev_id,
         "event_id": ev_id,
         "tournament_id": ev_id,
@@ -1003,6 +1016,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     try:
         fs_engine = get_firestore_engine()
         fs_engine.create_room(match_id, {
+            "game_system": sys_id,
             "eventId": ev_id,
             "event_id": ev_id,
             "tournament_id": ev_id,
@@ -1026,6 +1040,7 @@ async def api_tracker_create_room(request: Request, payload: Optional[TrackerCre
     return {
         "success": True,
         "match_id": match_id,
+        "game_system": sys_id,
         "role": created_role,
         "user_id_p1": user_id_p1,
         "user_id_p2": user_id_p2,
@@ -1133,6 +1148,7 @@ async def api_tracker_check_room(match_id: str, request: Request):
     )
 
     user_id = user["id"] if user else None
+    room_sys = room.get("game_system") or st.get("game_system") or st.get("gameSystem") or ("aos" if match_id.startswith("AOS-") else "40k")
 
     if is_tournament:
         is_tournament_staff = check_user_is_tournament_staff(user, room, match_id=match_id)
@@ -1145,6 +1161,7 @@ async def api_tracker_check_room(match_id: str, request: Request):
         return {
             "exists": True,
             "match_id": match_id,
+            "game_system": room_sys,
             "p1_name": p1_assigned_name,
             "p2_name": p2_assigned_name,
             "is_full": is_full,
@@ -1172,6 +1189,7 @@ async def api_tracker_check_room(match_id: str, request: Request):
         return {
             "exists": True,
             "match_id": match_id,
+            "game_system": room_sys,
             "p1_name": p1_assigned_name,
             "p2_name": p2_assigned_name,
             "is_full": is_full,
@@ -1319,9 +1337,11 @@ async def api_tracker_join_room(match_id: str, request: Request, payload: Option
             except Exception:
                 pass
         
+    room_sys = room.get("game_system") or st.get("game_system") or st.get("gameSystem") or ("aos" if match_id.startswith("AOS-") else "40k")
     return {
         "success": True,
         "match_id": match_id,
+        "game_system": room_sys,
         "role": role,
         "user_id": user_id,
         "user_name": user_name,
@@ -1573,6 +1593,7 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     p2_faction = game.get("p2Faction")
     primary_mission = game.get("p1Primary") or game.get("primary")
     current_round = st.get("round", 1) if isinstance(st, dict) else 1
+    game_system = doc.get("game_system") or st.get("game_system") or st.get("gameSystem") or ("aos" if str(match_id).upper().startswith("AOS-") else "40k")
     
     updated_ts = doc.get("updatedAt") or doc.get("updated_at") or int(datetime.now(timezone.utc).timestamp() * 1000)
     created_ts = doc.get("createdAt") or doc.get("created_at") or updated_ts
@@ -1583,6 +1604,7 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "id": match_id,
         "match_id": match_id,
+        "game_system": game_system,
         "p1_name": p1_name,
         "p2_name": p2_name,
         "p1_score": p1_score,
@@ -1607,7 +1629,7 @@ def _format_firestore_session_item(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 @router.get("/api/tracker/history", summary="Get persistent history of tracker games")
-async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None)):
+async def api_tracker_history(request: Request, limit: int = 50, search: Optional[str] = None, token: Optional[str] = Query(None), game_system: Optional[str] = Query(None)):
     try:
         auth_mgr = get_auth_manager()
         auth_header = request.headers.get("Authorization", "")
@@ -1626,6 +1648,12 @@ async def api_tracker_history(request: Request, limit: int = 50, search: Optiona
         filtered_completed = [c for c in completed if c.get("match_id") not in seen]
         
         all_history = active_sessions + filtered_completed
+        if game_system:
+            sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+            if sys_filter == "aos":
+                all_history = [h for h in all_history if h.get("game_system") == "aos" or str(h.get("match_id", "")).upper().startswith("AOS-")]
+            else:
+                all_history = [h for h in all_history if h.get("game_system") != "aos" and not str(h.get("match_id", "")).upper().startswith("AOS-")]
         return {"success": True, "history": all_history}
     except Exception as err:
         logger.error(f"Error fetching tracker history: {err}")
@@ -1634,7 +1662,8 @@ async def api_tracker_history(request: Request, limit: int = 50, search: Optiona
 @router.get("/api/tracker/sessions", summary="Get user's 3-tier active slot management (primary active, unfinished, completed)")
 async def api_tracker_user_sessions(
     request: Request,
-    token: Optional[str] = Query(None)
+    token: Optional[str] = Query(None),
+    game_system: Optional[str] = Query(None)
 ):
     auth_mgr = get_auth_manager()
     auth_header = request.headers.get("Authorization", "")
@@ -1671,6 +1700,13 @@ async def api_tracker_user_sessions(
             formatted = _format_firestore_session_item(doc)
             if not formatted["is_abandoned"]:
                 active_sessions.append(formatted)
+
+    if game_system:
+        sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+        if sys_filter == "aos":
+            active_sessions = [s for s in active_sessions if s.get("game_system") == "aos" or str(s.get("match_id", "")).upper().startswith("AOS-")]
+        else:
+            active_sessions = [s for s in active_sessions if s.get("game_system") != "aos" and not str(s.get("match_id", "")).upper().startswith("AOS-")]
                 
     primary_active = active_sessions[0] if active_sessions else None
     primary_mid = (primary_active.get("match_id") or primary_active.get("id") or "").strip().upper() if primary_active else ""
@@ -1681,6 +1717,12 @@ async def api_tracker_user_sessions(
     try:
         completed_history = db.get_tracker_history(limit=50, user_id=user_id, user_name=user_name)
         completed_history = [g for g in completed_history if g.get("is_finished", True) and (g.get("match_id") or "").strip().upper() not in seen_matches]
+        if game_system:
+            sys_filter = "aos" if "aos" in game_system.lower() else "40k"
+            if sys_filter == "aos":
+                completed_history = [c for c in completed_history if c.get("game_system") == "aos" or str(c.get("match_id", "")).upper().startswith("AOS-")]
+            else:
+                completed_history = [c for c in completed_history if c.get("game_system") != "aos" and not str(c.get("match_id", "")).upper().startswith("AOS-")]
     except Exception as err:
         logger.debug(f"History fetch notice: {err}")
         
@@ -1689,7 +1731,7 @@ async def api_tracker_user_sessions(
         "active_sessions": active_sessions,
         "completed_history": completed_history,
         "primary_active": primary_active,
-        "unfinished_sessions": [],
+        "unfinished_sessions": unfinished_sessions,
         "total_games": len(completed_history) + len(active_sessions)
     }
 
