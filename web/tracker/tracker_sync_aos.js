@@ -72,7 +72,24 @@
 
   const role = urlParams.get('role') || 'player1';
 
-  // Broadcast state updates to dev_server or Firestore room
+  let trackerFirestoreDb = null;
+  function getTrackerFirestoreDb() {
+    if (trackerFirestoreDb) return trackerFirestoreDb;
+    if (typeof firebase !== 'undefined' && firebase.firestore) {
+      try {
+        if (!firebase.apps || !firebase.apps.length) {
+          firebase.initializeApp({ projectId: "eloranking-506820" });
+        }
+        trackerFirestoreDb = firebase.firestore();
+        return trackerFirestoreDb;
+      } catch (e) {
+        console.debug('[AoS Firestore Init] Notice:', e);
+      }
+    }
+    return null;
+  }
+
+  // Broadcast state updates to dev_server and Cloud Firestore
   function broadcastAosState() {
     if (!matchId || isSpectator || role === 'player2' || isRemoteUpdating) return;
     if (broadcastTimer) clearTimeout(broadcastTimer);
@@ -83,6 +100,22 @@
       const ver = Date.now();
       lastBroadcastVersion = ver;
 
+      // 1. Direct Cloud Firestore broadcast if client SDK is active
+      try {
+        const db = getTrackerFirestoreDb();
+        if (db && matchId) {
+          db.collection('rooms').doc(matchId).set({
+            match_id: matchId,
+            game_system: 'aos',
+            version: ver,
+            state: state,
+            is_finished: !!state.is_finished,
+            updated_at: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true }).catch(() => {});
+        }
+      } catch (e) {}
+
+      // 2. Local REST dev_server & PostgreSQL persistent storage
       try {
         await fetch(`/api/tracker/room/${encodeURIComponent(matchId)}/state`, {
           method: 'POST',
@@ -100,7 +133,37 @@
     }, 60);
   }
 
-  // Poll remote room if spectator or non-host player
+  // Direct Firestore real-time onSnapshot listener
+  let fsDocUnsub = null;
+  let firestoreConnected = false;
+  function initFirestoreDirectSync() {
+    if (!matchId) return;
+    const db = getTrackerFirestoreDb();
+    if (db) {
+      try {
+        if (fsDocUnsub) fsDocUnsub();
+        fsDocUnsub = db.collection('rooms').doc(matchId).onSnapshot((snap) => {
+          firestoreConnected = true;
+          if (!snap || !snap.exists) return;
+          const data = snap.data();
+          if (data && data.state && (!currentRemoteVersion || (data.version && data.version > currentRemoteVersion))) {
+            currentRemoteVersion = data.version || Date.now();
+            isRemoteUpdating = true;
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data.state));
+            window.dispatchEvent(new CustomEvent('aos_remote_sync', { detail: data.state }));
+            setTimeout(() => { isRemoteUpdating = false; }, 100);
+          }
+        }, (err) => {
+          firestoreConnected = false;
+          console.debug('[AoS Firestore onSnapshot] Notice:', err);
+        });
+      } catch (e) {
+        console.debug('[AoS Firestore Direct Sync] Notice:', e);
+      }
+    }
+  }
+
+  // Poll remote room if spectator or non-host player (HTTP fallback)
   async function syncFromRemote() {
     if (!matchId) return;
     try {
@@ -118,9 +181,16 @@
     } catch (e) {}
   }
 
-  if (matchId && (isSpectator || role === 'player2')) {
-    syncFromRemote();
-    setInterval(syncFromRemote, 1000);
+  if (matchId) {
+    initFirestoreDirectSync();
+    if (isSpectator || role === 'player2') {
+      syncFromRemote();
+      setInterval(() => {
+        if (!firestoreConnected) {
+          syncFromRemote();
+        }
+      }, 1000);
+    }
   }
 
   // Listen to state mutations
