@@ -250,10 +250,14 @@ class AdminSetUserRolePayload(BaseModel):
 @router.post("/api/admin/users/{user_id}/role", summary="Update User Role (Admin)")
 async def api_admin_set_user_role(user_id: str, payload: AdminSetUserRolePayload, request: Request, token: Optional[str] = Query(None)):
     _get_admin_session_or_403(request, token)
-    valid_roles = ("player", "to", "organizer", "admin", "referee")
+    valid_roles = ("player", "creator", "cc", "content_creator", "to", "organizer", "admin", "referee")
     new_role = payload.role.strip().lower()
     if new_role not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+    if new_role in ("creator", "cc", "content_creator"):
+        new_role = "creator"
+    elif new_role in ("to", "organizer"):
+        new_role = "to"
     ok = get_auth_manager().set_user_role(user_id, new_role)
     if not ok:
         raise HTTPException(status_code=404, detail="User not found")

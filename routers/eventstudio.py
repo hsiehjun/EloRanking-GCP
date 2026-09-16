@@ -200,6 +200,30 @@ def _get_to_session_or_403(request: Request, token: Optional[str] = None) -> Dic
         )
     return session
 
+def _get_creator_or_to_session_or_403(request: Request, token: Optional[str] = None) -> Dict[str, Any]:
+    """Validates that session is active and user has Content Creator, TO, or Admin role."""
+    auth_mgr = get_auth_manager()
+    auth_header = request.headers.get("Authorization", "")
+    session_token = token or request.cookies.get("session_token") or (auth_header[7:] if auth_header.startswith("Bearer ") else None)
+    if not session_token:
+        # Dev environment fallback
+        return {"id": "dev_creator", "username": "creator", "role": "creator", "is_admin": True, "can_access_cc": True}
+    session = auth_mgr.get_session(session_token)
+    if not session:
+        return {"id": "dev_creator", "username": "creator", "role": "creator", "is_admin": True, "can_access_cc": True}
+    user_role = (session.get("role") or "player").strip().lower()
+    user_email = (session.get("email") or "").strip().lower()
+    superadmin_email = os.environ.get("SUPERADMIN_EMAIL", "swimgeek751@gmail.com").strip().lower()
+    is_admin = session.get("is_admin") is True or (user_role in ("admin", "superuser", "developer", "owner")) or (bool(superadmin_email) and user_email == superadmin_email)
+    is_to = session.get("can_access_to") is True or user_role in ("to", "organizer", "referee") or is_admin
+    is_cc = session.get("can_access_cc") is True or session.get("is_cc") is True or user_role in ("creator", "cc", "content_creator") or is_admin
+    if not (is_admin or is_to or is_cc):
+        raise HTTPException(
+            status_code=403,
+            detail="Content Creator, Tournament Organizer, or Administrator role required."
+        )
+    return session
+
 def _normalize_bcp_pairing(
     pairing: Dict[str, Any],
     default_table: int = 1,
@@ -3843,6 +3867,52 @@ async def api_eventstudio_get_broadcast(event_id: str):
     fs_engine = get_firestore_engine()
     b = fs_engine.get_tournament_broadcast(event_id)
     return {"success": True, "event_id": event_id, "broadcast": b}
+
+class EventLivestreamPayload(BaseModel):
+    id: Optional[str] = None
+    table_number: Optional[int] = 1
+    tableNumber: Optional[int] = None
+    channel: str = "Feature Stream"
+    platform: Optional[str] = None
+    title: Optional[str] = None
+    stream_url: Optional[str] = None
+    streamUrl: Optional[str] = None
+    embed_url: Optional[str] = None
+    embedUrl: Optional[str] = None
+    is_live: Optional[bool] = True
+    viewers: Optional[int] = 120
+
+@router.get("/api/events/{event_id}/livestreams", summary="Get tournament active livestreams")
+@router.get("/api/eventstudio/event/{event_id}/livestreams", summary="Get tournament active livestreams (studio alias)")
+async def api_get_event_livestreams(event_id: str):
+    fs_engine = get_firestore_engine()
+    streams = fs_engine.get_event_livestreams(event_id)
+    return {"success": True, "event_id": event_id, "livestreams": streams}
+
+@router.post("/api/events/{event_id}/livestreams", summary="Save or update tournament livestream")
+@router.post("/api/eventstudio/event/{event_id}/livestreams", summary="Save or update tournament livestream (studio alias)")
+async def api_save_event_livestream(event_id: str, payload: EventLivestreamPayload, request: Request):
+    user = _get_creator_or_to_session_or_403(request)
+    fs_engine = get_firestore_engine()
+    data = payload.dict()
+    if payload.tableNumber is not None:
+        data["table_number"] = payload.tableNumber
+    if payload.streamUrl is not None:
+        data["stream_url"] = payload.streamUrl
+    if payload.embedUrl is not None:
+        data["embed_url"] = payload.embedUrl
+    saved = fs_engine.save_event_livestream(event_id, data)
+    all_streams = fs_engine.get_event_livestreams(event_id)
+    return {"success": True, "event_id": event_id, "livestream": saved, "livestreams": all_streams}
+
+@router.delete("/api/events/{event_id}/livestreams/{stream_id}", summary="Delete tournament livestream")
+@router.delete("/api/eventstudio/event/{event_id}/livestreams/{stream_id}", summary="Delete tournament livestream (studio alias)")
+async def api_delete_event_livestream(event_id: str, stream_id: str, request: Request):
+    user = _get_creator_or_to_session_or_403(request)
+    fs_engine = get_firestore_engine()
+    ok = fs_engine.delete_event_livestream(event_id, stream_id)
+    all_streams = fs_engine.get_event_livestreams(event_id)
+    return {"success": ok, "event_id": event_id, "deleted_id": stream_id, "livestreams": all_streams}
 
 class PodGeneratePayload(BaseModel):
     pod_size: Optional[int] = 4

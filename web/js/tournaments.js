@@ -1028,7 +1028,7 @@ function switchEventModalTab(tabKey) {
       renderEventMetaAndHighlights(currentEventData);
     }
   } else if (tabKey === 'creator') {
-    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+    const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
     if (!isCC) {
       console.warn('Unauthorized Creator Studio tab switch blocked for current user');
       switchEventModalTab('results');
@@ -3720,6 +3720,10 @@ async function openEventHubPage(eventId, gameSystem = '', options = {}) {
     eventPlayersCache = ev.players || [];
     computeEventPlayerEloStats(eventPlayersCache, eventMatchesCache);
 
+    if (typeof loadEventLivestreams === 'function') {
+      await loadEventLivestreams(eventId);
+    }
+
     renderEventHubHeroSection(ev, userRegData, targetSys);
     populateEventHubFactionFilter(eventPlayersCache);
     renderPersonalEventScorecard(ev, userRegData);
@@ -4766,42 +4770,46 @@ let selectedCasterRound = 3;
 let selectedCasterTable = 1;
 let creatorActiveStreamIndex = 0;
 
-// Local in-memory mock livestreams for Creator Studio POC
-let eventLiveStreams = [
-  {
-    id: 'stream-1',
-    channel: 'Wargames Live',
-    platform: 'youtube',
-    title: 'US Open Atlanta Major 2026 - Day 1 Feature Table Live',
-    streamUrl: 'https://www.youtube.com/watch?v=live_stream_wgl',
-    embedUrl: 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk',
-    tableNumber: 1,
-    isLive: true,
-    viewers: 1420
-  },
-  {
-    id: 'stream-2',
-    channel: 'Art of War 40k',
-    platform: 'twitch',
-    title: 'Art of War Commentary Desk - Table 2 & Deep Tactics',
-    streamUrl: 'https://www.twitch.tv/artofwar40k',
-    embedUrl: 'https://player.twitch.tv/?channel=artofwar40k&parent=127.0.0.1',
-    tableNumber: 2,
-    isLive: true,
-    viewers: 890
-  },
-  {
-    id: 'stream-3',
-    channel: 'SkaredCast Live',
-    platform: 'youtube',
-    title: 'Drukhari Archon Battle - Table 4 Feature Match',
-    streamUrl: 'https://www.youtube.com/watch?v=live_stream_skared',
-    embedUrl: 'https://www.youtube-nocookie.com/embed/jfKfPfyJRdk',
-    tableNumber: 4,
-    isLive: true,
-    viewers: 620
+function normalizeStreamRecord(s) {
+  if (!s) return s;
+  return {
+    ...s,
+    id: s.id || `stream-${Date.now()}`,
+    tableNumber: Number(s.table_number !== undefined ? s.table_number : (s.tableNumber || 1)),
+    table_number: Number(s.table_number !== undefined ? s.table_number : (s.tableNumber || 1)),
+    streamUrl: s.stream_url || s.streamUrl || '',
+    stream_url: s.stream_url || s.streamUrl || '',
+    embedUrl: s.embed_url || s.embedUrl || '',
+    embed_url: s.embed_url || s.embedUrl || '',
+    isLive: s.is_live !== undefined ? Boolean(s.is_live) : (s.isLive !== undefined ? Boolean(s.isLive) : true),
+    is_live: s.is_live !== undefined ? Boolean(s.is_live) : (s.isLive !== undefined ? Boolean(s.isLive) : true),
+    channel: s.channel || 'Broadcaster',
+    title: s.title || `${s.channel || 'Live'} - Table ${s.table_number || s.tableNumber || 1}`,
+    platform: s.platform || 'youtube',
+    viewers: s.viewers || 100
+  };
+}
+
+let eventLiveStreams = [];
+
+async function loadEventLivestreams(eventId) {
+  const targetId = eventId || currentOpenEventId || currentEventData?.id || '';
+  if (!targetId) return eventLiveStreams;
+  try {
+    if (window.api && typeof window.api.getEventLivestreams === 'function') {
+      const res = await window.api.getEventLivestreams(targetId);
+      const rawStreams = Array.isArray(res) ? res : (res?.livestreams || []);
+      if (Array.isArray(rawStreams)) {
+        eventLiveStreams = rawStreams.map(normalizeStreamRecord);
+        return eventLiveStreams;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load event livestreams from API:', err);
   }
-];
+  return eventLiveStreams;
+}
+window.loadEventLivestreams = loadEventLivestreams;
 
 let currentModalStreamTable = 1;
 
@@ -4821,6 +4829,7 @@ function openEventStreamModal(tableNum) {
   updateEventStreamModalContent();
 }
 window.openEventStreamModal = openEventStreamModal;
+window.openEventBroadcastTheater = openEventStreamModal;
 
 function closeEventStreamModal() {
   if (typeof closeModal === 'function') {
@@ -4982,6 +4991,8 @@ function updateEventStreamModalContent() {
 window.updateEventStreamModalContent = updateEventStreamModalContent;
 
 function switchCreatorHubMode(mode) {
+  if (mode === 'streams') mode = 'stream';
+  if (mode === 'media') mode = 'export';
   creatorHubActiveMode = mode || 'caster';
   if (currentEventData) {
     renderEventCreatorHub(currentEventData);
@@ -5006,7 +5017,7 @@ function selectActiveStream(idx) {
 }
 window.selectActiveStream = selectActiveStream;
 
-function addCreatorLiveStream(e) {
+async function addCreatorLiveStream(e) {
   if (e) e.preventDefault();
   const channelEl = document.getElementById('new-stream-channel');
   const urlEl = document.getElementById('new-stream-url');
@@ -5023,49 +5034,89 @@ function addCreatorLiveStream(e) {
     return;
   }
 
-  // Generate embed URL if standard youtube or twitch
-  let embed = url;
-  if (url.includes('youtube.com/watch?v=')) {
-    const vid = url.split('watch?v=')[1]?.split('&')[0];
-    embed = `https://www.youtube-nocookie.com/embed/${vid}`;
-  } else if (url.includes('youtu.be/')) {
-    const vid = url.split('youtu.be/')[1]?.split('?')[0];
-    embed = `https://www.youtube-nocookie.com/embed/${vid}`;
-  } else if (url.includes('twitch.tv/')) {
-    const ch = url.split('twitch.tv/')[1]?.split('/')[0];
-    embed = `https://player.twitch.tv/?channel=${ch}&parent=127.0.0.1`;
-  }
-
-  const newStream = {
-    id: `stream-${Date.now()}`,
+  const eventId = currentOpenEventId || currentEventData?.id || 'ev_ongoing_gt_live';
+  const streamPayload = {
     channel: channel,
+    stream_url: url,
+    table_number: table,
     platform: platform,
     title: `${channel} - Table ${table} Coverage`,
-    streamUrl: url,
-    embedUrl: embed,
-    tableNumber: table,
-    isLive: true,
-    viewers: 1
+    is_live: true
   };
 
-  eventLiveStreams.unshift(newStream);
-  creatorActiveStreamIndex = 0;
-  if (typeof showProfileToast === 'function') {
-    showProfileToast('✓ Live stream linked successfully!');
-  } else {
-    alert('Live stream linked successfully!');
-  }
-  if (currentEventData) {
-    renderEventCreatorHub(currentEventData);
+  try {
+    if (window.api && typeof window.api.saveEventLivestream === 'function') {
+      await window.api.saveEventLivestream(eventId, streamPayload);
+      await loadEventLivestreams(eventId);
+    } else {
+      let embed = url;
+      if (url.includes('youtube.com/watch?v=')) {
+        const vid = url.split('watch?v=')[1]?.split('&')[0];
+        embed = `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&mute=1`;
+      } else if (url.includes('youtu.be/')) {
+        const vid = url.split('youtu.be/')[1]?.split('?')[0];
+        embed = `https://www.youtube-nocookie.com/embed/${vid}?autoplay=1&mute=1`;
+      } else if (url.includes('twitch.tv/')) {
+        const ch = url.split('twitch.tv/')[1]?.split('/')[0];
+        embed = `https://player.twitch.tv/?channel=${ch}&parent=localhost&parent=127.0.0.1&muted=true`;
+      }
+      eventLiveStreams.unshift(normalizeStreamRecord({
+        id: `stream-${Date.now()}`,
+        channel: channel,
+        platform: platform,
+        title: `${channel} - Table ${table} Coverage`,
+        stream_url: url,
+        embed_url: embed,
+        table_number: table,
+        is_live: true,
+        viewers: 100
+      }));
+    }
+    creatorActiveStreamIndex = 0;
+    if (typeof showProfileToast === 'function') {
+      showProfileToast('✓ Live stream linked successfully!');
+    } else {
+      alert('Live stream linked successfully!');
+    }
+    if (currentEventData) {
+      renderEventCreatorHub(currentEventData);
+      const pairingsTab = document.getElementById('tab-event-pairings');
+      if (pairingsTab && typeof renderEventPairingsTab === 'function') {
+        renderEventPairingsTab(currentEventData);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to link live stream:', err);
+    alert(`Failed to link live stream: ${err.message}`);
   }
 }
 window.addCreatorLiveStream = addCreatorLiveStream;
 
-function removeCreatorLiveStream(idx) {
-  if (eventLiveStreams[idx]) {
-    eventLiveStreams.splice(idx, 1);
+async function removeCreatorLiveStream(idxOrId) {
+  const stream = (typeof idxOrId === 'number') ? eventLiveStreams[idxOrId] : eventLiveStreams.find(s => s.id === idxOrId);
+  if (!stream) return;
+  const eventId = currentOpenEventId || currentEventData?.id || 'ev_ongoing_gt_live';
+  try {
+    if (window.api && typeof window.api.deleteEventLivestream === 'function' && stream.id) {
+      await window.api.deleteEventLivestream(eventId, stream.id);
+      await loadEventLivestreams(eventId);
+    } else if (typeof idxOrId === 'number') {
+      eventLiveStreams.splice(idxOrId, 1);
+    }
     creatorActiveStreamIndex = 0;
-    if (currentEventData) renderEventCreatorHub(currentEventData);
+    if (typeof showProfileToast === 'function') {
+      showProfileToast('✓ Live stream removed.');
+    }
+    if (currentEventData) {
+      renderEventCreatorHub(currentEventData);
+      const pairingsTab = document.getElementById('tab-event-pairings');
+      if (pairingsTab && typeof renderEventPairingsTab === 'function') {
+        renderEventPairingsTab(currentEventData);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to remove live stream:', err);
+    alert(`Failed to remove live stream: ${err.message}`);
   }
 }
 window.removeCreatorLiveStream = removeCreatorLiveStream;
@@ -5112,7 +5163,7 @@ function renderEventCreatorHub(ev) {
   const container = document.getElementById('event-creator-hub-container');
   if (!container) return;
 
-  const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.is_admin)));
+  const isCC = Boolean(typeof isUserCC === 'function' ? isUserCC(currentUser) : (currentUser && (currentUser.role === 'admin' || currentUser.role === 'cc' || currentUser.role === 'creator' || currentUser.can_access_cc || currentUser.is_cc || currentUser.is_admin)));
   if (!isCC) {
     container.innerHTML = `
       <div class="empty-state" style="padding: 3rem 1.5rem; text-align: center;">
@@ -5565,16 +5616,29 @@ function renderStorylinesMode(ev, players, matches) {
   // Rank tournament upsets by Elo gap
   const upsets = [];
   matches.forEach(m => {
-    if (m.is_bye || !m.winner_id || m.is_draw) return;
-    const isP1Win = String(m.winner_id) === String(m.player1_id);
-    const wName = isP1Win ? m.player1_name : m.player2_name;
-    const lName = isP1Win ? m.player2_name : m.player1_name;
-    const wFac = isP1Win ? (m.player1_faction || 'Army') : (m.player2_faction || 'Army');
-    const lFac = isP1Win ? (m.player2_faction || 'Army') : (m.player1_faction || 'Army');
-    const wElo = isP1Win ? Number(m.player1_elo || 1500) : Number(m.player2_elo || 1500);
-    const lElo = isP1Win ? Number(m.player2_elo || 1500) : Number(m.player1_elo || 1500);
+    if (m.is_bye || m.is_draw) return;
+    const hasScores = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
+    const p1Score = Number(m.player1_score || 0);
+    const p2Score = Number(m.player2_score || 0);
+    let p1Won = false;
+    let p2Won = false;
+    if (m.winner_id) {
+      p1Won = String(m.winner_id) === String(m.player1_id);
+      p2Won = String(m.winner_id) === String(m.player2_id);
+    } else if (hasScores) {
+      p1Won = p1Score > p2Score;
+      p2Won = p2Score > p1Score;
+    }
+    if (!p1Won && !p2Won) return;
+
+    const wName = p1Won ? m.player1_name : m.player2_name;
+    const lName = p1Won ? m.player2_name : m.player1_name;
+    const wFac = p1Won ? (m.player1_faction || 'Army') : (m.player2_faction || 'Army');
+    const lFac = p1Won ? (m.player2_faction || 'Army') : (m.player1_faction || 'Army');
+    const wElo = p1Won ? Number(m.player1_elo || 1500) : Number(m.player2_elo || 1500);
+    const lElo = p1Won ? Number(m.player2_elo || 1500) : Number(m.player1_elo || 1500);
     const gap = lElo - wElo;
-    if (gap > 50) {
+    if (gap >= 25) {
       upsets.push({
         winnerName: wName,
         loserName: lName,
@@ -5585,67 +5649,102 @@ function renderStorylinesMode(ev, players, matches) {
         gap: gap,
         round: m.round || 1,
         table: m.table_number || m.table || 1,
-        score: `${m.player1_score || 0} - ${m.player2_score || 0}`
+        score: hasScores ? `${m.player1_score} - ${m.player2_score}` : 'Match Won'
       });
     }
   });
 
   upsets.sort((a, b) => b.gap - a.gap);
-  const topUpset = upsets[0] || {
-    winnerName: 'Marcus Vance',
-    loserName: 'Folger Pyles',
-    winnerFaction: 'Orks',
-    loserFaction: 'Adeptus Custodes',
-    winnerElo: 1680.0,
-    loserElo: 2340.5,
-    gap: 660.5,
-    round: 2,
-    table: 3,
-    score: '88 - 72'
-  };
+  const topUpset = upsets.length > 0 ? upsets[0] : null;
 
-  // Undefeated players analysis
-  const undefeated = players.filter(p => Number(p.event_losses || 0) === 0 && Number(p.event_wins || 0) >= 2);
+  // Undefeated players analysis with real Opponent SoS
+  const undefeated = players.filter(p => Number(p.event_losses || 0) === 0 && Number(p.event_wins || 0) >= 1);
+  const undefeatedWithSos = undefeated.map(p => {
+    const pId = String(p.player_id || p.id || '');
+    const pMatches = matches.filter(m => {
+      const isP1 = String(m.player1_id || '') === pId || m.player1_name === p.full_name;
+      const isP2 = String(m.player2_id || '') === pId || m.player2_name === p.full_name;
+      return (isP1 || isP2) && !m.is_bye;
+    });
+    const oppDetails = [];
+    pMatches.forEach(m => {
+      const isP1 = String(m.player1_id || '') === pId || m.player1_name === p.full_name;
+      const oppName = isP1 ? m.player2_name : m.player1_name;
+      const oppElo = Number((isP1 ? m.player2_elo : m.player1_elo) || 1500);
+      if (oppName) {
+        oppDetails.push({ name: oppName, elo: oppElo });
+      }
+    });
+    const avgSos = oppDetails.length > 0
+      ? (oppDetails.reduce((sum, o) => sum + o.elo, 0) / oppDetails.length)
+      : Number(p.current_elo || 1500);
+    return {
+      ...p,
+      opponents: oppDetails,
+      avgSos: avgSos
+    };
+  }).sort((a, b) => b.avgSos - a.avgSos);
 
-  // Closest nail biters (margin <= 5)
-  const closeGames = matches.filter(m => {
-    if (m.player1_score === null || m.player2_score === null) return false;
-    return Math.abs(Number(m.player1_score) - Number(m.player2_score)) <= 5;
-  });
+  // Spotlight Banner HTML
+  let spotlightHtml = '';
+  if (topUpset) {
+    spotlightHtml = `
+      <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(168, 85, 247, 0.15)); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 1.25rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+          <span class="badge" style="background: #ef4444; color: #fff; font-weight: 800; font-size: 0.72rem; padding: 3px 8px;">
+            🔥 #1 TOURNAMENT GIANT KILLER
+          </span>
+          <span style="font-family: var(--font-mono); font-weight: 800; font-size: 1rem; color: #ef4444;">
+            +${topUpset.gap.toFixed(1)} Elo Upset Gap
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #fff;">
+              ${escapeHtml(topUpset.winnerName)} <span style="font-size: 0.95rem; color: var(--text-muted);">(${escapeHtml(topUpset.winnerFaction)})</span>
+            </div>
+            <div style="font-size: 0.84rem; color: var(--text-secondary); margin-top: 0.2rem;">
+              Toppled top seed <strong>${escapeHtml(topUpset.loserName)}</strong> (${escapeHtml(topUpset.loserFaction)}) in Round ${topUpset.round} (Table ${topUpset.table})
+            </div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 1.4rem; font-weight: 900; color: #38bdf8; font-family: var(--font-mono);">${topUpset.score}</div>
+            <div style="font-size: 0.72rem; color: var(--text-muted);">Final Battle Score</div>
+          </div>
+        </div>
+      </div>
+    `;
+  } else {
+    spotlightHtml = `
+      <div style="background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 1.25rem;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+          <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 800; font-size: 0.72rem; padding: 3px 8px;">
+            🛡️ TOURNAMENT STABILITY REPORT
+          </span>
+          <span style="font-size: 0.8rem; color: #94a3b8;">
+            Favorites Defending Tables
+          </span>
+        </div>
+        <div style="font-size: 1.05rem; font-weight: 800; color: #fff;">
+          Chalk Seeding Holding Across Field
+        </div>
+        <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 0.25rem;">
+          No major Elo upsets (+25 gap) have occurred in completed rounds yet. Top seeded players are maintaining undefeated records.
+        </div>
+      </div>
+    `;
+  }
 
   return `
-    <!-- Top Giant Killer Spotlight Banner -->
-    <div style="background: linear-gradient(135deg, rgba(239, 68, 68, 0.15), rgba(168, 85, 247, 0.15)); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 12px; padding: 1.25rem;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-        <span class="badge" style="background: #ef4444; color: #fff; font-weight: 800; font-size: 0.72rem; padding: 3px 8px;">
-          🔥 #1 TOURNAMENT GIANT KILLER
-        </span>
-        <span style="font-family: var(--font-mono); font-weight: 800; font-size: 1rem; color: #ef4444;">
-          +${topUpset.gap.toFixed(1)} Elo Upset Gap
-        </span>
-      </div>
-      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-        <div>
-          <div style="font-size: 1.25rem; font-weight: 800; color: #fff;">
-            ${escapeHtml(topUpset.winnerName)} <span style="font-size: 0.95rem; color: var(--text-muted);">(${escapeHtml(topUpset.winnerFaction)})</span>
-          </div>
-          <div style="font-size: 0.84rem; color: var(--text-secondary); margin-top: 0.2rem;">
-            Toppled top seed <strong>${escapeHtml(topUpset.loserName)}</strong> (${escapeHtml(topUpset.loserFaction)}) in Round ${topUpset.round} (Table ${topUpset.table})
-          </div>
-        </div>
-        <div style="text-align: right;">
-          <div style="font-size: 1.4rem; font-weight: 900; color: #38bdf8; font-family: var(--font-mono);">${topUpset.score}</div>
-          <div style="font-size: 0.72rem; color: var(--text-muted);">Final Battle Score</div>
-        </div>
-      </div>
-    </div>
+    ${spotlightHtml}
 
     <!-- 2-Column Grid: Upset Leaderboard & Undefeated Gauntlet -->
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;" class="storylines-grid">
       <!-- Upset Leaderboard -->
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
-          🚨 Giant Slayer Leaderboard
+        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+          <span>🚨 Giant Slayer Leaderboard</span>
+          <span class="badge" style="font-size: 0.7rem; background: rgba(239, 68, 68, 0.15); color: #f87171;">${upsets.length} Upsets</span>
         </h4>
         <div class="table-container" style="max-height: 280px; overflow-y: auto;">
           <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
@@ -5657,7 +5756,7 @@ function renderStorylinesMode(ev, players, matches) {
               </tr>
             </thead>
             <tbody>
-              ${upsets.map((u, i) => `
+              ${upsets.length > 0 ? upsets.map(u => `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
                   <td style="padding: 0.5rem;">
                     <div style="font-weight: 700; color: #fff;">${escapeHtml(u.winnerName)}</div>
@@ -5671,7 +5770,13 @@ function renderStorylinesMode(ev, players, matches) {
                     +${u.gap.toFixed(0)}
                   </td>
                 </tr>
-              `).join('')}
+              `).join('') : `
+                <tr>
+                  <td colspan="3" style="text-align: center; color: var(--text-muted); padding: 1.5rem 0.5rem;">
+                    No major upsets recorded in completed rounds yet.
+                  </td>
+                </tr>
+              `}
             </tbody>
           </table>
         </div>
@@ -5679,11 +5784,12 @@ function renderStorylinesMode(ev, players, matches) {
 
       <!-- Undefeated Gauntlet (Strength of Schedule) -->
       <div style="background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 1.15rem;">
-        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff;">
-          🛡️ The Undefeated Gauntlet (Strength of Schedule)
+        <h4 style="margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 700; color: #fff; display: flex; align-items: center; justify-content: space-between;">
+          <span>🛡️ The Undefeated Gauntlet (Strength of Schedule)</span>
+          <span class="badge" style="font-size: 0.7rem; background: rgba(16, 185, 129, 0.15); color: #34d399;">${undefeatedWithSos.length} Undefeated</span>
         </h4>
-        <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-          ${undefeated.map(u => `
+        <div style="display: flex; flex-direction: column; gap: 0.75rem; max-height: 280px; overflow-y: auto;">
+          ${undefeatedWithSos.length > 0 ? undefeatedWithSos.map(u => `
             <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 8px; padding: 0.85rem;">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
                 <span style="font-weight: 800; color: #fff; font-size: 0.9rem;">${escapeHtml(u.full_name)}</span>
@@ -5693,12 +5799,17 @@ function renderStorylinesMode(ev, players, matches) {
                 ${escapeHtml(u.faction)} • ${escapeHtml(u.detachment || 'Core')}
               </div>
               <div style="font-size: 0.76rem; background: rgba(0,0,0,0.25); padding: 0.4rem 0.6rem; border-radius: 6px; color: #38bdf8;">
-                <strong>Opponent Strength of Schedule (SoS):</strong> Avg Opponent Elo <strong>2,075.1</strong> (Extreme Gauntlet)
+                <strong>Opponent SoS:</strong> Avg Elo <strong>${u.avgSos.toFixed(1)}</strong> 
+                ${u.opponents.length > 0 ? `<span style="color: var(--text-muted); font-size: 0.7rem;">(faced: ${escapeHtml(u.opponents.map(o => o.name.split(' ')[0]).join(', '))})</span>` : ''}
               </div>
             </div>
-          `).join('')}
+          `).join('') : `
+            <div style="background: rgba(15, 23, 42, 0.6); border-radius: 8px; padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: 0.82rem;">
+              No undefeated players remaining — high field parity across all tables!
+            </div>
+          `}
           <div style="background: rgba(15, 23, 42, 0.6); border-radius: 8px; padding: 0.75rem; font-size: 0.78rem; color: var(--text-muted); line-height: 1.4;">
-            💡 <strong>Commentary Note:</strong> Players surviving an SoS > 2050 have historically converted to a 1st place tournament victory over 78% of the time.
+            💡 <strong>Commentary Note:</strong> Players surviving an SoS > 2000 in early rounds hold a distinct edge in tiebreak battle points and top cut seeding.
           </div>
         </div>
       </div>
@@ -5706,27 +5817,94 @@ function renderStorylinesMode(ev, players, matches) {
   `;
 }
 
-/* ==========================================================================
-   MODE 4: DEEP META & LIST TECH (DETACHMENTS & ROGUE TECH)
-   ========================================================================== */
 function renderDeepMetaMode(ev, players, matches) {
   // Aggregate detachments
   const detMap = new Map();
   players.forEach(p => {
-    const det = p.detachment || 'Standard';
+    const det = p.detachment || 'Standard Detachment';
     const fac = p.faction || 'Army';
     const key = `${fac} - ${det}`;
     if (!detMap.has(key)) {
-      detMap.set(key, { faction: fac, detachment: det, count: 0, wins: 0, losses: 0, points: 0, topPlayer: p.full_name });
+      detMap.set(key, { faction: fac, detachment: det, count: 0, wins: 0, losses: 0, points: 0, topPlayer: p.full_name, topWins: -1 });
     }
     const item = detMap.get(key);
     item.count++;
-    item.wins += Number(p.event_wins || 0);
-    item.losses += Number(p.event_losses || 0);
+    const pWins = Number(p.event_wins || 0);
+    const pLosses = Number(p.event_losses || 0);
+    item.wins += pWins;
+    item.losses += pLosses;
     item.points += Number(p.event_battle_points || 0);
+    if (pWins > item.topWins) {
+      item.topWins = pWins;
+      item.topPlayer = p.full_name;
+    }
   });
 
-  const detList = Array.from(detMap.values()).sort((a, b) => b.wins - a.wins);
+  const detList = Array.from(detMap.values()).sort((a, b) => {
+    const totalA = a.wins + a.losses;
+    const totalB = b.wins + b.losses;
+    const wrA = totalA > 0 ? (a.wins / totalA) : 0;
+    const wrB = totalB > 0 ? (b.wins / totalB) : 0;
+    if (wrB !== wrA) return wrB - wrA;
+    return b.count - a.count;
+  });
+
+  // Dynamic Spiciness Index: Rogue Tech Overperforming
+  const unitCounts = {};
+  const unitPilots = {};
+  players.forEach(p => {
+    const units = extractKeyListUnits(p.army_list, p.faction);
+    units.forEach(u => {
+      unitCounts[u] = (unitCounts[u] || 0) + 1;
+      if (!unitPilots[u]) unitPilots[u] = [];
+      unitPilots[u].push(p);
+    });
+  });
+
+  const rogueCards = [];
+  const maxFieldThreshold = Math.max(1, Math.floor(players.length * 0.25));
+
+  Object.entries(unitCounts).forEach(([unit, count]) => {
+    if (count <= maxFieldThreshold) {
+      const pilots = unitPilots[unit] || [];
+      const winningPilots = pilots.filter(p => Number(p.event_wins || 0) >= 1 && Number(p.event_wins || 0) >= Number(p.event_losses || 0));
+      winningPilots.forEach(p => {
+        const sharePct = ((count / Math.max(1, players.length)) * 100).toFixed(1);
+        rogueCards.push({
+          unitName: unit.toUpperCase(),
+          sharePct,
+          count,
+          pilotName: p.full_name,
+          faction: p.faction,
+          detachment: p.detachment || 'Standard',
+          record: `${p.event_wins || 0}-${p.event_losses || 0} Record`,
+          wins: Number(p.event_wins || 0),
+          note: `Selected ${unit} (${count} in field) under ${p.detachment || p.faction}, leveraging uncommon datasheet utility to pilot a winning record.`
+        });
+      });
+    }
+  });
+
+  const CHARACTER_KEYWORDS = /\b(warboss|technomancer|trajann|blade champion|captain|lieutenant|overlord|farseer|autarch|archon|inquisitor|chaplain|librarian|commissar|succubus|canoness)\b/i;
+  rogueCards.sort((a, b) => {
+    const aChar = CHARACTER_KEYWORDS.test(a.unitName);
+    const bChar = CHARACTER_KEYWORDS.test(b.unitName);
+    if (aChar !== bChar) return aChar ? 1 : -1;
+    return (b.wins - a.wins) || (a.count - b.count);
+  });
+  const diverseCards = [];
+  const pilotsSeen = new Set();
+  rogueCards.forEach(rc => {
+    if (diverseCards.length < 4 && !pilotsSeen.has(rc.pilotName)) {
+      diverseCards.push(rc);
+      pilotsSeen.add(rc.pilotName);
+    }
+  });
+  rogueCards.forEach(rc => {
+    if (diverseCards.length < 4 && !diverseCards.includes(rc)) {
+      diverseCards.push(rc);
+    }
+  });
 
   return `
     <!-- Detachment Power Grid -->
@@ -5782,48 +5960,116 @@ function renderDeepMetaMode(ev, players, matches) {
         <span>🌶️ The "Spiciness" Index: Rogue Tech Overperforming</span>
       </h4>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem;">
-        <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 8px; padding: 0.85rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-            <span style="font-weight: 800; color: #f59e0b; font-size: 0.84rem;">TRIPLE GORKANAUTS</span>
-            <span class="badge" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; font-size: 0.68rem;">0.2% FIELD SHARE</span>
+        ${diverseCards.length > 0 ? diverseCards.map((rc, idx) => `
+          <div style="background: rgba(15,23,42,0.85); border: 1px solid ${idx % 2 === 0 ? 'rgba(245, 158, 11, 0.3)' : 'rgba(56, 189, 248, 0.3)'}; border-radius: 8px; padding: 0.85rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <span style="font-weight: 800; color: ${idx % 2 === 0 ? '#f59e0b' : '#38bdf8'}; font-size: 0.84rem;">${escapeHtml(rc.unitName)}</span>
+              <span class="badge" style="background: ${idx % 2 === 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(56, 189, 248, 0.15)'}; color: ${idx % 2 === 0 ? '#f59e0b' : '#38bdf8'}; font-size: 0.68rem;">${rc.sharePct}% FIELD SHARE</span>
+            </div>
+            <div style="font-size: 0.82rem; color: #fff; font-weight: 600;">${escapeHtml(rc.pilotName)} (${escapeHtml(rc.faction)}) • ${rc.record}</div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.4;">
+              ${escapeHtml(rc.note)}
+            </div>
           </div>
-          <div style="font-size: 0.82rem; color: #fff; font-weight: 600;">Marcus Vance (Orks) • 2-1 Record</div>
-          <div style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.4;">
-            Bypassed standard boyz spam to field 3x Gorkanauts. Defeated 2340-Elo Adeptus Custodes by brute-forcing high toughness vehicle pressure.
+        `).join('') : `
+          <div style="background: rgba(15,23,42,0.6); border-radius: 8px; padding: 1.25rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; grid-column: 1 / -1;">
+            Meta lists are following standard archetypes. No rogue datasheets (<= 25% field share) currently with winning records.
           </div>
-        </div>
-
-        <div style="background: rgba(15,23,42,0.85); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 0.85rem;">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-            <span style="font-weight: 800; color: #38bdf8; font-size: 0.84rem;">TRIPLE DOOMSTALKERS</span>
-            <span class="badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.68rem;">CANOPTEK COURT</span>
-          </div>
-          <div style="font-size: 0.82rem; color: #fff; font-weight: 600;">David Gaylard (Necrons) • 2-1 Record</div>
-          <div style="font-size: 0.74rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.4;">
-            Utilized Canoptek Court full hit re-rolls to transform 145pt Doomstalkers into premier long-range anti-tank batteries without taking Lokhust Heavy Destroyers.
-          </div>
-        </div>
+        `}
       </div>
     </div>
   `;
 }
 
-/* ==========================================================================
-   MODE 5: MEDIA & SOCIAL EXPORT KIT (GRAPHICS & DISCORD COPIER)
-   ========================================================================== */
 function renderMediaExportMode(ev, players, matches) {
   const evName = ev.name || 'Tournament Event';
-  const top1 = players[0] || {};
-  const top2 = players[1] || {};
-  const top3 = players[2] || {};
+  const curRound = ev.current_round || 3;
+  const venue = ev.venue || ev.city || 'Championship Series';
+
+  // Sort players by tournament rank
+  const sortedPlayers = [...players].sort((a, b) => {
+    if (Number(b.event_wins || 0) !== Number(a.event_wins || 0)) {
+      return Number(b.event_wins || 0) - Number(a.event_wins || 0);
+    }
+    return Number(b.event_battle_points || 0) - Number(a.event_battle_points || 0);
+  });
+
+  const top1 = sortedPlayers[0] || {};
+  const top2 = sortedPlayers[1] || {};
+  const top3 = sortedPlayers[2] || {};
+
+  // Find top upset dynamically
+  const upsets = [];
+  matches.forEach(m => {
+    if (m.is_bye || m.is_draw) return;
+    const hasScores = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
+    const p1Score = Number(m.player1_score || 0);
+    const p2Score = Number(m.player2_score || 0);
+    let p1Won = false;
+    let p2Won = false;
+    if (m.winner_id) {
+      p1Won = String(m.winner_id) === String(m.player1_id);
+      p2Won = String(m.winner_id) === String(m.player2_id);
+    } else if (hasScores) {
+      p1Won = p1Score > p2Score;
+      p2Won = p2Score > p1Score;
+    }
+    if (!p1Won && !p2Won) return;
+
+    const wName = p1Won ? m.player1_name : m.player2_name;
+    const lName = p1Won ? m.player2_name : m.player1_name;
+    const wFac = p1Won ? (m.player1_faction || 'Army') : (m.player2_faction || 'Army');
+    const wElo = p1Won ? Number(m.player1_elo || 1500) : Number(m.player2_elo || 1500);
+    const lElo = p1Won ? Number(m.player2_elo || 1500) : Number(m.player1_elo || 1500);
+    const gap = lElo - wElo;
+    if (gap >= 25) {
+      upsets.push({ winnerName: wName, loserName: lName, winnerFaction: wFac, gap });
+    }
+  });
+  upsets.sort((a, b) => b.gap - a.gap);
+  const topUpset = upsets[0];
+
+  // Calculate top faction win rate
+  const facStats = {};
+  players.forEach(p => {
+    const f = p.faction || 'Other';
+    if (!facStats[f]) facStats[f] = { wins: 0, losses: 0 };
+    facStats[f].wins += Number(p.event_wins || 0);
+    facStats[f].losses += Number(p.event_losses || 0);
+  });
+  let topFactionName = 'Meta Standard';
+  let topFactionWr = '0.0';
+  let bestWr = -1;
+  Object.entries(facStats).forEach(([f, s]) => {
+    const tot = s.wins + s.losses;
+    if (tot >= 2) {
+      const wr = (s.wins / tot) * 100;
+      if (wr > bestWr) {
+        bestWr = wr;
+        topFactionName = f;
+        topFactionWr = wr.toFixed(1);
+      }
+    }
+  });
+  if (bestWr < 0 && players[0]?.faction) {
+    topFactionName = players[0].faction;
+    topFactionWr = '100.0';
+  }
+
+  const broadcastChannels = eventLiveStreams.map(s => s.channel).filter(Boolean);
+  const broadcastStr = broadcastChannels.length > 0 ? broadcastChannels.join(' & ') : 'OmniTactica LiveDesk';
+
+  const upsetText = topUpset 
+    ? `🔥 **Biggest Upset:** ${topUpset.winnerName} (${topUpset.winnerFaction}) def. ${topUpset.loserName} (+${topUpset.gap.toFixed(0)} Elo Delta)\n`
+    : `🛡️ **Tournament State:** Top seeds holding tables undefeated\n`;
 
   const discordText = `🏆 **${evName}**\n` +
-    `📍 Atlanta, GA • 12 Competitors • Round 3 Standings\n\n` +
-    `🥇 **1st Place:** ${top1.full_name || 'Player'} (${top1.faction || 'Army'}) - ${top1.event_wins || 3}-0 (${top1.event_battle_points || 285} pts)\n` +
-    `🥈 **2nd Place:** ${top2.full_name || 'Player'} (${top2.faction || 'Army'}) - ${top2.event_wins || 2}-1 (${top2.event_battle_points || 274} pts)\n` +
-    `🥉 **3rd Place:** ${top3.full_name || 'Player'} (${top3.faction || 'Army'}) - ${top3.event_wins || 2}-1 (${top3.event_battle_points || 258} pts)\n\n` +
-    `🔥 **Biggest Upset:** Marcus Vance (Orks) def. Folger Pyles (+660 Elo Delta)\n` +
-    `📺 **Live Broadcast:** Wargames Live & Art of War 40k\n` +
+    `📍 ${venue} • ${players.length} Competitors • Round ${curRound} Standings\n\n` +
+    `🥇 **1st Place:** ${top1.full_name || 'Player'} (${top1.faction || 'Army'}) - ${top1.event_wins || 0}-${top1.event_losses || 0} (${top1.event_battle_points || 0} pts)\n` +
+    (top2.full_name ? `🥈 **2nd Place:** ${top2.full_name} (${top2.faction || 'Army'}) - ${top2.event_wins || 0}-${top2.event_losses || 0} (${top2.event_battle_points || 0} pts)\n` : '') +
+    (top3.full_name ? `🥉 **3rd Place:** ${top3.full_name} (${top3.faction || 'Army'}) - ${top3.event_wins || 0}-${top3.event_losses || 0} (${top3.event_battle_points || 0} pts)\n\n` : '\n') +
+    `${upsetText}` +
+    `📺 **Live Broadcast:** ${broadcastStr}\n` +
     `👉 View full live results & pairings on OmniTactica!`;
 
   return `
@@ -5842,7 +6088,7 @@ function renderMediaExportMode(ev, players, matches) {
             <div>
               <div style="font-size: 0.68rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: #c084fc;">OMNITACTICA META SNAPSHOT</div>
               <div style="font-size: 1.15rem; font-weight: 900; color: #fff; margin-top: 0.15rem;">${escapeHtml(evName)}</div>
-              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem;">Round 3 Live Update • Atlanta, GA</div>
+              <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.1rem;">Round ${curRound} Live Update • ${escapeHtml(venue)}</div>
             </div>
             <span style="font-size: 1.5rem;">🏆</span>
           </div>
@@ -5851,17 +6097,17 @@ function renderMediaExportMode(ev, players, matches) {
             <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
               <div style="font-size: 0.68rem; color: var(--text-muted);">TOP SEED</div>
               <div style="font-size: 0.95rem; font-weight: 800; color: #fff; margin-top: 0.2rem;">${escapeHtml(top1.full_name || 'Leader')}</div>
-              <div style="font-size: 0.7rem; color: #38bdf8;">3-0-0 (285 pts)</div>
+              <div style="font-size: 0.7rem; color: #38bdf8;">${top1.event_wins || 0}-${top1.event_losses || 0} (${top1.event_battle_points || 0} pts)</div>
             </div>
             <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
               <div style="font-size: 0.68rem; color: var(--text-muted);">GIANT SLAYER</div>
-              <div style="font-size: 0.95rem; font-weight: 800; color: #ef4444; margin-top: 0.2rem;">Marcus Vance</div>
-              <div style="font-size: 0.7rem; color: #ef4444;">+660 Elo Upset</div>
+              <div style="font-size: 0.95rem; font-weight: 800; color: #ef4444; margin-top: 0.2rem;">${escapeHtml(topUpset?.winnerName || 'Chalk Field')}</div>
+              <div style="font-size: 0.7rem; color: #ef4444;">${topUpset ? `+${topUpset.gap.toFixed(0)} Elo Upset` : 'No Upsets'}</div>
             </div>
             <div style="background: rgba(255,255,255,0.04); padding: 0.65rem; border-radius: 8px;">
               <div style="font-size: 0.68rem; color: var(--text-muted);">TOP FACTION</div>
-              <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-top: 0.2rem;">Custodes</div>
-              <div style="font-size: 0.7rem; color: #34d399;">75.0% Win Rate</div>
+              <div style="font-size: 0.95rem; font-weight: 800; color: #34d399; margin-top: 0.2rem;">${escapeHtml(topFactionName)}</div>
+              <div style="font-size: 0.7rem; color: #34d399;">${topFactionWr}% Win Rate</div>
             </div>
           </div>
 
@@ -5891,10 +6137,10 @@ function renderMediaExportMode(ev, players, matches) {
             <div style="font-size: 0.74rem; color: var(--text-muted);">Download clean tournament data for podcast prep or spreadsheet analysis</div>
           </div>
           <div style="display: flex; gap: 0.4rem;">
-            <button type="button" onclick="alert('Exporting pairings CSV...')" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #38bdf8;">
+            <button type="button" onclick="exportPairingsCsv()" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #38bdf8;">
               📥 CSV Pairings
             </button>
-            <button type="button" onclick="alert('Exporting roster JSON...')" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #34d399;">
+            <button type="button" onclick="exportRosterJson()" class="btn-sm btn-outline" style="font-size: 0.75rem; cursor: pointer; color: #34d399;">
               📥 JSON Roster
             </button>
           </div>
@@ -5903,6 +6149,114 @@ function renderMediaExportMode(ev, players, matches) {
     </div>
   `;
 }
+
+function exportPairingsCsv(eventId) {
+  const evId = eventId || (typeof window !== 'undefined' && window.currentOpenEventId) || currentOpenEventId || (typeof window !== 'undefined' && window.currentEventData?.id) || currentEventData?.id || 'tournament';
+  const matches = (typeof window !== 'undefined' && window.eventMatchesCache && window.eventMatchesCache.length > 0)
+    ? window.eventMatchesCache
+    : ((eventMatchesCache && eventMatchesCache.length > 0)
+      ? eventMatchesCache
+      : ((typeof window !== 'undefined' && window.currentEventData?.matches) || currentEventData?.matches || []));
+  if (!matches || matches.length === 0) {
+    if (typeof alert === 'function') alert('No pairing data available to export.');
+    else console.warn('No pairing data available to export.');
+    return;
+  }
+
+  const headers = ['Round', 'Table', 'Player 1', 'P1 Faction', 'P1 Elo', 'P1 Score', 'Player 2', 'P2 Faction', 'P2 Elo', 'P2 Score', 'Winner', 'Status'];
+  const rows = matches.map(m => {
+    const isCompleted = m.player1_score !== null && m.player1_score !== undefined && m.player2_score !== null && m.player2_score !== undefined;
+    let winner = '';
+    if (m.winner_name) {
+      winner = m.winner_name;
+    } else if (isCompleted) {
+      if (Number(m.player1_score) > Number(m.player2_score)) winner = m.player1_name || 'Player 1';
+      else if (Number(m.player2_score) > Number(m.player1_score)) winner = m.player2_name || 'Player 2';
+      else winner = 'Tie / Draw';
+    }
+    const status = m.is_bye ? 'BYE' : (isCompleted ? 'Finished' : 'In Progress');
+    return [
+      m.round || 1,
+      m.table_number || m.table || 1,
+      `"${(m.player1_name || '').replace(/"/g, '""')}"`,
+      `"${(m.player1_faction || '').replace(/"/g, '""')}"`,
+      m.player1_elo || '',
+      m.player1_score !== null && m.player1_score !== undefined ? m.player1_score : '',
+      `"${(m.player2_name || '').replace(/"/g, '""')}"`,
+      `"${(m.player2_faction || '').replace(/"/g, '""')}"`,
+      m.player2_elo || '',
+      m.player2_score !== null && m.player2_score !== undefined ? m.player2_score : '',
+      `"${winner.replace(/"/g, '""')}"`,
+      status
+    ].join(',');
+  });
+
+  const csvContent = [headers.join(','), ...rows].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `${evId}_pairings.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  if (typeof showProfileToast === 'function') {
+    showProfileToast('✓ Pairings CSV downloaded successfully!');
+  }
+}
+window.exportPairingsCsv = exportPairingsCsv;
+
+function exportRosterJson(eventId) {
+  const evId = eventId || (typeof window !== 'undefined' && window.currentOpenEventId) || currentOpenEventId || (typeof window !== 'undefined' && window.currentEventData?.id) || currentEventData?.id || 'tournament';
+  const players = (typeof window !== 'undefined' && window.eventPlayersCache && window.eventPlayersCache.length > 0)
+    ? window.eventPlayersCache
+    : ((eventPlayersCache && eventPlayersCache.length > 0)
+      ? eventPlayersCache
+      : ((typeof window !== 'undefined' && window.currentEventData?.players) || currentEventData?.players || []));
+  if (!players || players.length === 0) {
+    if (typeof alert === 'function') alert('No player roster data available to export.');
+    else console.warn('No player roster data available to export.');
+    return;
+  }
+
+  const exportData = {
+    event_id: evId,
+    event_name: currentEventData?.name || evId,
+    exported_at: new Date().toISOString(),
+    total_players: players.length,
+    roster: players.map(p => ({
+      player_id: p.player_id || p.id,
+      name: p.full_name || p.name,
+      faction: p.faction || '',
+      detachment: p.detachment || '',
+      current_elo: p.current_elo || 1500,
+      record: {
+        wins: Number(p.event_wins || 0),
+        losses: Number(p.event_losses || 0),
+        draws: Number(p.event_draws || 0),
+        battle_points: Number(p.event_battle_points || 0)
+      },
+      team: p.team || '',
+      army_list: p.army_list || ''
+    }))
+  };
+
+  const jsonContent = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', `${evId}_roster.json`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  if (typeof showProfileToast === 'function') {
+    showProfileToast('✓ Roster JSON downloaded successfully!');
+  }
+}
+window.exportRosterJson = exportRosterJson;
 
 // Helper: Extract top datasheets / characters from raw army list text
 function extractKeyListUnits(listText, faction) {
@@ -5947,3 +6301,8 @@ window.renderEventMetaAndHighlights = renderEventMetaAndHighlights;
 window.copyEventHubLink = copyEventHubLink;
 window.openEventPlayerListModal = openEventPlayerListModal;
 window.copyEventArmyListModalText = copyEventArmyListModalText;
+window.copyEventPlayerListModalText = copyEventArmyListModalText;
+window.normalizeStreamRecord = normalizeStreamRecord;
+window.loadEventLivestreams = loadEventLivestreams;
+window.exportPairingsCsv = exportPairingsCsv;
+window.exportRosterJson = exportRosterJson;

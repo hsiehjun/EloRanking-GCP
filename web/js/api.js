@@ -1007,6 +1007,35 @@ window.api = {
     return this._fetchJson(`/api/eventstudio/match_predictor?${params}`);
   },
 
+  // Event Broadcast: Get Event Livestreams
+  async getEventLivestreams(eventId) {
+    if (!eventId) return { success: false, livestreams: [] };
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/livestreams`);
+  },
+
+  // Event Broadcast: Save/Add Event Livestream (CC, TO, Admin)
+  async saveEventLivestream(eventId, streamData) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/livestreams`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(streamData)
+    });
+  },
+
+  // Event Broadcast: Delete Event Livestream (CC, TO, Admin)
+  async deleteEventLivestream(eventId, streamId) {
+    const token = this.getAuthToken();
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this._fetchJson(`/api/events/${encodeURIComponent(eventId)}/livestreams/${encodeURIComponent(streamId)}`, {
+      method: 'DELETE',
+      headers
+    });
+  },
+
   // EventStudio: Generate Day 2 Pod Brackets
   async generateDay2Pods(eventId, payload = {}) {
     return this._fetchJson(`/api/eventstudio/event/${encodeURIComponent(eventId)}/pods/generate`, {

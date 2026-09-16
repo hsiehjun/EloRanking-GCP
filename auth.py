@@ -801,6 +801,8 @@ class AuthManager:
                             data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
                             data["is_admin"] = bool(data["role"] == "admin")
                             data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
+                            data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
+                            data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                             data["bcp_connected"] = bool(data.get("bcp_user_id"))
 
                             # Touch last_active_at periodically (at most once every 5 minutes)
@@ -850,6 +852,8 @@ class AuthManager:
                     data["role"] = "admin" if (user_email == superadmin_email or str(row.get("role") or "").lower() == "admin") else (str(row.get("role") or "player").lower())
                     data["is_admin"] = bool(data["role"] == "admin")
                     data["can_access_to"] = bool(data["role"] in ("admin", "to", "organizer", "referee"))
+                    data["can_access_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
+                    data["is_cc"] = bool(data["role"] in ("admin", "creator", "cc", "content_creator"))
                     data["bcp_connected"] = bool(data.get("bcp_user_id"))
                     return data
         return None

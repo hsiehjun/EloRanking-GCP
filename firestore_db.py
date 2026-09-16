@@ -6,7 +6,7 @@ PostgreSQL is strictly cold storage for finalized verified scorecards.
 
 import os
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger("elo_ranking.firestore")
@@ -609,6 +609,145 @@ class FirestoreRoomEngine:
         self._fallback_tournaments[event_id]["updatedAt"] = now_ts
         return broadcast_data
 
+    @staticmethod
+    def _parse_stream_embed(url: str, platform: Optional[str] = None) -> Tuple[str, str]:
+        """Parses a YouTube or Twitch stream URL into (platform, embed_url)."""
+        import re
+        url = str(url or "").strip()
+        p = (platform or "").strip().lower()
+        if "twitch.tv" in url or p == "twitch":
+            chan = url.rstrip("/").split("/")[-1].split("?")[0]
+            embed = f"https://player.twitch.tv/?channel={chan}&parent=localhost&parent=127.0.0.1&parent=omnitactica.com&muted=true"
+            return "twitch", embed
+        # YouTube default
+        yt_match = re.search(r'(?:v=|\/live\/|youtu\.be\/|\/embed\/)([a-zA-Z0-9_-]{11})', url)
+        video_id = yt_match.group(1) if yt_match else "jfKfPfyJRdk"
+        embed = f"https://www.youtube-nocookie.com/embed/{video_id}?autoplay=1&mute=1"
+        return "youtube", embed
+
+    def get_event_livestreams(self, event_id: str) -> List[Dict[str, Any]]:
+        """Fetches active livestreams for an event."""
+        event_id = str(event_id).strip()
+        streams = None
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    snap = ref.get()
+                    if snap.exists:
+                        data = snap.to_dict() or {}
+                        streams = data.get("livestreams")
+            except Exception as e:
+                logger.warning(f"Notice reading livestreams from Firestore: {e}")
+        
+        if streams is None:
+            streams = self._fallback_tournaments.get(event_id, {}).get("livestreams")
+
+        # Pre-seed default streams for live demo events if none exist
+        if streams is None and event_id in ("ev_ongoing_gt_live", "bcp_ongoing_gt"):
+            streams = [
+                {
+                    "id": "stream-1",
+                    "event_id": event_id,
+                    "table_number": 1,
+                    "channel": "Wargames Live",
+                    "platform": "youtube",
+                    "title": "US Open Atlanta Major 2026 - Day 1 Feature Table Live",
+                    "stream_url": "https://www.youtube.com/watch?v=live_stream_wgl",
+                    "embed_url": "https://www.youtube-nocookie.com/embed/jfKfPfyJRdk",
+                    "is_live": True,
+                    "viewers": 1420
+                },
+                {
+                    "id": "stream-2",
+                    "event_id": event_id,
+                    "table_number": 2,
+                    "channel": "Art of War 40k",
+                    "platform": "twitch",
+                    "title": "Art of War Commentary Desk - Table 2 & Deep Tactics",
+                    "stream_url": "https://www.twitch.tv/artofwar40k",
+                    "embed_url": "https://player.twitch.tv/?channel=artofwar40k&parent=localhost&parent=127.0.0.1",
+                    "is_live": True,
+                    "viewers": 890
+                },
+                {
+                    "id": "stream-3",
+                    "event_id": event_id,
+                    "table_number": 4,
+                    "channel": "SkaredCast Live",
+                    "platform": "youtube",
+                    "title": "Drukhari Archon Battle - Table 4 Feature Match",
+                    "stream_url": "https://www.youtube.com/watch?v=live_stream_skared",
+                    "embed_url": "https://www.youtube-nocookie.com/embed/jfKfPfyJRdk",
+                    "is_live": True,
+                    "viewers": 620
+                }
+            ]
+            self.set_event_livestreams(event_id, streams)
+            
+        return streams or []
+
+    def set_event_livestreams(self, event_id: str, streams: List[Dict[str, Any]]):
+        """Sets full list of livestreams for an event."""
+        event_id = str(event_id).strip()
+        now_ts = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if self._client:
+            try:
+                ref = self.get_tournament_doc_ref(event_id)
+                if ref:
+                    ref.set({"eventId": event_id, "livestreams": streams, "updatedAt": now_ts}, merge=True)
+            except Exception as e:
+                logger.warning(f"Notice saving livestreams to Firestore: {e}")
+
+        if event_id not in self._fallback_tournaments:
+            self._fallback_tournaments[event_id] = {}
+        self._fallback_tournaments[event_id]["livestreams"] = streams
+        self._fallback_tournaments[event_id]["updatedAt"] = now_ts
+
+    def save_event_livestream(self, event_id: str, stream_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Adds or updates a livestream for a table in an event."""
+        import uuid as _uuid
+        event_id = str(event_id).strip()
+        existing = self.get_event_livestreams(event_id)
+        
+        stream_id = stream_data.get("id") or f"stream_{int(datetime.now(timezone.utc).timestamp())}_{_uuid.uuid4().hex[:6]}"
+        table_num = int(stream_data.get("table_number") or stream_data.get("tableNumber") or 1)
+        channel = str(stream_data.get("channel") or "Feature Stream").strip()
+        title = str(stream_data.get("title") or f"Table {table_num} Live Broadcast").strip()
+        url = str(stream_data.get("stream_url") or stream_data.get("streamUrl") or "").strip()
+        platform, embed_url = self._parse_stream_embed(url, stream_data.get("platform"))
+        
+        record = {
+            "id": stream_id,
+            "event_id": event_id,
+            "table_number": table_num,
+            "channel": channel,
+            "platform": platform,
+            "title": title,
+            "stream_url": url or "https://www.youtube.com/watch?v=live",
+            "embed_url": stream_data.get("embed_url") or embed_url,
+            "is_live": bool(stream_data.get("is_live", True)),
+            "viewers": int(stream_data.get("viewers") or 250),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        
+        # Replace if table_number or id already exists
+        updated = [s for s in existing if str(s.get("id")) != str(stream_id) and int(s.get("table_number", 0)) != table_num]
+        updated.append(record)
+        updated.sort(key=lambda s: int(s.get("table_number", 1)))
+        
+        self.set_event_livestreams(event_id, updated)
+        return record
+
+    def delete_event_livestream(self, event_id: str, stream_id: str) -> bool:
+        """Removes a livestream from an event."""
+        event_id = str(event_id).strip()
+        stream_id = str(stream_id).strip()
+        existing = self.get_event_livestreams(event_id)
+        updated = [s for s in existing if str(s.get("id")) != stream_id]
+        self.set_event_livestreams(event_id, updated)
+        return True
+
     def save_judge_call(self, event_id: str, call_data: Dict[str, Any]) -> Dict[str, Any]:
         """Saves a judge dispatch call to tournaments/{event_id} main documents and subcollections."""
         event_id = str(event_id).strip()
@@ -1097,3 +1236,41 @@ def get_firestore_engine() -> FirestoreRoomEngine:
     if _firestore_engine_instance is None:
         _firestore_engine_instance = FirestoreRoomEngine(project_id="eloranking-506820")
     return _firestore_engine_instance
+
+
+def get_event_livestreams(event_id: str) -> List[Dict[str, Any]]:
+    return get_firestore_engine().get_event_livestreams(event_id)
+
+
+def set_event_livestreams(event_id: str, streams: List[Dict[str, Any]]) -> bool:
+    return get_firestore_engine().set_event_livestreams(event_id, streams)
+
+
+def save_event_livestream(
+    event_id: str,
+    table_number: int,
+    channel: str,
+    stream_url: str,
+    platform: Optional[str] = None,
+    title: Optional[str] = None,
+    stream_id: Optional[str] = None,
+    is_live: bool = True
+) -> Dict[str, Any]:
+    return get_firestore_engine().save_event_livestream(
+        event_id=event_id,
+        table_number=table_number,
+        channel=channel,
+        stream_url=stream_url,
+        platform=platform,
+        title=title,
+        stream_id=stream_id,
+        is_live=is_live
+    )
+
+
+def delete_event_livestream(event_id: str, stream_id: str) -> bool:
+    return get_firestore_engine().delete_event_livestream(event_id, stream_id)
+
+
+_parse_stream_embed = FirestoreRoomEngine._parse_stream_embed
+

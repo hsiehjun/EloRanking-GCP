@@ -676,7 +676,12 @@
     function switchAdminTab(tab) {
       const tabs = document.querySelectorAll('.admin-tab-btn');
       tabs.forEach(t => t.classList.remove('active'));
-      event.target.classList.add('active');
+      if (typeof event !== 'undefined' && event && event.target) {
+        event.target.classList.add('active');
+      } else {
+        const matchingBtn = Array.from(tabs).find(t => t.getAttribute('onclick')?.includes(`'${tab}'`));
+        if (matchingBtn) matchingBtn.classList.add('active');
+      }
 
       document.getElementById('tab-panel-invites').style.display = tab === 'invites' ? 'block' : 'none';
       document.getElementById('tab-panel-referrals').style.display = tab === 'referrals' ? 'block' : 'none';
@@ -929,8 +934,9 @@
         const rolePill = isSuperAdmin
           ? '<span class="pill pill-admin" style="background:rgba(239,68,68,0.2); color:#ef4444; border:1px solid rgba(239,68,68,0.4);">👑 SUPERADMIN</span>'
           : `
-            <select onchange="handleRoleChange('${u.id}', this.value, '${escapeHtml(u.email)}')" style="background:rgba(15,23,42,0.85); color:${u.role === 'to' || u.role === 'organizer' ? '#f59e0b' : (u.role === 'admin' ? '#c084fc' : '#94a3b8')}; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:3px 6px; font-size:0.75rem; font-weight:700; cursor:pointer;">
+            <select onchange="handleRoleChange('${u.id}', this.value, '${escapeHtml(u.email)}')" style="background:rgba(15,23,42,0.85); color:${u.role === 'to' || u.role === 'organizer' ? '#f59e0b' : (u.role === 'admin' ? '#c084fc' : (u.role === 'creator' || u.role === 'cc' ? '#38bdf8' : '#94a3b8'))}; border:1px solid rgba(255,255,255,0.18); border-radius:6px; padding:3px 6px; font-size:0.75rem; font-weight:700; cursor:pointer;">
               <option value="player" ${u.role === 'player' || !u.role ? 'selected' : ''}>👤 Player</option>
+              <option value="creator" ${(u.role === 'creator' || u.role === 'cc' || u.role === 'content_creator') ? 'selected' : ''}>🎙️ Creator (CC)</option>
               <option value="to" ${(u.role === 'to' || u.role === 'organizer') ? 'selected' : ''}>🛠️ TO (Organizer)</option>
               <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>🛡️ Admin</option>
             </select>

@@ -23,6 +23,103 @@ WEB_DIR = REPO_ROOT / "web"
 TRACKER_DIR = WEB_DIR / "tracker"
 TRACKER_STATIC_DIR = TRACKER_DIR / "static"
 
+EVENT_LIVESTREAMS_DB = {
+    "ev_ongoing_gt_live": [
+        {
+            "id": "stream-1",
+            "event_id": "ev_ongoing_gt_live",
+            "table_number": 1,
+            "channel": "Wargames Live",
+            "platform": "youtube",
+            "title": "US Open Atlanta Major 2026 - Day 1 Feature Table Live",
+            "stream_url": "https://www.youtube.com/watch?v=live_stream_wgl",
+            "embed_url": "https://www.youtube-nocookie.com/embed/jfKfPfyJRdk",
+            "is_live": True,
+            "viewers": 1420
+        },
+        {
+            "id": "stream-2",
+            "event_id": "ev_ongoing_gt_live",
+            "table_number": 2,
+            "channel": "Art of War 40k",
+            "platform": "twitch",
+            "title": "Art of War Commentary Desk - Table 2 & Deep Tactics",
+            "stream_url": "https://www.twitch.tv/artofwar40k",
+            "embed_url": "https://player.twitch.tv/?channel=artofwar40k&parent=localhost&parent=127.0.0.1",
+            "is_live": True,
+            "viewers": 890
+        },
+        {
+            "id": "stream-3",
+            "event_id": "ev_ongoing_gt_live",
+            "table_number": 4,
+            "channel": "SkaredCast Live",
+            "platform": "youtube",
+            "title": "Drukhari Archon Battle - Table 4 Feature Match",
+            "stream_url": "https://www.youtube.com/watch?v=live_stream_skared",
+            "embed_url": "https://www.youtube-nocookie.com/embed/jfKfPfyJRdk",
+            "is_live": True,
+            "viewers": 620
+        }
+    ]
+}
+
+DEV_USERS_LIST = [
+    {
+        "id": "u_innes",
+        "email": "innes.wilson@example.com",
+        "display_name": "Innes Wilson",
+        "name": "Innes Wilson",
+        "role": "player",
+        "is_admin": False,
+        "created_at": "2026-01-10T12:00:00Z",
+        "bcp_user_id": "bcp_innes_01",
+        "bcp_linked_at": "2026-02-01T12:00:00Z",
+        "matches_played": 34,
+        "current_elo": 2185.4
+    },
+    {
+        "id": "u_wargameslive",
+        "email": "producer@wargameslive.com",
+        "display_name": "Joe / Wargames Live",
+        "name": "Joe / Wargames Live",
+        "role": "creator",
+        "is_admin": False,
+        "created_at": "2026-01-15T15:30:00Z",
+        "bcp_user_id": "bcp_wgl_01",
+        "bcp_linked_at": "2026-02-15T12:00:00Z",
+        "matches_played": 12,
+        "current_elo": 1750.0
+    },
+    {
+        "id": "u_to_admin",
+        "email": "organizer@georgia40k.com",
+        "display_name": "Atlanta TO Team",
+        "name": "Atlanta TO Team",
+        "role": "to",
+        "is_admin": False,
+        "created_at": "2026-01-05T09:00:00Z",
+        "bcp_user_id": "bcp_to_01",
+        "bcp_linked_at": "2026-01-05T09:00:00Z",
+        "matches_played": 5,
+        "current_elo": 1500.0
+    },
+    {
+        "id": "u_head_admin",
+        "email": "admin@omnitactica.com",
+        "display_name": "Head Admin",
+        "name": "Head Admin",
+        "role": "admin",
+        "is_admin": True,
+        "is_superadmin": True,
+        "created_at": "2026-01-01T00:00:00Z",
+        "bcp_user_id": "bcp_admin_01",
+        "bcp_linked_at": "2026-01-01T00:00:00Z",
+        "matches_played": 50,
+        "current_elo": 2250.0
+    }
+]
+
 ROOMS_DB = {
     "WH40K-DEV1": {
         "is_finished": False,
@@ -395,10 +492,87 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         self._handle_request(is_head=False)
 
+    def do_DELETE(self):
+        clean_path = self.path.split("?")[0].strip("/")
+        if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and "/livestreams/" in clean_path:
+            parts = clean_path.split("/")
+            ev_id = parts[2] if clean_path.startswith("api/events/") else parts[3]
+            stream_id = parts[4] if clean_path.startswith("api/events/") else parts[5]
+            if ev_id in EVENT_LIVESTREAMS_DB:
+                EVENT_LIVESTREAMS_DB[ev_id] = [s for s in EVENT_LIVESTREAMS_DB[ev_id] if s.get("id") != stream_id]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "event_id": ev_id, "deleted_id": stream_id, "livestreams": EVENT_LIVESTREAMS_DB.get(ev_id, [])}).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
     def do_POST(self):
         clean_path = self.path.split("?")[0].strip("/")
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length) if length > 0 else b"{}"
+
+        if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and clean_path.endswith("/livestreams"):
+            parts = clean_path.split("/")
+            ev_id = parts[2] if clean_path.startswith("api/events/") else parts[3]
+            try:
+                p_data = json.loads(body.decode("utf-8")) if body else {}
+            except Exception:
+                p_data = {}
+            import re
+            s_url = str(p_data.get("stream_url") or p_data.get("streamUrl") or "").strip()
+            plat = str(p_data.get("platform") or "").lower()
+            if "twitch.tv" in s_url or plat == "twitch":
+                chan = s_url.rstrip("/").split("/")[-1].split("?")[0]
+                embed = f"https://player.twitch.tv/?channel={chan}&parent=localhost&parent=127.0.0.1&parent=omnitactica.com&muted=true"
+                plat = "twitch"
+            else:
+                plat = "youtube"
+                yt_m = re.search(r'(?:v=|\/live\/|youtu\.be\/|\/embed\/)([a-zA-Z0-9_-]{11})', s_url)
+                v_id = yt_m.group(1) if yt_m else "jfKfPfyJRdk"
+                embed = f"https://www.youtube-nocookie.com/embed/{v_id}?autoplay=1&mute=1"
+            
+            s_id = p_data.get("id") or f"stream_{secrets.token_hex(4)}"
+            t_num = int(p_data.get("table_number") or p_data.get("tableNumber") or 1)
+            record = {
+                "id": s_id,
+                "event_id": ev_id,
+                "table_number": t_num,
+                "channel": p_data.get("channel") or "Feature Stream",
+                "platform": plat,
+                "title": p_data.get("title") or f"Table {t_num} Live Broadcast",
+                "stream_url": s_url or "https://www.youtube.com/watch?v=live",
+                "embed_url": embed,
+                "is_live": True,
+                "viewers": int(p_data.get("viewers") or 250)
+            }
+            if ev_id not in EVENT_LIVESTREAMS_DB:
+                EVENT_LIVESTREAMS_DB[ev_id] = []
+            EVENT_LIVESTREAMS_DB[ev_id] = [s for s in EVENT_LIVESTREAMS_DB[ev_id] if s.get("id") != s_id and int(s.get("table_number", 0)) != t_num]
+            EVENT_LIVESTREAMS_DB[ev_id].append(record)
+            EVENT_LIVESTREAMS_DB[ev_id].sort(key=lambda s: int(s.get("table_number", 1)))
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "event_id": ev_id, "livestream": record, "livestreams": EVENT_LIVESTREAMS_DB[ev_id]}).encode("utf-8"))
+            return
+
+        if clean_path.startswith("api/admin/users/") and clean_path.endswith("/role"):
+            parts = clean_path.split("/")
+            u_id = parts[3]
+            body_data = json.loads(body.decode("utf-8")) if body else {}
+            new_role = body_data.get("role", "player")
+            for u in DEV_USERS_LIST:
+                if u.get("id") == u_id:
+                    u["role"] = new_role
+                    u["is_admin"] = (new_role == "admin")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "user_id": u_id, "role": new_role}).encode("utf-8"))
+            return
 
         if clean_path in ("api/auth/login", "api/auth/register"):
             self.send_response(200)
@@ -1174,6 +1348,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             if not is_head:
                 self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if (clean_path.startswith("api/events/") or clean_path.startswith("api/eventstudio/event/")) and clean_path.endswith("/livestreams"):
+            parts = clean_path.split("/")
+            ev_id = parts[2] if clean_path.startswith("api/events/") else parts[3]
+            streams = EVENT_LIVESTREAMS_DB.get(ev_id, [])
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "event_id": ev_id, "livestreams": streams}).encode("utf-8"))
+            return
+
+        if clean_path in ("api/admin/users", "api/admin/users/"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps({"success": True, "users": DEV_USERS_LIST}).encode("utf-8"))
             return
 
         if clean_path.startswith("api/event/"):
