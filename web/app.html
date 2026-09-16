@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=f4ff061194">
-  <link rel="stylesheet" href="/css/styles.css?v=f4ff061194">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=f4ff061194">
+  <link rel="stylesheet" href="/css/theme.css?v=ce643adcf0">
+  <link rel="stylesheet" href="/css/styles.css?v=ce643adcf0">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=ce643adcf0">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -68,11 +68,17 @@
         window.location.reload(true);
         return;
       }
+      if (val === 'my-hub') {
+        if (typeof navigateToMyHub === 'function') {
+          navigateToMyHub(true);
+        } else if (typeof switchTab === 'function') {
+          switchTab('my-hub');
+        }
+        return;
+      }
       if (val === 'tracker') {
         if (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') {
-          if (typeof openAosTrackerModal === 'function') openAosTrackerModal();
-          var mob = document.getElementById('mobile-nav-select');
-          if (mob && typeof activeTab !== 'undefined') mob.value = activeTab;
+          window.location.href = '/11th/tracker/aos';
           return;
         }
         window.location.href = '/11th/tracker';
@@ -2920,8 +2926,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "f4ff061194";</script>
-  <script src="/js/app.bundle.min.js?v=f4ff061194"></script>
+  <script>window.APP_VERSION = "ce643adcf0";</script>
+  <script src="/js/app.bundle.min.js?v=ce643adcf0"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">
@@ -3566,17 +3572,17 @@
   <div id="aos-tracker-modal" class="modal-backdrop" style="display: none;" onclick="if(event.target === this) closeAosTrackerModal()">
     <div class="modal-card" style="max-width: 480px; padding: 2rem; background: var(--bg-card); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-lg); box-shadow: 0 12px 36px rgba(0,0,0,0.6), 0 0 24px rgba(245, 158, 11, 0.2); text-align: center;">
       <div style="font-size: 3rem; margin-bottom: 0.75rem;">⚡</div>
-      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.3rem; font-weight: 800; color: #f59e0b;">AoS Battle Tracker In Development</h3>
+      <h3 style="margin: 0 0 0.5rem 0; font-size: 1.3rem; font-weight: 800; color: #f59e0b;">AoS Battle Tracker</h3>
       <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; margin: 0 0 1.5rem 0;">
-        The dedicated Warhammer Age of Sigmar Battle Tracker is currently being prepared for the Mortal Realms. In the meantime, our complete 40K Tactical Suite tracker remains fully operational.
+        Launch the dedicated Warhammer Age of Sigmar Battle Tracker for the Mortal Realms.
       </p>
       <div style="display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+        <a href="/11th/tracker/aos" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.6rem 1.2rem; background: #f59e0b; border-color: #d97706; color: #1e1b4b; font-weight: 700; text-decoration: none;">
+          ⚡ Launch AoS Tracker
+        </a>
         <a href="/11th/tracker" class="btn btn-outline" style="font-size: 0.85rem; padding: 0.6rem 1.2rem; border-color: rgba(56,189,248,0.4); color: #38bdf8; text-decoration: none;">
           ⚔️ Launch 40K Tracker
         </a>
-        <button type="button" onclick="closeAosTrackerModal()" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.6rem 1.2rem; background: #f59e0b; border-color: #d97706; color: #1e1b4b; font-weight: 700;">
-          Got it
-        </button>
       </div>
     </div>
   </div>

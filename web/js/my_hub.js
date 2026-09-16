@@ -1018,7 +1018,7 @@ function renderMyHub(data) {
               <span class="badge" style="background: rgba(56,189,248,0.12); color: #38bdf8; font-size: 0.68rem; padding: 0.1rem 0.4rem;">11th Ed</span>
             </div>
             <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <a href="/11th/tracker" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
+              <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" target="_blank" style="font-size: 0.75rem; color: var(--accent); text-decoration: none; font-weight: 600;">Game Tracker ➔</a>
             </div>
           </div>
 
@@ -1126,8 +1126,8 @@ function renderMyHub(data) {
           ` : (!data.primary_active && (!data.unfinished_sessions || data.unfinished_sessions.length === 0)) ? `
             <div style="padding: 2.25rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem;">
               <div style="font-size: 1.05rem; margin-bottom: 0.35rem;">🎲 No Live Game Tracker matches logged.</div>
-              <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live 11th Edition games with automated VP scoring & real-time sync!</div>
-              <a href="/11th/tracker" target="_blank" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
+              <div style="font-size: 0.78rem; margin-bottom: 0.75rem;">Track live games with automated scoring & real-time sync!</div>
+              <a href="${(typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker'}" target="_blank" class="bcp-login-btn" style="text-decoration:none; display:inline-block; font-size:0.8rem; padding:0.4rem 0.9rem;">+ Open Game Tracker</a>
             </div>
           ` : ''}
         </div>
@@ -3169,7 +3169,8 @@ async function deleteHubArmyList(listId, fromModal = false) {
 function launchTrackerWithList(listId) {
   const list = hubSavedLists.find(l => l.id === listId);
   // Launch tracker with preloaded state
-  window.open('/11th/tracker', '_blank');
+  const trackerUrl = (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker';
+  window.open(trackerUrl, '_blank');
 }
 
 function discardTrackerSession(matchId) {

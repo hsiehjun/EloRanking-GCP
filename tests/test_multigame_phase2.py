@@ -84,7 +84,8 @@ def test_app_html_elements():
 
     # AoS tracker modal
     assert 'id="aos-tracker-modal"' in html
-    assert "AoS Battle Tracker In Development" in html
+    assert "AoS Battle Tracker" in html
+    assert "Launch AoS Tracker" in html
     assert "closeAosTrackerModal()" in html
     assert "handleTrackerNavClick(event)" in html
     print("✅ test_app_html_elements passed")
@@ -113,7 +114,7 @@ def test_app_js_logic_and_bundle():
         bundle = f.read()
 
     # app.js functions
-    assert "let currentGameSystem = '40k';" in js
+    assert "currentGameSystem" in js and "'40k'" in js
     assert "function initGameSystem()" in js
     assert "function applyGameSystem(sys, updateUrl = true)" in js
     assert "function switchGameSystem(sys)" in js

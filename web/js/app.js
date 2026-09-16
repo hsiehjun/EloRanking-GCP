@@ -95,6 +95,12 @@ function applyGameSystem(sys, updateUrl = true) {
     populateSettingsFactionDropdown();
   }
 
+  // Update desktop navbar tracker link href
+  const navTrackerBtn = document.getElementById('nav-btn-tracker');
+  if (navTrackerBtn) {
+    navTrackerBtn.href = (currentGameSystem === 'aos') ? '/11th/tracker/aos' : '/11th/tracker';
+  }
+
   // Update URL if requested
   if (updateUrl && window.history && window.history.replaceState) {
     const prefix = (currentGameSystem === 'aos') ? '/aos' : '';
@@ -193,10 +199,7 @@ function toggleGameSystemMobile() {
 }
 
 function openAosTrackerModal() {
-  const modal = document.getElementById('aos-tracker-modal');
-  if (modal) {
-    modal.style.display = 'flex';
-  }
+  window.location.href = '/11th/tracker/aos';
 }
 
 function closeAosTrackerModal() {
