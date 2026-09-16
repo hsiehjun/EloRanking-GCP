@@ -19,6 +19,17 @@ export function AosBattleScorecard() {
   const [isPriorityModalOpen, setIsPriorityModalOpen] = useState(false);
   const [isSummaryOpen, setIsSummaryOpen] = useState(false);
 
+  const urlRole = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("role") : null;
+  const defaultMobilePlayer = urlRole === "player2" ? "p2" : (currentTurnPlayer || "p1");
+  const [activeMobilePlayer, setActiveMobilePlayer] = useState(defaultMobilePlayer);
+
+  // Auto-switch mobile tab if active turn player changes
+  React.useEffect(() => {
+    if (currentTurnPlayer && (currentTurnPlayer === "p1" || currentTurnPlayer === "p2")) {
+      setActiveMobilePlayer(currentTurnPlayer);
+    }
+  }, [currentTurnPlayer]);
+
   // Sync window handlers for external mobile dock triggers
   React.useEffect(() => {
     window.__openScorecardModal = () => setIsSummaryOpen(true);
@@ -38,7 +49,7 @@ export function AosBattleScorecard() {
   const p2Tactics = getCompletedTacticsCount(p2);
 
   return (
-    <div className="gtk gtk-page max-w-4xl mx-auto px-3 pb-12 pt-2">
+    <div className="gtk gtk-page max-w-4xl mx-auto px-3 pb-32 sm:pb-16 pt-2">
       {/* Priority Roll Modal */}
       <PriorityRollModal
         isOpen={isPriorityModalOpen}
@@ -62,7 +73,11 @@ export function AosBattleScorecard() {
       >
         <div className="grid grid-cols-3 items-center text-center">
           {/* Player 1 Left */}
-          <div className="text-left sm:text-center">
+          <div
+            onClick={() => setActiveMobilePlayer("p1")}
+            className="text-left sm:text-center cursor-pointer transition-opacity hover:opacity-85"
+            title="Switch to Player 1"
+          >
             <div className="gtk-display text-[18px] font-bold uppercase text-[#38bdf8] truncate">{p1.name}</div>
             <div className="gtk-display text-[44px] font-bold text-white my-0.5 leading-none">{s1}</div>
             <div className="gtk-mono text-[10px] sm:text-[11px] uppercase" style={{ color: "var(--gtk-muted)" }}>
@@ -89,7 +104,11 @@ export function AosBattleScorecard() {
           </div>
 
           {/* Player 2 Right */}
-          <div className="text-right sm:text-center">
+          <div
+            onClick={() => setActiveMobilePlayer("p2")}
+            className="text-right sm:text-center cursor-pointer transition-opacity hover:opacity-85"
+            title="Switch to Player 2"
+          >
             <div className="gtk-display text-[18px] font-bold uppercase text-[#ef4444] truncate">{p2.name}</div>
             <div className="gtk-display text-[44px] font-bold text-white my-0.5 leading-none">{s2}</div>
             <div className="gtk-mono text-[10px] sm:text-[11px] uppercase" style={{ color: "var(--gtk-muted)" }}>
@@ -218,8 +237,89 @@ export function AosBattleScorecard() {
         </div>
       </div>
 
-      {/* Player Scorecards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Mobile Player 1 / Player 2 Tabs (Matching 40k Experience) */}
+      <div className="mb-3 flex gap-2 md:hidden">
+        <button
+          type="button"
+          aria-pressed={activeMobilePlayer === "p1"}
+          onClick={() => setActiveMobilePlayer("p1")}
+          className="flex-1 truncate rounded-[11px] border-2 py-2.5 px-3 font-mono text-[12px] font-bold uppercase tracking-[0.08em] transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+          style={
+            activeMobilePlayer === "p1"
+              ? {
+                  background: "#38bdf8",
+                  borderColor: "#38bdf8",
+                  color: "#070b14",
+                  boxShadow: "0 0 14px rgba(56, 189, 248, 0.35)"
+                }
+              : {
+                  borderColor: "var(--gtk-line, #273042)",
+                  background: "var(--gtk-tile, #181d28)",
+                  color: "var(--gtk-muted, #94a3b8)"
+                }
+          }
+        >
+          <span className="truncate">{p1.name || "Player 1"}</span>
+          {currentTurnPlayer === "p1" && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded font-extrabold"
+              style={{
+                background: activeMobilePlayer === "p1" ? "#070b14" : "#38bdf8",
+                color: activeMobilePlayer === "p1" ? "#38bdf8" : "#070b14"
+              }}
+            >
+              TURN
+            </span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          aria-pressed={activeMobilePlayer === "p2"}
+          onClick={() => setActiveMobilePlayer("p2")}
+          className="flex-1 truncate rounded-[11px] border-2 py-2.5 px-3 font-mono text-[12px] font-bold uppercase tracking-[0.08em] transition-all cursor-pointer shadow-sm flex items-center justify-center gap-1.5"
+          style={
+            activeMobilePlayer === "p2"
+              ? {
+                  background: "#ef4444",
+                  borderColor: "#ef4444",
+                  color: "#ffffff",
+                  boxShadow: "0 0 14px rgba(239, 68, 68, 0.35)"
+                }
+              : {
+                  borderColor: "var(--gtk-line, #273042)",
+                  background: "var(--gtk-tile, #181d28)",
+                  color: "var(--gtk-muted, #94a3b8)"
+                }
+          }
+        >
+          <span className="truncate">{p2.name || "Player 2"}</span>
+          {currentTurnPlayer === "p2" && (
+            <span
+              className="text-[9px] px-1.5 py-0.5 rounded font-extrabold"
+              style={{
+                background: activeMobilePlayer === "p2" ? "#ffffff" : "#ef4444",
+                color: activeMobilePlayer === "p2" ? "#ef4444" : "#ffffff"
+              }}
+            >
+              TURN
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* Mobile Single-Column View: Render only active tab's scorecard */}
+      <div className="md:hidden">
+        <AosPlayerScorecard
+          playerKey={activeMobilePlayer}
+          round={activeTabRound}
+          isTurnActive={currentTurnPlayer === activeMobilePlayer && activeTabRound === round}
+          turnNumber={currentRoundState.firstTurn === activeMobilePlayer ? 1 : 2}
+        />
+      </div>
+
+      {/* Desktop Dual-Column View: Side-by-side scorecards */}
+      <div className="hidden md:grid md:grid-cols-2 gap-4">
         <AosPlayerScorecard
           playerKey="p1"
           round={activeTabRound}
