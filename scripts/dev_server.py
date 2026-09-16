@@ -10,6 +10,7 @@ import sys
 import json
 import mimetypes
 import urllib.parse
+import urllib.request
 import secrets
 from pathlib import Path
 
@@ -583,8 +584,126 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 }).encode("utf-8"))
             return
 
+        if clean_path.startswith("api/community/events/") and clean_path.endswith("/registration"):
+            eid = clean_path.replace("api/community/events/", "").replace("/registration", "").strip()
+            bcp_name = "Tournament"
+            event_date = "2026-09-16"
+            try:
+                b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}"
+                b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(b_req, timeout=4) as b_resp:
+                    if b_resp.status == 200:
+                        b_json = json.loads(b_resp.read().decode("utf-8"))
+                        bcp_name = b_json.get("name") or bcp_name
+                        event_date = (b_json.get("eventDate") or event_date)[:10]
+            except Exception:
+                pass
+            res = {
+                "success": True,
+                "event_id": eid,
+                "event_name": bcp_name,
+                "event_date": event_date,
+                "tier": "free",
+                "ticket_price": 0.0,
+                "ticket_currency": "usd",
+                "can_register_free": True,
+                "can_buy_ticket": False,
+                "requires_external_ticket": False,
+                "is_closed": False,
+                "is_sold_out": False,
+                "is_started": False,
+                "is_ended": False,
+                "is_ongoing": False,
+                "status_label": "Registration Open",
+                "is_registered": False,
+                "player_registration": None,
+                "user_profile": {
+                    "logged_in": True,
+                    "name": "John Hsieh",
+                    "first_name": "John",
+                    "last_name": "Hsieh",
+                    "email": "hsiehjun@google.com",
+                    "bcp_linked": True,
+                    "bcp_user_id": "9oEfu25ccjqE"
+                },
+                "army_lists": []
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path == "api/user/registered-tournaments" or clean_path.startswith("api/user/registered-tournaments"):
+            res = {
+                "success": True,
+                "bcp_connected": True,
+                "count": 1,
+                "tournaments": [
+                    {
+                        "id": "ev_active_lvo_2026",
+                        "bcp_event_id": "ev_active_lvo_2026",
+                        "event_name": "LVO 2026 Warhammer 40K Champs",
+                        "event_date": "2026-01-18",
+                        "city": "Las Vegas",
+                        "state": "NV",
+                        "checked_in": True,
+                        "faction": "Necrons",
+                        "detachment": "Canoptek Court",
+                        "has_list_submitted": True,
+                        "points_limit": 2000,
+                        "rounds": 5,
+                        "player_id": "p_innes_wilson"
+                    }
+                ]
+            }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
         if clean_path.startswith("api/event/"):
             ev_param = clean_path.replace("api/event/", "")
+            if len(ev_param) >= 8 and not ev_param.startswith("ev_"):
+                try:
+                    b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{ev_param}"
+                    b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(b_req, timeout=4) as b_resp:
+                        if b_resp.status == 200:
+                            b_json = json.loads(b_resp.read().decode("utf-8"))
+                            loc = b_json.get("location") if isinstance(b_json.get("location"), dict) else {}
+                            res = {
+                                "id": ev_param,
+                                "name": b_json.get("name") or "BCP Tournament",
+                                "event_date": (b_json.get("eventDate") or "")[:10],
+                                "end_date": (b_json.get("endDate") or "")[:10],
+                                "city": b_json.get("city") or loc.get("city") or "",
+                                "state": b_json.get("state") or loc.get("state") or "",
+                                "country": b_json.get("country") or loc.get("country") or "United States",
+                                "venue": b_json.get("venueName") or loc.get("venueName") or loc.get("name") or "",
+                                "total_players": int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0),
+                                "num_rounds": int(b_json.get("numberOfRounds") or 3),
+                                "current_round": int(b_json.get("currentRound") or 0),
+                                "is_ended": bool(b_json.get("ended") or False),
+                                "ended": bool(b_json.get("ended") or False),
+                                "started": bool(b_json.get("started") or False),
+                                "status": {"ended": bool(b_json.get("ended") or False), "started": bool(b_json.get("started") or False)},
+                                "players": b_json.get("players") or [],
+                                "matches": b_json.get("matches") or [],
+                                "team_standings": []
+                            }
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.end_headers()
+                            if not is_head:
+                                self.wfile.write(json.dumps(res).encode("utf-8"))
+                            return
+                except Exception:
+                    pass
+
             if ev_param == "ev_ongoing_gt_live":
                 res = {
                     "id": "ev_ongoing_gt_live",

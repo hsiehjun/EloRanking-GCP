@@ -2,7 +2,8 @@
    MY_HUB.JS - Competitor Profile Hub & Personal Analytics
    ========================================================================== */
 
-let myHubData = null;
+var myHubData = (typeof window !== 'undefined' && window.myHubData) || null;
+if (typeof window !== 'undefined') window.myHubData = myHubData;
 
 function buildMyHubShellData(u) {
   if (!u) return null;
@@ -124,7 +125,8 @@ async function loadMyHubDashboard() {
   }
 }
 
-let currentHubSubtab = 'active';
+var currentHubSubtab = (typeof window !== 'undefined' && window.currentHubSubtab) || 'active';
+if (typeof window !== 'undefined') window.currentHubSubtab = currentHubSubtab;
 
 function switchHubSubtab(tabId) {
   // Map legacy mobile tab names if called
@@ -185,7 +187,13 @@ function resetMyHubToProfile() {
     window.currentOpenEventId = null;
   }
 
-  // 4. Ensure My Hub subtabs and panels switch back to 'active'
+  // 4. Ensure My Hub panel is active and subtabs switch back to 'active'
+  const myHubTab = document.getElementById('tab-my-hub');
+  if (myHubTab) {
+    myHubTab.classList.add('active');
+    myHubTab.style.removeProperty('display');
+  }
+
   const bar = document.getElementById('hub-subtabs-bar');
   if (bar) {
     bar.querySelectorAll('.profile-subtab-btn').forEach(btn => {
@@ -206,7 +214,22 @@ function resetMyHubToProfile() {
     hubContainer.setAttribute('data-active-tab', 'active');
   }
 
-  // 5. Scroll container and page to top
+  // 5. Update URL hash cleanly
+  if (window.history && window.history.replaceState) {
+    let cleanPath = (window.location.pathname || '').replace(/\/+$/, '');
+    if (typeof currentGameSystem !== 'undefined' && currentGameSystem === 'aos') {
+      if (!cleanPath.startsWith('/aos')) cleanPath = '/aos';
+    } else {
+      if (cleanPath.startsWith('/aos')) cleanPath = '';
+    }
+    window.history.replaceState(null, '', `${cleanPath || '/'}#my-hub`);
+  }
+
+  if (typeof syncMobileNavDropdown === 'function') {
+    syncMobileNavDropdown();
+  }
+
+  // 6. Scroll container and page to top
   const mainEl = document.querySelector('main');
   if (mainEl) mainEl.scrollTop = 0;
   window.scrollTo({ top: 0, behavior: 'instant' });

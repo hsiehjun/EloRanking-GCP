@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=48ebdf75f6">
-  <link rel="stylesheet" href="/css/styles.css?v=48ebdf75f6">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=48ebdf75f6">
+  <link rel="stylesheet" href="/css/theme.css?v=f4ff061194">
+  <link rel="stylesheet" href="/css/styles.css?v=f4ff061194">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=f4ff061194">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -191,7 +191,7 @@
       </a>
 
       <div class="nav-tabs">
-        <button class="nav-btn" id="nav-btn-my-hub" onclick="switchTab('my-hub')">
+        <button class="nav-btn" id="nav-btn-my-hub" onclick="navigateToMyHub(true)">
           🏠 My Hub
         </button>
         <button class="nav-btn" id="nav-btn-community" onclick="switchTab('community')">
@@ -511,28 +511,28 @@
         <div id="event-hub-hero-section"></div>
 
         <!-- Sub-tabs Navigation Bar -->
-        <div class="subtabs-bar" style="margin-bottom: 1rem;">
-          <button id="event-subtab-player" class="subtab-btn" onclick="switchEventModalTab('player')" style="display: none !important;">
+        <div id="event-hub-subtabs-bar" class="subtabs-bar profile-subtabs-bar event-hub-subtabs-bar" style="margin-bottom: 1rem;">
+          <button id="event-subtab-player" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('player')" style="display: none !important;">
             <span>👤 My Registration</span>
           </button>
-          <button id="event-subtab-teams" class="subtab-btn" onclick="switchEventModalTab('teams')" style="display: none !important;">
-            <span id="event-subtab-teams-label">🛡️ Team Standings</span>
-            <span id="event-tab-teams-count" class="subtab-count-badge">0</span>
-          </button>
-          <button id="event-subtab-results" class="subtab-btn active" onclick="switchEventModalTab('results')">
+          <button id="event-subtab-results" class="subtab-btn profile-subtab-btn active" onclick="switchEventModalTab('results')">
             <span>🏆 Standings & Placings</span>
-            <span id="event-tab-results-count" class="subtab-count-badge">0</span>
+            <span id="event-tab-results-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
-          <button id="event-subtab-elo" class="subtab-btn" onclick="switchEventModalTab('elo')" style="display: none !important;">
-            <span>⭐ Participant Elo Rankings</span>
-            <span id="event-tab-elo-count" class="subtab-count-badge">0</span>
+          <button id="event-subtab-teams" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('teams')" style="display: none !important;">
+            <span id="event-subtab-teams-label">🛡️ Team Standings</span>
+            <span id="event-tab-teams-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
-          <button id="event-subtab-matches" class="subtab-btn" onclick="switchEventModalTab('matches')">
-            <span>⚔️ Round Pairings & Live Spectate</span>
-            <span id="event-tab-matches-count" class="subtab-count-badge">0</span>
+          <button id="event-subtab-matches" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('matches')">
+            <span>⚔️ Round Pairings</span>
+            <span id="event-tab-matches-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
-          <button id="event-subtab-meta" class="subtab-btn" onclick="switchEventModalTab('meta')">
-            <span>📊 Field Meta & Highlights</span>
+          <button id="event-subtab-meta" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('meta')">
+            <span>📊 Field Meta</span>
+          </button>
+          <button id="event-subtab-elo" class="subtab-btn profile-subtab-btn" onclick="switchEventModalTab('elo')" style="display: none !important;">
+            <span>⭐ Participant Elo</span>
+            <span id="event-tab-elo-count" class="subtab-count-badge profile-subtab-count">0</span>
           </button>
         </div>
 
@@ -2293,23 +2293,21 @@
   <!-- Tournament Quick-View Modal (Tier 1) -->
   <div id="event-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
     <div class="modal-window quick-event-modal-window" style="max-width: 840px;">
-      <div class="modal-header event-modal-header" style="padding: 1.1rem 1.35rem 0.9rem;">
-        <div class="event-modal-top-row" style="align-items: flex-start; gap: 0.75rem;">
+      <div class="modal-header event-modal-header" style="padding: 0.85rem 1.15rem 0.75rem;">
+        <div class="event-modal-top-row" style="align-items: flex-start; justify-content: space-between; gap: 0.65rem;">
           <div style="flex: 1; min-width: 0;">
-            <div id="modal-event-badges" style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.45rem;"></div>
+            <div id="modal-event-badges" class="modal-event-badges-wrap" style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.35rem;"></div>
             <h2 id="modal-event-name" class="event-modal-title" style="margin: 0; font-size: 1.25rem; line-height: 1.3;">Tournament Details</h2>
+            <div id="modal-event-meta" class="event-modal-meta" style="margin-top: 0.35rem;"></div>
           </div>
-          <button class="modal-close" onclick="closeModal('event-modal')" aria-label="Close modal">✕</button>
-        </div>
-        <div class="event-modal-subrow" style="margin-top: 0.45rem;">
-          <div id="modal-event-meta" class="event-modal-meta"></div>
-          <div class="event-modal-actions">
+          <div class="event-modal-actions-top" style="display: flex; align-items: center; gap: 0.45rem; flex-shrink: 0;">
             <a id="modal-event-bcp-link" href="#" target="_blank" rel="noopener noreferrer" class="btn-event-header btn-event-bcp" title="Open external tournament listing">
               <span>Listing ↗</span>
             </a>
-            <span id="modal-event-sync-status" style="display: none;"></span>
+            <button class="modal-close" onclick="closeModal('event-modal')" aria-label="Close modal">✕</button>
           </div>
         </div>
+        <span id="modal-event-sync-status" style="display: none;"></span>
       </div>
 
       <div class="modal-body" style="padding: 1.05rem 1.35rem;">
@@ -2922,8 +2920,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "48ebdf75f6";</script>
-  <script src="/js/app.bundle.min.js?v=48ebdf75f6"></script>
+  <script>window.APP_VERSION = "f4ff061194";</script>
+  <script src="/js/app.bundle.min.js?v=f4ff061194"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

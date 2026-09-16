@@ -7,14 +7,22 @@ let currentPlayerMatches = [];
 let playerModalSearchQuery = '';
 let isChartExpanded = false;
 
-let modalZIndexCounter = 10000;
-let modalStack = [];
-window.modalStack = modalStack;
+var modalZIndexCounter = (typeof window !== 'undefined' && window.modalZIndexCounter) || 10000;
+var modalStack = (typeof window !== 'undefined' && Array.isArray(window.modalStack)) ? window.modalStack : [];
+if (typeof window !== 'undefined') {
+  window.modalStack = modalStack;
+  window.modalZIndexCounter = modalZIndexCounter;
+}
 
 function bringModalToFront(modal) {
   if (!modal) return;
   if (typeof modal === 'string') modal = document.getElementById(modal);
   if (!modal) return;
+
+  if (!Array.isArray(modalStack)) {
+    modalStack = [];
+    if (typeof window !== 'undefined') window.modalStack = modalStack;
+  }
 
   // Dynamically inspect any currently active modal backdrops
   let maxZ = 10000;
@@ -35,13 +43,21 @@ function bringModalToFront(modal) {
 
   modalStack = modalStack.filter(id => id !== modal.id);
   modalStack.push(modal.id);
-  window.modalStack = modalStack;
+  if (typeof window !== 'undefined') {
+    window.modalStack = modalStack;
+    window.modalZIndexCounter = modalZIndexCounter;
+  }
 }
 window.bringModalToFront = bringModalToFront;
 
 function closeModal(modalId) {
   if (!modalId) return;
   if (typeof modalId === 'object' && modalId.id) modalId = modalId.id;
+
+  if (!Array.isArray(modalStack)) {
+    modalStack = [];
+    if (typeof window !== 'undefined') window.modalStack = modalStack;
+  }
 
   if (modalId === 'event-modal' && typeof stopEventSyncPoll === 'function') {
     stopEventSyncPoll();
@@ -61,7 +77,7 @@ function closeModal(modalId) {
   }
 
   modalStack = modalStack.filter(id => id !== modalId);
-  window.modalStack = modalStack;
+  if (typeof window !== 'undefined') window.modalStack = modalStack;
 
   if (modalStack.length === 0) {
     modalZIndexCounter = 10000;
@@ -74,10 +90,15 @@ function closeModal(modalId) {
       topModal.classList.add('active');
     }
   }
+  if (typeof window !== 'undefined') window.modalZIndexCounter = modalZIndexCounter;
 }
 window.closeModal = closeModal;
 
 function closeAllModals() {
+  if (!Array.isArray(modalStack)) {
+    modalStack = [];
+    if (typeof window !== 'undefined') window.modalStack = modalStack;
+  }
   const stackCopy = [...modalStack];
   stackCopy.forEach(id => closeModal(id));
   document.querySelectorAll('.modal-backdrop.active').forEach(el => {
@@ -88,8 +109,11 @@ function closeAllModals() {
     }
   });
   modalStack = [];
-  window.modalStack = modalStack;
   modalZIndexCounter = 10000;
+  if (typeof window !== 'undefined') {
+    window.modalStack = modalStack;
+    window.modalZIndexCounter = modalZIndexCounter;
+  }
 }
 window.closeAllModals = closeAllModals;
 

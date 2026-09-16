@@ -460,10 +460,13 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
     ev_date_str = (ev_date_val.isoformat() if hasattr(ev_date_val, "isoformat") else str(ev_date_val or ""))[:10]
     end_date_str = (end_date_val.isoformat() if hasattr(end_date_val, "isoformat") else str(end_date_val or ""))[:10]
 
+    status_str = str(ev.get("status") or rj.get("status") or "").lower().strip()
+
     is_ended = bool(
         ev.get("is_ended") or ev.get("isEnded") or ev.get("ended") or
         rj.get("isEnded") or rj.get("is_ended") or rj.get("ended") or
         status_obj.get("ended") or status_obj.get("isEnded") or
+        status_str in ("ended", "completed", "concluded") or
         (end_date_str and end_date_str < today_utc_str)
     )
 
@@ -483,15 +486,20 @@ def _check_tournament_started_or_ended(ev: Dict[str, Any], rj: Optional[Dict[str
     bcp_explicit_started = bool(
         ev.get("started") is True or ev.get("isStarted") is True or
         rj.get("started") is True or rj.get("isStarted") is True or
-        status_obj.get("started") is True or status_obj.get("isStarted") is True
+        status_obj.get("started") is True or status_obj.get("isStarted") is True or
+        status_str in ("ongoing", "in_progress", "live")
     )
 
     if is_ended:
         is_started = True
     elif ev_date_str and ev_date_str > today_utc_str and not has_pairings:
         is_started = False
+    elif ev_date_str and ev_date_str < today_utc_str:
+        is_started = True
     else:
-        is_started = bool(has_pairings or bcp_explicit_started or (ev_date_str and ev_date_str <= today_utc_str))
+        # A tournament on today's date (or missing date) is only started if pairings/matches exist or BCP explicitly marked it started.
+        # Tournaments on today's date that have not posted pairings or been started by TO are open for registration.
+        is_started = bool(has_pairings or bcp_explicit_started)
 
     return is_started, is_ended
 

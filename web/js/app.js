@@ -19,11 +19,12 @@ if (typeof window !== 'undefined') {
   });
 }
 
-let activeTab = 'my-hub';
+var activeTab = (typeof window !== 'undefined' && window.activeTab) || 'my-hub';
+if (typeof window !== 'undefined') window.activeTab = activeTab;
 
 // Game system state: '40k' or 'aos'
-let currentGameSystem = '40k';
-window.currentGameSystem = currentGameSystem;
+var currentGameSystem = (typeof window !== 'undefined' && window.currentGameSystem) || '40k';
+if (typeof window !== 'undefined') window.currentGameSystem = currentGameSystem;
 
 function initGameSystem() {
   const path = (window.location.pathname || '').toLowerCase();
@@ -359,10 +360,33 @@ function switchTab(tabName) {
 }
 
 /**
+ * Force navigation and reset back to personal My Hub profile
+ */
+function navigateToMyHub(forceRefresh = true) {
+  if (typeof closeAllModals === 'function') closeAllModals();
+  if (typeof resetMyHubToProfile === 'function') resetMyHubToProfile();
+  if (typeof currentProfilePlayerId !== 'undefined') window.currentProfilePlayerId = null;
+  if (typeof currentOpenEventId !== 'undefined') window.currentOpenEventId = null;
+
+  const wasMyHub = (activeTab === 'my-hub');
+  activeTab = '';
+  switchTab('my-hub');
+
+  if ((forceRefresh || wasMyHub) && typeof loadMyHubDashboard === 'function') {
+    loadMyHubDashboard();
+  }
+}
+window.navigateToMyHub = navigateToMyHub;
+
+/**
  * Handle selection from mobile navigation tab dropdown
  */
 function handleMobileNavChange(val) {
   if (!val) return;
+  if (val === 'my-hub') {
+    navigateToMyHub(true);
+    return;
+  }
   if (val === 'tracker') {
     if (currentGameSystem === 'aos') {
       window.location.href = '/11th/tracker/aos';

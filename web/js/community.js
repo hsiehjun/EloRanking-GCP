@@ -3,7 +3,7 @@
    Built by the community, for the community.
    ========================================================================== */
 
-const communityState = {
+var communityState = (typeof window !== 'undefined' && window.communityState) || {
   lat: null,
   lng: null,
   radiusMiles: 50,
@@ -30,6 +30,7 @@ const communityState = {
   chatPollingInterval: null,
   isSendingChat: false
 };
+if (typeof window !== 'undefined') window.communityState = communityState;
 
 /**
  * Main entrypoint when switching to Community Hub tab
@@ -1053,15 +1054,10 @@ function isTournamentOngoing(ev) {
     ev.status === 'ongoing' ||
     ev.status === 'in_progress' ||
     ev.status === 'live' ||
-    ev.status === 'active' ||
-    ev.state === 'active' ||
-    ev.event_status === 'active' ||
     ev.raw_json?.started === true ||
     ev.raw_json?.isStarted === true ||
-    ev.raw_json?.status === 'active' ||
     ev.raw_json?.status === 'ongoing' ||
     ev.raw_json?.status === 'in_progress' ||
-    ev.raw_json?.state === 'active' ||
     ev.raw_json?.status?.started === true ||
     ev.raw_json?.status?.isStarted === true
   );
@@ -1069,26 +1065,14 @@ function isTournamentOngoing(ev) {
   const todayStr = getLocalIsoDateStr();
   const rawStart = ev.event_date || ev.eventDate || ev.start_date || ev.startDate || '';
   const startDateStr = String(rawStart).slice(0, 10);
-  const rawEnd = ev.end_date || ev.endDate || ev.raw_json?.endDate || ev.raw_json?.end_date || rawStart;
-  const endDateStr = String(rawEnd).slice(0, 10);
 
   // Future events without pairings are never ongoing
   if (startDateStr && startDateStr > todayStr && !hasPairings) {
     return false;
   }
 
-  // Active today with registered competitors or ongoing flags
-  const isTodayMatch = startDateStr && startDateStr <= todayStr && (endDateStr >= todayStr || !endDateStr);
-  if (hasPairings || bcpStarted || (isTodayMatch && (Number(ev.total_players || 0) > 0 || currentRound > 0))) {
-    return true;
-  }
-
-  // If raw_json is present, rely strictly on pairings or explicit started flags above
-  if (ev.raw_json && typeof ev.raw_json === 'object') {
-    return false;
-  }
-
-  return Boolean(ev.is_started === true || ev.is_ongoing === true);
+  // A tournament is ongoing only if pairings/rounds have begun or explicit started flags are set
+  return Boolean(hasPairings || bcpStarted || ev.is_started === true || ev.is_ongoing === true);
 }
 window.isTournamentEnded = isTournamentEnded;
 window.isTournamentOngoing = isTournamentOngoing;
@@ -3285,8 +3269,10 @@ window.onGoogleMapsScriptLoaded = onGoogleMapsScriptLoaded;
 // COMMUNITY EVENT REGISTRATION MODAL
 // =========================================================================
 
-let activeRegistrationEvent = null;
-let userRegistrationArmyLists = [];
+var activeRegistrationEvent = (typeof window !== 'undefined' && window.activeRegistrationEvent) || null;
+if (typeof window !== 'undefined') window.activeRegistrationEvent = activeRegistrationEvent;
+var userRegistrationArmyLists = (typeof window !== 'undefined' && window.userRegistrationArmyLists) || [];
+if (typeof window !== 'undefined') window.userRegistrationArmyLists = userRegistrationArmyLists;
 
 function closeEventRegistrationLoadingModal() {
   const loadingModal = document.getElementById('event-reg-loading-modal');
@@ -3322,24 +3308,26 @@ function toggleRegistrationAccessCode(forceShow) {
     if (toggleWrapper) toggleWrapper.style.display = 'block';
   }
 }
-let cachedRegistrationFactions = {};
+var cachedRegistrationFactions = (typeof window !== 'undefined' && window.cachedRegistrationFactions) || {};
+if (typeof window !== 'undefined') window.cachedRegistrationFactions = cachedRegistrationFactions;
 
 async function populateRegistrationFactions(gamesystemId = 'WGMSzfKFYA', selectedArmyId = '', selectedSubId = '') {
   const factionSelect = document.getElementById('event-reg-faction');
   if (!factionSelect) return [];
 
   const cleanGid = gamesystemId || 'WGMSzfKFYA';
-  let factions = (typeof cachedGamesystemFactions !== 'undefined' && cachedGamesystemFactions[cleanGid])
-    || cachedRegistrationFactions[cleanGid] || [];
+  let factions = (typeof cachedGamesystemFactions !== 'undefined' && cachedGamesystemFactions && cachedGamesystemFactions[cleanGid])
+    || (typeof cachedRegistrationFactions !== 'undefined' && cachedRegistrationFactions && cachedRegistrationFactions[cleanGid]) || [];
 
   if (!factions || factions.length === 0) {
     try {
       factionSelect.innerHTML = '<option value="">Loading factions from BCP...</option>';
       const res = await window.api.getGamesystemFactions(cleanGid);
       factions = (res && res.factions) || [];
-      if (typeof cachedGamesystemFactions !== 'undefined') {
+      if (typeof cachedGamesystemFactions !== 'undefined' && cachedGamesystemFactions) {
         cachedGamesystemFactions[cleanGid] = factions;
       }
+      cachedRegistrationFactions = (typeof cachedRegistrationFactions !== 'undefined' && cachedRegistrationFactions) || {};
       cachedRegistrationFactions[cleanGid] = factions;
     } catch (err) {
       console.warn("Failed to load registration factions:", err);
@@ -3483,7 +3471,7 @@ async function openEventRegistrationModal(eventId) {
 
   // Pre-fill event title info if available in local cache
   let localEv = null;
-  if (communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
+  if (typeof communityState !== 'undefined' && communityState && communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
     localEv = communityState.overview.events_upcoming.find(e => e.id === eventId);
   }
   if (localEv) {
@@ -3942,7 +3930,7 @@ async function submitEventRegistration() {
       }
 
       // Mark tournament as registered in local communityState
-      if (communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
+      if (typeof communityState !== 'undefined' && communityState && communityState.overview && Array.isArray(communityState.overview.events_upcoming)) {
         const evItem = communityState.overview.events_upcoming.find(e => e.id === eventId);
         if (evItem) {
           evItem.is_registered = true;

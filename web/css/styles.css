@@ -2016,6 +2016,10 @@ tbody tr:hover {
 .stat-pill .pill-label { color: var(--text-muted); font-weight: 500; }
 .stat-pill .pill-val { color: #fff; font-weight: 700; font-family: var(--font-mono); }
 
+.col-event-competitor { max-width: 220px; }
+.col-event-faction { max-width: 200px; }
+.modal-quick-competitor-col { max-width: 220px; }
+
 /* Spinner */
 .spinner {
   width: 24px;
@@ -8055,6 +8059,10 @@ body.is-authenticated #floating-chat-widget {
   text-overflow: ellipsis;
 }
 
+.btn-text-mobile {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .profile-kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -8068,10 +8076,255 @@ body.is-authenticated #floating-chat-widget {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 0.5rem !important;
   }
-  #event-hub-subtabs-bar .profile-subtab-btn:first-child:not([style*="display: none"]) {
-    grid-column: 1 / -1;
-    justify-content: center !important;
+
+  /* Quick Event Modal Mobile Optimizations */
+  #modal-quick-kpis {
+    display: none !important;
   }
+  .quick-event-modal-window .event-modal-header {
+    padding: 0.65rem 0.85rem 0.5rem !important;
+  }
+  .quick-event-modal-window .event-modal-title {
+    font-size: 1.05rem !important;
+    line-height: 1.25 !important;
+    margin: 0.15rem 0 !important;
+  }
+  .quick-event-modal-window .event-modal-meta {
+    font-size: 0.72rem !important;
+    color: var(--text-muted) !important;
+    margin-top: 0.15rem !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  .modal-event-badges-wrap {
+    gap: 0.25rem !important;
+    margin-bottom: 0.2rem !important;
+  }
+  .modal-event-badges-wrap .badge {
+    font-size: 0.64rem !important;
+    padding: 1px 5px !important;
+  }
+  .modal-event-badges-wrap .badge:last-child {
+    display: none !important; /* Suppress redundant SINGLES badge on mobile */
+  }
+  #modal-quick-reg-banner {
+    margin-bottom: 0.55rem !important;
+  }
+  #modal-quick-reg-banner > div {
+    padding: 0.45rem 0.65rem !important;
+    font-size: 0.74rem !important;
+    gap: 0.45rem !important;
+  }
+  #modal-quick-reg-banner .btn-sm {
+    padding: 0.28rem 0.55rem !important;
+    font-size: 0.72rem !important;
+  }
+  #modal-quick-toolbar {
+    margin-bottom: 0.45rem !important;
+  }
+  #modal-quick-search {
+    height: 32px !important;
+    font-size: 0.78rem !important;
+  }
+  .quick-event-modal-window .btn-event-bcp {
+    font-size: 0.74rem !important;
+    padding: 0.26rem 0.6rem !important;
+  }
+  .quick-event-modal-window .modal-body {
+    padding: 0.65rem 0.85rem !important;
+  }
+  #modal-quick-table-wrap {
+    max-height: 480px !important;
+    overflow-y: auto !important;
+  }
+  #modal-quick-table {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+  #modal-quick-table thead {
+    display: none !important;
+  }
+  #modal-quick-tbody tr {
+    display: block !important;
+    width: 100% !important;
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border-color) !important;
+    border-radius: var(--radius-md) !important;
+    padding: 0.75rem 0.9rem !important;
+    margin-bottom: 0.65rem !important;
+    box-sizing: border-box !important;
+  }
+  #modal-quick-tbody td {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0.25rem 0 !important;
+    border: none !important;
+    font-size: 0.84rem !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  #modal-quick-tbody td:nth-child(1)::before {
+    content: "Rank";
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  #modal-quick-tbody td.modal-quick-competitor-col,
+  #modal-quick-tbody td:nth-child(2) {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: 0.4rem !important;
+    margin-bottom: 0.25rem !important;
+  }
+  #modal-quick-tbody td.modal-quick-competitor-col .modal-quick-competitor-name,
+  #modal-quick-tbody td:nth-child(2) > div:first-child {
+    font-size: 0.96rem !important;
+    font-weight: 700 !important;
+    color: #38bdf8 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.3 !important;
+  }
+  #modal-quick-tbody td.modal-quick-competitor-col .modal-quick-competitor-team,
+  #modal-quick-tbody td:nth-child(2) > div:last-child {
+    font-size: 0.75rem !important;
+    color: var(--text-muted) !important;
+    margin-top: 0.15rem !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+  }
+  #modal-quick-tbody td:nth-child(3)::before { content: "Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #modal-quick-tbody td:nth-child(4)::before { content: "Status / Record"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #modal-quick-tbody td:nth-child(5)::before { content: "Elo Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #modal-quick-tbody td:nth-child(6)::before { content: "Army List"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+
+  /* Event Hub Hero Mobile Optimizations */
+  .event-hub-hero-card .profile-rank-crest {
+    display: none !important;
+  }
+  .event-hub-hero-card {
+    padding: 0.85rem 1rem !important;
+    margin-bottom: 0.85rem !important;
+  }
+  .event-hub-hero-card .profile-name-title {
+    font-size: 1.15rem !important;
+    line-height: 1.25 !important;
+    margin-bottom: 0.25rem !important;
+  }
+  .event-hub-hero-card .profile-meta-chips {
+    margin-top: 0.25rem !important;
+    font-size: 0.74rem !important;
+  }
+  .btn-text-desktop {
+    display: none !important;
+  }
+  .btn-text-mobile {
+    display: inline !important;
+  }
+  .event-hub-hero-card .profile-hero-actions {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.4rem !important;
+    margin-top: 0.65rem !important;
+  }
+  .event-hub-hero-card .profile-hero-actions .btn {
+    flex: 1 1 0 !important;
+    min-width: 0 !important;
+    width: auto !important;
+    padding: 0.45rem 0.25rem !important;
+    font-size: 0.76rem !important;
+    font-weight: 700 !important;
+    justify-content: center !important;
+    align-items: center !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    box-sizing: border-box !important;
+  }
+  .event-hub-hero-card #event-hub-kpis-grid {
+    display: none !important;
+  }
+  #event-hub-mobile-stats-bar {
+    display: none !important;
+  }
+
+  /* Event Hub Search & Filter Row: Hide All Factions filter on mobile */
+  #event-hub-faction-filter-wrap {
+    display: none !important;
+  }
+  #event-modal-search-row {
+    margin-bottom: 0.65rem !important;
+    gap: 0 !important;
+  }
+  #event-modal-search-row > div:first-child {
+    width: 100% !important;
+    min-width: 100% !important;
+    flex: 1 1 100% !important;
+  }
+
+  /* Event Hub Subtabs 2-Column Button Grid */
+  #event-hub-subtabs-bar.event-hub-subtabs-bar {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.45rem !important;
+    padding: 0.45rem !important;
+    background: rgba(15, 23, 42, 0.75) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    position: static !important;
+    overflow: visible !important;
+    white-space: normal !important;
+  }
+  #event-hub-subtabs-bar .profile-subtab-btn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 0.35rem !important;
+    padding: 0.55rem 0.65rem !important;
+    font-size: 0.78rem !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: rgba(255, 255, 255, 0.03) !important;
+    color: var(--text-secondary) !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    text-align: left !important;
+  }
+  #event-hub-subtabs-bar .profile-subtab-btn.active {
+    background: var(--accent, #0284c7) !important;
+    color: #fff !important;
+    border-color: rgba(56, 189, 248, 0.4) !important;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.3) !important;
+  }
+  #event-hub-subtabs-bar #event-subtab-player:not([style*="display: none"]):not([style*="display:none"]) {
+    grid-column: 1 / -1 !important;
+    justify-content: center !important;
+    background: rgba(16, 185, 129, 0.15) !important;
+    border-color: rgba(16, 185, 129, 0.4) !important;
+    color: #34d399 !important;
+    font-weight: 700 !important;
+  }
+  #event-hub-subtabs-bar #event-subtab-player.active {
+    background: #10b981 !important;
+    color: #fff !important;
+  }
+
   #event-hub-toolbar {
     flex-direction: column !important;
     align-items: stretch !important;
@@ -8087,10 +8340,52 @@ body.is-authenticated #floating-chat-widget {
     width: 100% !important;
   }
 
-  /* Event Hub Standings Table Mobile Card Labels */
+  /* Event Hub Standings Table Mobile Card Alignment */
   #event-results-body tr td:nth-child(1)::before { content: "Placing"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
-  #event-results-body tr td:nth-child(2) { border-bottom: 1px solid rgba(255,255,255,0.06) !important; padding-bottom: 0.45rem !important; margin-bottom: 0.25rem; }
-  #event-results-body tr td:nth-child(2)::before { content: "Competitor"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
+  #event-results-body tr td.col-event-competitor,
+  #event-results-body tr td:nth-child(2) {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding-bottom: 0.45rem !important;
+    margin-bottom: 0.25rem !important;
+  }
+  #event-results-body tr td.col-event-competitor::before,
+  #event-results-body tr td:nth-child(2)::before {
+    display: none !important;
+  }
+  #event-results-body tr td.col-event-competitor .player-name-cell,
+  #event-results-body tr td:nth-child(2) .player-name-cell {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 0.15rem !important;
+  }
+  #event-results-body tr td.col-event-competitor .player-link,
+  #event-results-body tr td:nth-child(2) .player-link {
+    font-size: 0.98rem !important;
+    font-weight: 700 !important;
+    color: #38bdf8 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.3 !important;
+  }
+  #event-results-body tr td.col-event-competitor .player-team-pill,
+  #event-results-body tr td:nth-child(2) .player-team-pill {
+    font-size: 0.76rem !important;
+    color: var(--text-muted) !important;
+    white-space: normal !important;
+    margin-top: 0.1rem !important;
+  }
+  #event-results-body tr td.col-event-faction,
+  #event-results-body tr td:nth-child(3) {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
   #event-results-body tr td:nth-child(3)::before { content: "Faction"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #event-results-body tr td:nth-child(4)::before { content: "Record (Pts)"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
   #event-results-body tr td:nth-child(5)::before { content: "Elo Rating"; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; font-weight: 600; }
