@@ -322,6 +322,9 @@
       if (old) old.remove();
       return;
     }
+    const isAosMode = window.location.pathname.includes('/aos') ||
+      window.location.search.includes('game_system=aos') ||
+      window.location.search.includes('system=aos');
     if (!currentUser) {
       try {
         const cached = originalGetItem('native_user_profile') || originalGetItem('bcp_user_profile');
@@ -333,16 +336,20 @@
     let bar = document.getElementById('gt-user-status-bar');
     if (bar && document.body.contains(bar)) return;
 
+    const hubHref = isAosMode ? '/aos#my-hub' : '/#my-hub';
+    const lobbyHref = isAosMode ? '/11th/tracker/aos' : '/11th/tracker';
+    const lobbyLabel = isAosMode ? '⚡ AoS Lobby' : '🎲 Lobby';
+
     bar = document.createElement('div');
     bar.id = 'gt-user-status-bar';
     bar.style.cssText = "position:fixed; top:max(12px, calc(6px + env(safe-area-inset-top, 0px))); left:max(16px, env(safe-area-inset-left, 0px)); z-index:99998; display:flex; align-items:center; gap:8px; background:rgba(15,23,42,0.94); border:1px solid rgba(56,189,248,0.25); backdrop-filter:blur(12px); padding:5px 12px; border-radius:9999px; font-family:'Inter',sans-serif; font-size:11px; color:#f8fafc; box-shadow:0 8px 30px rgba(0,0,0,0.6);";
     bar.innerHTML = `
       <div style="display:flex; align-items:center; gap:6px;">
-        <a href="/#my-hub" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
+        <a href="${hubHref}" style="display:inline-flex; align-items:center; gap:4px; color:#38bdf8; text-decoration:none; font-size:11px; font-weight:700; background:rgba(56,189,248,0.12); border:1px solid rgba(56,189,248,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
           🏠 My Hub
         </a>
-        <a href="/11th/tracker" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
-          🎲 Lobby
+        <a href="${lobbyHref}" style="display:inline-flex; align-items:center; gap:4px; color:#f59e0b; text-decoration:none; font-size:11px; font-weight:700; background:rgba(245,158,11,0.12); border:1px solid rgba(245,158,11,0.25); padding:3px 8px; border-radius:6px; font-family:'JetBrains Mono',monospace; transition:all 0.15s;">
+          ${lobbyLabel}
         </a>
       </div>
       <span style="color:#334155;">|</span>
@@ -1081,30 +1088,55 @@
   }
 
   // Global Handlers for Room Creation and Joining
-  window.__handleCreateRoom = async function () {
+  window.__handleCreateRoom = async function (gameSystemOverride) {
+    const isAosMode = (gameSystemOverride === 'aos') ||
+      window.location.pathname.includes('/aos') ||
+      window.location.search.includes('game_system=aos') ||
+      window.location.search.includes('system=aos');
+    const sysId = isAosMode ? 'aos' : '40k';
     try {
       const resp = await fetch('/api/tracker/room/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${getAuthToken()}`
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Game-System': sysId
         },
         body: JSON.stringify({
           token: getAuthToken(),
+          game_system: sysId,
           p1_name: currentUser ? (currentUser.display_name || 'Player 1') : 'Player 1'
         })
       });
       if (resp.ok) {
         const data = await resp.json();
-        originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
-        window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id)}`;
+        const mid = data.match_id || '';
+        const isAosMatch = isAosMode || mid.startsWith('AOS-') || data.game_system === 'aos';
+        if (isAosMatch) {
+          if (data.state) {
+            originalSetItem('omni-aos-tracker-state', JSON.stringify(data.state));
+          }
+          window.location.href = `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}&role=player1`;
+        } else {
+          if (data.state) {
+            originalSetItem('gdm-11e-tracker-state', JSON.stringify(data.state));
+          }
+          window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(mid)}&role=player1`;
+        }
         return;
       }
     } catch (err) {}
-    window.location.href = '/11th/tracker/play';
+    if (isAosMode) {
+      window.location.href = '/11th/tracker/aos?solo=true';
+    } else {
+      window.location.href = '/11th/tracker/play';
+    }
   };
 
   window.__handleJoinRoomInput = async function () {
+    const isAosMode = window.location.pathname.includes('/aos') ||
+      window.location.search.includes('game_system=aos') ||
+      window.location.search.includes('system=aos');
     const input = document.getElementById('gt-lobby-join-input');
     const errDiv = document.getElementById('gt-lobby-join-error');
     const btn = document.getElementById('gt-lobby-join-btn');
@@ -1118,8 +1150,8 @@
     }
 
     code = code.toUpperCase().replace(/\s+/g, '');
-    if (!code.startsWith('WH40K-') && code.length === 8) {
-      code = `WH40K-${code.substring(0, 4)}-${code.substring(4)}`;
+    if (!code.startsWith('WH40K-') && !code.startsWith('AOS-') && code.length === 8) {
+      code = (isAosMode ? 'AOS-' : 'WH40K-') + `${code.substring(0, 4)}-${code.substring(4)}`;
     }
 
     if (errDiv) errDiv.style.display = 'none';
@@ -1128,7 +1160,10 @@
     // Verify if room exists on the server!
     try {
       const resp = await fetch(`/api/tracker/room/${encodeURIComponent(code)}/check`, {
-        headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        headers: {
+          'Authorization': `Bearer ${getAuthToken()}`,
+          'X-Game-System': isAosMode ? 'aos' : '40k'
+        }
       });
       const data = await resp.json();
       if (!resp.ok || !data.exists) {
@@ -1140,6 +1175,9 @@
         return;
       }
 
+      const isAosMatch = isAosMode || code.startsWith('AOS-') || data.game_system === 'aos';
+      const playBaseUrl = isAosMatch ? '/11th/tracker/aos' : '/11th/tracker/play';
+
       if (data.is_full) {
         const proceed = confirm(`⚠️ Room "${code}" already has 2 active players (${data.p1_name} vs ${data.p2_name}). View Scorecard as Spectator?`);
         if (!proceed) {
@@ -1150,7 +1188,7 @@
         return;
       }
 
-      window.location.href = `/11th/tracker/play?match_id=${encodeURIComponent(data.match_id || code)}`;
+      window.location.href = `${playBaseUrl}?match_id=${encodeURIComponent(data.match_id || code)}&role=player2`;
     } catch (err) {
       if (errDiv) {
         errDiv.textContent = 'Connection error checking room status. Please try again.';
@@ -1166,45 +1204,71 @@
       const main = document.querySelector('main') || document.body;
       if (!main) return;
 
+      const isAosMode = window.location.pathname.includes('/aos') ||
+        window.location.search.includes('game_system=aos') ||
+        window.location.search.includes('system=aos');
+
       let wrapper = document.getElementById('gt-lobby-wrapper');
       if (!wrapper || !document.body.contains(wrapper)) {
         wrapper = document.createElement('div');
         wrapper.id = 'gt-lobby-wrapper';
         wrapper.style.cssText = "width:100%; max-width:820px; margin:0 auto; padding:12px; box-sizing:border-box; display:block !important; visibility:visible !important; opacity:1 !important;";
 
+        const lobbyTitle = isAosMode ? '⚡ AGE OF SIGMAR 2-PLAYER MATCH LOBBY' : '2-PLAYER MATCH LOBBY';
+        const lobbyBadge = isAosMode
+          ? `<span style="font-size:10px; font-weight:700; color:#f59e0b; background:rgba(245,158,11,0.1); border:1px solid rgba(245,158,11,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">⚡ Age of Sigmar</span>`
+          : `<span style="font-size:10px; font-weight:700; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">2 Players Max</span>`;
+
+        const hostTitle = isAosMode ? '⚡ Host an AoS Match' : '🎲 Host a Match';
+        const hostDesc = isAosMode
+          ? 'Create a match room and begin battleplan & army setup with shareable room code.'
+          : 'Create a match room and begin army setup with shareable room code.';
+        const hostBtnText = isAosMode ? 'CREATE & ENTER AOS MATCH ➔' : 'CREATE & ENTER MATCH ➔';
+        const hostBtnCall = isAosMode ? "window.__handleCreateRoom('aos')" : "window.__handleCreateRoom('40k')";
+        const soloBtn = isAosMode
+          ? `<button onclick="window.location.href='/11th/tracker/aos?solo=true'" style="margin-top:8px; width:100%; box-sizing:border-box; background:transparent; border:1px solid rgba(245,158,11,0.3); color:#f59e0b; font-weight:700; font-size:11px; text-transform:uppercase; padding:8px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">⚡ Solo Practice / Offline AoS Tracker ➔</button>`
+          : `<button onclick="window.location.href='/11th/tracker/play?solo=true'" style="margin-top:8px; width:100%; box-sizing:border-box; background:transparent; border:1px solid rgba(56,189,248,0.25); color:var(--accent, #38bdf8); font-weight:700; font-size:11px; text-transform:uppercase; padding:8px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace;">🎲 Solo Practice / Offline 40K Tracker ➔</button>`;
+
+        const joinTitle = isAosMode ? '🔗 Join AoS Room Key' : '🔗 Join Room Key';
+        const joinPlaceholder = isAosMode ? 'e.g. AOS-7A9B-3C4D' : 'e.g. WH40K-7A9B-3C4D';
+        const joinBtnColor = isAosMode ? '#f59e0b' : 'var(--accent, #38bdf8)';
+
         wrapper.innerHTML = `
           <div id="gt-lobby-hub-card" style="margin:16px 0 24px; background:var(--bg-secondary, #12161f); border:1px solid var(--border, #273042); border-radius:18px; padding:18px; box-shadow:0 12px 35px rgba(0,0,0,0.5); width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; border-bottom:1px solid var(--border, #273042); padding-bottom:10px; flex-wrap:wrap; gap:8px;">
               <div>
-                <h3 style="font-size:15px; font-weight:800; color:var(--text-primary, #f0f4fc); margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">2-PLAYER MATCH LOBBY</h3>
+                <h3 style="font-size:15px; font-weight:800; color:var(--text-primary, #f0f4fc); margin:0; font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">${lobbyTitle}</h3>
                 <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:2px 0 0;">Create a room key to host or enter a code to join an opponent's table.</p>
               </div>
-              <span style="font-size:10px; font-weight:700; color:var(--accent, #38bdf8); background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.3); padding:3px 8px; border-radius:9999px; font-family:'JetBrains Mono',monospace;">2 Players Max</span>
+              ${lobbyBadge}
             </div>
 
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:14px;">
               <!-- Host Card -->
               <div style="background:var(--bg-card, #181d28); border:1px solid var(--border, #273042); border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
                 <div>
-                  <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🎲 Host a Match</div>
-                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 12px; line-height:1.4;">Create a match room and begin army setup with shareable room code.</p>
+                  <div style="font-size:12px; font-weight:800; color:#f59e0b; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">${hostTitle}</div>
+                  <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 12px; line-height:1.4;">${hostDesc}</p>
                 </div>
-                <button onclick="window.__handleCreateRoom()" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
-                  CREATE & ENTER MATCH ➔
-                </button>
+                <div>
+                  <button onclick="${hostBtnCall}" style="width:100%; box-sizing:border-box; background:#f59e0b; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:12px; border-radius:10px; cursor:pointer; letter-spacing:0.06em; font-family:'JetBrains Mono',monospace; transition:opacity 0.2s;">
+                    ${hostBtnText}
+                  </button>
+                  ${soloBtn}
+                </div>
               </div>
 
               <!-- Join Card -->
               <div style="background:var(--bg-card, #181d28); border:1px solid var(--border, #273042); border-radius:14px; padding:14px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
                 <div>
-                  <div style="font-size:12px; font-weight:800; color:var(--accent, #38bdf8); text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">🔗 Join Room Key</div>
+                  <div style="font-size:12px; font-weight:800; color:${joinBtnColor}; text-transform:uppercase; margin-bottom:4px; font-family:'JetBrains Mono',monospace;">${joinTitle}</div>
                   <p style="font-size:11px; color:var(--text-secondary, #94a3b8); margin:0 0 10px; line-height:1.4;">Enter the 8-character Room Key provided by your opponent.</p>
                 </div>
                 <div>
                   <div id="gt-lobby-join-error" style="display:none; color:var(--loss, #ef4444); font-size:11px; font-weight:600; margin-bottom:6px; font-family:'JetBrains Mono',monospace;"></div>
                   <div style="display:flex; gap:8px;">
-                    <input id="gt-lobby-join-input" type="text" placeholder="e.g. WH40K-7A9B-3C4D" style="flex:1; min-width:0; background:var(--bg-primary, #0a0c10); border:1px solid var(--border, #273042); border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-primary, #f0f4fc); outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
-                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
+                    <input id="gt-lobby-join-input" type="text" placeholder="${joinPlaceholder}" style="flex:1; min-width:0; background:var(--bg-primary, #0a0c10); border:1px solid var(--border, #273042); border-radius:8px; padding:10px; font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--text-primary, #f0f4fc); outline:none; text-transform:uppercase; box-sizing:border-box;" onkeydown="if(event.key==='Enter')window.__handleJoinRoomInput()" />
+                    <button id="gt-lobby-join-btn" onclick="window.__handleJoinRoomInput()" style="background:${joinBtnColor}; color:#0a0c10; font-weight:800; font-size:12px; text-transform:uppercase; border:none; padding:10px 14px; border-radius:8px; cursor:pointer; font-family:'JetBrains Mono',monospace; white-space:nowrap;">ENTER ROOM ➔</button>
                   </div>
                 </div>
               </div>
@@ -1214,7 +1278,7 @@
           <div id="gt-history-section" style="margin:20px 0 40px; width:100%; box-sizing:border-box; display:block !important; visibility:visible !important;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
               <div style="font-size:14px; font-weight:800; color:var(--text-primary, #f0f4fc); font-family:'JetBrains Mono',monospace; letter-spacing:0.04em;">
-                GAME HISTORY <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
+                ${isAosMode ? 'AOS MATCH HISTORY' : 'GAME HISTORY'} <span id="gt-history-count" style="font-size:12px; color:var(--accent, #38bdf8); font-weight:700; margin-left:4px;"></span>
               </div>
             </div>
             <div id="gt-history-list" style="display:flex; flex-direction:column; gap:10px;">
@@ -1427,6 +1491,10 @@
     const countEl = document.getElementById('gt-history-count');
     if (!container) return;
 
+    const isAosMode = window.location.pathname.includes('/aos') ||
+      window.location.search.includes('game_system=aos') ||
+      window.location.search.includes('system=aos');
+
     // 1. Authoritative Completed Matches from PostgreSQL
     const completedHistory = (window.gtCompletedHistory && window.gtCompletedHistory.length > 0)
       ? window.gtCompletedHistory
@@ -1451,15 +1519,29 @@
       return mid && !activeIds.has(mid);
     });
 
-    const totalCount = activeList.length + completed.length;
+    const filterBySystem = (items) => {
+      return items.filter(it => {
+        const mid = (it.match_id || it.id || '').trim().toUpperCase();
+        const itSys = it.game_system || (mid.startsWith('AOS-') ? 'aos' : '40k');
+        return isAosMode ? (itSys === 'aos' || mid.startsWith('AOS-')) : (itSys !== 'aos' && !mid.startsWith('AOS-'));
+      });
+    };
+
+    const scopedActiveList = filterBySystem(activeList);
+    const scopedCompleted = filterBySystem(completed);
+
+    const totalCount = scopedActiveList.length + scopedCompleted.length;
     if (countEl) {
       countEl.textContent = totalCount > 0 ? `(${totalCount})` : '';
     }
 
-    if (activeList.length === 0 && completed.length === 0) {
+    if (scopedActiveList.length === 0 && scopedCompleted.length === 0) {
+      const emptyMsg = isAosMode
+        ? 'No Age of Sigmar matches logged yet. Click <b>CREATE & ENTER AOS MATCH</b> above to start your first game!'
+        : 'No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!';
       container.innerHTML = `
         <div style="color:var(--text-secondary, #94a3b8); font-size:12px; font-family:'JetBrains Mono',monospace; padding:18px; text-align:center; background:var(--bg-secondary, #12161f); border-radius:14px; border:1px solid var(--border, #273042);">
-          No matches logged yet. Click <b>CREATE & ENTER MATCH</b> above to start your first game!
+          ${emptyMsg}
         </div>
       `;
       return;
@@ -1468,15 +1550,15 @@
     let outHtml = '';
 
     // 1. Active Matches Section (All in Green Cards)
-    if (activeList.length > 0) {
+    if (scopedActiveList.length > 0) {
       outHtml += `
         <div style="margin-bottom:18px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; font-family:'JetBrains Mono',monospace; flex-wrap:wrap; gap:4px;">
-            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches (${activeList.length})</span>
+            <span style="font-size:11px; font-weight:800; color:var(--win, #22c55e); text-transform:uppercase;">🟢 Active Matches (${scopedActiveList.length})</span>
             <span style="font-size:10px; color:var(--text-secondary, #94a3b8);">⏳ Uncompleted games auto-purge after 14 days</span>
           </div>
           <div style="display:flex; flex-direction:column; gap:10px;">
-            ${activeList.map(m => {
+            ${scopedActiveList.map(m => {
               const p1 = m.game?.p1Name || m.p1_name || 'Player 1';
               const p2 = m.game?.p2Name || m.p2_name || 'Player 2';
               const p1F = m.game?.p1Faction || m.p1_faction || '';
@@ -1484,7 +1566,7 @@
               const p1S = m.p1Score ?? m.p1_score ?? 0;
               const p2S = m.p2Score ?? m.p2_score ?? 0;
               const mid = m.match_id || m.id || '';
-              const shortId = mid.replace('WH40K-', '');
+              const shortId = String(mid).replace('WH40K-', '').replace('AOS-', '');
               const rNum = m.round || m.current_round || 1;
               const createdDate = m.created_at || m.date || m.timestamp;
               const dateLabel = createdDate ? new Date(createdDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent';
@@ -1496,6 +1578,11 @@
               const p1NameStr = (m.game?.p1Name || m.p1_name || '').trim().toLowerCase();
               const p2NameStr = (m.game?.p2Name || m.p2_name || '').trim().toLowerCase();
               const isRegisteredPlayer = !currentUser || (uId && (uId === p1Uid || uId === p2Uid)) || (uName && (uName === p1NameStr || uName === p2NameStr));
+
+              const isAosGame = isAosMode || String(mid).toUpperCase().startsWith('AOS-') || m.game_system === 'aos';
+              const resumeUrl = isAosGame
+                ? `/11th/tracker/aos?match_id=${encodeURIComponent(mid)}&role=player1`
+                : `/11th/tracker/play?match_id=${encodeURIComponent(mid)}`;
 
               return `
                 <div style="background:var(--win-bg, rgba(34,197,94,0.08)); border:1px solid rgba(34,197,94,0.3); border-radius:14px; padding:14px 18px; box-sizing:border-box;">
@@ -1515,7 +1602,7 @@
                       </div>
                     </div>
                     <div style="display:flex; gap:6px; align-items:center;">
-                      <a href="/11th/tracker/play?match_id=${encodeURIComponent(mid)}" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
+                      <a href="${resumeUrl}" style="background:var(--accent, #38bdf8); color:#0a0c10; font-weight:800; font-size:12px; padding:8px 14px; border-radius:8px; text-decoration:none; font-family:'JetBrains Mono',monospace; display:inline-flex; align-items:center; gap:4px;">
                         ▶️ Resume Match
                       </a>
                       ${isRegisteredPlayer && !(String(mid).toUpperCase().startsWith('BCP-') || String(mid).toUpperCase().startsWith('ES-') || m.event_id || m.tournament_id) ? `
@@ -1534,14 +1621,14 @@
     }
 
     // 2. Completed Match History (All in Grey Cards)
-    if (completed.length > 0) {
+    if (scopedCompleted.length > 0) {
       outHtml += `
         <div style="margin-top:14px;">
           <div style="font-size:11px; font-weight:800; color:var(--text-secondary, #94a3b8); text-transform:uppercase; font-family:'JetBrains Mono',monospace; margin-bottom:8px;">
-            📜 Completed Matches (${completed.length})
+            📜 Completed Matches (${scopedCompleted.length})
           </div>
           <div style="display:flex; flex-direction:column; gap:8px;">
-            ${completed.map(item => {
+            ${scopedCompleted.map(item => {
               const p1 = item.game?.p1Name || item.p1_name || 'Player 1';
               const p2 = item.game?.p2Name || item.p2_name || 'Player 2';
               const p1F = item.game?.p1Faction || item.p1_faction || '';
@@ -1549,7 +1636,7 @@
               const p1S = item.p1Score ?? item.p1_score ?? 0;
               const p2S = item.p2Score ?? item.p2_score ?? 0;
               const mid = item.match_id || item.id || '';
-              const shortId = mid.replace('WH40K-', '');
+              const shortId = String(mid).replace('WH40K-', '').replace('AOS-', '');
               const dateStr = item.date ? new Date(item.date).toLocaleDateString() : 'Completed';
               const factionSubtitle = (p1F || p2F) ? `<div style="font-size:11px; color:var(--text-secondary, #94a3b8); margin-top:2px;">${escapeHtml(p1F || 'Army 1')} vs ${escapeHtml(p2F || 'Army 2')}</div>` : '';
 
@@ -1590,8 +1677,14 @@
   // 6. PostgreSQL Database as Sole Source of Truth for History
   async function syncHistoryFromDatabase() {
     try {
+      const isAosMode = window.location.pathname.includes('/aos') ||
+        window.location.search.includes('game_system=aos') ||
+        window.location.search.includes('system=aos');
       const token = getAuthToken();
-      const resp = await fetch('/api/tracker/sessions' + (token ? `?token=${encodeURIComponent(token)}` : ''), {
+      const params = new URLSearchParams();
+      if (token) params.set('token', token);
+      params.set('game_system', isAosMode ? 'aos' : '40k');
+      const resp = await fetch(`/api/tracker/sessions?${params.toString()}`, {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       });
       if (resp.ok) {

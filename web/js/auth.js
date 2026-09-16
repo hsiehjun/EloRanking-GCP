@@ -2,7 +2,8 @@
    AUTH.JS - Native User Authentication & BCP Account Linking (v5.0)
    ========================================================================== */
 
-let currentUser = null;
+var currentUser = (typeof window !== 'undefined' && window.currentUser) || null;
+if (typeof window !== 'undefined') window.currentUser = currentUser;
 
 function getCookieToken() {
   const match = document.cookie.match(new RegExp('(^| )session_token=([^;]+)'));
@@ -116,16 +117,12 @@ if (document.readyState === 'loading') {
   syncPersonaButtons();
 }
 
-// Synchronously restore user from URL param or localStorage immediately
+// Synchronously restore user from URL param, localStorage persona, or cached session
 try {
   const urlPersona = new URLSearchParams(window.location.search).get('persona');
   if (urlPersona && ['competitor', 'spectator', 'creator', 'to'].includes(urlPersona.toLowerCase())) {
     currentDevPersona = urlPersona.toLowerCase();
-    localStorage.setItem('dev_persona_override', currentDevPersona);
     currentUser = getMockUserForPersona(currentDevPersona);
-    try {
-      document.cookie = `dev_persona=${currentDevPersona}; path=/; max-age=2592000; SameSite=Lax`;
-    } catch (e) {}
   } else if (localStorage.getItem('dev_persona_override')) {
     currentDevPersona = localStorage.getItem('dev_persona_override');
     currentUser = getMockUserForPersona(currentDevPersona);
@@ -135,13 +132,13 @@ try {
     if (cached && token) {
       currentUser = JSON.parse(cached);
     } else {
-      currentUser = getMockUserForPersona('competitor');
+      currentUser = null;
     }
   }
 } catch (e) {
-  currentUser = getMockUserForPersona('competitor');
+  currentUser = null;
 }
-window.currentUser = currentUser;
+if (typeof window !== 'undefined') window.currentUser = currentUser;
 
 function isUserTO(user) {
   if (!user) return false;
@@ -241,6 +238,33 @@ function syncMobileNavDropdown() {
     }
   }
 
+  // Temporary dynamic options for deep-routed pages (event-hub & player-profile)
+  let playerOpt = document.getElementById('mobile-opt-player-profile');
+  if (typeof activeTab !== 'undefined' && activeTab === 'player-profile') {
+    if (!playerOpt) {
+      playerOpt = document.createElement('option');
+      playerOpt.id = 'mobile-opt-player-profile';
+      playerOpt.value = 'player-profile';
+      playerOpt.textContent = '👤 Competitor Profile';
+      select.prepend(playerOpt);
+    }
+  } else if (playerOpt) {
+    playerOpt.remove();
+  }
+
+  let eventOpt = document.getElementById('mobile-opt-event-hub');
+  if (typeof activeTab !== 'undefined' && activeTab === 'event-hub') {
+    if (!eventOpt) {
+      eventOpt = document.createElement('option');
+      eventOpt.id = 'mobile-opt-event-hub';
+      eventOpt.value = 'event-hub';
+      eventOpt.textContent = '🏟️ Event Hub';
+      select.prepend(eventOpt);
+    }
+  } else if (eventOpt) {
+    eventOpt.remove();
+  }
+
   // Keep dropdown value in sync with activeTab
   if (typeof activeTab !== 'undefined' && activeTab) {
     if (activeTab === 'event-studio' && !isTO) {
@@ -338,12 +362,14 @@ async function initAuth() {
     const res = await window.api.getAuthMe(token);
     if (res && res.authenticated && res.user) {
       currentUser = res.user;
+      if (typeof window !== 'undefined') window.currentUser = currentUser;
       localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
       localStorage.setItem('native_session_token', token);
       localStorage.setItem('elo_auth_token', token);
       if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
     } else {
       currentUser = null;
+      if (typeof window !== 'undefined') window.currentUser = null;
       localStorage.removeItem('native_session_token');
       localStorage.removeItem('elo_auth_token');
       localStorage.removeItem('native_user_profile');

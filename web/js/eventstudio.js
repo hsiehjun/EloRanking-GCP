@@ -4,7 +4,7 @@
  * scorecards, tiebreakers, and Best Coast Pairings bidirectional sync.
  */
 
-let studioState = {
+var studioState = (typeof window !== 'undefined' && window.studioState) || {
   activeTab: "events",
   eventsList: [],
   activeTournament: null,
@@ -21,6 +21,7 @@ let studioState = {
   resolvedJudgeCalls: [],
   judgeAudioEnabled: (typeof localStorage !== 'undefined' ? localStorage.getItem('studio_judge_audio') : 'true') !== 'false'
 };
+if (typeof window !== 'undefined') window.studioState = studioState;
 
 function getStudioFirestoreDb() {
   if (typeof firebase !== 'undefined' && firebase.firestore) {
@@ -88,7 +89,9 @@ function updateStudioAuthBadge() {
 
   const token = getBcpToken();
   const isBcpConnected = !!((user && (user.bcp_connected || user.bcp_user_id || user.bcp_email)) || (token && token.length > 20));
-  studioState.bcpConnected = isBcpConnected;
+  if (typeof studioState !== 'undefined' && studioState) {
+    studioState.bcpConnected = isBcpConnected;
+  }
 
   // Toggle locked gate vs tournament directory/management views
   const lockedGates = document.querySelectorAll("#es-locked-gate");

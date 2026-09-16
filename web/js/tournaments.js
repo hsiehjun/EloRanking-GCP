@@ -1,14 +1,25 @@
-let eventsData = [];
-let eventsPagination = { page: 1, pageSize: 25, total: 0, totalPages: 1 };
-let eventsSortState = { field: 'event_date', asc: false };
-let eventSearchTimeout = null;
-let eventMatchesCache = [];
-let eventPlayersCache = [];
-let currentRoundFilter = 'all';
-let currentOpenEventId = null;
-let currentEventData = null;
-let currentEventModalTab = 'results';
-let eventModalSearchQuery = '';
+var eventsData = (typeof window !== 'undefined' && window.eventsData) || [];
+var eventsPagination = (typeof window !== 'undefined' && window.eventsPagination) || { page: 1, pageSize: 25, total: 0, totalPages: 1 };
+var eventsSortState = (typeof window !== 'undefined' && window.eventsSortState) || { field: 'event_date', asc: false };
+var eventSearchTimeout = null;
+var eventMatchesCache = (typeof window !== 'undefined' && window.eventMatchesCache) || [];
+var eventPlayersCache = (typeof window !== 'undefined' && window.eventPlayersCache) || [];
+var currentRoundFilter = (typeof window !== 'undefined' && window.currentRoundFilter) || 'all';
+var currentOpenEventId = (typeof window !== 'undefined' && window.currentOpenEventId) || null;
+var currentEventData = (typeof window !== 'undefined' && window.currentEventData) || null;
+var currentEventModalTab = (typeof window !== 'undefined' && window.currentEventModalTab) || 'results';
+var eventModalSearchQuery = '';
+if (typeof window !== 'undefined') {
+  window.eventsData = eventsData;
+  window.eventsPagination = eventsPagination;
+  window.eventsSortState = eventsSortState;
+  window.eventMatchesCache = eventMatchesCache;
+  window.eventPlayersCache = eventPlayersCache;
+  window.currentRoundFilter = currentRoundFilter;
+  window.currentOpenEventId = currentOpenEventId;
+  window.currentEventData = currentEventData;
+  window.currentEventModalTab = currentEventModalTab;
+}
 
 function formatPlayerFaction(rawFaction, maxFactions = 1, isEventContext = false) {
   if (!rawFaction) return isEventContext ? '-' : 'Various';
@@ -1608,13 +1619,13 @@ function renderEventResultsRows() {
 
     tr.innerHTML = `
       <td class="rank-cell">${rankDisplay}</td>
-      <td style="max-width:220px;">
+      <td class="col-event-competitor">
         <div class="player-name-cell">
           <span class="player-link" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.full_name || 'Player')}">${escapeHtml(p.full_name || 'Player')}</span>
           ${teamHtml}
         </div>
       </td>
-      <td style="max-width:200px;">
+      <td class="col-event-faction">
         ${displayFac && displayFac !== '-' ? `
           <span class="badge" title="${escapeHtml(displayFac)}${p.detachment ? ` (${escapeHtml(p.detachment)})` : ''}" style="background:var(--bg-card); border:1px solid var(--border); max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; display:inline-block; vertical-align:middle;">
             ${escapeHtml(displayFac)}${p.detachment ? `<span style="color:var(--text-muted); font-weight:400;"> (${escapeHtml(p.detachment)})</span>` : ''}
@@ -2468,8 +2479,10 @@ async function submitTournamentRegistration(e) {
 // PLAYER DETAILS & BCP REGISTRATION MANAGEMENT
 // =========================================================================
 
-let cachedGamesystemFactions = {};
-let currentEventRegistration = null;
+var cachedGamesystemFactions = (typeof window !== 'undefined' && window.cachedGamesystemFactions) || {};
+if (typeof window !== 'undefined') window.cachedGamesystemFactions = cachedGamesystemFactions;
+var currentEventRegistration = (typeof window !== 'undefined' && window.currentEventRegistration) || null;
+if (typeof window !== 'undefined') window.currentEventRegistration = currentEventRegistration;
 
 async function loadGamesystemFactions(gamesystemId = 'WGMSzfKFYA') {
   const factionSelect = document.getElementById('player-reg-faction');
@@ -3312,6 +3325,22 @@ function getEventKpiSummary(ev) {
 
 function renderQuickEventModal(ev, userRegData) {
   if (!ev) return;
+  currentEventData = ev;
+  if (Array.isArray(ev.players)) eventPlayersCache = ev.players;
+  if (Array.isArray(ev.matches)) eventMatchesCache = ev.matches;
+
+  const nameEl = document.getElementById('modal-event-name');
+  if (nameEl) nameEl.textContent = ev.name || ev.event_name || 'Tournament Details';
+  const bcpLink = document.getElementById('modal-event-bcp-link');
+  if (bcpLink && ev.id) bcpLink.href = `https://www.bestcoastpairings.com/event/${encodeURIComponent(ev.id)}`;
+  const metaEl = document.getElementById('modal-event-meta');
+  if (metaEl) {
+    const loc = [ev.city, ev.state, ev.country].filter(Boolean).join(', ') || 'Online / Unspecified';
+    const dStr = (ev.event_date || ev.start_date || '').slice(0, 10);
+    const rds = ev.num_rounds ? ` • 🔄 ${ev.num_rounds} Rounds` : '';
+    metaEl.innerHTML = `<span>📅 ${escapeHtml(dStr || 'Date TBD')}</span><span> • 📍 ${escapeHtml(loc)}</span><span>${rds}</span>`;
+  }
+
   const kpi = getEventKpiSummary(ev);
   const sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k').toLowerCase();
   const sysBadge = sys === 'aos'
@@ -3547,9 +3576,9 @@ function renderQuickModalTable() {
     return `
       <tr style="cursor:pointer;" onclick="event.stopPropagation(); closeModal('event-modal'); if (typeof openPlayerProfilePage === 'function' && '${safePid}') { openPlayerProfilePage('${safePid}'); } else { openPlayerModal('${safePid}', '${escapeHtml(safeName)}'); }">
         <td class="rank-cell" style="width:55px; text-align:center; padding:0.5rem 0.6rem;">${rankStr}</td>
-        <td style="min-width:130px; max-width:180px; padding:0.5rem 0.65rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-          <div style="font-weight:600; color:#38bdf8; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</div>
-          ${p.team ? `<div style="font-size:0.72rem; color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(p.team)}">🛡️ ${escapeHtml(p.team)}</div>` : ''}
+        <td class="modal-quick-competitor-col" style="min-width:130px; padding:0.5rem 0.65rem;">
+          <div class="modal-quick-competitor-name" style="font-weight:600; color:#38bdf8;" title="${escapeHtml(safeName)}">${escapeHtml(safeName)}</div>
+          ${p.team ? `<div class="modal-quick-competitor-team" style="font-size:0.72rem; color:var(--text-muted); margin-top:2px;" title="${escapeHtml(p.team)}">🛡️ ${escapeHtml(p.team)}</div>` : ''}
         </td>
         <td style="min-width:110px; max-width:160px; padding:0.5rem 0.65rem;">
           ${displayFac && displayFac !== '-' ? `
@@ -3864,10 +3893,12 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
 
         <div class="profile-hero-actions" style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
           <button type="button" class="btn btn-outline" onclick="copyEventHubLink('${escapeHtml(eventId)}', '${sys}')" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; cursor: pointer;">
-            🔗 Share Event Link
+            <span class="btn-text-desktop">🔗 Share Event Link</span>
+            <span class="btn-text-mobile">🔗 Share</span>
           </button>
           <a href="https://www.bestcoastpairings.com/event/${encodeURIComponent(eventId)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline" style="font-weight: 600; font-size: 0.82rem; padding: 0.48rem 0.95rem; text-decoration: none;">
-            Listing on BCP ↗
+            <span class="btn-text-desktop">Listing on BCP ↗</span>
+            <span class="btn-text-mobile">BCP ↗</span>
           </a>
           <button type="button" class="btn btn-primary" onclick="openEventHubPage('${escapeHtml(eventId)}', '${sys}', { forceSync: true })" style="font-weight: 700; font-size: 0.82rem; padding: 0.48rem 1rem; cursor: pointer;">
             🔄 Refresh
@@ -3875,8 +3906,8 @@ function renderEventHubHeroSection(ev, userRegData, gameSystem = '') {
         </div>
       </div>
 
-      <!-- 4 Hero KPI Cards -->
-      <div class="profile-kpi-grid" style="margin-top: 1.2rem;">
+      <!-- 4 Hero KPI Cards (Desktop & Tablet) -->
+      <div id="event-hub-kpis-grid" class="profile-kpi-grid event-hub-kpi-grid" style="margin-top: 1.2rem;">
         <div class="profile-kpi-card">
           <div class="profile-kpi-label">👥 Field & Format</div>
           <div class="profile-kpi-value">${kpi.isTeamEvent && kpi.totalTeams > 0 ? `${kpi.totalTeams} Teams` : `${kpi.totalPlayers} Players`}</div>

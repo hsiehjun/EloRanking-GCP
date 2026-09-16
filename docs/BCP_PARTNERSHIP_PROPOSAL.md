@@ -84,10 +84,10 @@ Tabletop competitors are passionate about self-improvement and community connect
 
 OmniTactica is live and operational with four core feature sets driving engagement back to BCP:
 
-1. **Player Hub & Elo Progression:** Tracks personal rating (1845.5), milestone progress toward High Warlord, verified BCP account connection, recent form, and active tournament registrations.
-2. **Opponent Scouting Profiles:** Deep competitor intelligence (e.g., Folger Pyles, 90.1% win rate, Everchosen rank). Scouting an opponent's high win rate triggers the immediate urge to inspect their exact army list on BCP.
-3. **Opponent Matchup Matrix:** Automatically isolates Favorite Prey Armies (+56.2 Elo vs. Orks) and Toughest Nemesis Armies (-31.0 Elo vs. Aeldari) with exact win rates and net Elo deltas.
-4. **Event Discovery Hub & BCP Ticketing:** Geographically filtered tournament listings with direct ticket purchase and registration links pointing straight to BCP.
+1. **Player Hub & Career Progression:** Standardized Elo rating (1845.5), High Warlord progress bar, verified BCP connection, and match history.
+2. **Tactical Match Predictor:** Head-to-head win probability (Innes Wilson vs. Folger Pyles), expected Elo stakes (+16 / -16), and upset analytics before round 1.
+3. **Opponent Matchup Matrix & Nemeses:** Highlights Favorite Prey (+56.2 vs. Orks) and Nemeses (-31.0 vs. Aeldari) with head-to-head records across tournament play.
+4. **Event Discovery Hub & BCP Ticketing:** Upcoming tournament directory with field Elo ratings, live pairings, and direct "Buy Ticket" / "BCP" links filling brackets.
 
 ---
 

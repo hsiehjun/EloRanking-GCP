@@ -1231,6 +1231,7 @@ class BcpAdapter:
             country = item.get("country") or loc.get("country") or ""
 
             # Extract player registration info
+            has_explicit_player_data = bool(item.get("myPlayer") or item.get("playerData") or item.get("userRegistration") or item.get("registration"))
             p_data = item.get("myPlayer") or item.get("player") or item.get("playerData") or item.get("registration") or item.get("userRegistration") or {}
             if not p_data and item.get("players") and isinstance(item.get("players"), list):
                 for p in item.get("players"):
@@ -1239,6 +1240,19 @@ class BcpAdapter:
                     if (bcp_user_id and p_uid == str(bcp_user_id)) or (user_email and p_em == user_email):
                         p_data = p
                         break
+
+            pid = str(p_data.get("id") or p_data.get("_id") or p_data.get("playerId") or "").strip()
+            owner_id = str(item.get("ownerId") or item.get("owner_Id") or "").strip()
+            is_organizer = bool(
+                item.get("isOwner") is True or
+                item.get("isTO") is True or
+                (bcp_user_id and owner_id and owner_id == str(bcp_user_id))
+            )
+
+            # If the user is solely an organizer/creator and not registered as a player in this event, exclude it
+            if is_organizer and not has_explicit_player_data and not (p_data and pid):
+                logger.debug(f"Skipping organizer/non-player tournament {ev_id} for user {user_id}")
+                continue
 
             faction = p_data.get("army") or p_data.get("faction") or p_data.get("armyName") or ""
             detachment = p_data.get("detachment") or ""
@@ -1252,7 +1266,6 @@ class BcpAdapter:
             ln = u_obj.get("lastName") or p_data.get("lastName") or ""
             team_obj = p_data.get("team") if isinstance(p_data.get("team"), dict) else {}
             team_name = p_data.get("teamName") or team_obj.get("name") or p_data.get("team") or ""
-            pid = str(p_data.get("id") or p_data.get("_id") or p_data.get("playerId") or "").strip()
             army_id = p_data.get("armyId") or p_data.get("army_id") or ""
             sub_faction_id = p_data.get("subFactionId") or p_data.get("sub_faction_id") or ""
             gamesystem_id = item.get("gameSystemId") or item.get("gamesystem") or item.get("systemId") or "WGMSzfKFYA"

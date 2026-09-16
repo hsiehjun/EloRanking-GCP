@@ -10,6 +10,7 @@ import sys
 import json
 import mimetypes
 import urllib.parse
+import urllib.request
 import secrets
 from pathlib import Path
 
@@ -395,12 +396,51 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps(resp_user).encode("utf-8"))
             return
 
-        if clean_path in ("api/tracker/history",):
+        if clean_path in ("api/tracker/sessions", "api/tracker/history"):
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "history": []}).encode("utf-8"))
+                req_sys = "aos" if "game_system=aos" in query_str else ("40k" if "game_system=40k" in query_str else None)
+                active = []
+                for rid, rdata in ROOMS_DB.items():
+                    if not isinstance(rdata, dict):
+                        continue
+                    rsys = rdata.get("game_system") or ("aos" if rid.startswith("AOS-") else "40k")
+                    if req_sys and rsys != req_sys:
+                        continue
+                    st = rdata.get("state") or {}
+                    game = st.get("game") or {}
+                    p1 = st.get("p1") or {}
+                    p2 = st.get("p2") or {}
+                    active.append({
+                        "id": rid,
+                        "match_id": rid,
+                        "game_system": rsys,
+                        "p1_name": game.get("p1Name") or rdata.get("p1_name") or "Player 1",
+                        "p2_name": game.get("p2Name") or rdata.get("p2_name") or "Player 2",
+                        "p1_score": p1.get("score", 0),
+                        "p2_score": p2.get("score", 0),
+                        "p1Score": p1.get("score", 0),
+                        "p2Score": p2.get("score", 0),
+                        "p1_faction": game.get("p1Faction"),
+                        "p2_faction": game.get("p2Faction"),
+                        "round": st.get("round", 1),
+                        "is_finished": bool(rdata.get("is_finished")),
+                        "created_at": int(time.time() * 1000),
+                        "updated_at": int(time.time() * 1000),
+                        "date": "Today",
+                        "state": st,
+                        "version": rdata.get("version", 1)
+                    })
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "history": active,
+                    "active_sessions": active,
+                    "completed_history": [],
+                    "primary_active": active[0] if active else None,
+                    "unfinished_sessions": active[1:] if len(active) > 1 else []
+                }).encode("utf-8"))
             return
 
         if clean_path.endswith("/check"):
@@ -408,7 +448,19 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
             if not is_head:
-                self.wfile.write(json.dumps({"success": True, "exists": True, "is_finished": False}).encode("utf-8"))
+                check_id = clean_path.replace("api/tracker/room/", "").replace("/check", "").strip("/")
+                room_data = ROOMS_DB.get(check_id, {})
+                sys_id = room_data.get("game_system") or ("aos" if check_id.startswith("AOS-") else "40k")
+                self.wfile.write(json.dumps({
+                    "success": True,
+                    "exists": True,
+                    "match_id": check_id,
+                    "game_system": sys_id,
+                    "p1_name": room_data.get("p1_name", "Player 1"),
+                    "p2_name": room_data.get("p2_name", "Player 2"),
+                    "is_full": False,
+                    "is_finished": False
+                }).encode("utf-8"))
             return
 
         if clean_path.startswith("api/player/"):
@@ -651,53 +703,128 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if clean_path.startswith("api/community/events/") and "/registration" in clean_path:
-            cookie_hdr = self.headers.get("Cookie", "")
-            persona_hdr = self.headers.get("X-Dev-Persona", "")
-            is_explicit_non_competitor = (
-                "dev_persona=spectator" in cookie_hdr or "persona=spectator" in query_str or persona_hdr == "spectator" or
-                "dev_persona=creator" in cookie_hdr or "persona=creator" in query_str or persona_hdr == "creator" or
-                "dev_persona=to" in cookie_hdr or "persona=to" in query_str or persona_hdr == "to"
-            )
-            is_explicit_competitor = (
-                "dev_persona=competitor" in cookie_hdr or "persona=competitor" in query_str or persona_hdr == "competitor" or
-                "innes" in cookie_hdr.lower()
-            )
-            is_competitor = is_explicit_competitor or not is_explicit_non_competitor
-            if is_competitor:
-                res = {
-                    "is_registered": True,
-                    "player_registration": {
-                        "player_id": "p_innes",
-                        "bcp_player_id": "p_innes",
-                        "first_name": "Innes",
-                        "last_name": "Wilson",
-                        "full_name": "Innes Wilson",
-                        "team_name": "Stat Check",
-                        "faction": "Adeptus Custodes",
-                        "detachment": "Shield Host",
-                        "army_id": "fac_custodes",
-                        "checked_in": True,
-                        "dropped": False,
-                        "has_list_submitted": True,
-                        "army_list": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
-                    },
-                    "army_lists": [
-                        {
-                            "name": "Adeptus Custodes - Shield Host 2000pts",
+            eid = clean_path.replace("api/community/events/", "").replace("/registration", "").strip()
+            if eid == "ev_ongoing_gt_live":
+                cookie_hdr = self.headers.get("Cookie", "")
+                persona_hdr = self.headers.get("X-Dev-Persona", "")
+                is_explicit_non_competitor = (
+                    "dev_persona=spectator" in cookie_hdr or "persona=spectator" in query_str or persona_hdr == "spectator" or
+                    "dev_persona=creator" in cookie_hdr or "persona=creator" in query_str or persona_hdr == "creator" or
+                    "dev_persona=to" in cookie_hdr or "persona=to" in query_str or persona_hdr == "to"
+                )
+                is_explicit_competitor = (
+                    "dev_persona=competitor" in cookie_hdr or "persona=competitor" in query_str or persona_hdr == "competitor" or
+                    "innes" in cookie_hdr.lower()
+                )
+                is_competitor = is_explicit_competitor or not is_explicit_non_competitor
+                if is_competitor:
+                    res = {
+                        "is_registered": True,
+                        "player_registration": {
+                            "player_id": "p_innes",
+                            "bcp_player_id": "p_innes",
+                            "first_name": "Innes",
+                            "last_name": "Wilson",
+                            "full_name": "Innes Wilson",
+                            "team_name": "Stat Check",
                             "faction": "Adeptus Custodes",
                             "detachment": "Shield Host",
-                            "points": 2000,
-                            "raw_text": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
+                            "army_id": "fac_custodes",
+                            "checked_in": True,
+                            "dropped": False,
+                            "has_list_submitted": True,
+                            "army_list": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
+                        },
+                        "army_lists": [
+                            {
+                                "name": "Adeptus Custodes - Shield Host 2000pts",
+                                "faction": "Adeptus Custodes",
+                                "detachment": "Shield Host",
+                                "points": 2000,
+                                "raw_text": "++ Adeptus Custodes - Shield Host [2,000 pts] ++\nCharacters:\nTrajann Valoris [145 pts]: Watcher's Axe (Warlord)\nBlade Champion [125 pts]: Panoptispex, Vaultswords\nBattleline:\n4x Custodian Guard [180 pts]: Guardian Spear\n4x Custodian Guard [180 pts]: Praesidium Shield\nVehicles:\nCaladius Grav-tank [215 pts]: Twin iliastus accelerator cannon\nCaladius Grav-tank [215 pts]: Twin heavy blaze cannon"
+                            }
+                        ],
+                        "user_profile": {
+                            "first_name": "Innes",
+                            "last_name": "Wilson",
+                            "display_name": "Innes Wilson"
                         }
-                    ],
-                    "user_profile": {
-                        "first_name": "Innes",
-                        "last_name": "Wilson",
-                        "display_name": "Innes Wilson"
                     }
-                }
+                else:
+                    res = {"is_registered": False}
             else:
-                res = {"is_registered": False}
+                bcp_name = "Tournament"
+                event_date = "2026-09-16"
+                try:
+                    b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{eid}"
+                    b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(b_req, timeout=4) as b_resp:
+                        if b_resp.status == 200:
+                            b_json = json.loads(b_resp.read().decode("utf-8"))
+                            bcp_name = b_json.get("name") or bcp_name
+                            event_date = (b_json.get("eventDate") or event_date)[:10]
+                except Exception:
+                    pass
+                res = {
+                    "success": True,
+                    "event_id": eid,
+                    "event_name": bcp_name,
+                    "event_date": event_date,
+                    "tier": "free",
+                    "ticket_price": 0.0,
+                    "ticket_currency": "usd",
+                    "can_register_free": True,
+                    "can_buy_ticket": False,
+                    "requires_external_ticket": False,
+                    "is_closed": False,
+                    "is_sold_out": False,
+                    "is_started": False,
+                    "is_ended": False,
+                    "is_ongoing": False,
+                    "status_label": "Registration Open",
+                    "is_registered": False,
+                    "player_registration": None,
+                    "user_profile": {
+                        "logged_in": True,
+                        "name": "John Hsieh",
+                        "first_name": "John",
+                        "last_name": "Hsieh",
+                        "email": "hsiehjun@google.com",
+                        "bcp_linked": True,
+                        "bcp_user_id": "9oEfu25ccjqE"
+                    },
+                    "army_lists": []
+                }
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.end_headers()
+            if not is_head:
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+            return
+
+        if clean_path == "api/user/registered-tournaments" or clean_path.startswith("api/user/registered-tournaments"):
+            res = {
+                "success": True,
+                "bcp_connected": True,
+                "count": 1,
+                "tournaments": [
+                    {
+                        "id": "ev_active_lvo_2026",
+                        "bcp_event_id": "ev_active_lvo_2026",
+                        "event_name": "LVO 2026 Warhammer 40K Champs",
+                        "event_date": "2026-01-18",
+                        "city": "Las Vegas",
+                        "state": "NV",
+                        "checked_in": True,
+                        "faction": "Necrons",
+                        "detachment": "Canoptek Court",
+                        "has_list_submitted": True,
+                        "points_limit": 2000,
+                        "rounds": 5,
+                        "player_id": "p_innes_wilson"
+                    }
+                ]
+            }
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.end_headers()
@@ -707,6 +834,43 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
 
         if clean_path.startswith("api/event/"):
             ev_param = clean_path.replace("api/event/", "")
+            if len(ev_param) >= 8 and not ev_param.startswith("ev_"):
+                try:
+                    b_url = f"https://newprod-api.bestcoastpairings.com/v1/events/{ev_param}"
+                    b_req = urllib.request.Request(b_url, headers={"client-id": "web-app", "User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(b_req, timeout=4) as b_resp:
+                        if b_resp.status == 200:
+                            b_json = json.loads(b_resp.read().decode("utf-8"))
+                            loc = b_json.get("location") if isinstance(b_json.get("location"), dict) else {}
+                            res = {
+                                "id": ev_param,
+                                "name": b_json.get("name") or "BCP Tournament",
+                                "event_date": (b_json.get("eventDate") or "")[:10],
+                                "end_date": (b_json.get("endDate") or "")[:10],
+                                "city": b_json.get("city") or loc.get("city") or "",
+                                "state": b_json.get("state") or loc.get("state") or "",
+                                "country": b_json.get("country") or loc.get("country") or "United States",
+                                "venue": b_json.get("venueName") or loc.get("venueName") or loc.get("name") or "",
+                                "total_players": int(b_json.get("totalPlayers") or len(b_json.get("players") or []) or 0),
+                                "num_rounds": int(b_json.get("numberOfRounds") or 3),
+                                "current_round": int(b_json.get("currentRound") or 0),
+                                "is_ended": bool(b_json.get("ended") or False),
+                                "ended": bool(b_json.get("ended") or False),
+                                "started": bool(b_json.get("started") or False),
+                                "status": {"ended": bool(b_json.get("ended") or False), "started": bool(b_json.get("started") or False)},
+                                "players": b_json.get("players") or [],
+                                "matches": b_json.get("matches") or [],
+                                "team_standings": []
+                            }
+                            self.send_response(200)
+                            self.send_header("Content-Type", "application/json; charset=utf-8")
+                            self.end_headers()
+                            if not is_head:
+                                self.wfile.write(json.dumps(res).encode("utf-8"))
+                            return
+                except Exception:
+                    pass
+
             if ev_param == "ev_ongoing_gt_live":
                 res = {
                     "id": "ev_ongoing_gt_live",
@@ -1555,14 +1719,25 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(WEB_DIR / "scorecard.html", is_head)
             return
 
-        # 2. Redirects to /11th/tracker/play
-        # Ensuring the URL has /play guarantees isPlay=true in tracker_sync.js
-        if clean_path in ("", "login", "tracker", "11th/tracker"):
+        # 2. Redirects to /11th/tracker/play or Lobby
+        if clean_path in ("", "login"):
             target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
             self.send_response(302)
             self.send_header("Location", target)
             self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
             self.end_headers()
+            return
+
+        if clean_path in ("11th/tracker/lobby", "tracker/lobby", "11th/tracker", "tracker"):
+            qp = urllib.parse.parse_qs(query_str)
+            if qp.get("match_id") or qp.get("room") or qp.get("id") or qp.get("solo") or qp.get("play") or qp.get("eventId"):
+                target = f"/11th/tracker/play{('?' + query_str) if query_str else ''}"
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.send_header("Set-Cookie", "session_token=dev-auth-token-123; path=/; max-age=2592000; SameSite=Lax")
+                self.end_headers()
+                return
+            self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
             return
 
         # 3. Game Tracker Play SPA
@@ -1584,11 +1759,7 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
             self._serve_html_with_auth(TRACKER_DIR / "play.html", is_head)
             return
 
-        if clean_path in ("11th/tracker/lobby", "tracker/lobby"):
-            self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
-            return
-
-        # 3b. AoS Game Tracker Play SPA
+        # 3b. AoS Game Tracker Play SPA & Lobby
         if clean_path in ("11th/tracker/aos", "tracker/aos", "tracker/aos.html", "aos/tracker"):
             qp = urllib.parse.parse_qs(query_str)
             role = qp.get("role", [None])[0]
@@ -1599,7 +1770,11 @@ class OmniTacticaDevHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Location", f"/scorecard/{urllib.parse.quote(match_id)}")
                 self.end_headers()
                 return
-            self._serve_html_with_auth(TRACKER_DIR / "aos.html", is_head)
+            is_play_session = bool(match_id) or bool(qp.get("solo", [None])[0]) or bool(qp.get("play", [None])[0])
+            if is_play_session or clean_path == "tracker/aos.html":
+                self._serve_html_with_auth(TRACKER_DIR / "aos.html", is_head)
+            else:
+                self._serve_html_with_auth(TRACKER_DIR / "lobby.html", is_head)
             return
 
         # 4. Bundle & Sync Assets

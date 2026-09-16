@@ -459,6 +459,12 @@ async def api_user_registered_tournaments(
         except Exception as enrich_err:
             logger.debug(f"Notice during in-memory tournament enrichment: {enrich_err}")
 
+    # Ensure tournaments returned do not include organizer-only events where user has no player registration
+    combined_tournaments = [
+        t for t in combined_tournaments
+        if not ((t.get("isOwner") or t.get("isTO") or t.get("is_organizer")) and not (t.get("player_id") or t.get("bcp_player_id")))
+    ]
+
     if game_system:
         target_sys = game_system.strip().lower()
         combined_tournaments = [t for t in combined_tournaments if t.get("game_system", "40k") == target_sys]
