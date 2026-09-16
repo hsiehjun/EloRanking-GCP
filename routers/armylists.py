@@ -169,7 +169,7 @@ async def api_get_bcp_armylist(list_id: str, request: Request, bcp_token: Option
         return {
             "success": False,
             "requires_bcp_link": True,
-            "error": "Best Coast Pairings account linking is required to view this roster",
+            "error": "Best Coast Pairings subscription is required to view this roster",
             "list_id": clean_lid
         }
 

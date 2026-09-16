@@ -61,9 +61,9 @@ function renderBcpLinkRequiredCard(listUrl) {
   return `
     <div style="text-align:center; padding:1.75rem 1rem;">
       <div style="font-size:2.5rem; margin-bottom:0.75rem;">🔒</div>
-      <div style="font-size:1.15rem; font-weight:800; color:#38bdf8; margin-bottom:0.45rem;">Best Coast Pairings Account Required</div>
+      <div style="font-size:1.15rem; font-weight:800; color:#38bdf8; margin-bottom:0.45rem;">BCP Subscription Required to View List</div>
       <div style="font-size:0.86rem; color:var(--text-secondary); max-width:440px; margin:0 auto 1.35rem auto; line-height:1.5;">
-        This competitor registered their tournament army roster on Best Coast Pairings. Link your Best Coast Pairings account to view army rosters directly inside OmniTactica.
+        Viewing competitor tournament army rosters requires an active Best Coast Pairings subscription. Link your subscribed BCP account to view army rosters directly inside OmniTactica.
       </div>
       <div style="display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:0.75rem;">
         <button type="button" class="btn btn-primary" onclick="closeModal('event-army-list-modal'); if (typeof openBcpLinkModal === 'function') openBcpLinkModal();" style="display:inline-flex; align-items:center; gap:0.45rem; font-weight:700; font-size:0.86rem; padding:0.6rem 1.35rem; background:linear-gradient(135deg, #0284c7 0%, #0369a1 100%); border:1px solid #38bdf8; color:#fff; border-radius:6px; cursor:pointer;">

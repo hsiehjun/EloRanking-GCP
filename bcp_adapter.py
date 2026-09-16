@@ -1243,15 +1243,44 @@ class BcpAdapter:
 
             pid = str(p_data.get("id") or p_data.get("_id") or p_data.get("playerId") or "").strip()
             owner_id = str(item.get("ownerId") or item.get("owner_Id") or "").strip()
+
+            # Check if user is organizer via ownerId, isOwner, isTO, or eventUsers role
+            event_users = item.get("eventUsers") if isinstance(item.get("eventUsers"), dict) else {}
+            has_organizer_role = False
+            for eu_id, eu in event_users.items():
+                if isinstance(eu, dict):
+                    role_obj = eu.get("role")
+                    role_name = (role_obj.get("name") if isinstance(role_obj, dict) else str(role_obj or "")).lower()
+                    if "organizer" in role_name or "to" in role_name or "admin" in role_name:
+                        eu_fn = (eu.get("firstName") or "").lower().strip()
+                        eu_ln = (eu.get("lastName") or "").lower().strip()
+                        if (user_info and eu_fn and eu_ln and
+                            eu_fn in (user_info.get("first_name") or user_info.get("display_name") or "").lower() and
+                            eu_ln in (user_info.get("last_name") or user_info.get("display_name") or "").lower()):
+                            has_organizer_role = True
+                            break
+                        if eu_id and (eu_id == owner_id or eu_id == str(bcp_user_id)):
+                            has_organizer_role = True
+                            break
+
             is_organizer = bool(
                 item.get("isOwner") is True or
                 item.get("isTO") is True or
-                (bcp_user_id and owner_id and owner_id == str(bcp_user_id))
+                has_organizer_role or
+                (owner_id and (owner_id == str(bcp_user_id) or owner_id == str(user_id) or (user_info and owner_id == str(user_info.get("player_id")))))
             )
 
-            # If the user is solely an organizer/creator and not registered as a player in this event, exclude it
-            if is_organizer and not has_explicit_player_data and not (p_data and pid):
-                logger.debug(f"Skipping organizer/non-player tournament {ev_id} for user {user_id}")
+            # Determine if this event has actual competitor/player participation for the user
+            has_competitor_registration = bool(
+                has_explicit_player_data or
+                (p_data and pid) or
+                (p_data and (p_data.get("army") or p_data.get("faction") or p_data.get("armyList") or p_data.get("listText") or p_data.get("checkedIn") or p_data.get("hasList")))
+            )
+
+            # If the user is solely an organizer/creator and not registered as a player in this event,
+            # or if the event has completely zero player participation for this user, exclude it
+            if (is_organizer and not has_competitor_registration) or not has_competitor_registration:
+                logger.debug(f"Skipping organizer/non-player tournament {ev_id} ({item.get('name')}) for user {user_id}")
                 continue
 
             faction = p_data.get("army") or p_data.get("faction") or p_data.get("armyName") or ""
@@ -1298,6 +1327,9 @@ class BcpAdapter:
                 "points_limit": item.get("points") or 2000,
                 "rounds": item.get("numberOfRounds") or item.get("numRounds") or 5,
                 "total_players": item.get("totalPlayers") or item.get("capacity") or (len(item.get("players")) if isinstance(item.get("players"), list) else 0),
+                "has_explicit_player_data": has_competitor_registration,
+                "is_organizer": is_organizer,
+                "isOwner": is_organizer,
                 "bcp_url": f"https://www.bestcoastpairings.com/event/{ev_id}"
             })
 
