@@ -144,20 +144,21 @@
     hud.style.cssText = `
       position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
       background: rgba(18, 22, 31, 0.95); border-bottom: 1px solid #273042;
-      backdrop-filter: blur(8px); padding: 6px 16px;
+      backdrop-filter: blur(8px); padding: 6px 12px;
       display: flex; justify-content: space-between; align-items: center;
       font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #f0f4fc;
+      gap: 6px; flex-wrap: nowrap; overflow: hidden;
     `;
 
     hud.innerHTML = `
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span style="color:#f59e0b; font-weight:800;">⚡ AOS ROOM:</span>
-        <span style="color:#38bdf8; font-weight:700;">${matchId}</span>
-        ${isSpectator ? '<span style="background:rgba(239,68,68,0.2); color:#ef4444; padding:1px 6px; border-radius:4px; font-weight:700;">LIVE SPECTATOR</span>' : '<span style="background:rgba(16,185,129,0.2); color:#10b981; padding:1px 6px; border-radius:4px; font-weight:700;">LIVE SYNC</span>'}
+      <div style="display:flex; align-items:center; gap:6px; min-width:0; flex-shrink:1; overflow:hidden;">
+        <span style="color:#f59e0b; font-weight:800; white-space:nowrap;">⚡ AOS:</span>
+        <span style="color:#38bdf8; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${matchId}</span>
+        ${isSpectator ? '<span style="background:rgba(239,68,68,0.2); color:#ef4444; padding:1px 5px; border-radius:4px; font-weight:700; font-size:10px; white-space:nowrap;">SPECTATOR</span>' : '<span style="background:rgba(16,185,129,0.2); color:#10b981; padding:1px 5px; border-radius:4px; font-weight:700; font-size:10px; white-space:nowrap;">SYNC</span>'}
       </div>
-      <div>
-        <a href="/app" style="color:#94a3b8; text-decoration:none; margin-right:8px;">← App Hub</a>
-        <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="color:#f59e0b; text-decoration:none; font-weight:700;">📄 Live Scorecard</a>
+      <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+        <a href="/app" style="color:#94a3b8; text-decoration:none; font-size:11px; white-space:nowrap;">← Hub</a>
+        <a href="/scorecard/${encodeURIComponent(matchId)}" target="_blank" style="color:#f59e0b; text-decoration:none; font-weight:700; font-size:11px; white-space:nowrap; display:inline-flex; align-items:center; gap:2px;">📄 Scorecard</a>
       </div>
     `;
 
