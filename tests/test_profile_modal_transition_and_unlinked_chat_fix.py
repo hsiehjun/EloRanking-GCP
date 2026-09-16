@@ -20,6 +20,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 root_dir = Path(__file__).resolve().parent.parent
+import sys
+if str(root_dir) not in sys.path:
+    sys.path.insert(0, str(root_dir))
 
 
 class TestFrontendModalToFullPageTransitions(unittest.TestCase):
@@ -153,6 +156,30 @@ class TestUnlinkedUserChatBubbleIsolation(unittest.TestCase):
             self.assertIsNotNone(result)
             self.assertEqual(result["id"], "usr-12345")
             self.assertEqual(result["bcp_user_id"], "INNES123")
+
+
+class TestAuthPersonaPrecedenceAndMockCleanup(unittest.TestCase):
+    """Verifies that auth.js never defaults to mock persona and always gives precedence to real user tokens."""
+
+    def test_auth_js_persona_default_null_and_mock_purging(self):
+        auth_js = (root_dir / "web" / "js" / "auth.js").read_text(encoding="utf-8")
+        # 1. Ensure currentDevPersona defaults to null, never 'competitor'
+        self.assertIn("let currentDevPersona = null;", auth_js)
+        self.assertNotIn("let currentDevPersona = 'competitor';", auth_js)
+
+        # 2. Ensure mock persona purging logic is present
+        self.assertIn("localStorage.removeItem('dev_persona_override');", auth_js)
+        self.assertIn("cachedProf.includes('p_innes')", auth_js)
+        self.assertIn("localStorage.removeItem('native_user_profile');", auth_js)
+
+        # 3. Ensure initAuth prioritizes real token
+        self.assertIn("if (token) {", auth_js)
+        self.assertIn("const res = await window.api.getAuthMe(token);", auth_js)
+        self.assertIn("if (!token && currentDevPersona) {", auth_js)
+
+    def test_my_hub_js_ignores_p_innes_cache(self):
+        hub_js = (root_dir / "web" / "js" / "my_hub.js").read_text(encoding="utf-8")
+        self.assertIn("parsed.player_id !== 'p_innes'", hub_js)
 
 
 if __name__ == "__main__":

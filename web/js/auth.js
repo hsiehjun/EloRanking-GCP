@@ -10,18 +10,40 @@ function getCookieToken() {
   return match ? match[2] : null;
 }
 
-// Persona override for multi-role testing & preview (Competitor, Spectator, Content Creator, TO)
-let currentDevPersona = 'competitor';
+// Clean up any stale dev_persona_override or mock persona state that may have leaked into localStorage
 try {
-  const urlPersona = new URLSearchParams(window.location.search).get('persona');
+  const cachedProf = localStorage.getItem('native_user_profile');
+  const storedPersona = localStorage.getItem('dev_persona_override');
+  const urlPersona = (typeof window !== 'undefined' && window.location) ? new URLSearchParams(window.location.search).get('persona') : null;
+  if (!urlPersona) {
+    if (storedPersona) {
+      localStorage.removeItem('dev_persona_override');
+    }
+    if (cachedProf && (cachedProf.includes('p_innes') || cachedProf.includes('Innes Wilson') || cachedProf.includes('dev_creator_wgl') || cachedProf.includes('dev_to_admin') || cachedProf.includes('viewer_guest_999'))) {
+      localStorage.removeItem('native_user_profile');
+    }
+    const hubCache = localStorage.getItem('my_hub_cache');
+    if (hubCache && (hubCache.includes('p_innes') || hubCache.includes('Innes Wilson'))) {
+      localStorage.removeItem('my_hub_cache');
+      localStorage.removeItem('my_hub_cache_40k');
+      localStorage.removeItem('my_hub_cache_aos');
+    }
+    try {
+      document.cookie = 'dev_persona=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT;';
+    } catch (e) {}
+  }
+} catch (e) {}
+
+// Persona override strictly for explicit preview testing when requested via ?persona=
+let currentDevPersona = null;
+try {
+  const urlPersona = (typeof window !== 'undefined' && window.location) ? new URLSearchParams(window.location.search).get('persona') : null;
   if (urlPersona && ['competitor', 'spectator', 'creator', 'to'].includes(urlPersona.toLowerCase())) {
     currentDevPersona = urlPersona.toLowerCase();
     localStorage.setItem('dev_persona_override', currentDevPersona);
     try {
       document.cookie = `dev_persona=${currentDevPersona}; path=/; max-age=2592000; SameSite=Lax`;
     } catch (e) {}
-  } else if (localStorage.getItem('dev_persona_override')) {
-    currentDevPersona = localStorage.getItem('dev_persona_override');
   }
 } catch (e) {}
 window.currentDevPersona = currentDevPersona;
@@ -117,20 +139,24 @@ if (document.readyState === 'loading') {
   syncPersonaButtons();
 }
 
-// Synchronously restore user from URL param, localStorage persona, or cached session
+// Synchronously restore user from real cached session if valid token exists, or mock persona if explicitly requested via ?persona=
 try {
-  const urlPersona = new URLSearchParams(window.location.search).get('persona');
-  if (urlPersona && ['competitor', 'spectator', 'creator', 'to'].includes(urlPersona.toLowerCase())) {
+  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
+  const urlPersona = (typeof window !== 'undefined' && window.location) ? new URLSearchParams(window.location.search).get('persona') : null;
+
+  if (urlPersona && ['competitor', 'spectator', 'creator', 'to'].includes(urlPersona.toLowerCase()) && !token) {
     currentDevPersona = urlPersona.toLowerCase();
-    currentUser = getMockUserForPersona(currentDevPersona);
-  } else if (localStorage.getItem('dev_persona_override')) {
-    currentDevPersona = localStorage.getItem('dev_persona_override');
     currentUser = getMockUserForPersona(currentDevPersona);
   } else {
     const cached = localStorage.getItem('native_user_profile') || localStorage.getItem('bcp_user_profile');
-    const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
     if (cached && token) {
-      currentUser = JSON.parse(cached);
+      const parsed = JSON.parse(cached);
+      // Ensure cached profile is not a stale mock persona
+      if (parsed && parsed.id !== 'p_innes' && parsed.username !== 'innes_wilson' && parsed.id !== 'dev_creator_wgl' && parsed.id !== 'dev_to_admin' && parsed.id !== 'viewer_guest_999') {
+        currentUser = parsed;
+      } else {
+        currentUser = null;
+      }
     } else {
       currentUser = null;
     }
@@ -341,9 +367,38 @@ function syncAppAuthView() {
 }
 
 async function initAuth() {
-  if (currentDevPersona) {
+  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
+
+  // If a session token exists, ALWAYS authenticate against the backend to load the real user profile!
+  if (token) {
+    try {
+      const res = await window.api.getAuthMe(token);
+      if (res && res.authenticated && res.user) {
+        currentUser = res.user;
+        if (typeof window !== 'undefined') window.currentUser = currentUser;
+        localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
+        localStorage.setItem('native_session_token', token);
+        localStorage.setItem('elo_auth_token', token);
+        if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+        syncAppAuthView();
+        if (typeof syncPersonaButtons === 'function') syncPersonaButtons();
+        return;
+      } else {
+        currentUser = null;
+        if (typeof window !== 'undefined') window.currentUser = null;
+        localStorage.removeItem('native_session_token');
+        localStorage.removeItem('elo_auth_token');
+        localStorage.removeItem('native_user_profile');
+        if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
+      }
+    } catch (e) {
+      console.warn('Session verification error:', e);
+    }
+  }
+
+  // Only if there is NO token and explicit ?persona= URL param was passed, use mock persona
+  if (!token && currentDevPersona) {
     currentUser = getMockUserForPersona(currentDevPersona);
-    localStorage.setItem('native_user_profile', JSON.stringify(currentUser));
     window.currentUser = currentUser;
     if (typeof updateStudioAuthBadge === 'function') updateStudioAuthBadge();
     syncAppAuthView();
@@ -351,7 +406,6 @@ async function initAuth() {
     return;
   }
 
-  const token = localStorage.getItem('native_session_token') || localStorage.getItem('elo_auth_token') || getCookieToken();
   if (!token) {
     currentUser = null;
     syncAppAuthView();

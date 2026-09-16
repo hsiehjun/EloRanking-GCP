@@ -59,7 +59,12 @@ async function loadMyHubDashboard() {
   if (!cachedData) {
     try {
       const stored = localStorage.getItem(cacheStorageKey) || (gs === '40k' ? localStorage.getItem('my_hub_cache') : null);
-      if (stored) cachedData = JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && (!parsed.player_id || parsed.player_id !== 'p_innes')) {
+          cachedData = parsed;
+        }
+      }
       if (cachedData && Array.isArray(cachedData.registered_tournaments)) {
         cachedData.registered_tournaments = cachedData.registered_tournaments.filter(isValidRegisteredTournament);
       }
