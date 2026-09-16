@@ -978,6 +978,7 @@ async function changeFactionModalTimeframe(tf) {
 window.changeFactionModalTimeframe = changeFactionModalTimeframe;
 
 const factionModalDataCache = new Map();
+let factionModalAbortController = null;
 
 function renderFactionTableSkeletons() {
   const matchBody = document.getElementById('faction-matches-body');
@@ -1077,31 +1078,79 @@ async function loadFactionModalData(factionName, tf = '1yr') {
   const now = Date.now();
   const isFresh = cachedEntry && (now - cachedEntry.timestamp < 300000); // 5 min TTL
 
+  // Cancel prior pending fetch if user clicked rapidly
+  if (factionModalAbortController) {
+    try { factionModalAbortController.abort(); } catch (e) {}
+  }
+  factionModalAbortController = new AbortController();
+  const currentSignal = factionModalAbortController.signal;
+
+  const hasExistingData = (currentFactionMatches && currentFactionMatches.length > 0) ||
+                          (currentFactionPlayers && currentFactionPlayers.length > 0) ||
+                          (currentFactionMatchups && currentFactionMatchups.length > 0);
+
   if (cachedEntry) {
     applyFactionModalData(cachedEntry.data, sys, tf);
     if (isFresh) {
       return;
     }
-  } else {
+  } else if (!hasExistingData) {
+    // Only blank to skeletons if no data is currently on screen
     renderFactionTableSkeletons();
+  } else {
+    // Keep existing data visible and show non-intrusive revalidating status
+    const subEl = document.getElementById('modal-faction-subtitle');
+    if (subEl) {
+      const tfLabels = { '6mo': '6 Months', '1yr': '1 Year', 'all': 'All Time' };
+      subEl.innerHTML = `Refreshing ${escapeHtml(tfLabels[tf] || tf)} data... <span style="display:inline-block; width:12px; height:12px; border:2px solid var(--accent); border-right-color:transparent; border-radius:50%; animation:spin 0.6s linear infinite; vertical-align:middle; margin-left:6px;"></span>`;
+    }
   }
 
+  // 12-second safety timeout so modal never hangs indefinitely
+  const timeoutId = setTimeout(() => {
+    if (!currentSignal.aborted) {
+      try { factionModalAbortController.abort(); } catch (e) {}
+    }
+  }, 12000);
+
   try {
-    const data = await window.api.getFactionDetails(factionName, 100, sys, tf);
-    factionModalDataCache.set(cacheKey, { timestamp: Date.now(), data });
-    applyFactionModalData(data, sys, tf);
+    const data = await window.api.getFactionDetails(factionName, 100, sys, tf, { signal: currentSignal });
+    clearTimeout(timeoutId);
+    if (currentSignal.aborted) return;
+    if (data && !data.error && !data.aborted) {
+      factionModalDataCache.set(cacheKey, { timestamp: Date.now(), data });
+      applyFactionModalData(data, sys, tf);
+    } else if (data && data.error) {
+      throw new Error(data.error);
+    }
   } catch (err) {
-    if (!cachedEntry) {
+    clearTimeout(timeoutId);
+    if (err && (err.name === 'AbortError' || currentSignal.aborted)) return;
+    console.warn("Notice loading faction modal data:", err);
+    if (!cachedEntry && !hasExistingData) {
+      const errMsg = err && err.message ? err.message : 'Request timed out';
+      const retryHtml = `<tr><td colspan="7" class="empty-state" style="color:var(--loss); text-align:center; padding:2rem;">Data unavailable (${escapeHtml(errMsg)}). <button class="btn btn-secondary btn-sm" style="margin-left:8px;" onclick="loadFactionModalData('${escapeHtml(factionName)}', '${escapeHtml(tf)}')">Retry</button></td></tr>`;
       const matchBody = document.getElementById('faction-matches-body');
-      if (matchBody) matchBody.innerHTML = `<tr><td colspan="7" class="empty-state" style="color:var(--loss);">Error loading faction details: ${escapeHtml(err.message)}</td></tr>`;
+      if (matchBody) matchBody.innerHTML = retryHtml;
+      const playersBody = document.getElementById('faction-players-body');
+      if (playersBody) playersBody.innerHTML = retryHtml;
+      const matchupsBody = document.getElementById('faction-matchups-body');
+      if (matchupsBody) matchupsBody.innerHTML = retryHtml;
     }
   }
 }
+window.loadFactionModalData = loadFactionModalData;
 
 async function openFactionModal(factionName, initialTf = '1yr') {
   const modal = document.getElementById('faction-modal');
   if (!modal) return;
   bringModalToFront(modal);
+
+  if (currentFactionName !== factionName) {
+    currentFactionMatches = [];
+    currentFactionPlayers = [];
+    currentFactionMatchups = [];
+  }
 
   currentFactionName = factionName || '';
   currentFactionTimeframe = initialTf || '1yr';

@@ -541,6 +541,10 @@ class PostgresDatabase:
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower ON matches (LOWER(player2_faction), is_done);
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_fac1_date ON matches (player1_faction, match_date DESC) WHERE is_done = TRUE;
                 CREATE INDEX IF NOT EXISTS idx_pg_matches_fac2_date ON matches (player2_faction, match_date DESC) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_pattern ON matches ((LOWER(player1_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_pattern ON matches ((LOWER(player2_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_lower_date ON matches ((LOWER(player1_faction)), match_date DESC) WHERE is_done = TRUE;
+                CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_lower_date ON matches ((LOWER(player2_faction)), match_date DESC) WHERE is_done = TRUE;
 
                 DO $$
                 BEGIN
@@ -666,6 +670,8 @@ class PostgresDatabase:
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p1 ON matches (match_date DESC, player1_faction) WHERE is_done = TRUE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_matches_meta_p2 ON matches (match_date DESC, player2_faction) WHERE is_done = TRUE AND is_bye = FALSE;",
             "CREATE INDEX IF NOT EXISTS idx_pg_history_match ON rating_history(match_id);",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p1_fac_pattern ON matches ((LOWER(player1_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;",
+            "CREATE INDEX IF NOT EXISTS idx_pg_matches_p2_fac_pattern ON matches ((LOWER(player2_faction)) text_pattern_ops, match_date DESC) WHERE is_done = TRUE;",
             """CREATE TABLE IF NOT EXISTS user_army_lists (
                 id VARCHAR(64) PRIMARY KEY,
                 user_id VARCHAR(64),
@@ -4414,176 +4420,280 @@ class PostgresDatabase:
 
 
 
-    def _query_faction_top_players(self, faction_name: str, system: str, sys_params: list, sys_clause: str, date_clause: str) -> List[Dict[str, Any]]:
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                try:
-                    cursor.execute(f"""
-                    WITH faction_player_games AS (
-                        SELECT 
-                            player1_id as p_id,
-                            player1_name as p_name,
-                            player1_score as score,
-                            CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
-                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                        FROM matches
-                        WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{sys_clause}{date_clause}
-                        UNION ALL
-                        SELECT 
-                            player2_id as p_id,
-                            player2_name as p_name,
-                            player2_score as score,
-                            CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                            CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
-                            CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                        FROM matches
-                        WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{sys_clause}{date_clause}
-                    )
-                    SELECT 
-                        fpg.p_id as player_id,
-                        COALESCE(MAX(fpg.p_name), 'Player') as player_name,
-                        COALESCE(MAX(r.team), '') as team,
-                        COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
-                        COUNT(*) as matches_played,
-                        SUM(fpg.is_win) as wins,
-                        SUM(fpg.is_loss) as losses,
-                        SUM(fpg.is_draw) as draws,
-                        ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
-                        ROUND(AVG(fpg.score)::numeric, 1) as avg_score
-                    FROM faction_player_games fpg
-                    LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s)
-                    GROUP BY fpg.p_id
-                    HAVING COUNT(*) >= 1
-                    ORDER BY wins DESC, matches_played DESC, current_elo DESC
-                    LIMIT 25;
-                    """, (f"%{faction_name}%", *sys_params, f"%{faction_name}%", *sys_params, system))
-                    return [dict(r) for r in cursor.fetchall()]
-                except Exception as e:
-                    conn.rollback()
-                    logger.warning(f"Fallback get_faction_details top_players notice: {e}")
-                    with conn.cursor(cursor_factory=extras.RealDictCursor) as cur_safe:
-                        cur_safe.execute(f"""
-                        WITH faction_player_games AS (
-                            SELECT 
-                                player1_id as p_id,
-                                player1_name as p_name,
-                                player1_score as score,
-                                CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
-                                CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
-                                CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                            FROM matches
-                            WHERE player1_faction ILIKE %s AND player1_id IS NOT NULL AND is_done = TRUE{date_clause}
-                            UNION ALL
-                            SELECT 
-                                player2_id as p_id,
-                                player2_name as p_name,
-                                player2_score as score,
-                                CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
-                                CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
-                                CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
-                            FROM matches
-                            WHERE player2_faction ILIKE %s AND player2_id IS NOT NULL AND is_bye = FALSE AND is_done = TRUE{date_clause}
-                        )
-                        SELECT 
-                            fpg.p_id as player_id,
-                            COALESCE(MAX(fpg.p_name), 'Player') as player_name,
-                            COALESCE(MAX(r.team), '') as team,
-                            COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
-                            COUNT(*) as matches_played,
-                            SUM(fpg.is_win) as wins,
-                            SUM(fpg.is_loss) as losses,
-                            SUM(fpg.is_draw) as draws,
-                            ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
-                            ROUND(AVG(fpg.score)::numeric, 1) as avg_score
-                        FROM faction_player_games fpg
-                        LEFT JOIN player_ratings r ON fpg.p_id = r.player_id
-                        GROUP BY fpg.p_id
-                        HAVING COUNT(*) >= 1
-                        ORDER BY wins DESC, matches_played DESC, current_elo DESC
-                        LIMIT 25;
-                        """, (f"%{faction_name}%", f"%{faction_name}%"))
-                        return [dict(r) for r in cur_safe.fetchall()]
+    def _query_faction_top_players(
+        self,
+        faction_name: str,
+        system: str,
+        sys_params: list,
+        sys_clause: str,
+        date_clause: str,
+        date_params: list = None,
+        cursor = None
+    ) -> List[Dict[str, Any]]:
+        clean_fac = (faction_name or "").strip()
+        fac_lower = clean_fac.lower()
+        fac_prefix = f"{fac_lower}%"
+        d_params = date_params or []
 
-    def _query_faction_recent_matches(self, faction_name: str, limit: int, sys_params_m: list, sys_clause_m: str, date_clause_m: str) -> List[Dict[str, Any]]:
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute(f"""
-                WITH target_matches AS (
-                    SELECT m.id, m.event_id, m.round, m.table_number, m.match_date,
-                           m.player1_id, m.player1_name, m.player1_faction, m.player1_score,
-                           m.player2_id, m.player2_name, m.player2_faction, m.player2_score,
-                           m.winner_id, m.is_draw,
-                           (m.player1_faction ILIKE %s) as is_p1
-                    FROM matches m
-                    WHERE (m.player1_faction ILIKE %s OR m.player2_faction ILIKE %s)
-                      AND m.is_done = TRUE{sys_clause_m}{date_clause_m}
-                    ORDER BY m.match_date DESC NULLS LAST, m.round DESC
-                    LIMIT %s
-                )
-                SELECT tm.id, tm.event_id, COALESCE(e.name, 'Tournament') as event_name, tm.round, tm.table_number, tm.match_date,
-                       CASE WHEN tm.is_p1 THEN tm.player1_id ELSE tm.player2_id END as player_id,
-                       CASE WHEN tm.is_p1 THEN tm.player1_name ELSE tm.player2_name END as player_name,
-                       CASE WHEN tm.is_p1 THEN tm.player1_faction ELSE tm.player2_faction END as player_faction,
-                       CASE WHEN tm.is_p1 THEN tm.player1_score ELSE tm.player2_score END as player_score,
-                       CASE WHEN tm.is_p1 THEN tm.player2_id ELSE tm.player1_id END as opponent_id,
-                       CASE WHEN tm.is_p1 THEN tm.player2_name ELSE tm.player1_name END as opponent_name,
-                       CASE WHEN tm.is_p1 THEN tm.player2_faction ELSE tm.player1_faction END as opponent_faction,
-                       CASE WHEN tm.is_p1 THEN tm.player2_score ELSE tm.player1_score END as opponent_score,
-                       CASE 
-                           WHEN tm.is_draw THEN 'D'
-                           WHEN (tm.winner_id = tm.player1_id AND tm.is_p1) OR (tm.winner_id = tm.player2_id AND NOT tm.is_p1) THEN 'W'
-                           ELSE 'L'
-                       END as outcome
-                FROM target_matches tm
-                LEFT JOIN events e ON tm.event_id = e.id
-                ORDER BY tm.match_date DESC NULLS LAST, tm.round DESC;
-                """, (
-                    f"%{faction_name}%",
-                    f"%{faction_name}%",
-                    f"%{faction_name}%",
-                    *sys_params_m,
-                    limit
-                ))
-                return [dict(r) for r in cursor.fetchall()]
-
-    def _query_faction_matchups(self, faction_name: str, sys_params: list, sys_clause: str, date_clause: str) -> List[Dict[str, Any]]:
-        with self.get_connection() as conn:
-            with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
-                cursor.execute(f"""
-                WITH faction_games AS (
+        def _do_query(cur):
+            try:
+                cur.execute(f"""
+                WITH faction_player_games AS (
                     SELECT 
-                        player2_faction as opp_faction,
+                        player1_id as p_id,
+                        player1_name as p_name,
+                        player1_score as score,
                         CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
                         CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE player1_faction ILIKE %s AND player2_faction IS NOT NULL AND player2_faction != '' 
-                      AND player2_faction != 'Unknown Faction' AND NOT (player2_faction ILIKE %s){sys_clause}{date_clause}
+                    WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                      AND player1_id IS NOT NULL 
+                      AND is_done = TRUE{sys_clause}{date_clause}
                     UNION ALL
                     SELECT 
-                        player1_faction as opp_faction,
+                        player2_id as p_id,
+                        player2_name as p_name,
+                        player2_score as score,
                         CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
                         CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE player2_faction ILIKE %s AND player1_faction IS NOT NULL AND player1_faction != '' 
-                      AND player1_faction != 'Unknown Faction' AND is_bye = FALSE AND NOT (player1_faction ILIKE %s){sys_clause}{date_clause}
+                    WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                      AND player2_id IS NOT NULL 
+                      AND is_bye = FALSE 
+                      AND is_done = TRUE{sys_clause}{date_clause}
                 )
                 SELECT 
-                    opp_faction as opponent_faction,
-                    COUNT(*) as total_matches,
-                    SUM(is_win) as wins,
-                    SUM(is_loss) as losses,
-                    SUM(is_draw) as draws,
-                    ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
-                FROM faction_games
-                GROUP BY opp_faction
+                    fpg.p_id as player_id,
+                    COALESCE(MAX(fpg.p_name), 'Player') as player_name,
+                    COALESCE(MAX(r.team), '') as team,
+                    COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                    COUNT(*) as matches_played,
+                    SUM(fpg.is_win) as wins,
+                    SUM(fpg.is_loss) as losses,
+                    SUM(fpg.is_draw) as draws,
+                    ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                    ROUND(AVG(fpg.score)::numeric, 1) as avg_score
+                FROM faction_player_games fpg
+                LEFT JOIN player_ratings r ON (fpg.p_id = r.player_id AND COALESCE(r.game_system, '40k') = %s)
+                GROUP BY fpg.p_id
                 HAVING COUNT(*) >= 1
-                ORDER BY win_rate DESC, total_matches DESC
-                LIMIT 35;
-                """, (f"%{faction_name}%", f"%{faction_name}%", *sys_params, f"%{faction_name}%", f"%{faction_name}%", *sys_params))
-                return [dict(r) for r in cursor.fetchall()]
+                ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                LIMIT 25;
+                """, (
+                    fac_lower, fac_prefix, *sys_params, *d_params,
+                    fac_lower, fac_prefix, *sys_params, *d_params,
+                    system
+                ))
+                return [dict(r) for r in cur.fetchall()]
+            except Exception as e:
+                logger.warning(f"Fallback get_faction_details top_players notice: {e}")
+                try:
+                    if hasattr(cur, "connection") and cur.connection:
+                        cur.connection.rollback()
+                except Exception:
+                    pass
+                cur.execute(f"""
+                WITH faction_player_games AS (
+                    SELECT 
+                        player1_id as p_id,
+                        player1_name as p_name,
+                        player1_score as score,
+                        CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                      AND player1_id IS NOT NULL 
+                      AND is_done = TRUE{date_clause}
+                    UNION ALL
+                    SELECT 
+                        player2_id as p_id,
+                        player2_name as p_name,
+                        player2_score as score,
+                        CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                        CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                        CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                    FROM matches
+                    WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                      AND player2_id IS NOT NULL 
+                      AND is_bye = FALSE 
+                      AND is_done = TRUE{date_clause}
+                )
+                SELECT 
+                    fpg.p_id as player_id,
+                    COALESCE(MAX(fpg.p_name), 'Player') as player_name,
+                    COALESCE(MAX(r.team), '') as team,
+                    COALESCE(MAX(r.current_elo), 1500.0) as current_elo,
+                    COUNT(*) as matches_played,
+                    SUM(fpg.is_win) as wins,
+                    SUM(fpg.is_loss) as losses,
+                    SUM(fpg.is_draw) as draws,
+                    ROUND((SUM(fpg.is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate,
+                    ROUND(AVG(fpg.score)::numeric, 1) as avg_score
+                FROM faction_player_games fpg
+                LEFT JOIN player_ratings r ON fpg.p_id = r.player_id
+                GROUP BY fpg.p_id
+                HAVING COUNT(*) >= 1
+                ORDER BY wins DESC, matches_played DESC, current_elo DESC
+                LIMIT 25;
+                """, (
+                    fac_lower, fac_prefix, *d_params,
+                    fac_lower, fac_prefix, *d_params
+                ))
+                return [dict(r) for r in cur.fetchall()]
+
+        if cursor is not None:
+            return _do_query(cursor)
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                return _do_query(cur)
+
+    def _query_faction_recent_matches(
+        self,
+        faction_name: str,
+        limit: int,
+        sys_params: list,
+        sys_clause: str,
+        date_clause: str,
+        date_params: list = None,
+        cursor = None
+    ) -> List[Dict[str, Any]]:
+        clean_fac = (faction_name or "").strip()
+        fac_lower = clean_fac.lower()
+        fac_prefix = f"{fac_lower}%"
+        d_params = date_params or []
+
+        def _do_query(cur):
+            cur.execute(f"""
+            WITH p1_matches AS (
+                SELECT id, match_date, round, table_number, TRUE as is_p1
+                FROM matches
+                WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                  AND is_done = TRUE{sys_clause}{date_clause}
+                ORDER BY match_date DESC NULLS LAST, round DESC
+                LIMIT %s
+            ),
+            p2_matches AS (
+                SELECT id, match_date, round, table_number, FALSE as is_p1
+                FROM matches
+                WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                  AND is_done = TRUE{sys_clause}{date_clause}
+                ORDER BY match_date DESC NULLS LAST, round DESC
+                LIMIT %s
+            ),
+            candidate_matches AS (
+                SELECT DISTINCT ON (id) id, match_date, round, table_number, is_p1
+                FROM (
+                    SELECT id, match_date, round, table_number, is_p1 FROM p1_matches
+                    UNION ALL
+                    SELECT id, match_date, round, table_number, is_p1 FROM p2_matches
+                ) combined
+                ORDER BY id, match_date DESC NULLS LAST, round DESC
+            ),
+            top_candidates AS (
+                SELECT id, is_p1
+                FROM candidate_matches
+                ORDER BY match_date DESC NULLS LAST, round DESC
+                LIMIT %s
+            )
+            SELECT m.id, m.event_id, COALESCE(e.name, 'Tournament') as event_name, m.round, m.table_number, m.match_date,
+                   CASE WHEN cm.is_p1 THEN m.player1_id ELSE m.player2_id END as player_id,
+                   CASE WHEN cm.is_p1 THEN m.player1_name ELSE m.player2_name END as player_name,
+                   CASE WHEN cm.is_p1 THEN m.player1_faction ELSE m.player2_faction END as player_faction,
+                   CASE WHEN cm.is_p1 THEN m.player1_score ELSE m.player2_score END as player_score,
+                   CASE WHEN cm.is_p1 THEN m.player2_id ELSE m.player1_id END as opponent_id,
+                   CASE WHEN cm.is_p1 THEN m.player2_name ELSE m.player1_name END as opponent_name,
+                   CASE WHEN cm.is_p1 THEN m.player2_faction ELSE m.player1_faction END as opponent_faction,
+                   CASE WHEN cm.is_p1 THEN m.player2_score ELSE m.player1_score END as opponent_score,
+                   CASE 
+                       WHEN m.is_draw THEN 'D'
+                       WHEN (m.winner_id = m.player1_id AND cm.is_p1) OR (m.winner_id = m.player2_id AND NOT cm.is_p1) THEN 'W'
+                       ELSE 'L'
+                   END as outcome
+            FROM top_candidates cm
+            JOIN matches m ON cm.id = m.id
+            LEFT JOIN events e ON m.event_id = e.id
+            ORDER BY m.match_date DESC NULLS LAST, m.round DESC;
+            """, (
+                fac_lower, fac_prefix, *sys_params, *d_params, limit,
+                fac_lower, fac_prefix, *sys_params, *d_params, limit,
+                limit
+            ))
+            return [dict(r) for r in cur.fetchall()]
+
+        if cursor is not None:
+            return _do_query(cursor)
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                return _do_query(cur)
+
+    def _query_faction_matchups(
+        self,
+        faction_name: str,
+        sys_params: list,
+        sys_clause: str,
+        date_clause: str,
+        date_params: list = None,
+        cursor = None
+    ) -> List[Dict[str, Any]]:
+        clean_fac = (faction_name or "").strip()
+        fac_lower = clean_fac.lower()
+        fac_prefix = f"{fac_lower}%"
+        d_params = date_params or []
+
+        def _do_query(cur):
+            cur.execute(f"""
+            WITH faction_games AS (
+                SELECT 
+                    player2_faction as opp_faction,
+                    CASE WHEN winner_id = player1_id THEN 1 ELSE 0 END as is_win,
+                    CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
+                    CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                FROM matches
+                WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                  AND player2_faction IS NOT NULL AND player2_faction != '' 
+                  AND player2_faction != 'Unknown Faction' 
+                  AND NOT (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                  AND is_done = TRUE{sys_clause}{date_clause}
+                UNION ALL
+                SELECT 
+                    player1_faction as opp_faction,
+                    CASE WHEN winner_id = player2_id THEN 1 ELSE 0 END as is_win,
+                    CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
+                    CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
+                FROM matches
+                WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                  AND player1_faction IS NOT NULL AND player1_faction != '' 
+                  AND player1_faction != 'Unknown Faction' 
+                  AND is_bye = FALSE 
+                  AND NOT (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                  AND is_done = TRUE{sys_clause}{date_clause}
+            )
+            SELECT 
+                opp_faction as opponent_faction,
+                COUNT(*) as total_matches,
+                SUM(is_win) as wins,
+                SUM(is_loss) as losses,
+                SUM(is_draw) as draws,
+                ROUND((SUM(is_win) * 100.0 / NULLIF(COUNT(*), 0))::numeric, 1) as win_rate
+            FROM faction_games
+            GROUP BY opp_faction
+            HAVING COUNT(*) >= 1
+            ORDER BY win_rate DESC, total_matches DESC
+            LIMIT 35;
+            """, (
+                fac_lower, fac_prefix, fac_lower, fac_prefix, *sys_params, *d_params,
+                fac_lower, fac_prefix, fac_lower, fac_prefix, *sys_params, *d_params
+            ))
+            return [dict(r) for r in cur.fetchall()]
+
+        if cursor is not None:
+            return _do_query(cursor)
+        with self.get_connection() as conn:
+            with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                return _do_query(cur)
 
     def get_faction_details(
         self,
@@ -4605,45 +4715,44 @@ class PostgresDatabase:
 
         sys_clause = ""
         sys_params = []
-        sys_clause_m = ""
-        sys_params_m = []
         if game_system and game_system != "all":
             sys_clause = " AND COALESCE(matches.game_system, '40k') = %s"
             sys_params = [system]
-            sys_clause_m = " AND COALESCE(m.game_system, '40k') = %s"
-            sys_params_m = [system]
 
         date_clause = ""
-        date_clause_m = ""
+        date_params = []
+        now_dt = datetime.now(timezone.utc)
+        # Parameterized date strings replace dynamic PostgreSQL runtime expressions:
+        # matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')
+        # matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')
         if tf == "6mo":
-            date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
-            date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '6 months')"
+            date_clause = " AND matches.match_date >= %s"
+            date_params = [(now_dt - timedelta(days=183)).strftime("%Y-%m-%d")]
         elif tf == "1yr" or not tf:
-            date_clause = " AND matches.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
-            date_clause_m = " AND m.match_date >= (CURRENT_DATE - INTERVAL '12 months')"
+            date_clause = " AND matches.match_date >= %s"
+            date_params = [(now_dt - timedelta(days=366)).strftime("%Y-%m-%d")]
         elif tf == "all":
             date_clause = ""
-            date_clause_m = ""
+            date_params = []
 
-        # Parallel concurrent execution across pooled connections
         top_players = []
         recent_matches = []
         matchups = []
 
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                f_players = executor.submit(self._query_faction_top_players, faction_name, system, sys_params, sys_clause, date_clause)
-                f_matches = executor.submit(self._query_faction_recent_matches, faction_name, limit, sys_params_m, sys_clause_m, date_clause_m)
-                f_matchups = executor.submit(self._query_faction_matchups, faction_name, sys_params, sys_clause, date_clause)
-
-                top_players = f_players.result()
-                recent_matches = f_matches.result()
-                matchups = f_matchups.result()
-        except Exception as exec_err:
-            logger.warning(f"Parallel subquery execution notice, falling back to sequential: {exec_err}")
-            top_players = self._query_faction_top_players(faction_name, system, sys_params, sys_clause, date_clause)
-            recent_matches = self._query_faction_recent_matches(faction_name, limit, sys_params_m, sys_clause_m, date_clause_m)
-            matchups = self._query_faction_matchups(faction_name, sys_params, sys_clause, date_clause)
+            with self.get_connection() as conn:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cursor:
+                    top_players = self._query_faction_top_players(
+                        faction_name, system, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                    )
+                    recent_matches = self._query_faction_recent_matches(
+                        faction_name, limit, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                    )
+                    matchups = self._query_faction_matchups(
+                        faction_name, sys_params, sys_clause, date_clause, date_params=date_params, cursor=cursor
+                    )
+        except Exception as err:
+            logger.warning(f"Error fetching faction details for {faction_name} ({system}, {tf}): {err}")
 
         # Summary metrics
         total_m = len(recent_matches)

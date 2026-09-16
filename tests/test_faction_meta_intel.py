@@ -142,6 +142,103 @@ class TestFactionMetaIntel(unittest.TestCase):
         warmed = db.prewarm_faction_details_cache(game_system="aos", timeframe="1yr", max_factions=2)
         self.assertEqual(warmed, 2)
 
+    def test_database_faction_details_cache_hit_6mo(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        PostgresDatabase._faction_details_cache_dict = {}
+        mock_data = {
+            "faction": "Orks",
+            "game_system": "40k",
+            "timeframe": "6mo",
+            "stats": {"total_recent_sample": 12},
+            "top_players": [],
+            "matches": [],
+            "matchups": []
+        }
+        cache_key = ("orks", "40k", "6mo", 100)
+        PostgresDatabase.set_cached(PostgresDatabase._faction_details_cache_dict, cache_key, mock_data)
+
+        res = db.get_faction_details("Orks", limit=100, game_system="40k", timeframe="6mo")
+        self.assertEqual(res["faction"], "Orks")
+        self.assertEqual(res["timeframe"], "6mo")
+        self.assertEqual(res["stats"]["total_recent_sample"], 12)
+
+    def test_prewarm_faction_details_cache_6mo(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        PostgresDatabase._faction_details_cache_dict = {}
+        db.get_factions = lambda game_system="40k", grouped=False: ["Orks", "Necrons"]
+        db.get_faction_details = lambda f, limit=100, game_system="40k", timeframe="1yr": {
+            "faction": f, "game_system": game_system, "timeframe": timeframe
+        }
+        warmed = db.prewarm_faction_details_cache(game_system="40k", timeframe="6mo", max_factions=2)
+        self.assertEqual(warmed, 2)
+
+    def test_query_faction_subquery_parameterization(self):
+        db = PostgresDatabase.__new__(PostgresDatabase)
+        executed_queries = []
+
+        class MockCursor:
+            def __init__(self):
+                self.connection = None
+            def execute(self, query, params=None):
+                executed_queries.append((query, params))
+            def fetchall(self):
+                return []
+
+        mock_cur = MockCursor()
+        # Test _query_faction_top_players with cursor and date_params
+        db._query_faction_top_players(
+            "Orks", "40k", ["40k"], " AND COALESCE(matches.game_system, '40k') = %s",
+            " AND matches.match_date >= %s", date_params=["2026-03-16"], cursor=mock_cur
+        )
+        self.assertEqual(len(executed_queries), 1)
+        q1, p1 = executed_queries[0]
+        self.assertIn("LOWER(player1_faction) = %s", q1)
+        self.assertIn("LOWER(player1_faction) LIKE %s", q1)
+        self.assertEqual(p1[0], "orks")
+        self.assertEqual(p1[1], "orks%")
+
+        # Test _query_faction_recent_matches CTE decomposition
+        db._query_faction_recent_matches(
+            "Orks", 100, ["40k"], " AND COALESCE(matches.game_system, '40k') = %s",
+            " AND matches.match_date >= %s", date_params=["2026-03-16"], cursor=mock_cur
+        )
+        self.assertEqual(len(executed_queries), 2)
+        q2, p2 = executed_queries[1]
+        self.assertIn("p1_matches AS", q2)
+        self.assertIn("p2_matches AS", q2)
+        self.assertIn("candidate_matches AS", q2)
+        self.assertEqual(p2[0], "orks")
+        self.assertEqual(p2[1], "orks%")
+
+        # Test _query_faction_matchups
+        db._query_faction_matchups(
+            "Orks", ["40k"], " AND COALESCE(matches.game_system, '40k') = %s",
+            " AND matches.match_date >= %s", date_params=["2026-03-16"], cursor=mock_cur
+        )
+        self.assertEqual(len(executed_queries), 3)
+        q3, p3 = executed_queries[2]
+        self.assertIn("LOWER(player1_faction) = %s", q3)
+        self.assertEqual(p3[0], "orks")
+        self.assertEqual(p3[1], "orks%")
+
+    def test_server_prewarms_both_1yr_and_6mo(self):
+        server_path = self.root_dir / "server.py"
+        self.assertTrue(server_path.exists())
+        content = server_path.read_text(encoding="utf-8")
+        self.assertIn('prewarm_faction_details_cache, "40k", "1yr"', content)
+        self.assertIn('prewarm_faction_details_cache, "40k", "6mo"', content)
+        self.assertIn('prewarm_faction_details_cache, "aos", "1yr"', content)
+        self.assertIn('prewarm_faction_details_cache, "aos", "6mo"', content)
+
+    def test_modals_js_swr_and_abort_timeout(self):
+        modals_path = self.root_dir / "web" / "js" / "modals.js"
+        self.assertTrue(modals_path.exists())
+        content = modals_path.read_text(encoding="utf-8")
+        self.assertIn("factionModalAbortController", content)
+        self.assertIn("AbortController", content)
+        self.assertIn("hasExistingData", content)
+
 
 if __name__ == "__main__":
     unittest.main()
+

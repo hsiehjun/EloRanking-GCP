@@ -551,7 +551,7 @@ window.api = {
   },
 
   // Single Faction Details & Pilots
-  async getFactionDetails(factionName, limitOrSystem = 100, gameSystem = '', timeframe = '1yr') {
+  async getFactionDetails(factionName, limitOrSystem = 100, gameSystem = '', timeframe = '1yr', options = {}) {
     let limit = 100;
     let sys = (typeof currentGameSystem !== 'undefined' ? currentGameSystem : '40k');
     let tf = timeframe || '1yr';
@@ -573,7 +573,7 @@ window.api = {
     if (sys) params.set('game_system', sys);
     if (tf) params.set('timeframe', tf);
 
-    return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}?${params.toString()}`);
+    return this._fetchJson(`/api/faction/${encodeURIComponent(factionName)}?${params.toString()}`, options);
   },
 
   // Match Predictor
