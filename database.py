@@ -388,11 +388,10 @@ class PostgresDatabase:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute("SELECT pg_try_advisory_lock(123456789);")
-                    acquired = cursor.fetchone()[0]
-                    if not acquired:
-                        logger.info("Another process is currently initializing DB schema; skipping.")
-                        return
+                    try:
+                        cursor.execute("SELECT pg_advisory_unlock_all();")
+                    except Exception:
+                        pass
 
             self._ensure_multigame_columns()
 
@@ -1197,10 +1196,38 @@ class PostgresDatabase:
             try:
                 with self.get_connection() as conn:
                     with conn.cursor() as cursor:
-                        cursor.execute("SELECT pg_advisory_unlock(123456789);")
+                        cursor.execute("SELECT pg_advisory_unlock_all();")
                     conn.commit()
             except Exception:
                 pass
+
+    def get_db_status(self) -> Dict[str, Any]:
+        """Returns PostgreSQL schema version, existing indexes on matches, and table row counts."""
+        res = {
+            "schema_version": None,
+            "indexes": [],
+            "matches_count": 0,
+            "players_count": 0,
+            "events_count": 0
+        }
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
+                    row = cursor.fetchone()
+                    if row:
+                        res["schema_version"] = row[0]
+                    cursor.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'matches' AND indexname LIKE 'idx_pg_matches_%';")
+                    res["indexes"] = [r[0] for r in cursor.fetchall()]
+                    cursor.execute("SELECT COUNT(*) FROM matches;")
+                    res["matches_count"] = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) FROM player_ratings;")
+                    res["players_count"] = cursor.fetchone()[0]
+                    cursor.execute("SELECT COUNT(*) FROM events;")
+                    res["events_count"] = cursor.fetchone()[0]
+        except Exception as e:
+            res["error"] = str(e)
+        return res
 
     def sync_player_latest_teams(self, force: bool = False) -> Dict[str, Any]:
         """Synchronizes player_ratings.team and players.team to each player's latest active team

@@ -288,4 +288,21 @@ async def api_auth_request_to(payload: RequestToPayload, request: Request, token
     except Exception as e:
         logger.warning(f"Notice saving TO request to feedback: {e}")
     return {"success": True, "message": "TO verification request submitted successfully. An administrator will review your application."}
+ 
+@router.get("/api/system/db-status", summary="Public DB health and schema status check")
+async def api_system_db_status():
+    db = get_database()
+    if hasattr(db, "get_db_status"):
+        return db.get_db_status()
+    return {"status": "ok"}
+
+@router.post("/api/admin/run-migrations", summary="Force run pending schema migrations (Admin)")
+async def api_admin_run_migrations(request: Request, token: Optional[str] = Query(None)):
+    _get_admin_session_or_403(request, token)
+    db = get_database()
+    if hasattr(db, "init_db"):
+        await asyncio.to_thread(db.init_db)
+    if hasattr(db, "get_db_status"):
+        return db.get_db_status()
+    return {"status": "completed"}
 

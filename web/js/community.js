@@ -29,7 +29,7 @@ var communityState = (typeof window !== 'undefined' && window.communityState) ||
   chatMessages: [],
   chatPollingInterval: null,
   isSendingChat: false,
-  tournamentsViewMode: 'feed', // 'feed', 'calendar'
+  tournamentsViewMode: 'calendar', // 'calendar', 'feed'
   tournamentsQuickFilter: 'all', // 'all', 'weekend', 'next_weekend', 'majors'
   majorsList: [],
   majorsLoading: false,
@@ -859,6 +859,7 @@ function switchTournamentsViewMode(mode) {
   } else {
     if (calView) calView.style.display = 'none';
     if (feedView) feedView.style.display = 'block';
+    renderMajorsCarousel();
     renderCommunityEvents();
   }
 }

@@ -23,9 +23,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css?v=9038e2d453">
-  <link rel="stylesheet" href="/css/styles.css?v=9038e2d453">
-  <link rel="stylesheet" href="/css/eventstudio.css?v=9038e2d453">
+  <link rel="stylesheet" href="/css/theme.css?v=03933dc39d">
+  <link rel="stylesheet" href="/css/styles.css?v=03933dc39d">
+  <link rel="stylesheet" href="/css/eventstudio.css?v=03933dc39d">
 
   <style>
     /* Universal Mobile Scrollbar Suppression */
@@ -377,31 +377,29 @@
 
         <!-- SUBVIEW 2: TOURNAMENTS & EVENTS DISCOVERY HUB -->
         <div id="comm-subview-tournaments" class="comm-subview" style="display: none;">
-          <!-- Premier Majors & Destination Events Marquee Carousel -->
-          <div id="comm-majors-section" class="comm-majors-section">
-            <div class="comm-majors-header">
-              <div class="comm-majors-header-left">
-                <span class="comm-majors-icon">🌟</span>
-                <div>
-                  <h3 class="comm-majors-title">Premier Majors &amp; Destination Events</h3>
-                  <p class="comm-majors-subtitle">Super Majors, Grand Tournaments &amp; Premier Circuits Worldwide (All Distances)</p>
-                </div>
-              </div>
-              <div class="comm-majors-controls">
-                <button class="comm-carousel-arrow-btn" onclick="scrollMajorsCarousel(-1)" title="Scroll Left" aria-label="Scroll left">‹</button>
-                <button class="comm-carousel-arrow-btn" onclick="scrollMajorsCarousel(1)" title="Scroll Right" aria-label="Scroll right">›</button>
+          <!-- Prominent View Mode Switcher Header -->
+          <div class="comm-tournaments-view-switch-banner" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.75rem; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 0.65rem 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+              <span style="font-size: 0.75rem; font-weight: 800; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em;">DISPLAY VIEW:</span>
+              <div class="comm-scene-toggles-bar" style="margin: 0;">
+                <button id="btn-tournaments-view-calendar" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('calendar')" title="Interactive Monthly Tournament Calendar" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
+                  📅 Calendar View
+                </button>
+                <button id="btn-tournaments-view-feed" class="comm-toggle-btn" onclick="switchTournamentsViewMode('feed')" title="Tournament Cards Feed &amp; Destination Marquee" style="padding: 0.42rem 1.15rem; font-size: 0.85rem; font-weight: 800;">
+                  📋 Cards Feed
+                </button>
               </div>
             </div>
-            <div id="comm-majors-carousel" class="comm-majors-carousel">
-              <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
-                <span class="spinner-mini" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;"></span>
-                Loading Premier Major &amp; Destination Tournaments...
-              </div>
+            <div style="display: flex; align-items: center; gap: 0.6rem;">
+              <span id="comm-tournaments-summary" class="comm-toolbar-meta" style="font-size: 0.76rem; color: #94a3b8;"></span>
+              <button id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn" style="font-size: 0.78rem; padding: 0.35rem 0.75rem;">
+                <span class="refresh-icon">🔄</span> <span>Refresh</span>
+              </button>
             </div>
           </div>
 
           <!-- Tournament Action Toolbar & Filters -->
-          <div class="comm-subview-toolbar comm-tournaments-toolbar" style="flex-wrap: wrap; gap: 0.75rem;">
+          <div class="comm-subview-toolbar comm-tournaments-toolbar" style="flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.25rem;">
             <div class="comm-toolbar-left" id="comm-tournaments-filters" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
               <!-- Base Filter Chips -->
               <button class="comm-filter-chip active" id="filter-chip-events-all" data-filter="all" onclick="setCommunityEventsFilter('all')">
@@ -433,32 +431,10 @@
                 <span style="position: absolute; left: 7px; top: 50%; transform: translateY(-50%); font-size: 0.72rem; color: #64748b; pointer-events: none;">🔍</span>
               </div>
             </div>
-
-            <div class="comm-toolbar-right" style="display: flex; align-items: center; gap: 0.65rem;">
-              <!-- View Switcher (Feed vs Calendar) -->
-              <div class="comm-scene-toggles-bar">
-                <button id="btn-tournaments-view-feed" class="comm-toggle-btn active" onclick="switchTournamentsViewMode('feed')" title="Card Feed View">
-                  📋 Feed
-                </button>
-                <button id="btn-tournaments-view-calendar" class="comm-toggle-btn" onclick="switchTournamentsViewMode('calendar')" title="Monthly Calendar Grid View">
-                  📅 Calendar
-                </button>
-              </div>
-
-              <span id="comm-tournaments-summary" class="comm-toolbar-meta"></span>
-              <button id="comm-btn-refresh-tournaments" onclick="refreshCommunityTournaments(this)" class="btn btn-outline comm-toolbar-btn">
-                <span class="refresh-icon">🔄</span> <span>Refresh</span>
-              </button>
-            </div>
           </div>
 
-          <!-- FEED VIEW -->
-          <div id="comm-tournaments-feed-view">
-            <div id="comm-tournaments-content"></div>
-          </div>
-
-          <!-- CALENDAR VIEW -->
-          <div id="comm-tournaments-calendar-view" style="display: none;">
+          <!-- CALENDAR VIEW (Default & Primary) -->
+          <div id="comm-tournaments-calendar-view" style="display: block;">
             <div class="comm-calendar-container">
               <!-- Calendar Navigation Header -->
               <div class="comm-calendar-header">
@@ -493,6 +469,34 @@
                 <div id="comm-day-drawer-body" class="comm-day-drawer-body"></div>
               </div>
             </div>
+          </div>
+
+          <!-- FEED VIEW (Cards & Destination Marquee) -->
+          <div id="comm-tournaments-feed-view" style="display: none;">
+            <!-- Premier Majors & Destination Events Marquee Carousel -->
+            <div id="comm-majors-section" class="comm-majors-section">
+              <div class="comm-majors-header">
+                <div class="comm-majors-header-left">
+                  <span class="comm-majors-icon">🌟</span>
+                  <div>
+                    <h3 class="comm-majors-title">Premier Majors &amp; Destination Events</h3>
+                    <p class="comm-majors-subtitle">Super Majors, Grand Tournaments &amp; Premier Circuits Worldwide (All Distances)</p>
+                  </div>
+                </div>
+                <div class="comm-majors-controls">
+                  <button class="comm-carousel-arrow-btn" onclick="scrollMajorsCarousel(-1)" title="Scroll Left" aria-label="Scroll left">‹</button>
+                  <button class="comm-carousel-arrow-btn" onclick="scrollMajorsCarousel(1)" title="Scroll Right" aria-label="Scroll right">›</button>
+                </div>
+              </div>
+              <div id="comm-majors-carousel" class="comm-majors-carousel">
+                <div style="padding: 1.5rem; text-align: center; color: var(--text-muted); width: 100%;">
+                  <span class="spinner-mini" style="display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(56,189,248,0.25); border-top-color: #38bdf8; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px;"></span>
+                  Loading Premier Major &amp; Destination Tournaments...
+                </div>
+              </div>
+            </div>
+
+            <div id="comm-tournaments-content"></div>
           </div>
         </div>
 
@@ -3123,8 +3127,8 @@
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <!-- Production Bundled & Minified Application Scripts -->
-  <script>window.APP_VERSION = "9038e2d453";</script>
-  <script src="/js/app.bundle.min.js?v=9038e2d453"></script>
+  <script>window.APP_VERSION = "03933dc39d";</script>
+  <script src="/js/app.bundle.min.js?v=03933dc39d"></script>
 
   <!-- COMMUNITY HUB: EDIT LOCATION MODAL -->
   <div id="edit-location-modal" class="modal-backdrop" onclick="if(event.target === this) closeEditLocationModal()">

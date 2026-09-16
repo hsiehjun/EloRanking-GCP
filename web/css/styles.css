@@ -6775,16 +6775,50 @@ body.is-authenticated #floating-chat-widget {
   .comm-majors-card {
     flex: 0 0 280px;
   }
+  .comm-calendar-container {
+    padding: 0.75rem 0.5rem;
+  }
+  .comm-calendar-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.6rem;
+  }
+  .comm-calendar-header-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 0.35rem;
+  }
+  .comm-calendar-title {
+    font-size: 1.02rem;
+    min-width: 0;
+    margin: 0;
+    flex: 1;
+    text-align: center;
+  }
+  .comm-calendar-nav-btn, .comm-calendar-today-btn {
+    padding: 0.25rem 0.45rem;
+    font-size: 0.72rem;
+  }
+  .comm-calendar-legend {
+    justify-content: center;
+    gap: 0.3rem;
+  }
+  .comm-legend-pill {
+    padding: 1px 6px;
+    font-size: 0.64rem;
+  }
   .comm-calendar-day {
-    min-height: 70px;
-    padding: 0.25rem;
+    min-height: 65px;
+    padding: 0.2rem 0.25rem;
   }
   .comm-calendar-chip {
-    font-size: 0.62rem;
+    font-size: 0.6rem;
     padding: 1px 3px;
   }
   .comm-calendar-weekdays {
-    font-size: 0.65rem;
+    font-size: 0.62rem;
   }
 }
 
