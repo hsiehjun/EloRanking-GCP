@@ -4566,19 +4566,29 @@ class PostgresDatabase:
 
         def _do_query(cur):
             cur.execute(f"""
-            WITH p1_matches AS (
-                SELECT id, match_date, round, table_number, TRUE as is_p1
+            WITH p1_faction_matches AS (
+                SELECT id, match_date, round, table_number
                 FROM matches
                 WHERE LOWER(player1_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
+                OFFSET 0
+            ),
+            p1_matches AS (
+                SELECT id, match_date, round, table_number, TRUE as is_p1
+                FROM p1_faction_matches
                 ORDER BY match_date DESC NULLS LAST, round DESC
                 LIMIT %s
             ),
-            p2_matches AS (
-                SELECT id, match_date, round, table_number, FALSE as is_p1
+            p2_faction_matches AS (
+                SELECT id, match_date, round, table_number
                 FROM matches
                 WHERE LOWER(player2_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
+                OFFSET 0
+            ),
+            p2_matches AS (
+                SELECT id, match_date, round, table_number, FALSE as is_p1
+                FROM p2_faction_matches
                 ORDER BY match_date DESC NULLS LAST, round DESC
                 LIMIT %s
             ),
