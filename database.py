@@ -380,7 +380,7 @@ class PostgresDatabase:
                     if row and row[0]:
                         cursor.execute("SELECT value FROM system_settings WHERE key = 'db_schema_version';")
                         setting = cursor.fetchone()
-                        if setting and setting[0] == 'v19_unlinked_user_cleanup':
+                        if setting and setting[0] == 'v20_faction_pattern_indexes':
                             return
         except Exception as e:
             logger.debug(f"DB schema pre-check notice: {e}")
@@ -1118,7 +1118,8 @@ class PostgresDatabase:
                 for migration in migrations_list:
                     try:
                         with conn.cursor() as cursor:
-                            cursor.execute("SET LOCAL lock_timeout = '2s';")
+                            timeout_val = "30s" if "CREATE INDEX" in migration else "2s"
+                            cursor.execute(f"SET LOCAL lock_timeout = '{timeout_val}';")
                             cursor.execute(migration)
                         conn.commit()
                     except Exception as e:
@@ -1137,7 +1138,7 @@ class PostgresDatabase:
                         event_id VARCHAR(64) PRIMARY KEY,
                         deleted_at TIMESTAMPTZ DEFAULT NOW()
                     );
-                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v19_unlinked_user_cleanup')
+                    INSERT INTO system_settings (key, value) VALUES ('db_schema_ready', 'true'), ('db_schema_version', 'v20_faction_pattern_indexes')
                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
                     UPDATE users 
                     SET player_id = NULL 
@@ -4432,7 +4433,6 @@ class PostgresDatabase:
     ) -> List[Dict[str, Any]]:
         clean_fac = (faction_name or "").strip()
         fac_lower = clean_fac.lower()
-        fac_prefix = f"{fac_lower}%"
         d_params = date_params or []
 
         def _do_query(cur):
@@ -4447,7 +4447,7 @@ class PostgresDatabase:
                         CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                    WHERE LOWER(player1_faction) = %s
                       AND player1_id IS NOT NULL 
                       AND is_done = TRUE{sys_clause}{date_clause}
                     UNION ALL
@@ -4459,7 +4459,7 @@ class PostgresDatabase:
                         CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                    WHERE LOWER(player2_faction) = %s
                       AND player2_id IS NOT NULL 
                       AND is_bye = FALSE 
                       AND is_done = TRUE{sys_clause}{date_clause}
@@ -4482,8 +4482,8 @@ class PostgresDatabase:
                 ORDER BY wins DESC, matches_played DESC, current_elo DESC
                 LIMIT 25;
                 """, (
-                    fac_lower, fac_prefix, *sys_params, *d_params,
-                    fac_lower, fac_prefix, *sys_params, *d_params,
+                    fac_lower, *sys_params, *d_params,
+                    fac_lower, *sys_params, *d_params,
                     system
                 ))
                 return [dict(r) for r in cur.fetchall()]
@@ -4504,7 +4504,7 @@ class PostgresDatabase:
                         CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                    WHERE LOWER(player1_faction) = %s
                       AND player1_id IS NOT NULL 
                       AND is_done = TRUE{date_clause}
                     UNION ALL
@@ -4516,7 +4516,7 @@ class PostgresDatabase:
                         CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                         CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                     FROM matches
-                    WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                    WHERE LOWER(player2_faction) = %s
                       AND player2_id IS NOT NULL 
                       AND is_bye = FALSE 
                       AND is_done = TRUE{date_clause}
@@ -4539,8 +4539,8 @@ class PostgresDatabase:
                 ORDER BY wins DESC, matches_played DESC, current_elo DESC
                 LIMIT 25;
                 """, (
-                    fac_lower, fac_prefix, *d_params,
-                    fac_lower, fac_prefix, *d_params
+                    fac_lower, *d_params,
+                    fac_lower, *d_params
                 ))
                 return [dict(r) for r in cur.fetchall()]
 
@@ -4562,7 +4562,6 @@ class PostgresDatabase:
     ) -> List[Dict[str, Any]]:
         clean_fac = (faction_name or "").strip()
         fac_lower = clean_fac.lower()
-        fac_prefix = f"{fac_lower}%"
         d_params = date_params or []
 
         def _do_query(cur):
@@ -4570,7 +4569,7 @@ class PostgresDatabase:
             WITH p1_matches AS (
                 SELECT id, match_date, round, table_number, TRUE as is_p1
                 FROM matches
-                WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                WHERE LOWER(player1_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
                 ORDER BY match_date DESC NULLS LAST, round DESC
                 LIMIT %s
@@ -4578,7 +4577,7 @@ class PostgresDatabase:
             p2_matches AS (
                 SELECT id, match_date, round, table_number, FALSE as is_p1
                 FROM matches
-                WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                WHERE LOWER(player2_faction) = %s
                   AND is_done = TRUE{sys_clause}{date_clause}
                 ORDER BY match_date DESC NULLS LAST, round DESC
                 LIMIT %s
@@ -4617,8 +4616,8 @@ class PostgresDatabase:
             LEFT JOIN events e ON m.event_id = e.id
             ORDER BY m.match_date DESC NULLS LAST, m.round DESC;
             """, (
-                fac_lower, fac_prefix, *sys_params, *d_params, limit,
-                fac_lower, fac_prefix, *sys_params, *d_params, limit,
+                fac_lower, *sys_params, *d_params, limit,
+                fac_lower, *sys_params, *d_params, limit,
                 limit
             ))
             return [dict(r) for r in cur.fetchall()]
@@ -4640,7 +4639,6 @@ class PostgresDatabase:
     ) -> List[Dict[str, Any]]:
         clean_fac = (faction_name or "").strip()
         fac_lower = clean_fac.lower()
-        fac_prefix = f"{fac_lower}%"
         d_params = date_params or []
 
         def _do_query(cur):
@@ -4652,10 +4650,10 @@ class PostgresDatabase:
                     CASE WHEN loser_id = player1_id THEN 1 ELSE 0 END as is_loss,
                     CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                 FROM matches
-                WHERE (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                WHERE LOWER(player1_faction) = %s
                   AND player2_faction IS NOT NULL AND player2_faction != '' 
                   AND player2_faction != 'Unknown Faction' 
-                  AND NOT (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                  AND LOWER(player2_faction) != %s
                   AND is_done = TRUE{sys_clause}{date_clause}
                 UNION ALL
                 SELECT 
@@ -4664,11 +4662,11 @@ class PostgresDatabase:
                     CASE WHEN loser_id = player2_id THEN 1 ELSE 0 END as is_loss,
                     CASE WHEN is_draw THEN 1 ELSE 0 END as is_draw
                 FROM matches
-                WHERE (LOWER(player2_faction) = %s OR LOWER(player2_faction) LIKE %s)
+                WHERE LOWER(player2_faction) = %s
                   AND player1_faction IS NOT NULL AND player1_faction != '' 
                   AND player1_faction != 'Unknown Faction' 
                   AND is_bye = FALSE 
-                  AND NOT (LOWER(player1_faction) = %s OR LOWER(player1_faction) LIKE %s)
+                  AND LOWER(player1_faction) != %s
                   AND is_done = TRUE{sys_clause}{date_clause}
             )
             SELECT 
@@ -4684,8 +4682,8 @@ class PostgresDatabase:
             ORDER BY win_rate DESC, total_matches DESC
             LIMIT 35;
             """, (
-                fac_lower, fac_prefix, fac_lower, fac_prefix, *sys_params, *d_params,
-                fac_lower, fac_prefix, fac_lower, fac_prefix, *sys_params, *d_params
+                fac_lower, fac_lower, *sys_params, *d_params,
+                fac_lower, fac_lower, *sys_params, *d_params
             ))
             return [dict(r) for r in cur.fetchall()]
 

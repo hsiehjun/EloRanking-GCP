@@ -193,9 +193,7 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertEqual(len(executed_queries), 1)
         q1, p1 = executed_queries[0]
         self.assertIn("LOWER(player1_faction) = %s", q1)
-        self.assertIn("LOWER(player1_faction) LIKE %s", q1)
         self.assertEqual(p1[0], "orks")
-        self.assertEqual(p1[1], "orks%")
 
         # Test _query_faction_recent_matches CTE decomposition
         db._query_faction_recent_matches(
@@ -208,7 +206,6 @@ class TestFactionMetaIntel(unittest.TestCase):
         self.assertIn("p2_matches AS", q2)
         self.assertIn("candidate_matches AS", q2)
         self.assertEqual(p2[0], "orks")
-        self.assertEqual(p2[1], "orks%")
 
         # Test _query_faction_matchups
         db._query_faction_matchups(
@@ -219,7 +216,6 @@ class TestFactionMetaIntel(unittest.TestCase):
         q3, p3 = executed_queries[2]
         self.assertIn("LOWER(player1_faction) = %s", q3)
         self.assertEqual(p3[0], "orks")
-        self.assertEqual(p3[1], "orks%")
 
     def test_server_prewarms_both_1yr_and_6mo(self):
         server_path = self.root_dir / "server.py"
